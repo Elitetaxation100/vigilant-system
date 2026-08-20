@@ -1411,7 +1411,7 @@ function renderTaskTable(){
         <td class="clientcell">${esc(t.clientName) || '—'}<div class="cdate ${isToday?'deadline-today':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}</div><div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Agreed delivery: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
         <td class="pts">★ ${t.points} pts</td>
         <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
-        <td class="logged"><b>${displayedLogged(t).toFixed(2)}</b> / ${t.tat} hrs ${(t.status==='accepted'||t.status==='rework') ? '<span style="color:#0D9488; font-size:12.5px;">● tracking</span>' : ''}</td>
+        <td class="logged"><b>${displayedLogged(t).toFixed(2)}</b> / ${t.tat} hrs</td>
         <td>${statusBadge(t)}</td>
         <td>${actionCell(t)}</td>
       </tr>`;
