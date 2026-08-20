@@ -649,7 +649,7 @@
               <span class="cc-panel-sub">Superadmin only · downloadable as Excel above</span>
             </div>
             <table class="cc-table">
-              <thead><tr><th>Employee</th><th>Team</th><th>Assigned</th><th>Delivered</th><th>Hours Logged</th><th>Avg Hrs/Task</th><th>Reassigned</th><th>On-Time %</th><th>Clean Review %</th><th>Rework</th><th>Rework Hrs</th><th>Shift Hrs</th><th>Productivity</th><th>Rating</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Team</th><th>Assigned</th><th>Delivered</th><th>Task Completed (Hrs)</th><th>Avg Hrs/Task</th><th>Reassigned</th><th>On-Time %</th><th>Clean Review %</th><th>Rework</th><th>Rework Hrs</th><th>Shift Hrs</th><th>Productivity</th><th>Rating</th></tr></thead>
               <tbody id="ccRatingsBody"></tbody>
             </table>
           </div>
@@ -1933,7 +1933,7 @@ async function renderCommandCenter(){
         <td>${esc(r.team)}</td>
         <td>${r.assigned}</td>
         <td>${r.delivered}</td>
-        <td style="font-family:var(--font-mono);">${r.totalLoggedHours.toFixed(1)}h</td>
+        <td style="font-family:var(--font-mono);">${r.deliveredLoggedHours.toFixed(1)}h</td>
         <td style="font-family:var(--font-mono);">${r.avgHoursPerTask === null ? '—' : r.avgHoursPerTask.toFixed(2) + 'h'}</td>
         <td>${r.reassignedAway + r.reassignedIn}</td>
         <td>${r.onTimeRate}%</td>
