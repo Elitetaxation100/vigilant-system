@@ -1,0 +1,3021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Commitment Pulse — Governance OS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg-deep:       #EEF1F7;
+    --panel:         #FFFFFF;
+    --panel-2:       #F5F7FB;
+    --panel-border:  #E6E9F1;
+    --line:          #EDEFF5;
+    --text:          #1D2233;
+    --text-dim:      #666E80;
+    --text-faint:    #9AA1B3;
+    --purple:        #6C5CE7;
+    --purple-dim:    #EEEBFD;
+    --teal:          #15B79E;
+    --teal-dim:      #DDF9F1;
+    --amber:         #E5A02E;
+    --amber-dim:     #FCF0D8;
+    --coral:         #F0603E;
+    --coral-dim:     #FDE8E2;
+    --radius-s: 8px;
+    --radius-m: 12px;
+    --radius-l: 18px;
+    --font-display: 'Space Grotesk', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:
+      radial-gradient(1200px 500px at 90% -10%, #6C5CE712, transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, #15B79E0e, transparent 60%),
+      var(--bg-deep);
+    color:var(--text);
+    font-family:var(--font-body);
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    text-rendering:optimizeLegibility;
+    font-feature-settings:'ss01' 1, 'cv01' 1;
+    letter-spacing:.1px;
+  }
+  ::selection{ background:var(--purple); color:#fff; }
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-thumb{background:#D3D8E3; border-radius:8px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  a{color:inherit;}
+  button{font-family:inherit; cursor:pointer;}
+  input,select,textarea{font-family:inherit;}
+
+  .app{ display:flex; min-height:100vh; }
+
+  /* ============ SIDEBAR ============ */
+  .sidebar{
+    width:250px; flex-shrink:0;
+    background:#FFFFFF;
+    border-right:1px solid var(--panel-border);
+    display:flex; flex-direction:column;
+    padding:22px 16px 18px;
+    position:sticky; top:0; height:100vh; overflow-y:auto;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; padding:2px 6px 22px; }
+  .brand-mark{
+    width:34px; height:34px; border-radius:9px;
+    background:linear-gradient(135deg, var(--purple), #4E3FD1);
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display); font-weight:700; font-size:17.5px;
+    box-shadow:0 4px 16px #7C6CF655;
+  }
+  .brand-text .t1{ font-family:var(--font-display); font-weight:700; font-size:16.5px; letter-spacing:.2px;}
+  .brand-text .t2{ font-size:11px; color:var(--text-faint); letter-spacing:.6px; text-transform:uppercase; margin-top:1px;}
+
+  .clock-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 14px; margin-bottom:16px; }
+  .clock-label{ font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--text-faint); margin-bottom:6px; }
+  .clock-time{ font-family:var(--font-mono); font-size:25px; font-weight:600; letter-spacing:.5px; margin-bottom:12px; color:var(--text); font-variant-numeric:tabular-nums;}
+  .btn-punch{
+    width:100%; border:none; border-radius:var(--radius-s); padding:9px 0;
+    background:linear-gradient(135deg, var(--teal), #159a78); color:#052015; font-weight:700; font-size:14.5px;
+    letter-spacing:.3px; transition:transform .15s ease, box-shadow .15s ease;
+  }
+  .btn-punch:hover{ transform:translateY(-1px); box-shadow:0 6px 18px #22C99E44; }
+  .btn-punch.active{ background:linear-gradient(135deg, var(--coral), #b8431f); color:#2a0e04; }
+
+  .status-row{ display:flex; align-items:center; justify-content:space-between; margin:14px 2px 6px; }
+  .status-label{ font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--text-faint); }
+  .status-toggle{ display:flex; background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:20px; padding:2px; }
+  .status-toggle button{ border:none; background:transparent; color:var(--text-faint); font-size:13px; font-weight:600; padding:5px 11px; border-radius:16px; transition:all .15s ease; }
+  .status-toggle button.on{ background:var(--teal); color:#052015; }
+
+  .viewas{ margin-bottom:14px; }
+  .viewas label{ font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--text-faint); display:block; margin-bottom:6px; }
+  .viewas select{ width:100%; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); padding:8px 10px; border-radius:var(--radius-s); font-size:14.5px; }
+
+  .nav-section{ margin-top:14px; }
+  .nav-title{ font-size:12px; text-transform:uppercase; letter-spacing:.9px; color:var(--text-faint); padding:0 10px; margin-bottom:8px; }
+  .nav-item{
+    display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:var(--radius-s);
+    font-size:15.5px; color:var(--text-dim); font-weight:500; margin-bottom:2px; border:1px solid transparent;
+    transition:all .15s ease; position:relative;
+  }
+  .nav-item:hover{ background:var(--panel-2); color:var(--text); }
+  .nav-item.active{ background:var(--purple-dim); color:#6D28D9; border-color:#6C5CE733; }
+  .nav-icon{ width:16px; text-align:center; opacity:.75; font-size:16px; }
+  .nav-badge{ margin-left:auto; font-family:var(--font-mono); font-size:12px; background:var(--coral); color:#fff; padding:1px 6px; border-radius:8px; }
+  .nav-locked{ opacity:.45; }
+
+  .admin-box{ margin-top:auto; padding-top:14px; border-top:1px solid var(--line); }
+  .admin-btn{ width:100%; background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13.5px; font-weight:600; padding:9px 0; border-radius:var(--radius-s); }
+  .admin-btn:hover{ border-color:var(--purple); color:#6D28D9; }
+  .admin-status{ font-size:12.5px; color:#0D9488; margin-top:8px; text-align:center; }
+
+  /* ============ MAIN ============ */
+  .main{ flex:1; min-width:0; }
+  .topbar{ display:flex; align-items:center; justify-content:space-between; padding:16px 28px; border-bottom:1px solid var(--line); background:#FFFFFFcc; backdrop-filter:blur(10px); position:sticky; top:0; z-index:20; }
+  .topbar h1{ font-family:var(--font-display); font-size:22px; font-weight:700; letter-spacing:-.2px; }
+  .topbar .sub{ font-size:14px; color:var(--text-faint); margin-top:2px; }
+  .topbar-right{ display:flex; align-items:center; gap:16px; }
+  .bell{ width:34px; height:34px; border-radius:50%; background:var(--panel); border:1px solid var(--panel-border); display:flex; align-items:center; justify-content:center; position:relative; font-size:17px; cursor:pointer;}
+  .bell.has-alert::after{ content:''; position:absolute; top:8px; right:9px; width:6px; height:6px; border-radius:50%; background:var(--coral); box-shadow:0 0 0 2px #FFFFFF; }
+  .user-pill{ display:flex; align-items:center; gap:9px; }
+  .avatar{ width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#7C6CF6,#F0603E); display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; font-size:14.5px; }
+  .user-pill .name{ font-size:14.5px; font-weight:600; }
+  .user-pill .role{ font-size:12.5px; color:var(--text-faint); }
+
+  .content{ padding:26px 28px 60px; max-width:1400px; }
+  .view{ display:none; animation:fadeUp .35s ease; }
+  .view.active{ display:block; }
+  @keyframes fadeUp{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+
+  .banner{ display:flex; align-items:center; gap:10px; background:var(--purple-dim); border:1px solid #7C6CF63a; color:#6D28D9; font-size:14.5px; padding:11px 16px; border-radius:var(--radius-s); margin-bottom:14px; }
+  .banner b{ color:#3B1F94; }
+  .banner .tag{ font-family:var(--font-mono); background:#00000010; padding:1px 7px; border-radius:5px; font-size:13.5px; }
+  .banner.warn{ background:var(--coral-dim); border-color:#F0603E4a; color:#9A3412; }
+  .banner.warn b{ color:#7A2A0C; }
+
+  .stat-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:22px; }
+  .stat-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 16px 14px; position:relative; overflow:hidden; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+  .stat-card:hover{ transform:translateY(-2px); box-shadow:0 12px 28px -8px #10182820; border-color:#D7DBE6; }
+  .stat-card .label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); margin-bottom:8px; }
+  .stat-card .value{ font-family:var(--font-display); font-size:27px; font-weight:700; }
+  .stat-card .value.purple{ color:#5B4FCF; }
+  .stat-card .value.teal{ color:#0D9488; }
+  .stat-card .value.amber{ color:#B45309; }
+  .stat-card .value.coral{ color:#C2410C; }
+
+  .panel{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:20px 22px; margin-bottom:20px; box-shadow:0 1px 2px #10182804, 0 8px 24px -6px #10182812; }
+  .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;}
+  .panel-head h2{ font-family:var(--font-display); font-size:18px; font-weight:700; letter-spacing:-.1px; }
+  .panel-head h2::before{ content:''; display:inline-block; width:4px; height:15px; border-radius:2px; background:linear-gradient(180deg,var(--purple),var(--teal)); margin-right:9px; vertical-align:-2px; }
+  .panel-head-actions{ display:flex; gap:10px; }
+  .btn{ display:flex; align-items:center; gap:7px; background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text); font-size:14px; font-weight:600; padding:8px 14px; border-radius:var(--radius-s); transition:.15s;}
+  .btn:hover{ border-color:var(--purple); color:#6D28D9; }
+  .btn:active{ transform:scale(.96); }
+  .btn.primary{ background:linear-gradient(135deg, var(--purple), #4E3FD1); border-color:transparent; color:#fff; }
+  .btn.primary:hover{ box-shadow:0 6px 18px #7C6CF655; color:#fff; }
+  .btn.teal{ background:linear-gradient(135deg, var(--teal), #159a78); border-color:transparent; color:#052015; }
+  .btn.coral{ background:linear-gradient(135deg, var(--coral), #b8431f); border-color:transparent; color:#fff; }
+  .btn.small{ padding:6px 11px; font-size:13px; }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+
+  .filter-row{ display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+  .filter-row input, .filter-row select{ background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:var(--radius-s); padding:9px 12px; font-size:14.5px; }
+  .filter-row input{ flex:1; min-width:200px; }
+  .filter-row input:focus, .filter-row select:focus{ outline:none; border-color:var(--purple); }
+
+  table{ width:100%; border-collapse:collapse; }
+  thead th{ text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); padding:10px 12px; border-bottom:1px solid var(--line); font-weight:600; white-space:nowrap;}
+  tbody td{ padding:14px 12px; border-bottom:1px solid var(--line); font-size:15px; vertical-align:middle; }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:var(--panel-2); }
+  .task-id{ font-family:var(--font-mono); color:var(--text-faint); font-size:14px; }
+  .task-name{ font-weight:600; font-size:15.5px; }
+  .task-scope{ font-size:13px; color:var(--text-faint); margin-top:2px; }
+  .pts{ font-family:var(--font-mono); color:#B45309; font-weight:600; }
+  .assignee{ display:flex; align-items:center; gap:8px; }
+  .mini-avatar{ width:22px; height:22px; border-radius:50%; background:var(--panel-2); border:1px solid var(--panel-border); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--text-dim); flex-shrink:0;}
+  .logged{ font-family:var(--font-mono); font-size:14.5px; }
+  .logged b{ color:#0D9488; }
+  .clientcell{ font-size:14px; }
+  .clientcell .cdate{ font-family:var(--font-mono); font-size:13px; color:var(--text-faint); margin-top:2px;}
+  .deadline-today{ color:#C2410C !important; font-weight:700; }
+
+  .badge{ display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:700; letter-spacing:.3px; padding:4px 10px; border-radius:20px; text-transform:uppercase; white-space:nowrap;}
+  .badge.completed{ background:var(--teal-dim); color:#0D9488; }
+  .badge.pending{ background:var(--amber-dim); color:#B45309; }
+  .badge.overdue{ background:var(--coral-dim); color:#C2410C; }
+  .badge.paused{ background:var(--coral-dim); color:#C2410C; }
+  .badge.awaiting{ background:var(--purple-dim); color:#6D28D9; }
+  .badge.dot::before{ content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+
+  .action-stack{ display:flex; gap:6px; flex-wrap:wrap; }
+  .verify-btn{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; padding:6px 10px; border-radius:7px; transition:.15s; }
+  .verify-btn:hover{ border-color:var(--teal); color:#0D9488; }
+  .verify-btn:active{ transform:scale(.95); }
+  .ss-thumb{ width:34px; height:34px; border-radius:6px; object-fit:cover; border:1px solid var(--panel-border); cursor:pointer; }
+
+  /* feature grid (task engine) */
+  .feature-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:22px; }
+  .feature-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:18px; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+  .feature-card:hover{ transform:translateY(-2px); box-shadow:0 12px 28px -8px #10182820; border-color:#D7DBE6; }
+  .feature-card .ico{ width:36px; height:36px; border-radius:9px; background:var(--purple-dim); display:flex; align-items:center; justify-content:center; font-size:17.5px; margin-bottom:12px; }
+  .feature-card h3{ font-family:var(--font-display); font-size:16.5px; margin-bottom:6px; }
+  .feature-card p{ font-size:14.5px; color:var(--text-dim); line-height:1.5; }
+  .tat-strip{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 20px; margin-top:18px; display:flex; align-items:center; gap:14px;}
+  .tat-strip .num{ font-family:var(--font-mono); font-size:21.5px; color:#5B4FCF; font-weight:700; }
+
+  /* manager dashboard */
+  .mgr-grid{ display:grid; grid-template-columns:2fr 1.1fr; gap:16px; }
+  .heatmap{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:10px; }
+  .heat-cell{ height:26px; border-radius:6px; }
+
+  /* task-done heatmap (Task Engine) */
+  .th-grid{ display:grid; grid-template-columns:110px repeat(7,1fr); gap:6px; margin-top:16px; align-items:center; }
+  .th-colhead{ font-size:11.5px; color:var(--text-faint); text-align:center; font-family:var(--font-mono); }
+  .th-rowlabel{ font-size:12.5px; color:var(--text-dim); padding-right:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .th-cell{ height:30px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-family:var(--font-mono); color:#0A1220; font-weight:600; border:1px solid var(--panel-border); }
+  .th-legend{ display:flex; align-items:center; gap:6px; margin-top:14px; font-size:12px; color:var(--text-faint); }
+  .th-legend .sw{ width:16px; height:14px; border-radius:4px; }
+
+  /* SLA adherence tracking chart */
+  .sla-panel-head{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+  .sla-toggle-wrap{ display:flex; align-items:center; gap:9px; }
+  .sla-toggle-label{ font-size:13px; color:var(--text-dim); }
+  .toggle-switch{ position:relative; width:40px; height:22px; border-radius:999px; background:var(--panel-2); border:1px solid var(--panel-border); cursor:pointer; flex-shrink:0; transition:background .15s ease; }
+  .toggle-switch::after{ content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--text-faint); transition:transform .15s ease, background .15s ease; }
+  .toggle-switch.on{ background:#22C99E33; border-color:#22C99E; }
+  .toggle-switch.on::after{ transform:translateX(18px); background:#22C99E; }
+  .sla-status-chip{ font-size:11.5px; font-family:var(--font-mono); padding:3px 9px; border-radius:999px; border:1px solid var(--panel-border); color:var(--text-faint); }
+  .sla-status-chip.live{ color:#0D9488; border-color:#22C99E; }
+  .sla-chart-wrap{ margin-top:16px; }
+  .sla-chart-note{ font-size:12.5px; color:var(--text-faint); margin-top:10px; line-height:1.5; }
+  .bars{ display:flex; align-items:flex-end; gap:14px; height:130px; margin-top:14px; padding:0 4px; }
+  .bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .bar{ width:100%; border-radius:6px 6px 3px 3px; background:linear-gradient(180deg, #5B4FCF, #7C6CF6); }
+  .bar-col .bl{ font-size:12px; color:var(--text-faint); }
+  .leaderboard{ list-style:none; margin-top:10px; }
+  .leaderboard li{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); font-size:14.5px; }
+  .leaderboard li:last-child{ border-bottom:none; }
+  .rank{ width:20px; height:20px; border-radius:6px; background:var(--panel-2); display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:12.5px; color:var(--text-dim); flex-shrink:0; }
+  .leaderboard li:nth-child(1) .rank{ background:#F0A93E; color:#3a2500; }
+  .lb-name{ flex:1; font-weight:600; }
+  .lb-pts{ font-family:var(--font-mono); color:#B45309; }
+  .flag-row{ display:flex; gap:9px; align-items:flex-start; padding:9px 0; border-bottom:1px solid var(--line); font-size:14px; color:var(--text-dim); }
+  .flag-row:last-child{ border-bottom:none; }
+  .flag-count{ font-family:var(--font-mono); background:var(--coral-dim); color:#C2410C; font-size:12px; padding:1px 6px; border-radius:8px; margin-left:auto; flex-shrink:0; }
+
+  /* employee report card */
+  .card-hero{ background:linear-gradient(135deg, #F4F1FE, #FFFFFF); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:26px; display:flex; gap:28px; align-items:center; flex-wrap:wrap; }
+  .ring-wrap{ position:relative; width:150px; height:150px; flex-shrink:0; }
+  .ring-wrap svg{ transform:rotate(-90deg); }
+  .ring-center{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .ring-center .pct{ font-family:var(--font-display); font-size:29px; font-weight:700; }
+  .ring-center .lbl{ font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.6px; margin-top:2px;}
+  .rc-meta h2{ font-family:var(--font-display); font-size:21.5px; margin-bottom:4px; }
+  .rc-meta .role{ color:var(--text-dim); font-size:15px; margin-bottom:14px; }
+  .rc-stats{ display:flex; gap:26px; flex-wrap:wrap; }
+  .rc-stat .v{ font-family:var(--font-mono); font-size:20.5px; font-weight:700; color:#5B4FCF; }
+  .rc-stat .l{ font-size:12.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.5px; margin-top:2px;}
+  .badges-row{ display:flex; gap:8px; margin-top:16px; }
+  .badge-emoji{ width:34px; height:34px; border-radius:9px; background:var(--panel-2); border:1px solid var(--panel-border); display:flex; align-items:center; justify-content:center; font-size:17.5px; }
+
+  /* employees directory */
+  .emp-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
+  .emp-card{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px; display:flex; gap:12px; align-items:center; }
+  .emp-card .mini-avatar{ width:38px; height:38px; font-size:15px; }
+  .emp-card .en{ font-weight:600; font-size:15.5px; }
+  .emp-card .ee{ font-size:13px; color:var(--text-faint); margin-top:1px; }
+  .emp-card .et{ font-size:12.5px; color:#5B4FCF; margin-top:4px; }
+
+  /* modal */
+  .modal-overlay{ position:fixed; inset:0; background:#151A2Bb3; backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:100; padding:20px; }
+  .modal-overlay.active{ display:flex; }
+  .modal-box{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:24px 26px; width:100%; max-width:440px; max-height:88vh; overflow-y:auto; box-shadow:0 30px 80px #00000066; animation:modalIn .2s cubic-bezier(.2,.9,.25,1.05); }
+  @keyframes modalIn{ from{opacity:0; transform:translateY(14px) scale(.96);} to{opacity:1; transform:translateY(0) scale(1);} }
+  .modal-box h3{ font-family:var(--font-display); font-size:18.5px; margin-bottom:4px; }
+  .modal-box .modal-sub{ font-size:14px; color:var(--text-faint); margin-bottom:18px; }
+  .field{ margin-bottom:13px; }
+  .field label{ display:block; font-size:13px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); margin-bottom:6px; }
+  .field input, .field select, .field textarea{ width:100%; background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:var(--radius-s); padding:10px 12px; font-size:15px; }
+  .field input:focus, .field select:focus, .field textarea:focus{ outline:none; border-color:var(--purple); }
+  .field textarea{ resize:vertical; min-height:60px; }
+  .modal-actions{ display:flex; gap:10px; margin-top:18px; justify-content:flex-end; }
+  .modal-error{ color:#C2410C; font-size:14px; margin-top:-6px; margin-bottom:12px; display:none; }
+  .file-drop{ border:1.5px dashed var(--panel-border); border-radius:var(--radius-s); padding:16px; text-align:center; font-size:14px; color:var(--text-faint); cursor:pointer; }
+  .file-drop img{ max-width:100%; max-height:120px; border-radius:6px; margin-top:8px; }
+  .yn-row{ display:flex; gap:10px; margin-top:18px; }
+  .yn-row button{ flex:1; padding:10px 0; border-radius:var(--radius-s); border:none; font-weight:700; font-size:15px; }
+
+  .footnote{ margin-top:30px; text-align:center; font-size:13.5px; color:var(--text-faint); padding-top:20px; border-top:1px solid var(--line); }
+
+  @media (max-width: 1100px){
+    .stat-grid{ grid-template-columns:repeat(3,1fr); }
+    .mgr-grid{ grid-template-columns:1fr; }
+    .feature-grid{ grid-template-columns:1fr; }
+  }
+  @media (max-width: 760px){
+    .sidebar{ display:none; }
+    .stat-grid{ grid-template-columns:repeat(2,1fr); }
+    .content{ padding:20px 16px; }
+    table{ font-size:13px; }
+  }
+
+  /* custom scrollbar — the default one clashes with the dark theme */
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  ::-webkit-scrollbar-thumb{ background:#D3D8E3; border-radius:6px; }
+  ::-webkit-scrollbar-thumb:hover{ background:#B9C0D1; }
+
+  /* toast notifications — replace bare alert() popups */
+  .toast-stack{ position:fixed; top:18px; right:18px; z-index:300; display:flex; flex-direction:column; gap:10px; max-width:360px; width:calc(100% - 36px); }
+  .toast{ display:flex; align-items:flex-start; gap:10px; background:var(--panel); border:1px solid var(--panel-border); border-left:3px solid var(--purple); border-radius:var(--radius-m); padding:13px 14px; box-shadow:0 16px 44px #00000066; animation:toastIn .22s cubic-bezier(.2,.9,.25,1.05); }
+  .toast.success{ border-left-color:var(--teal); }
+  .toast.error{ border-left-color:var(--coral); }
+  .toast.info{ border-left-color:var(--purple); }
+  .toast.leaving{ animation:toastOut .18s ease forwards; }
+  .toast .ti{ font-size:16.5px; line-height:1.2; margin-top:1px; flex-shrink:0; }
+  .toast .tt{ flex:1; min-width:0; }
+  .toast .tt .h{ font-weight:700; font-size:14px; margin-bottom:2px; }
+  .toast .tt .b{ color:var(--text-dim); font-size:12.8px; line-height:1.45; word-break:break-word; }
+  .toast .tx{ cursor:pointer; color:var(--text-faint); font-size:14px; padding:2px 3px; flex-shrink:0; transition:.15s; }
+  .toast .tx:hover{ color:var(--text); }
+  @keyframes toastIn{ from{opacity:0; transform:translateX(28px) scale(.97);} to{opacity:1; transform:translateX(0) scale(1);} }
+  @keyframes toastOut{ from{opacity:1; transform:translateX(0);} to{opacity:0; transform:translateX(28px);} }
+  @media (max-width: 760px){
+    .toast-stack{ left:12px; right:12px; top:12px; max-width:none; width:auto; }
+  }
+
+  /* sound toggle row (Account modal) */
+  .sound-toggle-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .sound-toggle-row .lbl{ font-size:13.5px; color:var(--text-dim); }
+
+  /* chart builder (Analytics) */
+  .cb-controls{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:20px; }
+  .cb-controls .field{ min-width:200px; flex:1; }
+  .cb-chart-wrap{ min-height:60px; }
+  .cb-row{ display:grid; grid-template-columns:150px 1fr 64px; align-items:center; gap:12px; margin-bottom:10px; }
+  .cb-label{ font-size:13px; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cb-bar-track{ background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:7px; height:22px; overflow:hidden; }
+  .cb-bar-fill{ height:100%; border-radius:7px; background:linear-gradient(90deg,var(--purple),var(--teal)); transition:width .35s cubic-bezier(.2,.9,.25,1); }
+  .cb-val{ font-family:var(--font-mono); font-size:12.5px; text-align:right; color:var(--text); }
+  /* ============ COMMAND CENTER (dark oversight dashboard) ============ */
+  .cc{
+    background:#0B0E14; border-radius:20px; padding:26px 28px 32px; margin:-4px 0 4px;
+    color:#E7EAF2; font-family:var(--font-body);
+    box-shadow:0 20px 50px -20px #00000055;
+  }
+  .cc-header{ display:flex; align-items:center; justify-content:space-between; padding-bottom:18px; border-bottom:1px solid #1E2330; margin-bottom:20px; flex-wrap:wrap; gap:12px; }
+  .cc-header-left{ display:flex; align-items:center; gap:14px; }
+  .cc-logo-mark{
+    width:42px; height:42px; border-radius:11px; flex-shrink:0;
+    background:linear-gradient(135deg, #2FBE93, #17876a); color:#04120C;
+    display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-display); font-weight:800; font-size:16.5px;
+    box-shadow:0 4px 18px #2FBE9344;
+  }
+  .cc-title{ font-family:var(--font-display); font-weight:700; font-size:20px; color:#F5F7FA; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .cc-live-dot{ font-size:11px; font-weight:700; letter-spacing:.6px; color:#2FBE93; background:#2FBE9318; border:1px solid #2FBE9355; padding:3px 8px; border-radius:20px; }
+  .cc-subtitle{ font-size:12.5px; color:#8A93AE; margin-top:2px; }
+  .cc-header-right{ text-align:right; }
+  .cc-clock{ font-family:var(--font-mono); font-size:22px; font-weight:600; color:#F5F7FA; font-variant-numeric:tabular-nums; }
+  .cc-date{ font-size:12px; color:#8A93AE; margin-top:2px; }
+
+  .cc-toolbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:10px; }
+  .cc-toolbar-group{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .cc-toolbar-label{ font-size:11px; letter-spacing:.8px; color:#6B7390; margin-right:4px; }
+  .cc-window-tab{ background:#151A24; border:1px solid #232838; color:#9BA3BC; font-size:13px; font-weight:600; padding:6px 13px; border-radius:20px; transition:all .15s ease; }
+  .cc-window-tab.on{ background:#2FBE93; color:#04120C; border-color:#2FBE93; }
+  .cc-window-tab:hover:not(.on){ border-color:#2FBE9377; color:#E7EAF2; }
+  .cc-excel-btn{ background:#151A24; border:1px solid #2FBE9355; color:#2FBE93; font-size:13.5px; font-weight:700; padding:8px 16px; border-radius:10px; }
+  .cc-excel-btn:hover{ background:#2FBE9318; }
+
+  .cc-stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:14px; margin-bottom:22px; }
+  .cc-stat-card{ background:#131826; border:1px solid #1E2330; border-radius:14px; padding:16px 18px; position:relative; overflow:hidden; }
+  .cc-stat-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.8px; color:#6B7390; margin-bottom:8px; }
+  .cc-stat-value{ font-family:var(--font-display); font-size:30px; font-weight:700; color:#F5F7FA; }
+  .cc-stat-value.teal{ color:#2FBE93; } .cc-stat-value.amber{ color:#F0B93E; }
+  .cc-stamp-cell{ display:flex; flex-direction:column; }
+  .cc-stamp{ position:absolute; right:10px; top:8px; width:64px; height:64px; opacity:.9; }
+
+  .cc-panel{ background:#131826; border:1px solid #1E2330; border-radius:16px; padding:18px 20px 20px; margin-bottom:16px; }
+  .cc-panel-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:6px; }
+  .cc-panel-head h3{ font-family:var(--font-display); font-size:15.5px; font-weight:700; color:#F5F7FA; }
+  .cc-panel-sub{ font-size:12px; color:#6B7390; }
+
+  .cc-donut-row{ display:flex; flex-wrap:wrap; gap:20px; }
+  .cc-donut-card{ display:flex; flex-direction:column; align-items:center; width:104px; }
+  .cc-donut{ width:84px; height:84px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; }
+  .cc-donut::before{ content:''; position:absolute; inset:9px; background:#131826; border-radius:50%; }
+  .cc-donut-hole{ position:relative; font-family:var(--font-mono); font-weight:700; font-size:15px; color:#F5F7FA; z-index:1; }
+  .cc-donut-label{ margin-top:9px; font-size:13px; font-weight:600; color:#E7EAF2; text-align:center; }
+  .cc-donut-sub{ font-size:11px; color:#6B7390; text-align:center; margin-top:2px; }
+
+  .cc-table{ width:100%; border-collapse:collapse; }
+  .cc-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#6B7390; padding:8px 10px; border-bottom:1px solid #1E2330; }
+  .cc-table td{ padding:10px 10px; border-bottom:1px solid #1A1F2B; font-size:13.5px; color:#D6DAE6; vertical-align:top; }
+  .cc-table tr:hover td{ background:#161C29; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">E</div>
+      <div class="brand-text">
+        <div class="t1">Elite Taxation</div>
+        <div class="t2">Governance OS</div>
+      </div>
+    </div>
+
+    <div class="clock-card">
+      <div class="clock-label">Time Clock</div>
+      <div class="clock-time" id="clockDisplay">00:00:00</div>
+      <button class="btn-punch" id="punchBtn" onclick="togglePunch()">Punch In</button>
+      <div class="status-row">
+        <span class="status-label">My Status</span>
+        <div class="status-toggle">
+          <button class="on" id="stOnline" onclick="setStatus(true)">Online</button>
+          <button onclick="setStatus(false)" id="stOffline">Offline</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-title">Commitment Hub</div>
+      <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> Commitment Dashboard</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-title">Assign Work</div>
+      <div class="nav-item" onclick="openAssignModal('me')"><span class="nav-icon">→</span> Assign to Me</div>
+      <div class="nav-item" id="assignTeamNavItem" style="display:none;" onclick="openAssignModal('team')"><span class="nav-icon">⇉</span> Assign to Team</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-title">Engines & Analytics</div>
+      <div class="nav-item" data-view="taskengine" onclick="showView('taskengine', this)"><span class="nav-icon">⚙</span> Task Engine</div>
+      <div class="nav-item" data-view="manager" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
+      <div class="nav-item" data-view="analytics" onclick="showView('analytics', this)"><span class="nav-icon">📊</span> Analytics</div>
+      <div class="nav-item" data-view="report" onclick="showView('report', this)"><span class="nav-icon">◈</span> My Report Card</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-title">Collaborate</div>
+    </div>
+    <div class="nav-section" id="commandCenterNavSection" style="display:none;">
+      <div class="nav-title">Oversight</div>
+      <div class="nav-item" data-view="command" onclick="showView('command', this)"><span class="nav-icon">🛡</span> Command Center</div>
+    </div>
+    <div class="nav-section" id="attendanceNavSection" style="display:none;">
+      <div class="nav-item" data-view="attendance" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
+    </div>
+    <div class="nav-section" id="employeesNavSection" style="display:none;">
+      <div class="nav-title">Admin</div>
+      <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
+      <div class="nav-item" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
+    </div>
+
+    <div class="admin-box">
+      <button class="admin-btn" id="adminLoginBtn" onclick="openAdminLogin()">🔒 Account</button>
+      <div class="admin-status" id="adminStatus" style="display:none;">✓ Admin unlocked</div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="pageTitle">Commitment Dashboard</h1>
+        <div class="sub" id="pageSub">Verification matrix & live task tracking</div>
+      </div>
+      <div class="topbar-right">
+        <div class="bell" id="bellIcon" onclick="openNotifications()">🔔</div>
+        <div class="user-pill">
+          <div class="avatar" id="topAvatar">HR</div>
+          <div>
+            <div class="name" id="topName">hr@elitetaxation.co.nz</div>
+            <div class="role" id="topRole">HR Administrator</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <div id="deadlineBannerWrap"></div>
+
+      <!-- ===================== DASHBOARD VIEW ===================== -->
+      <section class="view active" id="view-dashboard">
+        <div class="banner">
+          <span>ⓘ</span>
+          <span><b>Workflow Standard TAT Guidelines:</b> GST Filing tasks default to an average of <b>3.0 hours</b> (fast-track cases complete in <span class="tag">40–45 mins</span>).</span>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card"><div class="label">Total Commitments</div><div class="value" id="statTotal">0</div></div>
+          <div class="stat-card"><div class="label">Total Task Points</div><div class="value purple" id="statPoints">0 <span style="font-size:15px;">pts</span></div></div>
+          <div class="stat-card"><div class="label">Pending Verification</div><div class="value amber" id="statPending">0</div></div>
+          <div class="stat-card"><div class="label">Verified Completed</div><div class="value teal" id="statCompleted">0</div></div>
+          <div class="stat-card"><div class="label">Hours Logged</div><div class="value coral" id="statHours">0.0</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Commitment Dashboard &amp; Verification Matrix</h2>
+            <div class="panel-head-actions">
+              <button class="btn primary small" id="assignTeamBtn" style="display:none;" onclick="openAssignModal('team')">+ Assign Task</button>
+              <button class="btn small" onclick="showToast('success','Report exported','(demo only) — this is a placeholder export.')">⬇ Export Points Report</button>
+            </div>
+          </div>
+          <div class="filter-row">
+            <input type="text" id="taskSearch" placeholder="Search commitments or tasks…" oninput="renderTaskTable()">
+            <select id="statusFilter" onchange="renderTaskTable()">
+              <option value="">All Statuses</option>
+              <option value="awaiting_acceptance">Awaiting Acceptance</option>
+              <option value="window_proposed">Window Proposed</option>
+              <option value="accepted">In Progress</option>
+              <option value="rework">Needs Rework</option>
+              <option value="completed">Completed</option>
+              <option value="pending">Pending</option>
+            </select>
+            <select id="scopeFilter" onchange="renderTaskTable()">
+              <option value="mine">My Tasks</option>
+              <option value="all">All Tasks</option>
+            </select>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Task ID</th>
+                <th>Deliverable Scope</th>
+                <th>Client / Commitment Date</th>
+                <th>Points</th>
+                <th>Assigned To</th>
+                <th>Actual / Agreed Hrs</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="taskTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===================== COMMAND CENTER VIEW ===================== -->
+      <section class="view" id="view-command">
+        <div class="cc">
+          <div class="cc-header">
+            <div class="cc-header-left">
+              <div class="cc-logo-mark">ET</div>
+              <div>
+                <div class="cc-title">Elite Taxation <span class="cc-live-dot">● SLA CONTROL</span></div>
+                <div class="cc-subtitle">Accountant &amp; Business Advisor · Governance OS</div>
+              </div>
+            </div>
+            <div class="cc-header-right">
+              <div class="cc-clock" id="ccClock">00:00:00</div>
+              <div class="cc-date" id="ccDate">—</div>
+            </div>
+          </div>
+
+          <div class="cc-toolbar">
+            <div class="cc-toolbar-group">
+              <span class="cc-toolbar-label">WINDOW</span>
+              <button class="cc-window-tab on" onclick="ccSetWindow('today', this)">Today</button>
+              <button class="cc-window-tab" onclick="ccSetWindow('yesterday', this)">Yesterday</button>
+              <button class="cc-window-tab" onclick="ccSetWindow('week', this)">This Week</button>
+              <button class="cc-window-tab" onclick="ccSetWindow('month', this)">This Month</button>
+              <button class="cc-window-tab" onclick="ccSetWindow('all', this)">All Time</button>
+            </div>
+            <button class="cc-excel-btn" id="ccExcelBtn" style="display:none;" onclick="downloadExcelReport()">⬇ Download Excel Report Card</button>
+          </div>
+
+          <div class="cc-stat-grid">
+            <div class="cc-stat-card">
+              <div class="cc-stat-label">Total Items</div>
+              <div class="cc-stat-value" id="ccStatTotal">0</div>
+            </div>
+            <div class="cc-stat-card">
+              <div class="cc-stat-label">Delivered</div>
+              <div class="cc-stat-value teal" id="ccStatDelivered">0</div>
+            </div>
+            <div class="cc-stat-card">
+              <div class="cc-stat-label">Hours Logged</div>
+              <div class="cc-stat-value" id="ccStatHours">0.0</div>
+            </div>
+            <div class="cc-stat-card">
+              <div class="cc-stat-label">Reassigned</div>
+              <div class="cc-stat-value amber" id="ccStatReassigned">0</div>
+            </div>
+            <div class="cc-stat-card cc-stamp-cell">
+              <div class="cc-stat-label">On-Time Compliance</div>
+              <div class="cc-stat-value" id="ccStatCompliance">0%</div>
+              <svg class="cc-stamp" viewBox="0 0 120 120">
+                <defs>
+                  <path id="ccStampArcTop" d="M 15,60 A 45,45 0 0 1 105,60"></path>
+                  <path id="ccStampArcBottom" d="M 105,62 A 45,45 0 0 1 15,62"></path>
+                </defs>
+                <circle cx="60" cy="60" r="56" fill="none" stroke="#2FBE93" stroke-width="1.4"></circle>
+                <circle cx="60" cy="60" r="47" fill="none" stroke="#2FBE93" stroke-width="1" stroke-dasharray="2,3"></circle>
+                <text font-size="8.4" letter-spacing="1.6" fill="#2FBE93" font-family="'Space Grotesk',sans-serif" font-weight="700">
+                  <textPath href="#ccStampArcTop" startOffset="50%" text-anchor="middle">ELITE TAXATION</textPath>
+                </text>
+                <text font-size="6.6" letter-spacing="1.1" fill="#2FBE93" font-family="Inter,sans-serif">
+                  <textPath href="#ccStampArcBottom" startOffset="50%" text-anchor="middle">AUCKLAND · NEW ZEALAND</textPath>
+                </text>
+                <text x="60" y="57" font-size="9.5" fill="#2FBE93" font-family="'Space Grotesk',sans-serif" font-weight="700" text-anchor="middle">VERIFIED</text>
+                <text x="60" y="70" font-size="6.2" fill="#2FBE93" font-family="'JetBrains Mono',monospace" text-anchor="middle">ATAINZ 11977</text>
+              </svg>
+            </div>
+          </div>
+
+          <div class="cc-panel">
+            <div class="cc-panel-head">
+              <h3>By Team</h3>
+              <span class="cc-panel-sub">On-time delivery rate, current window</span>
+            </div>
+            <div class="cc-donut-row" id="ccByTeam"></div>
+          </div>
+
+          <div class="cc-panel">
+            <div class="cc-panel-head">
+              <h3>By Responsible Person</h3>
+              <span class="cc-panel-sub">Delivered / assigned, current window</span>
+            </div>
+            <div class="cc-donut-row" id="ccByPerson"></div>
+          </div>
+
+          <div class="cc-panel">
+            <div class="cc-panel-head">
+              <h3>Assignment Detail — every task, who assigned it and to whom</h3>
+              <span class="cc-panel-sub">Assigned by · assigned to · status · reassignments</span>
+            </div>
+            <table class="cc-table">
+              <thead><tr><th>Task</th><th>Task / Client</th><th>Assigned By</th><th>Assigned To</th><th>Status</th><th>Actual / Agreed</th><th>Reassigned</th></tr></thead>
+              <tbody id="ccAssignBody"></tbody>
+            </table>
+          </div>
+
+          <div class="cc-panel" id="ccRatingsWrap" style="display:none;">
+            <div class="cc-panel-head">
+              <h3>Report Card — every employee, with rating</h3>
+              <span class="cc-panel-sub">Superadmin only · downloadable as Excel above</span>
+            </div>
+            <table class="cc-table">
+              <thead><tr><th>Employee</th><th>Team</th><th>Assigned</th><th>Delivered</th><th>Hours Logged</th><th>Avg Hrs/Task</th><th>Reassigned</th><th>On-Time %</th><th>Clean Review %</th><th>Rework</th><th>Rework Hrs</th><th>Shift Hrs</th><th>Productivity</th><th>Rating</th></tr></thead>
+              <tbody id="ccRatingsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== ATTENDANCE LOG VIEW (Superadmin only) ===================== -->
+      <section class="view" id="view-attendance">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Daily Login / Logout Log</h2>
+          </div>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every employee logs in (Punch In) and out (Punch Out) once per working day. A day with no record means they never logged in — used to flag absence and to adjust productivity against actual shift hours.</p>
+          <table>
+            <thead><tr><th>Employee</th><th>Today's Status</th><th>Today Login</th><th>Today Logout</th><th>Last 14 Days</th></tr></thead>
+            <tbody id="attendanceTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===================== TASK ENGINE VIEW ===================== -->
+      <section class="view" id="view-taskengine">
+        <div class="panel">
+          <div class="panel-head"><h2>Task Engine — Measuring Output &amp; Quality</h2></div>
+          <p style="color:var(--text-dim); font-size:15px; line-height:1.6; max-width:640px;">
+            Every task moves through allocation, live time-tracking, and quality verification before a single point is awarded.
+            No credit is issued for incomplete or unconfirmed work.
+          </p>
+          <div class="tat-strip">
+            <div class="num">3.0 hrs</div>
+            <div style="font-size:14.5px; color:var(--text-dim);">Standard GST Filing turnaround &nbsp;·&nbsp; <span style="color:#0D9488;">40–45 min</span> fast-track benchmark</div>
+          </div>
+          <div class="feature-grid">
+            <div class="feature-card"><div class="ico">📋</div><h3>Granular Work Allocation</h3><p>Customizable point weights per task type — every role is measured on the work that actually defines it.</p></div>
+            <div class="feature-card"><div class="ico">⏱</div><h3>Live Time Tracking</h3><p>Daily summaries and TAT benchmarks per role, so managers see exactly where time is going in real time.</p></div>
+            <div class="feature-card"><div class="ico">✔</div><h3>Quality Verification</h3><p>Work must be confirmed by a reviewer before points are awarded — no credit for incomplete submissions.</p></div>
+            <div class="feature-card"><div class="ico">🔔</div><h3>Smart Notifications</h3><p>The moment a task lands in someone's queue, gets paused, or a window is proposed, it surfaces in their bell and banner — no need to dig for it.</p></div>
+            <div class="feature-card"><div class="ico">🔐</div><h3>Role-Based Approvals</h3><p>Only Admins and Superadmins can approve or reject a proposed window — enforced at login, not just hidden in the UI.</p></div>
+            <div class="feature-card"><div class="ico">📡</div><h3>Live Activity Sync</h3><p>Every assignment, approval, pause, and completion is logged as it happens — a real audit trail, not a mockup.</p></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Task Done Heatmap — Task Type × Weekday</h2></div>
+          <p style="font-size:13.5px; color:var(--text-dim); line-height:1.5;">Darker cells mean more completed tasks of that type landed on that weekday — a quick read on where load actually clusters.</p>
+          <div id="taskHeatmapWrap"></div>
+        </div>
+
+        <div class="panel">
+          <div class="sla-panel-head">
+            <div class="panel-head" style="margin:0;"><h2>SLA Adherence Tracking</h2></div>
+            <div class="sla-toggle-wrap">
+              <span class="sla-status-chip" id="slaStatusChip">Not connected</span>
+              <span class="sla-toggle-label">Live SLA Feed</span>
+              <div class="toggle-switch" id="slaToggle" onclick="toggleSlaFeed()"></div>
+            </div>
+          </div>
+          <div class="sla-chart-wrap" id="slaChartWrap"></div>
+          <div class="sla-chart-note" id="slaChartNote"></div>
+        </div>
+      </section>
+
+      <!-- ===================== MANAGER DASHBOARD VIEW ===================== -->
+      <section class="view" id="view-manager">
+        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
+          <div class="stat-card"><div class="label">Gap %</div><div class="value coral" id="statGapPct">0%</div></div>
+          <div class="stat-card"><div class="label">Adherence</div><div class="value teal" id="statAdherencePct">—</div></div>
+          <div class="stat-card"><div class="label">Timing Accuracy</div><div class="value purple" id="statTimingAcc">—</div></div>
+          <div class="stat-card"><div class="label">Open Breach Risk</div><div class="value amber" id="breachRiskCount">0 tasks</div></div>
+        </div>
+
+        <div class="mgr-grid">
+          <div class="panel">
+            <div class="panel-head"><h2>Adherence by Employee</h2></div>
+            <div class="bars" id="barsWrap"></div>
+            <div class="panel-head" style="margin-top:26px;"><h2>Gap Heatmap — Task Type × Weekday</h2></div>
+            <div id="heatmapWrap"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Leaderboard — August</h2></div>
+            <ul class="leaderboard" id="leaderboardWrap"></ul>
+            <div class="panel-head" style="margin-top:20px;"><h2>AI-Flagged Risks</h2></div>
+            <div id="riskFlagsWrap"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Workload Blockers</h2></div>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Who's already booked with agreed work, and until when — new tasks with an overlapping deadline are blocked until they're free.</p>
+          <div id="workloadBlockersWrap" style="font-size:14.5px; color:var(--text-faint);">Nobody has any active work yet.</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Client Ownership</h2>
+            <div class="panel-head-actions"><button class="btn small" onclick="showView('clients', document.querySelector('.nav-item[data-view=\'clients\']'))">Manage Clients →</button></div>
+          </div>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every client should have a clear owner — no task sits unassigned, no client falls through the cracks.</p>
+          <div id="clientOwnershipWrap"></div>
+        </div>
+
+        <div class="mgr-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Productivity</h2>
+              <div class="status-toggle">
+                <button id="prodWeekBtn" class="on" onclick="setProductivityPeriod('week')">This Week</button>
+                <button id="prodMonthBtn" onclick="setProductivityPeriod('month')">This Month</button>
+              </div>
+            </div>
+            <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Hours worked vs. hours planned (TAT) for tasks completed in this period.</p>
+            <div id="productivityWrap"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h2>Commitment</h2></div>
+            <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Share of completed tasks delivered on or before the client's agreed date.</p>
+            <div id="commitmentWrap"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Review &amp; Accuracy</h2></div>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Returns submitted vs. error-free returns, based on Admin/Superadmin review of completed work.</p>
+          <div id="accuracyWrap"></div>
+          <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px;">Awaiting Review</h2></div>
+          <div id="pendingReviewWrap"></div>
+          <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px; color:#C2410C;">⚠ Needs Rework</h2></div>
+          <p style="font-size:13px; color:var(--text-faint); margin-bottom:10px;">Sent back after an error was found — not counted as commitment met until fixed and resubmitted.</p>
+          <div id="needsReworkWrap"></div>
+        </div>
+      </section>
+
+      <!-- ===================== ANALYTICS (CUSTOM CHART BUILDER) VIEW ===================== -->
+      <section class="view" id="view-analytics">
+        <div class="panel">
+          <div class="panel-head"><h2>Chart Builder</h2></div>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:16px;">Pick any breakdown and any metric — the chart below is built live from the same task data as the rest of the app.</p>
+          <div class="cb-controls">
+            <div class="field"><label>Break down by</label>
+              <select id="chartGroupBy" onchange="renderChartBuilder()">
+                <option value="employee">Employee</option>
+                <option value="client">Client</option>
+                <option value="taskType">Task Type</option>
+                <option value="status">Status</option>
+                <option value="team">Team</option>
+                <option value="weekday">Weekday Completed</option>
+              </select>
+            </div>
+            <div class="field"><label>Metric</label>
+              <select id="chartMetric" onchange="renderChartBuilder()">
+                <option value="count">Task Count</option>
+                <option value="hours">Hours Logged</option>
+                <option value="points">Points Earned</option>
+                <option value="commitment">Commitment Met %</option>
+                <option value="adherence">On-Time Adherence %</option>
+              </select>
+            </div>
+          </div>
+          <div class="cb-chart-wrap" id="chartBuilderWrap"></div>
+        </div>
+      </section>
+
+
+      <section class="view" id="view-clients">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Client Directory</h2>
+            <button class="btn primary small" onclick="openAddClientModal()">+ Add Client</button>
+          </div>
+          <p style="font-size:14px; color:var(--text-faint); margin-bottom:14px;">Every client needs an owner — the employee accountable for that relationship. Clients without an owner are flagged.</p>
+          <div class="emp-grid" id="clientGrid"></div>
+        </div>
+      </section>
+
+      <!-- ===================== EMPLOYEE REPORT CARD VIEW ===================== -->
+      <section class="view" id="view-report">
+        <div class="card-hero">
+          <div class="ring-wrap">
+            <svg width="150" height="150" viewBox="0 0 150 150">
+              <circle cx="75" cy="75" r="64" fill="none" stroke="#E6E9F1" stroke-width="12"/>
+              <circle cx="75" cy="75" r="64" fill="none" stroke="url(#g1)" stroke-width="12" stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402" id="rcRing" />
+              <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F0A93E"/><stop offset="100%" stop-color="#22C99E"/></linearGradient></defs>
+            </svg>
+            <div class="ring-center"><div class="pct" id="rcPct">—</div><div class="lbl">Adherence</div></div>
+          </div>
+          <div class="rc-meta">
+            <h2 id="rcName">—</h2>
+            <div class="role" id="rcRole">—</div>
+            <div class="rc-stats">
+              <div class="rc-stat"><div class="v" id="rcPoints">0</div><div class="l">Points</div></div>
+              <div class="rc-stat"><div class="v" id="rcGap" style="color:#C2410C;">—</div><div class="l">Gap %</div></div>
+              <div class="rc-stat"><div class="v" id="rcStreak" style="color:#B45309;">—</div><div class="l">Best Streak</div></div>
+              <div class="rc-stat"><div class="v" id="rcRank" style="color:#5B4FCF;">—</div><div class="l">Team Rank</div></div>
+              <div class="rc-stat"><div class="v" id="rcCommitment" style="color:#0D9488;">—</div><div class="l">Commitment Met</div></div>
+            </div>
+            <div class="badges-row" id="badgesRow"></div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top:20px;">
+          <div class="panel-head"><h2 style="font-size:16.5px;">My Commitments</h2></div>
+          <div id="myCommitmentsWrap"></div>
+        </div>
+      </section>
+
+      <!-- ===================== EMPLOYEES (ADMIN) VIEW ===================== -->
+      <section class="view" id="view-employees">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Employee Directory</h2>
+            <button class="btn primary small" onclick="openAddEmployeeModal()">+ Add Employee</button>
+          </div>
+          <p style="font-size:14px; color:var(--text-faint); margin-bottom:14px;">Visible to Admin and Superadmin only. Only a Superadmin can grant Admin/Superadmin access.</p>
+          <div class="emp-grid" id="employeeGrid"></div>
+        </div>
+      </section>
+
+      <div class="footnote">Elite Taxation · Governance OS &amp; Task Engine — internal team tool</div>
+    </div>
+  </main>
+</div>
+
+<!-- ============ MODAL: generic overlay ============ -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<script>
+/* =========================================================================
+   API CLIENT
+   ---------------------------------------------------------------------
+   Every write happens on the server now (server.js) — this is what
+   actually fixes "tasks not reaching the assigned person": the server is
+   the one shared source of truth, and everyone's browser just displays
+   whatever it returns. No more per-browser copies of the data.
+   ========================================================================= */
+const API_BASE = ''; // same-origin: this page is served BY the server it talks to
+let authToken = localStorage.getItem('governanceOsToken') || null;
+
+async function api(path, opts) {
+  opts = opts || {};
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+  if (authToken) headers['Authorization'] = 'Bearer ' + authToken;
+  const res = await fetch(API_BASE + path, Object.assign({}, opts, { headers }));
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* no body */ }
+  if (!res.ok) {
+    const err = new Error((data && data.error) || ('Request failed: ' + res.status));
+    err.status = res.status;
+    if (data && data.pendingTasks) err.pendingTasks = data.pendingTasks;
+    if (data && data.pendingRework) err.pendingRework = data.pendingRework;
+    if (data && data.code) err.code = data.code;
+    throw err;
+  }
+  return data;
+}
+
+/* =========================================================================
+   GLOBAL STATE (mirrors what the server has for this browser's session)
+   ========================================================================= */
+let session = null;          // the authenticated employee (from /api/auth/me)
+let isAdmin = false;
+let isSuperAdmin = false;
+let currentViewerId = null;
+let employees = [];
+let clients = [];
+let productivityPeriod = 'week';
+let tasks = [];
+let activityLog = [];
+let workload = []; // per-employee occupancy from /api/workload — who's booked until when
+let loginTab = 'employee';
+let seenAwaitingIds = null; // null = not initialized yet (first load shouldn't pop every existing task)
+
+/* =========================================================================
+   NOTIFICATION SOUND — a short synthesized chime (Web Audio, no asset file
+   needed) plays for toasts and for real-time updates from other people.
+   Persisted per-browser via localStorage; muted entirely on request.
+   ========================================================================= */
+let audioCtx = null;
+let soundEnabled = localStorage.getItem('govOsSoundEnabled') !== 'off';
+function getAudioCtx(){
+  if(!audioCtx){
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return null;
+    audioCtx = new Ctx();
+  }
+  return audioCtx;
+}
+function playChime(kind){
+  if(!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    if(!ctx) return;
+    if(ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const notes = kind === 'error' ? [392.00, 311.13]      // falling minor — something needs attention
+                : kind === 'update' ? [523.25, 783.99]      // bright two-note ping — someone else did something
+                : [659.25, 987.77];                          // success / info chime
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const start = now + i * 0.09;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.16, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.3);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + 0.32);
+    });
+  } catch(e){ /* audio unavailable — fail silently, never block the UI */ }
+}
+function toggleSound(){
+  soundEnabled = !soundEnabled;
+  localStorage.setItem('govOsSoundEnabled', soundEnabled ? 'on' : 'off');
+  if(soundEnabled) playChime('update');
+  const el = document.getElementById('soundToggle');
+  if(el) el.classList.toggle('on', soundEnabled);
+  const lbl = document.getElementById('soundToggleLabel');
+  if(lbl) lbl.textContent = soundEnabled ? 'On' : 'Muted';
+}
+
+/* =========================================================================
+   TOASTS — replaces bare alert() popups with a dismissible, styled
+   notification. Set opts.sound=false to show silently.
+   ========================================================================= */
+let toastSeq = 0;
+function ensureToastStack(){
+  let stack = document.getElementById('toastStack');
+  if(!stack){
+    stack = document.createElement('div');
+    stack.id = 'toastStack';
+    stack.className = 'toast-stack';
+    document.body.appendChild(stack);
+  }
+  return stack;
+}
+function showToast(type, title, body, opts){
+  opts = opts || {};
+  const stack = ensureToastStack();
+  const id = 'toast' + (++toastSeq);
+  const icon = type === 'success' ? '✓' : type === 'error' ? '⚠' : '🔔';
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.id = id;
+  el.innerHTML = `<div class="ti">${icon}</div><div class="tt"><div class="h">${esc(title)}</div>${body ? `<div class="b">${esc(body)}</div>` : ''}</div><div class="tx" onclick="dismissToast('${id}')">✕</div>`;
+  stack.appendChild(el);
+  if(opts.sound !== false) playChime(type === 'error' ? 'error' : (opts.chime || 'update'));
+  const timeout = opts.duration || (type === 'error' ? 6500 : 4200);
+  setTimeout(() => dismissToast(id), timeout);
+}
+function dismissToast(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.classList.add('leaving');
+  setTimeout(() => el.remove(), 180);
+}
+function stripHtml(html){
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  return div.textContent || div.innerText || '';
+}
+
+let punching = false, seconds = 0, punchedInAt = null, clockInterval = null;
+
+function empById(id){ return employees.find(e => e.id === id); }
+function currentViewer(){ return empById(currentViewerId); }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function addDaysISO(days){ const d = new Date(); d.setDate(d.getDate()+days); return d.toISOString().slice(0,10); }
+function fmtDate(iso){ if(!iso) return '—'; const d = new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}); }
+function fmtClock(s){
+  const h = String(Math.floor(s/3600)).padStart(2,'0');
+  const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+  const sec = String(Math.floor(s%60)).padStart(2,'0');
+  return `${h}:${m}:${sec}`;
+}
+// Escapes any user-supplied string (task/client/employee names, review notes,
+// pause reasons, etc.) before it's interpolated into an innerHTML template.
+// Without this, anyone who can name a task or client controls HTML that
+// later executes in an admin's browser — see the security review.
+function esc(s){
+  if(s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function fmtHrsMins(hours){
+  if(hours === null || hours === undefined || isNaN(hours)) return '—';
+  const totalMin = Math.max(0, Math.round(hours*60));
+  const h = Math.floor(totalMin/60), m = totalMin%60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+function accessLabel(r){
+  if(r === 'superadmin') return 'Superadmin';
+  if(r === 'admin') return 'Admin';
+  return 'Employee';
+}
+function assignableEmployees(){
+  if(!session) return [];
+  if(isSuperAdmin) return employees;
+  if(session.accessRole === 'admin') return employees.filter(e => (session.managesIds||[]).includes(e.id));
+  return [];
+}
+function canAssignTo(empId){ return assignableEmployees().some(e => e.id === empId); }
+function displayedLogged(t){ return t.displayedLogged !== undefined ? t.displayedLogged : t.logged; }
+
+/* =========================================================================
+   VIEW SWITCHING
+   ========================================================================= */
+const titles = {
+  dashboard: ['Commitment Dashboard', 'Verification matrix & live task tracking'],
+  taskengine: ['Task Engine', 'Measuring what gets done'],
+  manager: ['Manager Dashboard', 'Deeper analytics for managers and owners'],
+  analytics: ['Analytics', 'Build a chart from any breakdown and any metric'],
+  report: ['My Report Card', 'Auto-generated monthly, shareable as a PDF'],
+  employees: ['Employee Directory', 'Admin-only — view and add employees'],
+  clients: ['Client Directory', 'Admin-only — every client needs a clear owner'],
+  command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
+  attendance: ['Attendance Log', 'Superadmin-only — daily login/logout history for the whole team'],
+};
+function showView(id, el){
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
+  if(el) el.classList.add('active');
+  document.getElementById('pageTitle').textContent = titles[id][0];
+  document.getElementById('pageSub').textContent = titles[id][1];
+  if(id === 'report') renderReportCard();
+  if(id === 'employees') renderEmployeeGrid();
+  if(id === 'clients') renderClientGrid();
+  if(id === 'manager') renderManagerStatics();
+  if(id === 'taskengine') renderTaskEngineVisuals();
+  if(id === 'analytics') renderChartBuilder();
+  if(id === 'command') renderCommandCenter();
+  if(id === 'attendance') renderAttendance();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+/* =========================================================================
+   ATTENDANCE LOG — Superadmin-only view of everyone's daily login/logout
+   history, pulled from /api/attendance/all. Flags anyone currently logged
+   in, whether they've logged out today, and their last 14 days.
+   ========================================================================= */
+async function renderAttendance(){
+  const body = document.getElementById('attendanceTableBody');
+  if(!body) return;
+  if(!isSuperAdmin){ body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-faint); padding:22px;">Superadmin access required.</td></tr>`; return; }
+  let rows = [];
+  try {
+    const data = await api('/api/attendance/all');
+    rows = data.rows;
+  } catch(e){
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-faint); padding:22px;">Could not load attendance.</td></tr>`;
+    return;
+  }
+  const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString('en-NZ', {hour:'2-digit', minute:'2-digit'}) : '—';
+  body.innerHTML = rows.map(r => {
+    const statusBadgeHtml = r.loggedInNow
+      ? `<span class="badge pending dot">● Logged In</span>`
+      : (r.loggedOutToday ? `<span class="badge completed dot">Logged Out</span>` : `<span class="badge overdue dot">Not Logged In Today</span>`);
+    const history = r.history.length
+      ? `<div style="max-height:90px; overflow-y:auto; font-size:12px; color:var(--text-faint); line-height:1.7;">${r.history.map(h => `${fmtDate(h.date)}: ${fmtTime(h.loginAt)} → ${fmtTime(h.logoutAt)} (${h.hours}h)`).join('<br>')}</div>`
+      : `<span style="font-size:12.5px; color:var(--text-faint);">No history yet</span>`;
+    return `<tr>
+      <td>${esc(r.name)}<div style="font-size:12px;color:var(--text-faint);">${esc(r.team)}</div></td>
+      <td>${statusBadgeHtml}</td>
+      <td style="font-family:var(--font-mono);">${fmtTime(r.todayLoginAt)}</td>
+      <td style="font-family:var(--font-mono);">${fmtTime(r.todayLogoutAt)}</td>
+      <td>${history}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5" style="text-align:center; color:var(--text-faint); padding:22px;">No employees on file.</td></tr>`;
+}
+
+/* =========================================================================
+   TIME CLOCK — server-authoritative. The server owns "now" and the punch
+   record; this browser just displays it and ticks the display between
+   server round-trips.
+   ========================================================================= */
+async function loadPunchState(){
+  try {
+    const { punch } = await api('/api/punch/me');
+    seconds = punch.liveSeconds;
+    punching = punch.punching;
+    punchedInAt = punch.punchedInAt;
+    applyPunchUI(punch.punchedOut);
+    if(clockInterval) clearInterval(clockInterval);
+    if(punching){
+      clockInterval = setInterval(() => {
+        seconds++;
+        document.getElementById('clockDisplay').textContent = fmtClock(seconds);
+      }, 1000);
+    }
+  } catch(e){ /* not logged in yet or transient error — ignore */ }
+}
+function applyPunchUI(punchedOut){
+  const btn = document.getElementById('punchBtn');
+  const display = document.getElementById('clockDisplay');
+  if(punchedOut){
+    if(clockInterval){ clearInterval(clockInterval); clockInterval = null; }
+    display.textContent = '--:--:--';
+    btn.textContent = 'Punched Out — Done for Today';
+    btn.disabled = true;
+    btn.classList.remove('active');
+  } else {
+    btn.disabled = false;
+    btn.classList.toggle('active', punching);
+    btn.textContent = punching ? 'Punch Out' : 'Punch In';
+    display.textContent = fmtClock(seconds);
+  }
+}
+async function togglePunch(){
+  if(!session) return;
+  // NON-NEGOTIABLE RULE: nothing carries over unacknowledged. Checked here
+  // for immediate feedback, but the server enforces this too (see
+  // /api/punch/toggle) so it can't be bypassed.
+  if(punching){
+    const unaccepted = tasks.filter(t => t.assignedTo === session.id && t.status === 'awaiting_acceptance');
+    if(unaccepted.length > 0){
+      openUnacceptedBlockModal(unaccepted);
+      return;
+    }
+  }
+  doTogglePunch();
+}
+function openUnacceptedBlockModal(unaccepted, rework){
+  unaccepted = unaccepted || [];
+  rework = rework || [];
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🔒 Cannot Punch Out Yet</h3>
+    <div class="modal-sub">Non-negotiable: every task must be accepted, given a proposed window, or resubmitted before you log off. Nothing carries over unacknowledged.</div>
+    <div style="max-height:320px; overflow-y:auto; margin-bottom:6px;">
+      ${unaccepted.map(t => {
+        const flagged = isReworkFlagged(t);
+        return `
+        <div style="background:${flagged?'var(--coral-dim)':'var(--panel-2)'}; border:1px solid ${flagged?'#F0603E4a':'var(--panel-border)'}; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
+          <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)}${flagged && t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
+          <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${flagged ? ' · Sent back for rework' + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') : ''}</div>
+          <div style="display:flex; gap:8px;">
+            <button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTaskFromBlock('${t.id}')">Accept</button>
+            <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>
+          </div>
+        </div>`;
+      }).join('')}
+      ${rework.map(t => `
+        <div style="background:var(--coral-dim); border:1px solid #F0603E4a; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
+          <div style="font-weight:600; font-size:15px; color:#7A2A0C;">⚠ ${esc(t.name)} — needs rework</div>
+          <div style="font-size:12.5px; color:#9A3412; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}</div>
+          <div style="display:flex; gap:8px;">
+            <button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+  `;
+  openModal();
+}
+async function acceptTaskFromBlock(id){
+  await acceptTask(id);
+  const stillPending = tasks.filter(t => t.assignedTo === session.id && t.status === 'awaiting_acceptance');
+  const stillRework = tasks.filter(t => t.assignedTo === session.id && t.status === 'rework');
+  if(stillPending.length > 0 || stillRework.length > 0){
+    openUnacceptedBlockModal(stillPending, stillRework);
+  } else {
+    closeModal();
+  }
+}
+async function doTogglePunch(){
+  try {
+    const { punch } = await api('/api/punch/toggle', { method: 'POST' });
+    seconds = punch.liveSeconds;
+    punching = punch.punching;
+    punchedInAt = punch.punchedInAt;
+    applyPunchUI(punch.punchedOut);
+    if(clockInterval) clearInterval(clockInterval);
+    if(punching){
+      clockInterval = setInterval(() => {
+        seconds++;
+        document.getElementById('clockDisplay').textContent = fmtClock(seconds);
+      }, 1000);
+    }
+  } catch(e){
+    if(e.pendingTasks || e.pendingRework){ openUnacceptedBlockModal(e.pendingTasks, e.pendingRework); }
+    else showToast('error', 'Could not punch', e.message);
+  }
+}
+function setStatus(online){
+  document.getElementById('stOnline').classList.toggle('on', online);
+  document.getElementById('stOffline').classList.toggle('on', !online);
+}
+
+/* =========================================================================
+   NOTIFICATIONS
+   ========================================================================= */
+function renderDeadlineBanner(){
+  const wrap = document.getElementById('deadlineBannerWrap');
+  const bell = document.getElementById('bellIcon');
+  const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed'].includes(t.status));
+  const awaitingMine = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'awaiting_acceptance');
+  const awaitingNew = awaitingMine.filter(t => !isReworkFlagged(t));
+  const awaitingRework = awaitingMine.filter(isReworkFlagged);
+  let banners = [];
+  if(awaitingNew.length > 0){
+    banners.push(`<div class="banner"><span>📥</span><span><b>${awaitingNew.length} new task${awaitingNew.length>1?'s':''} assigned to you:</b> ${awaitingNew.map(t => esc(t.name) + ' — ' + esc(t.scope)).join(' · ')} — Accept or propose a new window from the dashboard below.</span></div>`);
+  }
+  if(awaitingRework.length > 0){
+    banners.push(`<div class="banner warn"><span>⚠</span><span><b>${awaitingRework.length} task${awaitingRework.length>1?'s':''} sent back for rework:</b> ${awaitingRework.map(t => esc(t.name)).join(' · ')} — Accept it to start fixing, or propose a new window, from the dashboard below.</span></div>`);
+  }
+  if(dueToday.length > 0){
+    banners.push(`<div class="banner warn"><span>⏰</span><span><b>Deadline today:</b> ${dueToday.map(t => esc(t.name) + ' — ' + esc(t.scope)).join(' · ')}</span></div>`);
+  }
+  if(isAdmin){
+    const busy = workload.filter(w => w.busyUntil);
+    const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
+    if(busy.length > 0){
+      banners.push(`<div class="banner warn"><span>🧱</span><span><b>${busy.length} team member${busy.length>1?'s':''} fully booked:</b> ${busy.map(w => esc(w.name) + ' until ' + fmtDate(w.busyUntil)).join(' · ')}</span></div>`);
+    }
+    if(proposedOrg.length > 0){
+      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed:</b> ${proposedOrg.map(t => esc(empById(t.assignedTo)?.name||'—') + ' — ' + esc(t.name)).join(' · ')} — <a href="#" onclick="showView('dashboard', document.querySelector('.nav-item[data-view=&quot;dashboard&quot;]')); document.getElementById('statusFilter').value='window_proposed'; document.getElementById('scopeFilter').value='all'; renderTaskTable(); return false;" style="color:#6D28D9; text-decoration:underline;">review</a></span></div>`);
+    }
+  }
+  wrap.innerHTML = banners.join('');
+  bell.classList.toggle('has-alert', banners.length > 0);
+}
+function openNotifications(){
+  const items = [];
+  const awaitingMine = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'awaiting_acceptance');
+  awaitingMine.forEach(t => {
+    const flagged = isReworkFlagged(t);
+    items.push({icon: flagged ? '⚠' : '📥', text: flagged
+      ? `Sent back for rework — <b style="color:var(--text);">${esc(t.name)}</b>${t.reviewNote ? ': ' + esc(t.reviewNote) : ''}. Accept it to start fixing, or propose a new window.`
+      : `New task assigned — <b style="color:var(--text);">${esc(t.name)}</b> (${esc(t.scope)}). Accept or propose a new window.`});
+  });
+  const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed'].includes(t.status));
+  dueToday.forEach(t => items.push({icon:'⏰', text:`Deadline today — <b style="color:var(--text);">${esc(t.name)}</b> (${esc(t.scope)})`}));
+  if(isAdmin){
+    workload.filter(w => w.busyUntil).forEach(w => {
+      items.push({icon:'🧱', text:`<b style="color:var(--text);">${esc(w.name)}</b> is fully booked until ${fmtDate(w.busyUntil)} — next available ${fmtDate(w.nextAvailable)}`});
+    });
+    tasks.filter(t => t.status === 'window_proposed').forEach(t => {
+      const emp = empById(t.assignedTo);
+      items.push({icon:'🗓', text:`<b style="color:var(--text);">${emp ? esc(emp.name) : '—'}</b> proposed a new window for "${esc(t.name)}"`});
+    });
+  }
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🔔 Notifications</h3>
+    <div class="modal-sub">${items.length === 0 ? "You're all caught up." : items.length + ' item' + (items.length>1?'s':'') + ' need your attention.'}</div>
+    ${items.length > 0 ? `<div style="max-height:340px; overflow-y:auto;">${items.map(i => `<div style="display:flex; gap:10px; padding:11px 0; border-bottom:1px solid var(--line); font-size:14.5px; color:var(--text-dim);"><span>${i.icon}</span><span>${i.text}</span></div>`).join('')}</div>` : ''}
+    <div class="modal-actions"><button class="btn primary" onclick="closeModal()">Close</button></div>
+  `;
+  openModal();
+}
+
+/* =========================================================================
+   TASK TABLE
+   ========================================================================= */
+// True whenever a task carries an unresolved "error" review — from the
+// moment it's flagged until it's genuinely resubmitted and re-reviewed.
+// A flagged task now goes through the SAME Accept / Propose Window gate as
+// a brand-new or reassigned task (see /api/tasks/:id/accept,
+// approve-window, reject-window) rather than dropping straight into an
+// active "fix it now" state, so this helper needs to recognize the flag
+// across awaiting_acceptance and window_proposed, not just status==='rework'.
+function isReworkFlagged(t){
+  return t.reviewStatus === 'error' && t.status !== 'completed';
+}
+function statusBadge(t){
+  const flagged = isReworkFlagged(t);
+  switch(t.status){
+    case 'awaiting_acceptance': return flagged
+      ? `<span class="badge overdue dot">⚠ Rework — Awaiting Acceptance${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`
+      : `<span class="badge awaiting dot">Awaiting Acceptance</span>`;
+    case 'window_proposed': return flagged
+      ? `<span class="badge overdue dot">⚠ Rework — Window Proposed</span>`
+      : `<span class="badge awaiting dot">Window Proposed</span>`;
+    case 'accepted': return `<span class="badge pending dot">In Progress</span>`;
+    case 'pending': return `<span class="badge pending dot">Pending</span>`;
+    case 'rework': return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
+    case 'completed': return `<span class="badge completed dot">Completed</span>`;
+    default: return '';
+  }
+}
+/* =========================================================================
+   COMMITMENT STATUS — did the completed work land on/before the client's
+   agreed date? Shared by the task table, My Commitments, and Report Card.
+   A task sitting in "rework" (error found on review) is not status ===
+   'completed', so it's automatically excluded here until it's genuinely
+   fixed and resubmitted — commitment is judged against the redelivery
+   date, not the first flawed attempt.
+   ========================================================================= */
+function commitmentStatus(t){
+  if(t.status !== 'completed' || !t.clientDate || !t.completedAt) return null;
+  return t.completedAt.slice(0,10) <= t.clientDate ? 'met' : 'missed';
+}
+function commitmentBadge(t){
+  const s = commitmentStatus(t);
+  if(s === 'met') return `<span class="badge completed dot" title="Delivered on or before ${t.clientDate ? fmtDate(t.clientDate) : 'the client date'}">✓ Commitment Met</span>`;
+  if(s === 'missed') return `<span class="badge overdue dot" title="Client committed date was ${t.clientDate ? fmtDate(t.clientDate) : '—'}">✗ Commitment Missed</span>`;
+  if(isReworkFlagged(t)) return `<span class="badge overdue dot" title="Not counted toward commitment until fixed and resubmitted">⏳ Pending Rework</span>`;
+  return '';
+}
+function actionCell(t){
+  const isMine = t.assignedTo === currentViewerId;
+  let html = '<div class="action-stack">';
+  const flagged = isReworkFlagged(t);
+  if(t.status === 'awaiting_acceptance' && isMine){
+    if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back for rework — accept to start fixing it</span>`;
+    html += `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTask('${t.id}')">Accept</button>`;
+    html += `<button class="verify-btn" onclick="openProposeModal('${t.id}')">Propose Window</button>`;
+  } else if(t.status === 'window_proposed'){
+    if(isAdmin){
+      if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;">⚠ Rework — window proposed instead of starting the fix</span>`;
+      html += `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="approveProposal('${t.id}')">Approve</button>`;
+      html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
+    } else {
+      html += `<span style="font-size:13px;color:var(--text-faint);">Awaiting manager approval</span>`;
+    }
+  } else if(t.status === 'accepted' || t.status === 'pending'){
+    if(t.status === 'accepted' && isMine){
+      html += `<button class="verify-btn" onclick="completeTask('${t.id}')">Mark Complete</button>`;
+    }
+  } else if(t.status === 'rework'){
+    if(isMine){
+      html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="openReworkDetailModal('${t.id}')">View Error &amp; Resubmit</button>`;
+    } else {
+      html += `<span style="font-size:13px;color:var(--text-faint);" title="${esc(t.reviewNote||'')}">Sent back for rework</span>`;
+    }
+  } else if(t.status === 'completed'){
+    if(t.reviewStatus === 'clean') html += `<span class="badge completed dot" style="cursor:pointer;" onclick="openReviewViewModal('${t.id}')">✓ Reviewed Clean</span>`;
+    else if(t.reviewStatus === 'error') html += `<span class="badge overdue dot" style="cursor:pointer;" title="${esc(t.reviewNote||'')}" onclick="openReviewViewModal('${t.id}')">⚠ Error Found</span>`;
+    else if(isAdmin) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+    else html += `<button class="verify-btn" disabled>Awaiting Review</button>`;
+  }
+  if(isAdmin && t.status !== 'completed'){
+    html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>`;
+  }
+  html += '</div>';
+  return html;
+}
+function renderTaskTable(){
+  const q = (document.getElementById('taskSearch').value || '').toLowerCase();
+  const status = document.getElementById('statusFilter').value;
+  const scope = document.getElementById('scopeFilter').value;
+  const body = document.getElementById('taskTableBody');
+  const rows = tasks.filter(t => {
+    if(scope === 'mine' && t.assignedTo !== currentViewerId) return false;
+    if(status && t.status !== status) return false;
+    const hay = (t.name + ' ' + t.scope + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
+    return hay.includes(q);
+  });
+  if(rows.length === 0){
+    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-faint); padding:26px;">No tasks match this view.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map(t => {
+      const assignee = empById(t.assignedTo);
+      const isToday = t.internalDeadline === todayISO() && t.status !== 'completed';
+      return `<tr>
+        <td class="task-id">${t.id}</td>
+        <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${esc(t.scope)}</div></td>
+        <td class="clientcell">${esc(t.clientName) || '—'}<div class="cdate ${isToday?'deadline-today':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}</div><div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Agreed delivery: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
+        <td class="pts">★ ${t.points} pts</td>
+        <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
+        <td class="logged"><b>${displayedLogged(t).toFixed(2)}</b> / ${t.tat} hrs ${(t.status==='accepted'||t.status==='rework') ? '<span style="color:#0D9488; font-size:12.5px;">● tracking</span>' : ''}</td>
+        <td>${statusBadge(t)}</td>
+        <td>${actionCell(t)}</td>
+      </tr>`;
+    }).join('');
+  }
+  const mine = tasks.filter(t => t.assignedTo === currentViewerId);
+  document.getElementById('statTotal').textContent = mine.length;
+  document.getElementById('statPoints').innerHTML = mine.reduce((s,t)=>s+t.points,0) + ' <span style="font-size:15px;">pts</span>';
+  document.getElementById('statPending').textContent = mine.filter(t=>t.status==='pending'||t.status==='awaiting_acceptance').length;
+  document.getElementById('statCompleted').textContent = mine.filter(t=>t.status==='completed').length;
+  document.getElementById('statHours').textContent = mine.reduce((s,t)=>s+displayedLogged(t),0).toFixed(1);
+  renderDeadlineBanner();
+  renderWorkloadBlockers();
+  renderManagerStatics();
+  renderTaskEngineVisuals();
+  renderChartBuilder();
+  if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
+}
+function renderWorkloadBlockers(){
+  const wrap = document.getElementById('workloadBlockersWrap');
+  if(!wrap) return;
+  if(workload.length === 0){ wrap.innerHTML = 'Nobody has any active work yet.'; return; }
+  const rows = [...workload].sort((a,b) => (b.busyUntil||'').localeCompare(a.busyUntil||''));
+  wrap.innerHTML = `<table><thead><tr><th>Employee</th><th>Active Tasks</th><th>Occupied Until</th><th>Next Available</th></tr></thead><tbody>
+    ${rows.map(w => `<tr>
+        <td>${esc(w.name)}</td>
+        <td>${w.activeCount}</td>
+        <td>${w.busyUntil ? `<span class="badge overdue dot">${fmtDate(w.busyUntil)}</span>` : '<span class="badge completed dot">Free</span>'}</td>
+        <td>${fmtDate(w.nextAvailable)}</td>
+      </tr>`).join('')}
+  </tbody></table>`;
+}
+
+/* =========================================================================
+   TASK ACTIONS — every one of these calls the server, which enforces who's
+   allowed to do what; the client refetches afterward so everyone (this
+   browser included) sees the authoritative result.
+   ========================================================================= */
+async function refreshTasks(){
+  try {
+    const { tasks: fresh } = await api('/api/tasks');
+    tasks = fresh;
+    checkForNewAssignments();
+    renderTaskTable();
+  } catch(e){ console.error('Failed to refresh tasks', e); }
+  await refreshWorkload();
+}
+/* Who's occupied until when — powers the workload-blocker banner/panel and
+   lets the Assign Task modal show availability before submitting, instead
+   of the admin finding out only after a 409 from the server. */
+async function refreshWorkload(){
+  if(!isAdmin){ workload = []; return; }
+  try {
+    const { workload: fresh } = await api('/api/workload');
+    workload = fresh;
+    renderDeadlineBanner();
+    renderWorkloadBlockers();
+  } catch(e){ console.error('Failed to refresh workload', e); }
+}
+/* Auto-opens the Accept / Propose Window modal the moment new work lands in
+   this employee's queue — not just at punch-out time. seenAwaitingIds is
+   the baseline set from the last check; anything awaiting acceptance that
+   wasn't in that set is new since we last looked.
+
+   A task a reviewer flags with an error goes through this SAME
+   awaiting_acceptance gate rather than dropping straight into an active
+   "fix it now" state — accept it (clock starts) or propose a new window,
+   exactly like a brand-new or reassigned task. So mineAwaiting below
+   naturally includes rework items too; openNewAssignmentModal() tells
+   them apart by reviewStatus === 'error' and shows the reviewer's note.
+   There's no separate "new rework" popup anymore — the one case where a
+   task quietly enters active 'rework' without the employee's own click
+   (an admin approving their proposed window from another session) is
+   already covered by the generic activity toast in refreshActivity(). */
+function checkForNewAssignments(){
+  if(!session) return;
+  const mineAwaiting = tasks.filter(t => t.assignedTo === session.id && t.status === 'awaiting_acceptance');
+  const mineAwaitingIds = new Set(mineAwaiting.map(t => t.id));
+  if(seenAwaitingIds === null){ // baseline on first load after login — don't pop pre-existing ones
+    seenAwaitingIds = mineAwaitingIds;
+    return;
+  }
+  const hasNewAssignment = mineAwaiting.some(t => !seenAwaitingIds.has(t.id));
+  seenAwaitingIds = mineAwaitingIds;
+  if(window.__loginGateActive || document.getElementById('modalOverlay').classList.contains('active')) return;
+  if(hasNewAssignment){
+    playChime(mineAwaiting.some(isReworkFlagged) ? 'error' : 'update');
+    openNewAssignmentModal();
+  }
+}
+function openNewAssignmentModal(){
+  const pending = tasks.filter(t => t.assignedTo === session.id && t.status === 'awaiting_acceptance');
+  if(pending.length === 0){ closeModal(); return; }
+  const anyRework = pending.some(isReworkFlagged);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>${anyRework ? '📥 Work Awaiting Your Response' : '📥 New Work Assigned'}</h3>
+    <div class="modal-sub">Accept it or propose a new window — nothing starts the clock until you do.</div>
+    <div style="max-height:280px; overflow-y:auto; margin-bottom:6px;">
+      ${pending.map(t => {
+        const flagged = isReworkFlagged(t);
+        return `
+        <div style="background:${flagged?'var(--coral-dim)':'var(--panel-2)'}; border:1px solid ${flagged?'#F0603E4a':'var(--panel-border)'}; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
+          <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)}${flagged && t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
+          <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${flagged ? ' · Sent back for rework' + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') : ''}</div>
+          <div style="display:flex; gap:8px;">
+            <button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTaskFromNewAssignment('${t.id}')">Accept</button>
+            <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Remind me later</button></div>
+  `;
+  openModal();
+}
+async function acceptTaskFromNewAssignment(id){
+  await acceptTask(id);
+  openNewAssignmentModal();
+}
+let lastSeenActivityId = null;
+async function refreshActivity(opts){
+  opts = opts || {};
+  try {
+    const { activity } = await api('/api/activity'); // newest first
+    if(!opts.silent && lastSeenActivityId !== null && activity.length && session){
+      const idx = activity.findIndex(a => a.id === lastSeenActivityId);
+      const freshOnes = idx === -1 ? activity.slice(0, 1) : activity.slice(0, idx);
+      const fromOthers = freshOnes.filter(a => a.empId !== session.id);
+      if(fromOthers.length > 0){
+        const latest = fromOthers[0];
+        const emp = empById(latest.empId);
+        showToast('info', emp ? emp.name : 'Team update', stripHtml(latest.text));
+      }
+    }
+    if(activity.length) lastSeenActivityId = activity[0].id;
+    activityLog = activity;
+  } catch(e){ console.error('Failed to refresh activity', e); }
+}
+function findTask(id){ return tasks.find(t => t.id === id); }
+
+async function acceptTask(id){
+  try { await api(`/api/tasks/${encodeURIComponent(id)}/accept`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
+  catch(e){ showToast('error', 'Could not accept task', e.message); }
+}
+async function completeTask(id){
+  try { await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
+  catch(e){ showToast('error', 'Could not complete task', e.message); }
+}
+function openProposeModal(id){
+  const t = findTask(id);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Propose New Window</h3>
+    <div class="modal-sub">${esc(t.name)} — ${esc(t.scope)}</div>
+    <div class="field"><label>Client committed date</label><input type="text" value="${fmtDate(t.clientDate)}" disabled></div>
+    <div class="field"><label>Current internal deadline</label><input type="text" value="${fmtDate(t.internalDeadline)}" disabled></div>
+    <div class="field"><label>Proposed new deadline</label><input type="date" id="proposeDate" value="${t.internalDeadline||todayISO()}"></div>
+    <div class="field"><label>Reason for extension</label><textarea id="proposeReason" placeholder="e.g. Awaiting supporting documents from client"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitPropose('${id}')">Send to Manager</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitPropose(id){
+  const date = document.getElementById('proposeDate').value;
+  const reason = document.getElementById('proposeReason').value;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/propose-window`, { method:'POST', body: JSON.stringify({date, reason}) });
+    closeModal(); await refreshTasks(); await refreshActivity();
+  } catch(e){ showToast('error', 'Could not propose window', e.message); }
+}
+async function approveProposal(id){
+  try { await api(`/api/tasks/${encodeURIComponent(id)}/approve-window`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
+  catch(e){ showToast('error', 'Could not approve window', e.message); }
+}
+async function rejectProposal(id){
+  try { await api(`/api/tasks/${encodeURIComponent(id)}/reject-window`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
+  catch(e){ showToast('error', 'Could not reject window', e.message); }
+}
+/* =========================================================================
+   ASSIGN TASK MODAL
+   ========================================================================= */
+/* =========================================================================
+   TASK TYPE PRESETS — common work by service line. Picking one just fills
+   in the task name so it's consistent across the team; TAT and points are
+   always left for the manager to set per assignment, not auto-filled.
+   ========================================================================= */
+const TASK_PRESETS = {
+  'Rideshare Drivers': [
+    'New Client Onboarding & Engagement Letter',
+    'PBQ Collection & Completeness Check',
+    'Bank Statement Processing (Cashbook/QIF)',
+    'MV Loan Working',
+    'Mileage vs Actual Cost Method Calculation',
+    'GST Return',
+    'Income & Expense Report Preparation',
+    'Client Profit Confirmation Follow-up',
+    'IR3 Individual Return Filing',
+    'Client Query Resolution'
+  ],
+  'Companies (Small Business)': [
+    'New Company Onboarding',
+    'Bookkeeping / GL Reconciliation',
+    'GST Return',
+    'PAYE / Payroll Processing',
+    'Annual Financial Statements',
+    'Company Income Tax Return (IR4)',
+    'Shareholder Salary / Dividend Calculation',
+    'Forensic GL Review & Correction Register',
+    'FBT Return',
+    'Companies Office Annual Return Filing'
+  ],
+  'Rental Property Owners': [
+    'New Client Onboarding',
+    'Rental Income/Expense Bookkeeping',
+    'Rental Schedule (IR3R) Preparation',
+    'Interest Limitation / Ring-Fencing Apportionment',
+    'FIF/FDR Income Reporting',
+    'IR3 Individual Return incl. Rental Schedule',
+    'Depreciation / Chattels Valuation Review',
+    'Client Query Resolution'
+  ]
+};
+function taskPresetOptionsHtml(){
+  return `<option value="">— Custom (type your own below) —</option>` +
+    Object.keys(TASK_PRESETS).map(group =>
+      `<optgroup label="${group}">${TASK_PRESETS[group].map(name =>
+        `<option value="${name.replace(/"/g,'&quot;')}">${name}</option>`
+      ).join('')}</optgroup>`
+    ).join('');
+}
+function applyTaskPreset(){
+  const val = document.getElementById('atPreset').value;
+  if(val) document.getElementById('atName').value = val;
+  // TAT and points are intentionally left untouched — the manager sets those.
+}
+function openAssignModal(mode){
+  const isTeam = mode === 'team';
+  if(isTeam){
+    const allowed = assignableEmployees();
+    if(allowed.length === 0){
+      document.getElementById('modalBox').innerHTML = `
+        <h3>Assign Task to Team</h3>
+        <div class="modal-sub">You're not authorized to assign work to anyone yet.</div>
+        <p style="font-size:14.5px; color:var(--text-dim); line-height:1.6;">
+          ${isSuperAdmin ? '' : 'Only a Superadmin can assign to the whole team. An Admin can only assign to employees a Superadmin has specifically allowed — ask a Superadmin to grant you access from Employee Directory → Manage access.'}
+        </p>
+        <div class="modal-actions"><button class="btn primary" onclick="closeModal()">Close</button></div>
+      `;
+      openModal();
+      return;
+    }
+  }
+  if(clients.length === 0){
+    document.getElementById('modalBox').innerHTML = `
+      <h3>${isTeam ? 'Assign Task to Team' : 'Assign Task to Me'}</h3>
+      <div class="modal-sub">No clients on file yet — every task needs a client with a clear owner.</div>
+      <p style="font-size:14.5px; color:var(--text-dim); line-height:1.6;">
+        ${isAdmin ? 'Add a client from the Clients directory first, then come back to assign this task.' : 'Ask an Admin or Superadmin to add the client first.'}
+      </p>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal()">Close</button>
+        ${isAdmin ? `<button class="btn primary" onclick="closeModal(); showView('clients', document.querySelector('.nav-item[data-view=\\'clients\\']'));">Go to Clients</button>` : ''}
+      </div>
+    `;
+    openModal();
+    return;
+  }
+  document.getElementById('modalBox').innerHTML = `
+    <h3>${isTeam ? 'Assign Task to Team' : 'Assign Task to Me'}</h3>
+    <div class="modal-sub">${isTeam ? 'Create a new commitment and hand it to a team member.' : 'Create a new commitment for yourself.'}</div>
+    <div class="field"><label>Task type</label><select id="atPreset" onchange="applyTaskPreset()">${taskPresetOptionsHtml()}</select></div>
+    <div class="field"><label>Task name</label><input type="text" id="atName" placeholder="e.g. GST Return"></div>
+    <div class="field"><label>Deliverable scope</label><input type="text" id="atScope" placeholder="e.g. Q3 filing"></div>
+    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee">${assignableEmployees().map(e=>{
+      const w = workload.find(x => x.id === e.id);
+      const busy = w && w.busyUntil ? ` — booked until ${fmtDate(w.busyUntil)}` : '';
+      return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${busy}</option>`;
+    }).join('')}</select></div>` : ''}
+    <div class="field"><label>Client</label><select id="atClientId">${clients.map(c=>{
+      if(!isTeam) return `<option value="${c.id}">${esc(c.name)}</option>`;
+      const owner = empById(c.ownerId);
+      return `<option value="${c.id}">${esc(c.name)}${owner ? ' — owner: ' + esc(owner.name) : ' — ⚠ no owner'}</option>`;
+    }).join('')}</select></div>
+    <div class="field"><label>Client commitment date</label><input type="date" id="atClientDate" value="${addDaysISO(3)}"></div>
+    <div class="field"><label>Agreed delivery date</label><input type="date" id="atDeadline" value="${addDaysISO(2)}"></div>
+    <div class="field"><label>Agreed hours (TAT)</label><input type="number" id="atTat" value="3" min="0.25" step="0.25"></div>
+    <div class="field"><label>Points</label><input type="number" id="atPoints" value="10" min="0"></div>
+    <div class="modal-error" id="assignError">Please enter a task name.</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitAssign('${mode}')">${isTeam ? 'Send for Acceptance' : 'Create Task'}</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitAssign(mode){
+  const name = document.getElementById('atName').value.trim();
+  const scope = document.getElementById('atScope').value.trim();
+  if(!name){ document.getElementById('assignError').style.display = 'block'; return; }
+  const assignedTo = mode === 'team' ? document.getElementById('atAssignee').value : currentViewerId;
+  const clientId = document.getElementById('atClientId').value;
+  const clientDate = document.getElementById('atClientDate').value;
+  const deadline = document.getElementById('atDeadline').value;
+  const tat = parseFloat(document.getElementById('atTat').value) || 3;
+  const points = parseInt(document.getElementById('atPoints').value) || 0;
+  try {
+    await api('/api/tasks', { method:'POST', body: JSON.stringify({
+      mode, name, scope, assignedTo, clientId, clientDate, internalDeadline: deadline, tat, points
+    })});
+    closeModal();
+    showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
+    await refreshTasks();
+    await refreshActivity({ silent: true }); // avoid a self-triggered "someone else" toast for our own assignment
+    const assigneeName = mode === 'team' ? (empById(assignedTo)?.name || 'team member') : 'yourself';
+    showToast('success', mode === 'team' ? 'Task assigned' : 'Task created', `${name} — sent to ${assigneeName}.`); // showToast escapes this itself
+  } catch(e){
+    document.getElementById('assignError').textContent = e.message;
+    document.getElementById('assignError').style.display = 'block';
+  }
+}
+
+/* =========================================================================
+   REASSIGNMENT — hands an existing task to a different employee. Routes
+   through the exact same Accept / Propose New Window step a brand-new
+   assignment uses (server sets status back to 'awaiting_acceptance'), so
+   the new assignee always gets that check before the clock starts.
+   ========================================================================= */
+function openReassignModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  const options = assignableEmployees().filter(e => e.id !== t.assignedTo);
+  if(options.length === 0){
+    document.getElementById('modalBox').innerHTML = `
+      <h3>Reassign Task</h3>
+      <div class="modal-sub">No other team members are available to reassign this to.</div>
+      <div class="modal-actions"><button class="btn primary" onclick="closeModal()">Close</button></div>`;
+    openModal();
+    return;
+  }
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Reassign Task</h3>
+    <div class="modal-sub">${esc(t.name)} — currently with ${esc(empById(t.assignedTo)?.name || '—')}. The new assignee gets the same Accept / Propose Window step as a brand-new assignment before their clock starts.</div>
+    <div class="field"><label>Reassign to</label><select id="rsAssignee">${options.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="field"><label>Reason (optional)</label><input type="text" id="rsReason" placeholder="e.g. workload rebalancing"></div>
+    <div class="modal-error" id="reassignError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitReassign('${id}')">Reassign</button>
+    </div>`;
+  openModal();
+}
+async function submitReassign(id){
+  const newAssigneeId = document.getElementById('rsAssignee').value;
+  const reason = document.getElementById('rsReason').value.trim();
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/reassign`, { method:'POST', body: JSON.stringify({ newAssigneeId, reason }) });
+    closeModal();
+    await refreshTasks();
+    await refreshActivity({ silent:true });
+    showToast('success', 'Task reassigned', `${empById(newAssigneeId)?.name || 'New assignee'} must accept or propose a new window.`); // showToast escapes this itself
+  } catch(e){
+    const el = document.getElementById('reassignError');
+    el.textContent = e.message; el.style.display = 'block';
+  }
+}
+
+/* =========================================================================
+   MANAGER DASHBOARD — computed client-side from the fetched employees/tasks
+   (the numbers themselves are just arithmetic; the data they're built from
+   is authoritative because it came from the server).
+   ========================================================================= */
+function computeEmployeeStats(empId){
+  const empTasks = tasks.filter(t => t.assignedTo === empId);
+  const completed = empTasks.filter(t => t.status === 'completed');
+  const onTime = completed.filter(t => t.logged <= t.tat);
+  const pts = completed.reduce((s,t) => s + t.points, 0);
+  const adherence = completed.length ? Math.round((onTime.length / completed.length) * 100) : 0;
+  return { empTasks, completed, pts, adherence };
+}
+function renderManagerStatics(){
+  const barsWrap = document.getElementById('barsWrap');
+  const stats = employees.map(e => ({ name: e.name.split(' ')[0], ...computeEmployeeStats(e.id) }));
+  const anyCompleted = stats.some(s => s.completed.length > 0);
+  if(!anyCompleted){
+    barsWrap.innerHTML = `<div style="font-size:14.5px; color:var(--text-faint); padding:20px 0;">No completed tasks yet — adherence will populate once work is logged.</div>`;
+  } else {
+    barsWrap.innerHTML = stats.map(e => `<div class="bar-col">
+        <div style="font-size:12.5px; color:#5B4FCF; font-family:'JetBrains Mono',monospace;">${e.adherence}%</div>
+        <div class="bar" style="height:${Math.max(e.adherence, 2)}px;"></div>
+        <div class="bl">${esc(e.name)}</div>
+      </div>`).join('');
+  }
+  document.getElementById('heatmapWrap').innerHTML = '';
+  renderTaskHeatmap('heatmapWrap');
+  const lbWrap = document.getElementById('leaderboardWrap');
+  const ranked = [...stats].sort((a,b) => b.pts - a.pts);
+  if(!anyCompleted){
+    lbWrap.innerHTML = `<li style="border-bottom:none; color:var(--text-faint); font-size:14.5px;">No points earned yet.</li>`;
+  } else {
+    lbWrap.innerHTML = ranked.map((e,i) => `<li><span class="rank">${i+1}</span><span class="lb-name">${esc(e.name)}</span><span class="lb-pts">${e.pts} pts</span></li>`).join('');
+  }
+  renderManagerTopStats();
+  renderRiskFlags();
+  renderClientOwnership();
+  renderProductivity();
+  renderCommitment();
+  renderAccuracy();
+}
+
+/* =========================================================================
+   COMMAND CENTER — oversight dashboard. Any Admin/Superadmin sees the live
+   totals, by-team and by-person donuts, and the assignment detail table
+   built from tasks already in memory. Superadmins additionally pull
+   /api/reports/summary for per-employee ratings and the Excel export —
+   that endpoint is server-enforced superadmin-only, so an Admin calling it
+   would just get a 403; the client only asks when isSuperAdmin is true.
+   ========================================================================= */
+let ccWindow = 'today';
+let ccReportRows = [];
+let ccAssignments = [];
+function ccSetWindow(w, el){
+  ccWindow = w;
+  document.querySelectorAll('.cc-window-tab').forEach(b => b.classList.remove('on'));
+  if(el) el.classList.add('on');
+  renderCommandCenter();
+}
+function ccInWindow(iso){
+  if(ccWindow === 'all') return true;
+  if(!iso) return false;
+  const d = new Date(iso);
+  const now = new Date();
+  if(ccWindow === 'today') return d.toDateString() === now.toDateString();
+  if(ccWindow === 'yesterday'){ const y = new Date(now); y.setDate(y.getDate()-1); return d.toDateString() === y.toDateString(); }
+  if(ccWindow === 'week'){ const wk = new Date(now); wk.setDate(wk.getDate()-7); return d >= wk; }
+  if(ccWindow === 'month'){ const mo = new Date(now); mo.setMonth(mo.getMonth()-1); return d >= mo; }
+  return true;
+}
+function ccDonut(pct, label, sub){
+  const p = Math.max(0, Math.min(100, pct));
+  const color = p >= 70 ? '#2FBE93' : p >= 40 ? '#F0B93E' : '#F0603E';
+  return `<div class="cc-donut-card">
+      <div class="cc-donut" style="background:conic-gradient(${color} ${p*3.6}deg, #232838 0deg);">
+        <div class="cc-donut-hole">${p}%</div>
+      </div>
+      <div class="cc-donut-label">${label}</div>
+      <div class="cc-donut-sub">${sub}</div>
+    </div>`;
+}
+async function renderCommandCenter(){
+  if(!document.getElementById('ccStatTotal')) return;
+  if(isSuperAdmin){
+    try {
+      const data = await api('/api/reports/summary');
+      ccReportRows = data.rows;
+      ccAssignments = data.assignments;
+    } catch(e){ ccReportRows = []; ccAssignments = []; }
+  } else {
+    ccReportRows = []; ccAssignments = [];
+  }
+  document.getElementById('ccExcelBtn').style.display = isSuperAdmin ? '' : 'none';
+
+  const source = tasks.filter(t => ccInWindow(t.assignedAt));
+  document.getElementById('ccStatTotal').textContent = source.length;
+  const delivered = source.filter(t => t.status === 'completed');
+  document.getElementById('ccStatDelivered').textContent = delivered.length;
+  const reassigned = source.reduce((n,t) => n + (t.reassignHistory||[]).length, 0);
+  document.getElementById('ccStatReassigned').textContent = reassigned;
+  const totalHours = source.reduce((s,t) => s + displayedLogged(t), 0);
+  document.getElementById('ccStatHours').textContent = totalHours.toFixed(1);
+  const onTime = delivered.filter(t => t.clientDate && t.completedAt && t.completedAt.slice(0,10) <= t.clientDate);
+  document.getElementById('ccStatCompliance').textContent = (delivered.length ? Math.round((onTime.length/delivered.length)*100) : 0) + '%';
+
+  const teams = [...new Set(employees.map(e => e.team))];
+  const teamHtml = teams.map(team => {
+    const ids = employees.filter(e => e.team === team).map(e => e.id);
+    const teamTasks = source.filter(t => ids.includes(t.assignedTo));
+    if(teamTasks.length === 0) return '';
+    const teamDelivered = teamTasks.filter(t => t.status === 'completed');
+    const teamOnTime = teamDelivered.filter(t => t.clientDate && t.completedAt && t.completedAt.slice(0,10) <= t.clientDate);
+    const pct = teamDelivered.length ? Math.round((teamOnTime.length/teamDelivered.length)*100) : 0;
+    return ccDonut(pct, esc(team), `${teamOnTime.length}/${teamDelivered.length} on-time`);
+  }).filter(Boolean).join('');
+  document.getElementById('ccByTeam').innerHTML = teamHtml || `<div style="color:#6B7390; font-size:13.5px;">No activity in this window yet.</div>`;
+
+  const personHtml = employees.map(e => {
+    const et = source.filter(t => t.assignedTo === e.id);
+    if(et.length === 0) return '';
+    const ed = et.filter(t => t.status === 'completed');
+    const pct = et.length ? Math.round((ed.length/et.length)*100) : 0;
+    return ccDonut(pct, esc(e.name), `${ed.length}/${et.length} delivered`);
+  }).filter(Boolean).join('');
+  document.getElementById('ccByPerson').innerHTML = personHtml || `<div style="color:#6B7390; font-size:13.5px;">No activity in this window yet.</div>`;
+
+  const rows = ccAssignments.length ? ccAssignments.filter(a => ccInWindow(a.assignedAt)) : source.map(t => ({
+    id: t.id, name: t.name, clientName: t.clientName,
+    assignedBy: (empById(t.assignedBy)||{}).name || '—', assignedTo: (empById(t.assignedTo)||{}).name || '—',
+    status: t.status, reassigned: (t.reassignHistory||[]).length,
+    loggedHours: displayedLogged(t), tatHours: t.tat || 0
+  }));
+  document.getElementById('ccAssignBody').innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td class="task-id">${r.id}</td>
+        <td>${esc(r.name)}${r.clientName ? `<div style="font-size:12px;color:#6B7390;">${esc(r.clientName)}</div>` : ''}</td>
+        <td>${esc(r.assignedBy)}</td>
+        <td>${esc(r.assignedTo)}</td>
+        <td>${statusBadge(r)}</td>
+        <td style="font-family:var(--font-mono); white-space:nowrap;">${r.loggedHours.toFixed(2)} / ${r.tatHours} hrs</td>
+        <td>${r.reassigned > 0 ? `<span class="badge overdue dot">${r.reassigned}×</span>` : '—'}</td>
+      </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:#6B7390;padding:22px;">No assignments in this window.</td></tr>`;
+
+  const rcWrap = document.getElementById('ccRatingsWrap');
+  if(isSuperAdmin){
+    rcWrap.style.display = '';
+    document.getElementById('ccRatingsBody').innerHTML = ccReportRows.map(r => `
+      <tr>
+        <td>${esc(r.name)}<div style="font-size:12px;color:#6B7390;">${esc(r.jobTitle)}</div></td>
+        <td>${esc(r.team)}</td>
+        <td>${r.assigned}</td>
+        <td>${r.delivered}</td>
+        <td style="font-family:var(--font-mono);">${r.totalLoggedHours.toFixed(1)}h</td>
+        <td style="font-family:var(--font-mono);">${r.avgHoursPerTask === null ? '—' : r.avgHoursPerTask.toFixed(2) + 'h'}</td>
+        <td>${r.reassignedAway + r.reassignedIn}</td>
+        <td>${r.onTimeRate}%</td>
+        <td>${r.cleanRate}%</td>
+        <td>${r.reworkCount}</td>
+        <td style="font-family:var(--font-mono);">${r.reworkHoursTotal ? r.reworkHoursTotal.toFixed(2)+'h' : '—'}</td>
+        <td style="font-family:var(--font-mono);">${r.shiftHours ? r.shiftHours.toFixed(1)+'h' : '—'}</td>
+        <td>${r.productivityPct===null?'—':r.productivityPct+'%'}</td>
+        <td><b style="color:${r.rating===null?'#6B7390':(r.rating>=4?'#2FBE93':r.rating>=2.5?'#F0B93E':'#F0603E')};">${r.rating===null?'—':r.rating+' / 5'}</b></td>
+      </tr>`).join('');
+  } else {
+    rcWrap.style.display = 'none';
+  }
+}
+function downloadExcelReport(){
+  if(typeof XLSX === 'undefined'){ showToast('error', 'Unavailable', 'The Excel export library failed to load — check your internet connection and try again.'); return; }
+  if(!ccReportRows.length){ showToast('error', 'Nothing to export', 'No report data is available yet.'); return; }
+  const rows = ccReportRows.map(r => ({
+    'Name': r.name, 'Job Title': r.jobTitle, 'Team': r.team, 'Access': accessLabel(r.accessRole),
+    'Assigned (to them)': r.assigned, 'Assigned (by them)': r.assignedByThem,
+    'Delivered': r.delivered, 'On-Time Delivered': r.onTime, 'On-Time %': r.onTimeRate,
+    'Total Hours Logged': r.totalLoggedHours, 'Hours In-Progress (not yet delivered)': r.activeLoggedHours,
+    'Avg Hours / Delivered Task': r.avgHoursPerTask === null ? 'N/A' : r.avgHoursPerTask,
+    'Hours Logged vs TAT (delivered)': `${r.deliveredLoggedHours} / ${r.deliveredTatHours}`,
+    'Reviewed Clean': r.cleanDelivered, 'Reviewed w/ Error': r.errorDelivered, 'Clean Review %': r.cleanRate,
+    'Reassigned Away': r.reassignedAway, 'Reassigned To Them': r.reassignedIn,
+    'Rework Rounds': r.reworkCount, 'Rework Hours (total)': r.reworkHoursTotal,
+    'Avg Rework Hours / Round': r.avgReworkHours === null ? 'N/A' : r.avgReworkHours,
+    'Shift Hours (logged in)': r.shiftHours, 'Productivity %': r.productivityPct === null ? 'N/A' : r.productivityPct,
+    'Rating (out of 5)': r.rating === null ? 'N/A' : r.rating,
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = Object.keys(rows[0]).map(k => ({ wch: Math.max(14, k.length + 2) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Report Card');
+  if(ccAssignments.length){
+    const assignRows = ccAssignments.map(a => ({
+      'Task ID': a.id, 'Task': a.name, 'Client': a.clientName || '', 'Assigned By': a.assignedBy, 'Assigned To': a.assignedTo,
+      'Status': a.status, 'Hours Logged': a.loggedHours, 'TAT (hrs)': a.tatHours, 'Reassignments': a.reassigned, 'Delivered': a.delivered ? 'Yes' : 'No',
+      'Client Date': a.clientDate || '', 'Completed At': a.completedAt ? a.completedAt.slice(0,10) : '',
+    }));
+    const ws2 = XLSX.utils.json_to_sheet(assignRows);
+    ws2['!cols'] = Object.keys(assignRows[0]).map(k => ({ wch: Math.max(12, k.length + 2) }));
+    XLSX.utils.book_append_sheet(wb, ws2, 'Assignments');
+  }
+  const stamp = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `Elite-Taxation-Report-Card-${stamp}.xlsx`);
+  showToast('success', 'Exported', 'Report card downloaded as an Excel file.');
+}
+
+/* =========================================================================
+   ANALYTICS — CUSTOM CHART BUILDER — any breakdown × any metric, computed
+   live from the same task/employee data everything else uses. No fixed
+   chart per page; the person picks the two axes and the bars follow.
+   ========================================================================= */
+function statusLabel(status){
+  switch(status){
+    case 'awaiting_acceptance': return 'Awaiting Acceptance';
+    case 'window_proposed': return 'Window Proposed';
+    case 'accepted': return 'In Progress';
+    case 'pending': return 'Pending';
+    case 'paused': return 'Paused';
+    case 'rework': return 'In Rework';
+    case 'completed': return 'Completed';
+    default: return status || 'Unknown';
+  }
+}
+function chartGroupKey(groupBy, t){
+  switch(groupBy){
+    case 'employee': return empById(t.assignedTo)?.name || 'Unassigned';
+    case 'client': return t.clientName || 'Unknown Client';
+    case 'taskType': return taskTypeLabel(t);
+    case 'status': return statusLabel(t.status);
+    case 'team': return empById(t.assignedTo)?.team || 'Unassigned';
+    case 'weekday': {
+      if(!t.completedAt) return null;
+      const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      return days[new Date(t.completedAt).getDay()];
+    }
+    default: return 'All';
+  }
+}
+function chartMetricValue(metric, groupTasks){
+  switch(metric){
+    case 'count': return groupTasks.length;
+    case 'hours': return Math.round(groupTasks.reduce((s,t) => s + displayedLogged(t), 0) * 10) / 10;
+    case 'points': return groupTasks.filter(t => t.status === 'completed').reduce((s,t) => s + t.points, 0);
+    case 'commitment': {
+      const withDate = groupTasks.filter(t => t.status === 'completed' && t.clientDate && t.completedAt);
+      if(!withDate.length) return null;
+      const met = withDate.filter(t => commitmentStatus(t) === 'met').length;
+      return Math.round((met / withDate.length) * 100);
+    }
+    case 'adherence': {
+      const completed = groupTasks.filter(t => t.status === 'completed');
+      if(!completed.length) return null;
+      const onTime = completed.filter(t => t.logged <= t.tat).length;
+      return Math.round((onTime / completed.length) * 100);
+    }
+    default: return null;
+  }
+}
+function computeChartData(groupBy, metric){
+  const groups = {};
+  tasks.forEach(t => {
+    const key = chartGroupKey(groupBy, t);
+    if(key === null || key === undefined) return;
+    if(!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  });
+  let entries = Object.keys(groups)
+    .map(key => ({ label: key, value: chartMetricValue(metric, groups[key]) }))
+    .filter(e => e.value !== null && e.value !== undefined);
+  entries.sort((a,b) => b.value - a.value);
+  if(entries.length > 12) entries = entries.slice(0, 12); // keep it readable — top 12
+  const isPercent = metric === 'commitment' || metric === 'adherence';
+  const isHours = metric === 'hours';
+  return { entries, isPercent, isHours };
+}
+function renderChartBuilder(){
+  const groupByEl = document.getElementById('chartGroupBy');
+  const metricEl = document.getElementById('chartMetric');
+  const wrap = document.getElementById('chartBuilderWrap');
+  if(!groupByEl || !metricEl || !wrap) return;
+  const { entries, isPercent, isHours } = computeChartData(groupByEl.value, metricEl.value);
+  if(entries.length === 0){
+    wrap.innerHTML = `<div style="font-size:13.5px; color:var(--text-faint); padding:20px 0;">No data yet for this combination — it fills in as tasks are logged.</div>`;
+    return;
+  }
+  const max = Math.max(...entries.map(e => e.value), isPercent ? 100 : 0) || 1;
+  wrap.innerHTML = entries.map(e => {
+    const pct = Math.max((e.value / max) * 100, 2);
+    const displayVal = isPercent ? e.value + '%' : (isHours ? e.value.toFixed(1) + 'h' : e.value);
+    return `<div class="cb-row">
+      <div class="cb-label" title="${esc(e.label)}">${esc(e.label)}</div>
+      <div class="cb-bar-track"><div class="cb-bar-fill" style="width:${pct}%;"></div></div>
+      <div class="cb-val">${displayVal}</div>
+    </div>`;
+  }).join('');
+}
+
+/* =========================================================================
+   TASK DONE HEATMAP — task type × weekday, built from real completed-task
+   data (no placeholder cells). Shared between the Manager Dashboard's
+   compact view and the Task Engine's full panel.
+   ========================================================================= */
+function taskTypeLabel(t){ return (t.name || 'Task').trim(); }
+function computeHeatmapData(){
+  const completed = tasks.filter(t => t.status === 'completed' && t.completedAt);
+  const perType = {};   // type -> [Mon..Sun] counts
+  const totals = {};    // type -> total count, for ranking
+  completed.forEach(t => {
+    const type = taskTypeLabel(t);
+    const jsDay = new Date(t.completedAt).getDay();  // 0=Sun..6=Sat
+    const idx = (jsDay + 6) % 7;                      // 0=Mon..6=Sun
+    if(!perType[type]) perType[type] = [0,0,0,0,0,0,0];
+    perType[type][idx]++;
+    totals[type] = (totals[type] || 0) + 1;
+  });
+  let typeNames = Object.keys(totals).sort((a,b) => totals[b] - totals[a]);
+  let grid = perType;
+  if(typeNames.length > 6){
+    const top = typeNames.slice(0, 6);
+    const rest = typeNames.slice(6);
+    const otherRow = [0,0,0,0,0,0,0];
+    rest.forEach(type => perType[type].forEach((c,i) => otherRow[i] += c));
+    grid = {};
+    top.forEach(type => grid[type] = perType[type]);
+    grid['Other'] = otherRow;
+    typeNames = [...top, 'Other'];
+  }
+  let max = 0;
+  typeNames.forEach(type => grid[type].forEach(c => { if(c > max) max = c; }));
+  return { types: typeNames, grid, max };
+}
+function heatColor(count, max){
+  if(!count) return 'var(--panel-2)';
+  const pct = max > 0 ? count / max : 0;
+  const alpha = (0.28 + pct * 0.72).toFixed(2);
+  return `rgba(34,201,158,${alpha})`;
+}
+function renderTaskHeatmap(containerId){
+  const wrap = document.getElementById(containerId);
+  if(!wrap) return;
+  const { types, grid, max } = computeHeatmapData();
+  if(types.length === 0){
+    wrap.innerHTML = `<div style="font-size:13.5px; color:var(--text-faint); padding:14px 0;">No completed tasks yet — the heatmap fills in as work gets marked done.</div>`;
+    return;
+  }
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  let html = `<div class="th-grid"><div></div>${days.map(d => `<div class="th-colhead">${d}</div>`).join('')}`;
+  types.forEach(type => {
+    html += `<div class="th-rowlabel" title="${esc(type)}">${esc(type)}</div>`;
+    html += grid[type].map(count =>
+      `<div class="th-cell" style="background:${heatColor(count, max)};" title="${count} completed">${count > 0 ? count : ''}</div>`
+    ).join('');
+  });
+  html += `</div>`;
+  html += `<div class="th-legend">
+    <span class="sw" style="background:var(--panel-2); border:1px solid var(--panel-border);"></span>0
+    <span class="sw" style="background:rgba(34,201,158,0.35); margin-left:10px;"></span>Low
+    <span class="sw" style="background:rgba(34,201,158,0.68); margin-left:10px;"></span>Mid
+    <span class="sw" style="background:rgba(34,201,158,1); margin-left:10px;"></span>High</div>`;
+  wrap.innerHTML = html;
+}
+
+/* =========================================================================
+   SLA ADHERENCE TRACKING — smooth curve, daily on-time % over the last 14
+   days. Defaults to OFF (flat 0 baseline) until the live SLA feed is wired
+   up — flipping the toggle previews the curve computed from logged task
+   completions in the meantime.
+   ========================================================================= */
+let slaFeedOn = false;
+function svgSmoothPath(points){
+  if(points.length < 2) return '';
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for(let i = 0; i < points.length - 1; i++){
+    const p0 = points[i], p1 = points[i+1];
+    const midX = (p0.x + p1.x) / 2, midY = (p0.y + p1.y) / 2;
+    d += ` Q ${p0.x} ${p0.y} ${midX} ${midY}`;
+  }
+  const last = points[points.length - 1];
+  d += ` L ${last.x} ${last.y}`;
+  return d;
+}
+function computeSlaSeries(days){
+  const dates = [];
+  for(let i = days - 1; i >= 0; i--){
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  if(!slaFeedOn) return dates.map(d => ({ date: d, value: 0 }));
+  return dates.map(dateStr => {
+    const doneThatDay = tasks.filter(t => t.status === 'completed' && t.completedAt && t.completedAt.slice(0,10) === dateStr);
+    if(doneThatDay.length === 0) return { date: dateStr, value: 0 };
+    const onTime = doneThatDay.filter(t => t.logged <= t.tat).length;
+    return { date: dateStr, value: Math.round((onTime / doneThatDay.length) * 100) };
+  });
+}
+function toggleSlaFeed(){
+  slaFeedOn = !slaFeedOn;
+  renderSlaChart();
+}
+function renderSlaChart(){
+  const wrap = document.getElementById('slaChartWrap');
+  if(!wrap) return;
+  const toggle = document.getElementById('slaToggle');
+  const chip = document.getElementById('slaStatusChip');
+  const note = document.getElementById('slaChartNote');
+  toggle.classList.toggle('on', slaFeedOn);
+  chip.textContent = slaFeedOn ? 'Live' : 'Not connected';
+  chip.classList.toggle('live', slaFeedOn);
+
+  const series = computeSlaSeries(14);
+  const W = 640, H = 200, padL = 34, padR = 12, padT = 14, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = series.length;
+  const xStep = n > 1 ? plotW / (n - 1) : 0;
+  const points = series.map((p, i) => ({
+    x: padL + i * xStep,
+    y: padT + plotH - (p.value / 100) * plotH,
+    date: p.date, value: p.value
+  }));
+  const pathD = svgSmoothPath(points);
+  const areaD = `${pathD} L ${points[n-1].x} ${padT + plotH} L ${points[0].x} ${padT + plotH} Z`;
+  const strokeColor = slaFeedOn ? '#22C99E' : '#8791A3';
+
+  const gridLines = [0, 25, 50, 75, 100].map(v => {
+    const y = padT + plotH - (v / 100) * plotH;
+    return `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--panel-border)" stroke-width="1" />
+      <text x="${padL-8}" y="${y+4}" text-anchor="end" font-size="10" fill="#8791A3" font-family="JetBrains Mono, monospace">${v}%</text>`;
+  }).join('');
+  const everyNth = Math.ceil(n / 6);
+  const xLabels = points.filter((_, i) => i % everyNth === 0 || i === n - 1).map(p => {
+    const label = new Date(p.date).toLocaleDateString('en-NZ', { day:'2-digit', month:'short' });
+    return `<text x="${p.x}" y="${H-6}" text-anchor="middle" font-size="10" fill="#8791A3" font-family="JetBrains Mono, monospace">${label}</text>`;
+  }).join('');
+
+  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
+    <defs>
+      <linearGradient id="slaFillGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${strokeColor}" stop-opacity="0.28" />
+        <stop offset="100%" stop-color="${strokeColor}" stop-opacity="0" />
+      </linearGradient>
+    </defs>
+    ${gridLines}
+    <path d="${areaD}" fill="url(#slaFillGrad)" stroke="none" />
+    <path d="${pathD}" fill="none" stroke="${strokeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+    ${points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="2.8" fill="${strokeColor}" />`).join('')}
+    ${xLabels}
+  </svg>`;
+
+  note.textContent = slaFeedOn
+    ? 'Previewing on-time completion rate per day from logged task data. Connect the SLA Monitor feed for full email / WhatsApp / call-channel breach tracking.'
+    : 'Live SLA feed is off — the curve is pinned at 0% until this is connected to SLA Monitor. Toggle on to preview adherence computed from logged task completions in the meantime.';
+}
+function renderTaskEngineVisuals(){
+  renderTaskHeatmap('taskHeatmapWrap');
+  renderSlaChart();
+}
+function renderManagerTopStats(){
+  const completed = tasks.filter(t => t.status === 'completed');
+  const onTime = completed.filter(t => t.logged <= t.tat);
+  const overdue = tasks.filter(t => t.internalDeadline && t.internalDeadline < todayISO() && t.status !== 'completed');
+  const gapPct = completed.length ? Math.round(((completed.length - onTime.length) / completed.length) * 1000) / 10 : 0;
+  const adherencePct = completed.length ? Math.round((onTime.length / completed.length) * 1000) / 10 : null;
+  const timingAcc = completed.length ? (completed.reduce((s,t) => s + Math.abs(t.logged - t.tat), 0) / completed.length).toFixed(1) : null;
+  document.getElementById('statGapPct').textContent = gapPct + '%';
+  document.getElementById('statAdherencePct').textContent = adherencePct === null ? '—' : adherencePct + '%';
+  document.getElementById('statTimingAcc').textContent = timingAcc === null ? '—' : '±' + timingAcc + 'h';
+  document.getElementById('breachRiskCount').textContent = overdue.length + (overdue.length === 1 ? ' task' : ' tasks');
+}
+function renderRiskFlags(){
+  const wrap = document.getElementById('riskFlagsWrap');
+  const windowAfterClient = tasks.filter(t => t.clientDate && t.internalDeadline && t.internalDeadline > t.clientDate).length;
+  const overTatCounts = {};
+  tasks.filter(t => t.status === 'completed' && t.logged > t.tat).forEach(t => {
+    overTatCounts[t.assignedTo] = (overTatCounts[t.assignedTo] || 0) + 1;
+  });
+  const repeatedBreaches = Object.values(overTatCounts).filter(c => c >= 2).length;
+  const rows = [];
+  if(windowAfterClient > 0) rows.push({label:'Window set after client date', count:windowAfterClient});
+  if(repeatedBreaches > 0) rows.push({label:'Employees with repeated TAT breaches', count:repeatedBreaches});
+  wrap.innerHTML = rows.length
+    ? rows.map(r => `<div class="flag-row"><span>⚠</span><span>${r.label}</span><span class="flag-count">${r.count}</span></div>`).join('')
+    : `<div style="font-size:14px; color:var(--text-faint); padding:9px 0;">No risks flagged yet.</div>`;
+}
+
+/* =========================================================================
+   CLIENT OWNERSHIP — "no client falls through the cracks"
+   ========================================================================= */
+function renderClientOwnership(){
+  const wrap = document.getElementById('clientOwnershipWrap');
+  if(!wrap) return;
+  if(clients.length === 0){
+    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No clients on file yet.</p>`;
+    return;
+  }
+  const unowned = clients.filter(c => !c.ownerId);
+  const rows = clients.map(c => {
+    const owner = empById(c.ownerId);
+    const openTasks = tasks.filter(t => t.clientId === c.id && t.status !== 'completed').length;
+    return `<div class="flag-row" style="${owner ? '' : 'color:#C2410C;'}">
+      <span>${owner ? '●' : '⚠'}</span>
+      <span>${esc(c.name)}${openTasks ? ` <span style="color:var(--text-faint);">· ${openTasks} open task${openTasks>1?'s':''}</span>` : ''}</span>
+      <span class="flag-count" style="${owner ? 'background:var(--teal-dim); color:#0D9488;' : ''}">${owner ? esc(owner.name) : 'No owner'}</span>
+    </div>`;
+  }).join('');
+  const summary = unowned.length > 0
+    ? `<div class="banner warn" style="margin-bottom:12px;"><span>⚠</span><span><b>${unowned.length} client${unowned.length>1?'s':''} without an owner:</b> ${unowned.map(c=>esc(c.name)).join(', ')}</span></div>`
+    : `<div class="banner" style="margin-bottom:12px;"><span>✓</span><span>Every client has a named owner.</span></div>`;
+  wrap.innerHTML = summary + rows;
+}
+
+/* =========================================================================
+   PRODUCTIVITY — hours worked vs. decided (TAT) hours, weekly/monthly
+   ========================================================================= */
+function periodBounds(period){
+  const now = new Date();
+  if(period === 'week'){
+    const day = now.getDay();
+    const diffToMonday = (day === 0 ? -6 : 1) - day;
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
+    const end = new Date(start); end.setDate(start.getDate() + 7);
+    return { start, end };
+  }
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return { start, end };
+}
+function setProductivityPeriod(period){
+  productivityPeriod = period;
+  document.getElementById('prodWeekBtn').classList.toggle('on', period === 'week');
+  document.getElementById('prodMonthBtn').classList.toggle('on', period === 'month');
+  renderProductivity();
+}
+function renderProductivity(){
+  const wrap = document.getElementById('productivityWrap');
+  if(!wrap) return;
+  const { start, end } = periodBounds(productivityPeriod);
+  const inPeriod = t => t.completedAt && new Date(t.completedAt) >= start && new Date(t.completedAt) < end;
+  const rows = employees.map(e => {
+    const done = tasks.filter(t => t.assignedTo === e.id && t.status === 'completed' && inPeriod(t));
+    const worked = done.reduce((s,t) => s + t.logged, 0);
+    const planned = done.reduce((s,t) => s + t.tat, 0);
+    const pct = planned > 0 ? Math.round((worked / planned) * 100) : null;
+    return { name: e.name, worked, planned, pct, count: done.length };
+  }).filter(r => r.count > 0);
+  if(rows.length === 0){
+    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No tasks completed in this period yet.</p>`;
+    return;
+  }
+  wrap.innerHTML = rows.map(r => `
+    <div class="flag-row">
+      <span>${esc(r.name)}</span>
+      <span style="color:var(--text-faint); font-family:'JetBrains Mono',monospace; font-size:12.5px;">${r.worked.toFixed(1)}h worked / ${r.planned.toFixed(1)}h planned</span>
+      <span class="flag-count" style="${r.pct !== null && r.pct <= 100 ? 'background:var(--teal-dim); color:#0D9488;' : ''}">${r.pct === null ? '—' : r.pct + '%'}</span>
+    </div>`).join('');
+}
+
+/* =========================================================================
+   COMMITMENT — % of completed tasks delivered on/before the agreed client date
+   ========================================================================= */
+function renderCommitment(){
+  const wrap = document.getElementById('commitmentWrap');
+  if(!wrap) return;
+  const completedWithDate = tasks.filter(t => t.status === 'completed' && t.clientDate && t.completedAt);
+  if(completedWithDate.length === 0){
+    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No completed tasks with a client date yet.</p>`;
+    return;
+  }
+  const onCommit = t => t.completedAt.slice(0,10) <= t.clientDate;
+  const overallMet = completedWithDate.filter(onCommit).length;
+  const overallPct = Math.round((overallMet / completedWithDate.length) * 100);
+  const perEmp = employees.map(e => {
+    const mine = completedWithDate.filter(t => t.assignedTo === e.id);
+    if(mine.length === 0) return null;
+    const met = mine.filter(onCommit).length;
+    return { name: e.name, pct: Math.round((met / mine.length) * 100), met, total: mine.length };
+  }).filter(Boolean);
+  wrap.innerHTML = `
+    <div class="banner"><span>🎯</span><span><b>${overallPct}%</b> of completed work delivered on or before the client's agreed date (${overallMet}/${completedWithDate.length}).</span></div>
+    ${perEmp.map(r => `<div class="flag-row"><span>${esc(r.name)}</span><span style="color:var(--text-faint); font-size:12.5px;">${r.met}/${r.total} on time</span><span class="flag-count" style="${r.pct>=90?'background:var(--teal-dim); color:#0D9488;':''}">${r.pct}%</span></div>`).join('')}
+  `;
+}
+
+/* =========================================================================
+   REVIEW & ACCURACY — returns submitted vs. error-free returns
+   ========================================================================= */
+function renderAccuracy(){
+  const wrap = document.getElementById('accuracyWrap');
+  if(!wrap) return;
+  const reviewed = tasks.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
+  if(reviewed.length === 0){
+    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No reviews recorded yet.</p>`;
+  } else {
+    const clean = reviewed.filter(t => t.reviewStatus === 'clean').length;
+    const pct = Math.round((clean / reviewed.length) * 100);
+    const perEmp = employees.map(e => {
+      const mine = reviewed.filter(t => t.assignedTo === e.id);
+      if(mine.length === 0) return null;
+      const mClean = mine.filter(t => t.reviewStatus === 'clean').length;
+      return { name: e.name, pct: Math.round((mClean/mine.length)*100), clean: mClean, total: mine.length };
+    }).filter(Boolean);
+    wrap.innerHTML = `
+      <div class="banner"><span>✔</span><span><b>${pct}%</b> error-free (${clean}/${reviewed.length} returns reviewed).</span></div>
+      ${perEmp.map(r => `<div class="flag-row"><span>${esc(r.name)}</span><span style="color:var(--text-faint); font-size:12.5px;">${r.clean}/${r.total} clean</span><span class="flag-count" style="${r.pct>=90?'background:var(--teal-dim); color:#0D9488;':'background:var(--coral-dim); color:#C2410C;'}">${r.pct}%</span></div>`).join('')}
+    `;
+  }
+  renderPendingReview();
+  renderNeedsRework();
+}
+function renderPendingReview(){
+  const wrap = document.getElementById('pendingReviewWrap');
+  if(!wrap) return;
+  const pending = tasks.filter(t => t.status === 'completed' && !t.reviewStatus);
+  if(pending.length === 0){
+    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">Nothing awaiting review.</p>`;
+    return;
+  }
+  wrap.innerHTML = pending.map(t => {
+    const emp = empById(t.assignedTo);
+    return `<div class="flag-row" style="align-items:center;">
+      <span>${esc(t.name)} <span style="color:var(--text-faint); font-size:12.5px;">— ${emp ? esc(emp.name) : '—'} · ${esc(t.clientName)}</span></span>
+      <span style="margin-left:auto;">
+        <button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>
+      </span>
+    </div>`;
+  }).join('');
+}
+function renderNeedsRework(){
+  const wrap = document.getElementById('needsReworkWrap');
+  if(!wrap) return;
+  // Covers both stages: flagged but not yet accepted (awaiting_acceptance
+  // or window_proposed, reviewStatus==='error') and actively being fixed
+  // (status==='rework', post-acceptance) — same underlying "not yet
+  // redelivered" condition the Accuracy panel and commitment tracking use.
+  const rework = tasks.filter(isReworkFlagged);
+  if(rework.length === 0){
+    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">Nothing sitting in rework right now.</p>`;
+    return;
+  }
+  wrap.innerHTML = rework.map(t => {
+    const emp = empById(t.assignedTo);
+    let stageLabel;
+    if(t.status === 'rework') stageLabel = t.reworkElapsedHours != null ? 'In rework ' + fmtHrsMins(t.reworkElapsedHours) : 'In rework';
+    else if(t.status === 'window_proposed') stageLabel = 'Proposed new window';
+    else stageLabel = 'Awaiting acceptance';
+    return `<div class="flag-row" style="align-items:center;">
+      <span>${esc(t.name)}${t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''} <span style="color:var(--text-faint); font-size:12.5px;">— with ${emp ? esc(emp.name) : '—'} · ${esc(t.clientName)}${t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}</span></span>
+      <span class="flag-count">${stageLabel}</span>
+    </div>`;
+  }).join('');
+}
+/* =========================================================================
+   REVIEW FORM — opened by a Manager/Superadmin once work is marked done.
+   Shows what was delivered, a quality checklist, and a Clean / Error
+   decision with notes — instead of a bare pair of buttons.
+   ========================================================================= */
+const REVIEW_CHECKLIST = [
+  'Figures reconciled to source documents',
+  'Correct return type & period selected',
+  'Client details verified (name, IRD number, GST/bank details)',
+  'Supporting documents attached / on file',
+  'Delivered within the agreed client window'
+];
+function openReviewFormModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  const assignee = empById(t.assignedTo);
+  const cs = commitmentStatus(t);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Review Form — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName) || '—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
+    <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:14px 16px; margin:14px 0 16px; font-size:13.5px; color:var(--text-dim); line-height:1.8;">
+      <div><b style="color:var(--text);">Completed by:</b> ${assignee ? esc(assignee.name) : '—'}</div>
+      <div><b style="color:var(--text);">Hours logged:</b> ${t.logged.toFixed(2)} / ${t.tat} hrs estimated</div>
+      <div><b style="color:var(--text);">Completed on:</b> ${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</div>
+      <div><b style="color:var(--text);">Client committed date:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
+      <div><b style="color:var(--text);">Commitment:</b> ${cs === 'met' ? '<span style="color:#0D9488;">✓ Met</span>' : cs === 'missed' ? '<span style="color:#C2410C;">✗ Missed</span>' : '—'}</div>
+    </div>
+    <div class="field">
+      <label>Review checklist</label>
+      <div style="display:flex; flex-direction:column; gap:8px; background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:8px; padding:11px 13px;">
+        ${REVIEW_CHECKLIST.map((item,i) => `<label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;"><input type="checkbox" class="reviewChecklistItem" value="${i}"> ${item}</label>`).join('')}
+      </div>
+    </div>
+    <div class="field"><label>Review notes ${''}<span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required if flagging an error)</span></label><textarea id="reviewFormNote" placeholder="e.g. Figures reconciled, no issues found"></textarea></div>
+    <div class="modal-error" id="reviewFormError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn coral" onclick="submitReviewForm('${id}', 'error')">⚠ Flag Error</button>
+      <button class="btn primary" onclick="submitReviewForm('${id}', 'clean')">✓ Mark Clean</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitReviewForm(id, decision){
+  const checked = Array.from(document.querySelectorAll('.reviewChecklistItem:checked')).map(cb => REVIEW_CHECKLIST[parseInt(cb.value, 10)]);
+  const noteInput = document.getElementById('reviewFormNote').value.trim();
+  if(decision === 'error' && !noteInput){
+    document.getElementById('reviewFormError').textContent = 'Please note what was wrong before flagging an error.';
+    document.getElementById('reviewFormError').style.display = 'block';
+    return;
+  }
+  const checklistLine = checked.length ? `Checklist confirmed: ${checked.join('; ')}.` : '';
+  const note = [noteInput, checklistLine].filter(Boolean).join(' ') || undefined;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({ status: decision, note }) });
+    closeModal();
+    await refreshTasks();
+    await refreshActivity({ silent: true });
+    showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', decision === 'clean' ? 'Points have been confirmed.' : 'The employee will see this note on the task.');
+  } catch(e){
+    document.getElementById('reviewFormError').textContent = e.message;
+    document.getElementById('reviewFormError').style.display = 'block';
+  }
+}
+function openReviewViewModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  const reviewer = empById(t.reviewedBy);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>${t.reviewStatus === 'clean' ? '✓ Reviewed Clean' : '⚠ Error Found'} — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName) || '—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
+    <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:14px 16px; margin:14px 0; font-size:13.5px; color:var(--text-dim); line-height:1.8;">
+      <div><b style="color:var(--text);">Reviewed by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
+      <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(t.reviewedAt.slice(0,10)) : '—'}</div>
+      <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+  `;
+  openModal();
+}
+/* =========================================================================
+   REWORK — a task the manager flagged with an error, sent back to the
+   assignee. It stays out of "completed" (and out of Commitment Met) until
+   fixed and resubmitted, which re-completes it and puts it back in front
+   of a reviewer.
+   ========================================================================= */
+function openReworkDetailModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  const reviewer = empById(t.reviewedBy);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>⚠ Needs Rework — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName) || '—'} ${t.scope ? '· ' + esc(t.scope) : ''}${t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
+    <div style="background:var(--coral-dim); border:1px solid #F0603E4a; border-radius:10px; padding:14px 16px; margin:14px 0; font-size:13.5px; color:#9A3412; line-height:1.8;">
+      <div><b style="color:#7A2A0C;">Flagged by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
+      <div style="margin-top:6px;"><b style="color:#7A2A0C;">What was wrong:</b><br>${t.reviewNote ? esc(t.reviewNote) : 'No notes recorded.'}</div>
+      ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
+    </div>
+    <p style="font-size:13.5px; color:var(--text-dim); line-height:1.6; margin-bottom:16px;">Fix the issue above, then resubmit — this puts it back in front of a reviewer and the completion date used for commitment tracking will be updated to when you resubmit.</p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn primary" onclick="submitResubmit('${id}')">✓ Fixed — Resubmit</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitResubmit(id){
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/resubmit`, { method:'POST' });
+    closeModal();
+    await refreshTasks();
+    await refreshActivity({ silent: true });
+    showToast('success', 'Resubmitted', 'Sent back for re-review.');
+  } catch(e){
+    showToast('error', 'Could not resubmit', e.message);
+  }
+}
+
+/* =========================================================================
+   REPORT CARD
+   ========================================================================= */
+function renderReportCard(){
+  const v = currentViewer();
+  if(!v) return;
+  document.getElementById('rcName').textContent = v.name;
+  document.getElementById('rcRole').textContent = v.jobTitle + ' · ' + v.team + ' · ' + new Date().toLocaleDateString('en-NZ',{month:'long', year:'numeric'});
+
+  const mine = tasks.filter(t => t.assignedTo === currentViewerId);
+  const completed = mine.filter(t => t.status === 'completed');
+  const onTime = completed.filter(t => t.logged <= t.tat);
+  const points = completed.reduce((s,t) => s + t.points, 0);
+  const adherencePct = completed.length ? Math.round((onTime.length / completed.length) * 100) : 0;
+  const gapPct = completed.length ? Math.round(((completed.length - onTime.length) / completed.length) * 1000) / 10 : null;
+
+  let streak = 0, bestStreak = 0;
+  for(const t of mine){
+    if(t.status === 'completed'){ streak++; bestStreak = Math.max(bestStreak, streak); }
+    else streak = 0;
+  }
+
+  const allTotals = employees
+    .map(e => ({ id: e.id, pts: tasks.filter(t => t.assignedTo === e.id && t.status === 'completed').reduce((s,t) => s + t.points, 0) }))
+    .sort((a,b) => b.pts - a.pts);
+  const rank = points > 0 ? allTotals.findIndex(e => e.id === currentViewerId) + 1 : null;
+
+  document.getElementById('rcPct').textContent = completed.length ? adherencePct + '%' : '—';
+  const circumference = 402;
+  const offset = completed.length ? circumference - (circumference * adherencePct / 100) : circumference;
+  document.getElementById('rcRing').setAttribute('stroke-dashoffset', offset);
+  document.getElementById('rcPoints').textContent = points;
+  document.getElementById('rcGap').textContent = gapPct === null ? '—' : gapPct + '%';
+  document.getElementById('rcStreak').textContent = bestStreak > 0 ? '🔥 ' + bestStreak : '—';
+  document.getElementById('rcRank').textContent = rank ? '#' + rank : '—';
+  const completedWithDate = completed.filter(t => t.clientDate && t.completedAt);
+  const commitMet = completedWithDate.filter(t => commitmentStatus(t) === 'met').length;
+  document.getElementById('rcCommitment').textContent = completedWithDate.length ? Math.round((commitMet / completedWithDate.length) * 100) + '%' : '—';
+  document.getElementById('badgesRow').innerHTML = points > 0
+    ? '<div class="badge-emoji">🎯</div><div class="badge-emoji">🔥</div><div class="badge-emoji">⭐</div>'
+    : '<div style="font-size:14px; color:var(--text-faint);">No badges earned yet.</div>';
+
+  const wrap = document.getElementById('myCommitmentsWrap');
+  if(mine.length === 0){ wrap.innerHTML = '<p style="font-size:14.5px;color:var(--text-faint);">No commitments assigned yet.</p>'; return; }
+  wrap.innerHTML = mine.map(t => {
+    const isToday = t.internalDeadline === todayISO() && t.status !== 'completed';
+    const cBadge = commitmentBadge(t);
+    return `<div style="display:flex; align-items:center; gap:14px; padding:13px 16px; background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; margin-bottom:9px;">
+      <div style="flex:1;"><div style="font-weight:600; font-size:15px;">${esc(t.name)}</div><div style="font-size:13.5px; color:var(--text-faint);">Client: ${esc(t.clientName)} ${t.clientDate ? '· Committed ' + fmtDate(t.clientDate) : ''} ${isToday ? '<b style="color:#C2410C;">· TODAY</b>' : ''}</div></div>
+      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">${statusBadge(t)}${cBadge}</div>
+    </div>`;
+  }).join('');
+}
+
+/* =========================================================================
+   CLIENTS — every client has a named owner; a client without one is
+   flagged, not silently missing.
+   ========================================================================= */
+async function refreshClients(){
+  try {
+    const { clients: fresh } = await api('/api/clients');
+    clients = fresh;
+    if(document.getElementById('view-clients').classList.contains('active')) renderClientGrid();
+  } catch(e){ console.error('Failed to refresh clients', e); }
+}
+function clientById(id){ return clients.find(c => c.id === id); }
+function renderClientGrid(){
+  const grid = document.getElementById('clientGrid');
+  if(clients.length === 0){
+    grid.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No clients yet — add your first one.</p>`;
+    return;
+  }
+  grid.innerHTML = clients.map(c => {
+    const owner = empById(c.ownerId);
+    return `
+    <div class="emp-card">
+      <span class="mini-avatar">${esc(c.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
+      <div style="flex:1;">
+        <div class="en">${esc(c.name)}</div>
+        <div class="et">${owner ? 'Owner: ' + esc(owner.name) : '<span style="color:#C2410C;">⚠ No owner assigned</span>'}</div>
+        ${isSuperAdmin || isAdmin ? `<button class="verify-btn" style="margin-top:8px;" onclick="openAssignClientOwner('${c.id}')">${owner ? 'Reassign owner' : 'Assign owner'}</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+function openAddClientModal(){
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Add Client</h3>
+    <div class="modal-sub">Every client should be assigned an owner right away.</div>
+    <div class="field"><label>Client name</label><input type="text" id="ncName" placeholder="e.g. City Cabs Ltd"></div>
+    <div class="field"><label>Owner</label><select id="ncOwner"><option value="">— No owner yet —</option>${employees.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="modal-error" id="ncError">Please enter a client name.</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitAddClient()">Add Client</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitAddClient(){
+  const name = document.getElementById('ncName').value.trim();
+  const ownerId = document.getElementById('ncOwner').value || null;
+  if(!name){ document.getElementById('ncError').style.display = 'block'; return; }
+  try {
+    await api('/api/clients', { method:'POST', body: JSON.stringify({ name, ownerId }) });
+    closeModal();
+    await refreshClients();
+    renderClientGrid();
+  } catch(e){
+    document.getElementById('ncError').textContent = e.message;
+    document.getElementById('ncError').style.display = 'block';
+  }
+}
+function openAssignClientOwner(id){
+  const c = clientById(id);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Assign Owner — ${esc(c.name)}</h3>
+    <div class="field"><label>Owner</label><select id="acOwner"><option value="">— No owner —</option>${employees.map(e=>`<option value="${e.id}" ${c.ownerId===e.id?'selected':''}>${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitAssignClientOwner('${id}')">Save</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitAssignClientOwner(id){
+  const ownerId = document.getElementById('acOwner').value || null;
+  try {
+    await api(`/api/clients/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({ ownerId }) });
+    closeModal();
+    await refreshClients();
+    renderClientGrid();
+    renderManagerStatics();
+  } catch(e){ showToast('error', 'Could not update client owner', e.message); }
+}
+/* =========================================================================
+   EMPLOYEE DIRECTORY
+   ========================================================================= */
+async function refreshEmployees(){
+  try {
+    const { employees: fresh } = await api('/api/employees');
+    employees = fresh;
+    const freshSelf = empById(session.id);
+    if(freshSelf){
+      session = freshSelf;
+      isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
+      isSuperAdmin = session.accessRole === 'superadmin';
+    }
+    if(document.getElementById('view-employees').classList.contains('active')) renderEmployeeGrid();
+  } catch(e){ console.error('Failed to refresh employees', e); }
+}
+function renderEmployeeGrid(){
+  const grid = document.getElementById('employeeGrid');
+  grid.innerHTML = employees.map(e => {
+    let managesLine = '';
+    if(e.accessRole === 'admin'){
+      const names = (e.managesIds||[]).map(id => empById(id)?.name).filter(Boolean);
+      managesLine = `<div style="font-size:13px; color:var(--text-faint); margin-top:3px;">Can assign to: ${names.length ? esc(names.join(', ')) : 'nobody yet'}</div>`;
+    } else if(e.accessRole === 'superadmin'){
+      managesLine = `<div style="font-size:13px; color:var(--text-faint); margin-top:3px;">Can assign to: everyone</div>`;
+    }
+    return `
+    <div class="emp-card">
+      <span class="mini-avatar">${esc(e.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
+      <div style="flex:1;">
+        <div class="en">${esc(e.name)}</div>
+        <div class="ee">${esc(e.email)}</div>
+        <div class="et">${esc(e.jobTitle)} · ${esc(e.team)} <span style="color:var(--text-faint);">· ${accessLabel(e.accessRole)}</span></div>
+        ${managesLine}
+        ${isSuperAdmin ? `<button class="verify-btn" style="margin-top:8px;" onclick="openManageEmployee('${e.id}')">Manage access</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+function openManageEmployee(id){
+  const e = employees.find(x => x.id === id);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Manage Access — ${esc(e.name)}</h3>
+    <div class="modal-sub">${esc(e.email)}</div>
+    <div class="field"><label>Access level</label>
+      <select id="meAccessRole" onchange="document.getElementById('meManagesBlock').style.display = this.value==='admin' ? '' : 'none';">
+        <option value="employee" ${e.accessRole==='employee'?'selected':''}>Employee</option>
+        <option value="admin" ${e.accessRole==='admin'?'selected':''}>Admin</option>
+        <option value="superadmin" ${e.accessRole==='superadmin'?'selected':''}>Superadmin</option>
+      </select>
+    </div>
+    <div class="field" id="meManagesBlock" style="${e.accessRole==='admin' ? '' : 'display:none;'}">
+      <label>Who can this Admin assign work to?</label>
+      <div style="max-height:160px; overflow-y:auto; background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:var(--radius-s); padding:10px 12px;">
+        ${employees.filter(x => x.id !== e.id).map(x => `
+          <label style="display:flex; align-items:center; gap:8px; font-size:14.5px; padding:4px 0; cursor:pointer;">
+            <input type="checkbox" class="meManagesCheck" value="${x.id}" ${(e.managesIds||[]).includes(x.id) ? 'checked' : ''}> ${esc(x.name)} — ${esc(x.team)}
+          </label>`).join('')}
+      </div>
+    </div>
+    <div class="field"><label>Reset password (leave blank to keep current)</label><input type="text" id="meNewPassword" placeholder="New password"></div>
+    <div class="modal-error" id="meError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      ${e.id !== session.id ? `<button class="btn coral" onclick="removeEmployeeConfirm('${e.id}')">Remove Employee</button>` : ''}
+      <button class="btn primary" onclick="submitManageEmployee('${e.id}')">Save</button>
+    </div>
+  `;
+  openModal();
+}
+function removeEmployeeConfirm(id){
+  const e = employees.find(x => x.id === id);
+  if(!e) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Remove ${esc(e.name)}?</h3>
+    <div class="modal-sub">This permanently deletes their login and directory entry. If they still have active tasks, reassign those first.</div>
+    <div class="modal-error" id="removeEmpError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openManageEmployee('${id}')">Cancel</button>
+      <button class="btn coral" onclick="submitRemoveEmployee('${id}')">Yes, Remove</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitRemoveEmployee(id){
+  try {
+    await api(`/api/employees/${encodeURIComponent(id)}`, { method:'DELETE' });
+    closeModal();
+    await refreshEmployees();
+    await refreshTasks();
+    renderEmployeeGrid();
+    showToast('success', 'Employee removed', 'Their account and login have been deleted.');
+  } catch(e){
+    const el = document.getElementById('removeEmpError');
+    if(el){ el.textContent = e.message; el.style.display = 'block'; }
+    else showToast('error', 'Could not remove employee', e.message);
+  }
+}
+async function submitManageEmployee(id){
+  const accessRole = document.getElementById('meAccessRole').value;
+  const managesIds = Array.from(document.querySelectorAll('.meManagesCheck:checked')).map(cb => cb.value);
+  const password = document.getElementById('meNewPassword').value.trim();
+  try {
+    await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({
+      accessRole, managesIds, password: password || undefined
+    })});
+    closeModal();
+    await refreshEmployees();
+    renderEmployeeGrid();
+    // The "Assign to Team" entry point is visible to any Admin/Superadmin —
+    // whether they can actually assign to anyone (superadmin-granted) is
+    // enforced inside the modal itself, not by hiding the door entirely.
+    document.getElementById('assignTeamNavItem').style.display = isAdmin ? '' : 'none';
+    document.getElementById('assignTeamBtn').style.display = isAdmin ? '' : 'none';
+  } catch(e){
+    document.getElementById('meError').textContent = e.message;
+    document.getElementById('meError').style.display = 'block';
+  }
+}
+function openAddEmployeeModal(){
+  const accessOptions = isSuperAdmin
+    ? `<option value="employee">Employee</option><option value="admin">Admin</option><option value="superadmin">Superadmin</option>`
+    : `<option value="employee">Employee</option>`;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Add Employee</h3>
+    <div class="modal-sub">Creates a directory entry and a login for the employee portal. New Admins can't assign work to anyone until you grant it from "Manage access".</div>
+    <div class="field"><label>Full name</label><input type="text" id="neName" placeholder="e.g. Priya Nair"></div>
+    <div class="field"><label>Email (used to log in)</label><input type="email" id="neEmail" placeholder="priya@elitetaxation.co.nz"></div>
+    <div class="field"><label>Temporary password</label><input type="text" id="nePassword" placeholder="e.g. Priya@2026"></div>
+    <div class="field"><label>Job title</label><input type="text" id="neJobTitle" placeholder="e.g. Tax Associate"></div>
+    <div class="field"><label>Team</label><input type="text" id="neTeam" placeholder="e.g. GST Team"></div>
+    <div class="field"><label>Access level</label><select id="neAccessRole">${accessOptions}</select></div>
+    <div class="modal-error" id="addEmpError">Please enter a name, email, and password.</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitAddEmployee()">Add Employee</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitAddEmployee(){
+  const name = document.getElementById('neName').value.trim();
+  const email = document.getElementById('neEmail').value.trim();
+  const password = document.getElementById('nePassword').value.trim();
+  const jobTitle = document.getElementById('neJobTitle').value.trim() || 'Team Member';
+  const team = document.getElementById('neTeam').value.trim() || 'Unassigned';
+  const accessRole = document.getElementById('neAccessRole').value;
+  if(!name || !email || !password){ document.getElementById('addEmpError').style.display = 'block'; return; }
+  try {
+    await api('/api/employees', { method:'POST', body: JSON.stringify({ name, email, password, jobTitle, team, accessRole }) });
+    closeModal();
+    await refreshEmployees();
+    renderEmployeeGrid();
+  } catch(e){
+    document.getElementById('addEmpError').textContent = e.message;
+    document.getElementById('addEmpError').style.display = 'block';
+  }
+}
+
+/* =========================================================================
+   LOGIN — two separate tabs (Employee vs Admin/Superadmin), enforced both
+   client-side (which fields show) and server-side (the actual security
+   boundary — see server.js).
+   ========================================================================= */
+function showLoginGate(errorMsg){
+  renderLoginGate(errorMsg);
+  window.__loginGateActive = true;
+  openModal();
+}
+function switchLoginTab(tab){
+  loginTab = tab;
+  renderLoginGate();
+}
+function renderLoginGate(errorMsg){
+  const isEmpTab = loginTab === 'employee';
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🔒 ${isEmpTab ? 'Employee Sign In' : 'Admin / Superadmin Sign In'}</h3>
+    <div class="modal-sub">${isEmpTab ? 'Sign in to your own Commitment Hub account.' : 'Sign in to the management console — a separate sign-in from individual employee accounts.'}</div>
+    <div class="status-toggle" style="margin-bottom:16px; width:100%;">
+      <button style="flex:1;" class="${isEmpTab ? 'on' : ''}" onclick="switchLoginTab('employee')">Employee</button>
+      <button style="flex:1;" class="${!isEmpTab ? 'on' : ''}" onclick="switchLoginTab('admin')">Admin / Superadmin</button>
+    </div>
+    <div class="field"><label>Email</label><input type="email" id="loginEmailInput" placeholder="${isEmpTab ? 'you@elitetaxation.co.nz' : 'hr@elitetaxation.co.nz'}"></div>
+    <div class="field"><label>Password</label><input type="password" id="loginPasswordInput" placeholder="••••••••"></div>
+    <div class="modal-error" id="loginError" style="${errorMsg ? 'display:block;' : ''}">${esc(errorMsg || 'Incorrect email or password.')}</div>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="submitLogin()">Log In</button>
+    </div>
+  `;
+}
+async function submitLogin(){
+  const email = document.getElementById('loginEmailInput').value.trim();
+  const password = document.getElementById('loginPasswordInput').value;
+  try {
+    const { token, employee } = await api('/api/auth/login', {
+      method: 'POST', body: JSON.stringify({ email, password, expectedTab: loginTab })
+    });
+    authToken = token;
+    localStorage.setItem('governanceOsToken', token);
+    session = employee;
+    isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
+    isSuperAdmin = session.accessRole === 'superadmin';
+    currentViewerId = session.id;
+    window.__loginGateActive = false;
+    closeModal();
+    await onLoginComplete();
+  } catch(e){
+    renderLoginGate(e.message);
+  }
+}
+async function onLoginComplete(){
+  seenAwaitingIds = null; // fresh baseline each login — don't re-pop tasks already surfaced last session
+  document.getElementById('employeesNavSection').style.display = isAdmin ? '' : 'none';
+  document.getElementById('commandCenterNavSection').style.display = isAdmin ? '' : 'none';
+  document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
+  // Visible to every Admin/Superadmin — actual assign permission (decided by
+  // a Superadmin via Manage Access) is enforced inside the modal, not by
+  // hiding the nav item from managers who haven't been granted anyone yet.
+  document.getElementById('assignTeamNavItem').style.display = isAdmin ? '' : 'none';
+  document.getElementById('assignTeamBtn').style.display = isAdmin ? '' : 'none';
+  document.getElementById('adminStatus').style.display = 'block';
+  document.getElementById('adminStatus').textContent = `✓ ${session.name} · ${accessLabel(session.accessRole)}`;
+  document.getElementById('adminLoginBtn').textContent = '🔓 Account';
+  document.getElementById('topAvatar').textContent = session.name.split(' ').map(w=>w[0]).slice(0,2).join('');
+  document.getElementById('topName').textContent = session.name;
+  document.getElementById('topRole').textContent = session.jobTitle + ' · ' + session.team;
+
+  await refreshEmployees();
+  await refreshClients();
+  await refreshTasks();
+  await refreshActivity();
+  await loadPunchState();
+  renderReportCard();
+
+  if(isAdmin){
+    document.getElementById('scopeFilter').value = 'all';
+    showView('manager', document.querySelector('.nav-item[data-view="manager"]'));
+  }
+  startPolling();
+}
+function openAdminLogin(){
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Account</h3>
+    <div class="modal-sub">Signed in as ${esc(session.name)} (${esc(session.email)}) · ${accessLabel(session.accessRole)}</div>
+    <div style="font-size:13.5px; color:var(--text-dim); margin-top:10px; padding-top:10px; border-top:1px solid var(--line);">🟢 Connected to the shared server — every action reaches the whole team.</div>
+    <div class="sound-toggle-row">
+      <span class="lbl">🔔 Notification sound <span id="soundToggleLabel" style="color:var(--text-faint);">${soundEnabled ? 'On' : 'Muted'}</span></span>
+      <div class="toggle-switch ${soundEnabled ? 'on' : ''}" id="soundToggle" onclick="toggleSound()"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn coral" onclick="logoutSession()">Log Out</button>
+    </div>`;
+  openModal();
+}
+function logoutSession(){
+  const wasAdmin = isAdmin;
+  authToken = null;
+  localStorage.removeItem('governanceOsToken');
+  session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null;
+  seenAwaitingIds = null;
+  stopPolling();
+  if(clockInterval){ clearInterval(clockInterval); clockInterval = null; }
+  document.getElementById('employeesNavSection').style.display = 'none';
+  document.getElementById('commandCenterNavSection').style.display = 'none';
+  document.getElementById('attendanceNavSection').style.display = 'none';
+  document.getElementById('assignTeamNavItem').style.display = 'none';
+  document.getElementById('assignTeamBtn').style.display = 'none';
+  document.getElementById('adminStatus').style.display = 'none';
+  document.getElementById('adminLoginBtn').textContent = '🔒 Account';
+  loginTab = wasAdmin ? 'admin' : 'employee';
+  showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
+  showLoginGate();
+}
+
+/* =========================================================================
+   MODAL HELPERS
+   ========================================================================= */
+function openModal(){ document.getElementById('modalOverlay').classList.add('active'); }
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('active'); }
+document.getElementById('modalOverlay').addEventListener('click', function(e){
+  if(e.target === this && !window.__loginGateActive) closeModal();
+});
+
+/* =========================================================================
+   POLLING — picks up other people's actions. The server is the source of
+   truth; this just re-fetches on an interval so this browser stays current
+   without the person having to refresh the page.
+   ========================================================================= */
+let pollHandle = null;
+function startPolling(){
+  if(pollHandle) return;
+  pollHandle = setInterval(async () => {
+    if(!session) return;
+    await refreshTasks();
+    await refreshActivity();
+    await refreshEmployees();
+    await refreshClients();
+  }, 8000);
+}
+function stopPolling(){ if(pollHandle){ clearInterval(pollHandle); pollHandle = null; } }
+
+/* =========================================================================
+   INIT
+   ========================================================================= */
+function tickCcClock(){
+  const el = document.getElementById('ccClock');
+  const dEl = document.getElementById('ccDate');
+  if(!el || !dEl) return;
+  const now = new Date();
+  el.textContent = now.toLocaleTimeString('en-NZ', { hour12:false });
+  dEl.textContent = now.toLocaleDateString('en-NZ', { weekday:'long', day:'2-digit', month:'long', year:'numeric' }) + ' · NZT';
+}
+setInterval(tickCcClock, 1000);
+
+(async function init(){
+  tickCcClock();
+  document.getElementById('clockDisplay').textContent = fmtClock(0);
+  if(authToken){
+    try {
+      const { employee } = await api('/api/auth/me');
+      session = employee;
+      isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
+      isSuperAdmin = session.accessRole === 'superadmin';
+      currentViewerId = session.id;
+      await onLoginComplete();
+      return;
+    } catch(e){
+      authToken = null;
+      localStorage.removeItem('governanceOsToken');
+    }
+  }
+  showLoginGate();
+})();
+</script>
+</body>
+</html>
