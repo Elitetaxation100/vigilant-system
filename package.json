@@ -1,0 +1,20 @@
+{
+  "name": "elite-taxation-governance-os",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Elite Taxation Governance OS — real backend (Express + JSON file store) so tasks actually reach the person they're assigned to.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cors": "^2.8.5",
+    "express-rate-limit": "^7.4.1"
+  }
+}
