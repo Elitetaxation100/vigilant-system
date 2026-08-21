@@ -128,7 +128,7 @@ function taskForClient(t) {
 // agreed date among active work" signal — it feeds the Workload Blockers
 // panel's "occupied until" display, which is just a heads-up, not a gate.
 // ---------------------------------------------------------------------------
-const DAILY_CAPACITY_HOURS = 8;
+const DAILY_CAPACITY_HOURS = 9;
 function employeeBusyUntil(state, employeeId, excludeTaskId) {
   const active = state.tasks.filter(t => t.assignedTo === employeeId && t.status !== 'completed' && t.internalDeadline && t.id !== excludeTaskId);
   if (active.length === 0) return null;
