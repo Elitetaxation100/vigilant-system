@@ -1261,10 +1261,10 @@ function renderDeadlineBanner(){
     banners.push(`<div class="banner warn"><span>⏰</span><span><b>Deadline today:</b> ${dueToday.map(t => esc(t.name) + ' — ' + esc(t.scope)).join(' · ')}</span></div>`);
   }
   if(isAdmin){
-    const busy = workload.filter(w => w.busyUntil);
+    const busy = workload.filter(w => w.overloaded);
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
     if(busy.length > 0){
-      banners.push(`<div class="banner warn"><span>🧱</span><span><b>${busy.length} team member${busy.length>1?'s':''} fully booked:</b> ${busy.map(w => esc(w.name) + ' until ' + fmtDate(w.busyUntil)).join(' · ')}</span></div>`);
+      banners.push(`<div class="banner warn"><span>🔴</span><span><b>${busy.length} team member${busy.length>1?'s':''} overloaded:</b> ${busy.map(w => esc(w.name) + ' — ' + w.peakHours + 'h committed ' + fmtDate(w.peakDate) + ' (cap ' + w.capacityHours + 'h)').join(' · ')}</span></div>`);
     }
     if(proposedOrg.length > 0){
       banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed:</b> ${proposedOrg.map(t => esc(empById(t.assignedTo)?.name||'—') + ' — ' + esc(t.name)).join(' · ')} — <a href="#" onclick="showView('dashboard', document.querySelector('.nav-item[data-view=&quot;dashboard&quot;]')); document.getElementById('statusFilter').value='window_proposed'; document.getElementById('scopeFilter').value='all'; renderTaskTable(); return false;" style="color:#6D28D9; text-decoration:underline;">review</a></span></div>`);
@@ -1719,21 +1719,29 @@ async function submitAssign(mode){
   const deadline = document.getElementById('atDeadline').value;
   const tat = parseFloat(document.getElementById('atTat').value) || 3;
   const points = parseInt(document.getElementById('atPoints').value) || 0;
-  try {
-    await api('/api/tasks', { method:'POST', body: JSON.stringify({
-      mode, name, scope, assignedTo, clientId, clientDate, internalDeadline: deadline, tat, points
-    })});
-    closeModal();
-    showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
-    await refreshTasks();
-    await refreshActivity({ silent: true }); // avoid a self-triggered "someone else" toast for our own assignment
-    const assigneeName = mode === 'team' ? (empById(assignedTo)?.name || 'team member') : 'yourself';
-    showToast('success', mode === 'team' ? 'Task assigned' : 'Task created', `${name} — sent to ${assigneeName}.`); // showToast escapes this itself
-  } catch(e){
-    document.getElementById('assignError').textContent = e.message;
-    document.getElementById('assignError').style.display = 'block';
-  }
+  const payload = { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline: deadline, tat, points };
+  await submitTaskPayload(payload);
 }
+  async function submitTaskPayload(payload){
+    try {
+      await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) });
+      closeModal();
+      showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
+      await refreshTasks();
+      await refreshActivity({ silent: true });
+      const assigneeName = payload.mode === 'team' ? (empById(payload.assignedTo)?.name || 'team member') : 'yourself';
+      showToast('success', payload.mode === 'team' ? 'Task assigned' : 'Task created', `${payload.name} — sent to ${assigneeName}.`);
+    } catch(e){
+      if(e.code === 'WORKLOAD_CONFLICT' && !payload.force){ showOverloadWarning(e.message, () => { payload.force = true; submitTaskPayload(payload); }); return; }
+      const errEl = document.getElementById('assignError');
+      if(errEl){ errEl.textContent = e.message; errEl.style.display = 'block'; } else { showToast('error', 'Could not assign task', e.message); }
+    }
+  }
+  function showOverloadWarning(message, onOverride){
+    document.getElementById('modalBox').innerHTML = `<h3>⚠️ Warning: Employee Is Overloaded</h3><div class="modal-sub">${esc(message)}</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="overloadOverrideBtn">Emergency Override — Assign Anyway</button></div>`;
+    document.getElementById('overloadOverrideBtn').onclick = async () => { await onOverride(); };
+    openModal();
+  }
 
 /* =========================================================================
    REASSIGNMENT — hands an existing task to a different employee. Routes
@@ -1768,15 +1776,20 @@ function openReassignModal(id){
 async function submitReassign(id){
   const newAssigneeId = document.getElementById('rsAssignee').value;
   const reason = document.getElementById('rsReason').value.trim();
-  try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/reassign`, { method:'POST', body: JSON.stringify({ newAssigneeId, reason }) });
-    closeModal();
-    await refreshTasks();
-    await refreshActivity({ silent:true });
-    showToast('success', 'Task reassigned', `${empById(newAssigneeId)?.name || 'New assignee'} must accept or propose a new window.`); // showToast escapes this itself
-  } catch(e){
-    const el = document.getElementById('reassignError');
-    el.textContent = e.message; el.style.display = 'block';
+  await submitReassignPayload(id, { newAssigneeId, reason });
+}
+  async function submitReassignPayload(id, body){
+    try {
+      await api(`/api/tasks/${encodeURIComponent(id)}/reassign`, { method:'POST', body: JSON.stringify(body) });
+      closeModal();
+      await refreshTasks();
+      await refreshActivity({ silent:true });
+      showToast('success', 'Task reassigned', `${empById(body.newAssigneeId)?.name || 'New assignee'} must accept or propose a new window.`);
+    } catch(e){
+      if(e.code === 'WORKLOAD_CONFLICT' && !body.force){ showOverloadWarning(e.message, () => { body.force = true; submitReassignPayload(id, body); }); return; }
+      const el = document.getElementById('reassignError');
+      if(el){ el.textContent = e.message; el.style.display = 'block'; } else { showToast('error', 'Could not reassign task', e.message); }
+    }
   }
 }
 
