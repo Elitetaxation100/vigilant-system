@@ -115,15 +115,20 @@ function taskForClient(t) {
 }
 
 // ---------------------------------------------------------------------------
-// WORKLOAD / AVAILABILITY — "occupied until" is the latest agreed internal
-// deadline among an employee's currently active (non-completed) tasks.
-// New work can't be handed to them with a deadline on or before that
-// date — that would mean squeezing it into a window that's already
-// spoken for. Completed tasks free the window back up automatically
-// (they're excluded here), and excludeTaskId lets a task check against
-// an employee's OTHER work without tripping over itself (reassignment,
-// window approval).
+// WORKLOAD / AVAILABILITY — capacity-based. An employee has a fixed daily
+// capacity (DAILY_CAPACITY_HOURS); a new task is only blocked if handing
+// it to them would push their ALREADY-COMMITTED hours on that specific
+// agreed date over that capacity. Simply already having one other task
+// due the same day is not by itself a conflict — only the actual hours
+// total is. Completed tasks don't count (they're excluded here), and
+// excludeTaskId lets a task check against an employee's OTHER work
+// without tripping over itself (reassignment, window approval).
+//
+// employeeBusyUntil() stays as a lighter-weight, informational "latest
+// agreed date among active work" signal — it feeds the Workload Blockers
+// panel's "occupied until" display, which is just a heads-up, not a gate.
 // ---------------------------------------------------------------------------
+const DAILY_CAPACITY_HOURS = 8;
 function employeeBusyUntil(state, employeeId, excludeTaskId) {
   const active = state.tasks.filter(t => t.assignedTo === employeeId && t.status !== 'completed' && t.internalDeadline && t.id !== excludeTaskId);
   if (active.length === 0) return null;
@@ -136,11 +141,23 @@ function nextAvailableDate(busyUntil) {
   const iso = d.toISOString().slice(0, 10);
   return iso > todayISO() ? iso : todayISO();
 }
-function workloadConflict(state, employeeId, deadline, excludeTaskId) {
+// Sum of agreed hours (tat) for this employee's active tasks that are
+// already due on `date` — the actual committed workload for that day.
+function hoursCommittedOnDate(state, employeeId, date, excludeTaskId) {
+  return state.tasks
+    .filter(t => t.assignedTo === employeeId && t.status !== 'completed' && t.internalDeadline === date && t.id !== excludeTaskId)
+    .reduce((sum, t) => sum + (Number(t.tat) || 0), 0);
+}
+function workloadConflict(state, employeeId, deadline, excludeTaskId, newTaskHours) {
   if (!deadline) return null;
-  const busyUntil = employeeBusyUntil(state, employeeId, excludeTaskId);
-  if (busyUntil && deadline <= busyUntil) {
-    return { busyUntil, nextAvailable: nextAvailableDate(busyUntil) };
+  const committedHours = hoursCommittedOnDate(state, employeeId, deadline, excludeTaskId);
+  const incomingHours = Number(newTaskHours) || 0;
+  const projectedHours = Math.round((committedHours + incomingHours) * 100) / 100;
+  if (projectedHours > DAILY_CAPACITY_HOURS) {
+    return {
+      busyUntil: deadline, nextAvailable: nextAvailableDate(deadline),
+      committedHours: Math.round(committedHours * 100) / 100, projectedHours, capacityHours: DAILY_CAPACITY_HOURS,
+    };
   }
   return null;
 }
@@ -301,10 +318,10 @@ app.get('/api/clients', requireAuth, (req, res) => {
 });
 app.post('/api/clients', requireAuth, requireAdmin, (req, res) => {
   const state = db.get();
-  const { name, ownerId } = req.body || {};
+  const { name, ownerId, type } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Client name is required.' });
   if (ownerId && !findEmployee(state, ownerId)) return res.status(400).json({ error: 'Owner not found.' });
-  const client = { id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000), name: String(name).trim(), ownerId: ownerId || null };
+  const client = { id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000), name: String(name).trim(), ownerId: ownerId || null, type: type ? String(type).trim() : null };
   state.clients.push(client);
   db.save();
   res.status(201).json({ client });
@@ -313,12 +330,13 @@ app.patch('/api/clients/:id', requireAuth, requireAdmin, (req, res) => {
   const state = db.get();
   const client = state.clients.find(c => c.id === req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found.' });
-  const { name, ownerId } = req.body || {};
+  const { name, ownerId, type } = req.body || {};
   if (name && String(name).trim()) client.name = String(name).trim();
   if (ownerId !== undefined) {
     if (ownerId && !findEmployee(state, ownerId)) return res.status(400).json({ error: 'Owner not found.' });
     client.ownerId = ownerId || null;
   }
+  if (type !== undefined) client.type = type ? String(type).trim() : null;
   db.save();
   res.json({ client });
 });
@@ -346,13 +364,13 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     const allowed = assignableEmployees(state, req.employee).some(e => e.id === assignee);
     if (!allowed) return res.status(403).json({ error: "You're not authorized to assign work to this person." });
   }
-  // Workload blocker — refuse to schedule this employee into a window
-  // they're already occupied for. See workloadConflict() above.
-  const conflict = workloadConflict(state, assignee, internalDeadline);
+  // Workload blocker — refuse to schedule this employee into a day whose
+  // committed hours would exceed daily capacity. See workloadConflict() above.
+  const conflict = workloadConflict(state, assignee, internalDeadline, undefined, tat);
   if (conflict) {
     const who = (findEmployee(state, assignee) || {}).name || 'This employee';
     return res.status(409).json({
-      error: `${who} is already occupied with agreed work until ${conflict.busyUntil}. Next available date: ${conflict.nextAvailable}.`,
+      error: `${who} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — adding this ${tat || 0}hr task would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
       code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
     });
   }
@@ -530,11 +548,11 @@ app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
   // brand-new assignment does — approving a proposal is still handing
   // this employee an agreed deadline, and it shouldn't be able to land
   // inside a window they're already occupied for on other work.
-  const conflict = workloadConflict(state, t.assignedTo, t.proposedDate, t.id);
+  const conflict = workloadConflict(state, t.assignedTo, t.proposedDate, t.id, t.tat);
   if (conflict) {
     const who = (findEmployee(state, t.assignedTo) || {}).name || 'This employee';
     return res.status(409).json({
-      error: `${who} is already occupied with agreed work until ${conflict.busyUntil}. Next available date: ${conflict.nextAvailable}.`,
+      error: `${who} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — this would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
       code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
     });
   }
@@ -610,10 +628,10 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   // The new assignee has to clear the same workload-blocker check a
   // brand-new assignment would — moving a task to someone shouldn't be
   // able to double-book them either.
-  const conflict = workloadConflict(state, newAssigneeId, t.internalDeadline, t.id);
+  const conflict = workloadConflict(state, newAssigneeId, t.internalDeadline, t.id, t.tat);
   if (conflict) {
     return res.status(409).json({
-      error: `${newEmp.name} is already occupied with agreed work until ${conflict.busyUntil}. Next available date: ${conflict.nextAvailable}.`,
+      error: `${newEmp.name} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — this would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
       code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
     });
   }
