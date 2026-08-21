@@ -384,7 +384,7 @@
   .cc-stamp-cell{ display:flex; flex-direction:column; }
   .cc-stamp{ position:absolute; right:10px; top:8px; width:64px; height:64px; opacity:.9; }
 
-  .cc-panel{ background:#131826; border:1px solid #1E2330; border-radius:16px; padding:18px 20px 20px; margin-bottom:16px; }
+  .cc-panel{ background:#131826; border:1px solid #1E2330; border-radius:16px; padding:18px 20px 20px; margin-bottom:16px; overflow-x:auto; max-width:100%; }
   .cc-panel-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:6px; }
   .cc-panel-head h3{ font-family:var(--font-display); font-size:15.5px; font-weight:700; color:#F5F7FA; }
   .cc-panel-sub{ font-size:12px; color:#6B7390; }
@@ -397,9 +397,9 @@
   .cc-donut-label{ margin-top:9px; font-size:13px; font-weight:600; color:#E7EAF2; text-align:center; }
   .cc-donut-sub{ font-size:11px; color:#6B7390; text-align:center; margin-top:2px; }
 
-  .cc-table{ width:100%; border-collapse:collapse; }
-  .cc-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#6B7390; padding:8px 10px; border-bottom:1px solid #1E2330; }
-  .cc-table td{ padding:10px 10px; border-bottom:1px solid #1A1F2B; font-size:13.5px; color:#D6DAE6; vertical-align:top; }
+  .cc-table{ width:100%; min-width:640px; border-collapse:collapse; table-layout:auto; }
+  .cc-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#6B7390; padding:8px 10px; border-bottom:1px solid #1E2330; white-space:nowrap; }
+  .cc-table td{ padding:10px 10px; border-bottom:1px solid #1A1F2B; font-size:13.5px; color:#D6DAE6; vertical-align:top; word-break:break-word; overflow-wrap:anywhere; }
   .cc-table tr:hover td{ background:#161C29; }
 </style>
 </head>
@@ -538,7 +538,7 @@
                 <th>Client / Commitment Date</th>
                 <th>Points</th>
                 <th>Assigned To</th>
-                <th>Actual / Agreed Hrs</th>
+                <th>Agreed Hrs</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -649,7 +649,7 @@
               <span class="cc-panel-sub">Superadmin only · downloadable as Excel above</span>
             </div>
             <table class="cc-table">
-              <thead><tr><th>Employee</th><th>Team</th><th>Assigned</th><th>Delivered</th><th>Task Completed (Hrs)</th><th>Avg Hrs/Task</th><th>Reassigned</th><th>On-Time %</th><th>Clean Review %</th><th>Rework</th><th>Rework Hrs</th><th>Shift Hrs</th><th>Productivity</th><th>Rating</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Team</th><th>Assigned</th><th>Delivered</th><th>Hours Logged</th><th>Avg Hrs/Task</th><th>Reassigned</th><th>On-Time %</th><th>Clean Review %</th><th>Rework</th><th>Rework Hrs</th><th>Shift Hrs</th><th>Productivity</th><th>Rating</th></tr></thead>
               <tbody id="ccRatingsBody"></tbody>
             </table>
           </div>
@@ -1411,7 +1411,7 @@ function renderTaskTable(){
         <td class="clientcell">${esc(t.clientName) || '—'}<div class="cdate ${isToday?'deadline-today':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}</div><div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Agreed delivery: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
         <td class="pts">★ ${t.points} pts</td>
         <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
-        <td class="logged"><b>${displayedLogged(t).toFixed(2)}</b> / ${t.tat} hrs</td>
+        <td class="logged">${t.tat} hrs</td>
         <td>${statusBadge(t)}</td>
         <td>${actionCell(t)}</td>
       </tr>`;
@@ -1933,7 +1933,7 @@ async function renderCommandCenter(){
         <td>${esc(r.team)}</td>
         <td>${r.assigned}</td>
         <td>${r.delivered}</td>
-        <td style="font-family:var(--font-mono);">${r.deliveredLoggedHours.toFixed(1)}h</td>
+        <td style="font-family:var(--font-mono);">${r.totalLoggedHours.toFixed(1)}h</td>
         <td style="font-family:var(--font-mono);">${r.avgHoursPerTask === null ? '—' : r.avgHoursPerTask.toFixed(2) + 'h'}</td>
         <td>${r.reassignedAway + r.reassignedIn}</td>
         <td>${r.onTimeRate}%</td>
@@ -2626,17 +2626,34 @@ function renderClientGrid(){
       <span class="mini-avatar">${esc(c.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
       <div style="flex:1;">
         <div class="en">${esc(c.name)}</div>
+        ${c.type ? `<div class="et" style="color:#5B4FCF;">${esc(c.type)}</div>` : ''}
         <div class="et">${owner ? 'Owner: ' + esc(owner.name) : '<span style="color:#C2410C;">⚠ No owner assigned</span>'}</div>
         ${isSuperAdmin || isAdmin ? `<button class="verify-btn" style="margin-top:8px;" onclick="openAssignClientOwner('${c.id}')">${owner ? 'Reassign owner' : 'Assign owner'}</button>` : ''}
       </div>
     </div>`;
   }).join('');
 }
+const CLIENT_TYPES = ['Rideshare', 'Rental', 'Company', 'Custom'];
+let selectedClientType = 'Rideshare';
+function selectClientType(type, btn){
+  selectedClientType = type;
+  document.querySelectorAll('.ncTypeBtn').forEach(b => b.classList.remove('primary'));
+  btn.classList.add('primary');
+  const customField = document.getElementById('ncTypeCustomField');
+  if(customField) customField.style.display = type === 'Custom' ? '' : 'none';
+}
 function openAddClientModal(){
+  selectedClientType = 'Rideshare';
   document.getElementById('modalBox').innerHTML = `
     <h3>Add Client</h3>
     <div class="modal-sub">Every client should be assigned an owner right away.</div>
     <div class="field"><label>Client name</label><input type="text" id="ncName" placeholder="e.g. City Cabs Ltd"></div>
+    <div class="field"><label>Client type</label>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        ${CLIENT_TYPES.map((type,i) => `<button type="button" class="btn small ncTypeBtn${i===0?' primary':''}" onclick="selectClientType('${type}', this)">${type}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field" id="ncTypeCustomField" style="display:none;"><label>Custom type</label><input type="text" id="ncTypeCustom" placeholder="e.g. Property Management"></div>
     <div class="field"><label>Owner</label><select id="ncOwner"><option value="">— No owner yet —</option>${employees.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
     <div class="modal-error" id="ncError">Please enter a client name.</div>
     <div class="modal-actions">
@@ -2649,9 +2666,10 @@ function openAddClientModal(){
 async function submitAddClient(){
   const name = document.getElementById('ncName').value.trim();
   const ownerId = document.getElementById('ncOwner').value || null;
+  const type = selectedClientType === 'Custom' ? (document.getElementById('ncTypeCustom').value.trim() || 'Custom') : selectedClientType;
   if(!name){ document.getElementById('ncError').style.display = 'block'; return; }
   try {
-    await api('/api/clients', { method:'POST', body: JSON.stringify({ name, ownerId }) });
+    await api('/api/clients', { method:'POST', body: JSON.stringify({ name, ownerId, type }) });
     closeModal();
     await refreshClients();
     renderClientGrid();
@@ -2726,6 +2744,8 @@ function openManageEmployee(id){
   document.getElementById('modalBox').innerHTML = `
     <h3>Manage Access — ${esc(e.name)}</h3>
     <div class="modal-sub">${esc(e.email)}</div>
+    <div class="field"><label>Designation (job title)</label><input type="text" id="meJobTitle" value="${esc(e.jobTitle)}"></div>
+    <div class="field"><label>Department (team)</label><input type="text" id="meTeam" value="${esc(e.team)}"></div>
     <div class="field"><label>Access level</label>
       <select id="meAccessRole" onchange="document.getElementById('meManagesBlock').style.display = this.value==='admin' ? '' : 'none';">
         <option value="employee" ${e.accessRole==='employee'?'selected':''}>Employee</option>
@@ -2784,9 +2804,11 @@ async function submitManageEmployee(id){
   const accessRole = document.getElementById('meAccessRole').value;
   const managesIds = Array.from(document.querySelectorAll('.meManagesCheck:checked')).map(cb => cb.value);
   const password = document.getElementById('meNewPassword').value.trim();
+  const jobTitle = document.getElementById('meJobTitle').value.trim();
+  const team = document.getElementById('meTeam').value.trim();
   try {
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({
-      accessRole, managesIds, password: password || undefined
+      accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined
     })});
     closeModal();
     await refreshEmployees();
