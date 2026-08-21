@@ -348,7 +348,7 @@ app.get('/api/tasks', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points, force } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
   if (!clientId) return res.status(400).json({ error: 'A client is required — every task needs a clear client owner.' });
   const client = state.clients.find(c => c.id === clientId);
@@ -367,13 +367,14 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   // Workload blocker — refuse to schedule this employee into a day whose
   // committed hours would exceed daily capacity. See workloadConflict() above.
   const conflict = workloadConflict(state, assignee, internalDeadline, undefined, tat);
-  if (conflict) {
+  if (conflict && !force) {
     const who = (findEmployee(state, assignee) || {}).name || 'This employee';
     return res.status(409).json({
       error: `${who} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — adding this ${tat || 0}hr task would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
       code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
     });
   }
+  if (conflict && force) { logEvent(state, assignee, `Emergency override used — assigned despite workload conflict (${conflict.projectedHours}h projected vs ${conflict.capacityHours}h capacity) by <b>${escHtml(req.employee.name)}</b>.`); }
   const status = mode === 'team' ? 'awaiting_acceptance' : 'accepted';
   state.taskSeq += 1;
   const task = {
@@ -540,6 +541,7 @@ app.post('/api/tasks/:id/propose-window', requireAuth, (req, res) => {
 app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
+  const { force } = req.body || {};
   if (!taskActionGuard(req, res, t, { mustBeAdmin: true })) return;
   if (!canManageEmployee(state, req.employee, t.assignedTo)) {
     return res.status(403).json({ error: "You're not authorized to approve a window for this employee's task." });
@@ -549,13 +551,14 @@ app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
   // this employee an agreed deadline, and it shouldn't be able to land
   // inside a window they're already occupied for on other work.
   const conflict = workloadConflict(state, t.assignedTo, t.proposedDate, t.id, t.tat);
-  if (conflict) {
+  if (conflict && !force) {
     const who = (findEmployee(state, t.assignedTo) || {}).name || 'This employee';
     return res.status(409).json({
       error: `${who} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — this would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
       code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
     });
   }
+  if (conflict && force) { logEvent(state, req.employee.id, `Emergency override used — approved window for "${escHtml(t.name)}" despite workload conflict (${conflict.projectedHours}h projected vs ${conflict.capacityHours}h capacity) by <b>${escHtml(req.employee.name)}</b>.`); }
   t.internalDeadline = t.proposedDate;
   // A proposed window on a rework-flagged task (reviewStatus === 'error')
   // goes back into active 'rework' when approved, not 'accepted' — same
@@ -619,7 +622,7 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   if (!canManageEmployee(state, req.employee, t.assignedTo)) {
     return res.status(403).json({ error: "You're not authorized to reassign this employee's task." });
   }
-  const { newAssigneeId, reason } = req.body || {};
+  const { newAssigneeId, reason, force } = req.body || {};
   const newEmp = findEmployee(state, newAssigneeId);
   if (!newEmp) return res.status(400).json({ error: 'Employee not found.' });
   if (newAssigneeId === t.assignedTo) return res.status(400).json({ error: 'Task is already assigned to this person.' });
@@ -629,12 +632,13 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   // brand-new assignment would — moving a task to someone shouldn't be
   // able to double-book them either.
   const conflict = workloadConflict(state, newAssigneeId, t.internalDeadline, t.id, t.tat);
-  if (conflict) {
+  if (conflict && !force) {
     return res.status(409).json({
       error: `${newEmp.name} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — this would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
       code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
     });
   }
+  if (conflict && force) { logEvent(state, req.employee.id, `Emergency override used — reassigned "${escHtml(t.name)}" despite workload conflict (${conflict.projectedHours}h projected vs ${conflict.capacityHours}h capacity) by <b>${escHtml(req.employee.name)}</b>.`); }
   const fromEmp = findEmployee(state, t.assignedTo);
   // Any actual delivery time already run up under the PREVIOUS assignee
   // is flushed into t.logged before handing the task off, same idea as
@@ -748,7 +752,7 @@ app.get('/api/workload', requireAuth, (req, res) => {
   const rows = visible.map(e => {
     const busyUntil = employeeBusyUntil(state, e.id);
     const activeCount = state.tasks.filter(t => t.assignedTo === e.id && t.status !== 'completed').length;
-    return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount };
+    return (()=>{ const active=state.tasks.filter(t=>t.assignedTo===e.id&&t.status!=='completed'&&t.internalDeadline); const hrs={}; active.forEach(t=>{hrs[t.internalDeadline]=(hrs[t.internalDeadline]||0)+(Number(t.tat)||0);}); let peakDate=null,peakHours=0; Object.entries(hrs).forEach(([d,h])=>{ if(h>peakHours){ peakHours=h; peakDate=d; } }); return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount, peakHours: Math.round(peakHours*100)/100, peakDate, overloaded: peakHours > DAILY_CAPACITY_HOURS, capacityHours: DAILY_CAPACITY_HOURS }; })();
   });
   res.json({ workload: rows });
 });
