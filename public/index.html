@@ -1367,7 +1367,7 @@ function actionCell(t){
     }
   } else if(t.status === 'accepted' || t.status === 'pending'){
     if(t.status === 'accepted' && isMine){
-      html += `<button class="verify-btn" onclick="completeTask('${t.id}')">Mark Complete</button>`;
+      html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')">Mark Complete</button>`;
     }
   } else if(t.status === 'rework'){
     if(isMine){
@@ -1378,7 +1378,7 @@ function actionCell(t){
   } else if(t.status === 'completed'){
     if(t.reviewStatus === 'clean') html += `<span class="badge completed dot" style="cursor:pointer;" onclick="openReviewViewModal('${t.id}')">✓ Reviewed Clean</span>`;
     else if(t.reviewStatus === 'error') html += `<span class="badge overdue dot" style="cursor:pointer;" title="${esc(t.reviewNote||'')}" onclick="openReviewViewModal('${t.id}')">⚠ Error Found</span>`;
-    else if(isAdmin) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+          else if(isAdmin || t.reviewerId === currentViewerId) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else html += `<button class="verify-btn" disabled>Awaiting Review</button>`;
   }
   if(isAdmin && t.status !== 'completed'){
@@ -1555,10 +1555,38 @@ async function acceptTask(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/accept`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
   catch(e){ showToast('error', 'Could not accept task', e.message); }
 }
-async function completeTask(id){
-  try { await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
-  catch(e){ showToast('error', 'Could not complete task', e.message); }
+function openCompleteModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  const options = employees.filter(e => e.id !== t.assignedTo)
+  .map(e => `<option value="${e.id}">${esc(e.name)} — ${esc(e.jobTitle||'')}</option>`).join('');
+  document.getElementById('modalBox').innerHTML = `
+  <h3>Mark Complete — ${esc(t.name)}</h3>
+  <div class="modal-sub">${esc(t.clientName)||'—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
+  <div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>
+  <div class="modal-error" id="cmpError"></div>
+  <div class="modal-actions">
+  <button class="btn" onclick="closeModal()">Cancel</button>
+  <button class="btn primary" onclick="submitComplete('${id}')">Mark Complete</button>
+  </div>
+  `;
+  openModal();
 }
+  async function submitComplete(id){
+    const reviewerId = document.getElementById('cmpReviewer').value;
+    if(!reviewerId){
+      document.getElementById('cmpError').textContent = 'Choose who should review this task first.';
+      document.getElementById('cmpError').style.display = 'block';
+      return;
+    }
+    try {
+      await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST', body: JSON.stringify({ reviewerId }) });
+      closeModal(); await refreshTasks(); await refreshActivity();
+    } catch(e){
+      document.getElementById('cmpError').textContent = e.message;
+      document.getElementById('cmpError').style.display = 'block';
+    }
+  }
 function openProposeModal(id){
   const t = findTask(id);
   document.getElementById('modalBox').innerHTML = `
@@ -2499,11 +2527,32 @@ async function submitReviewForm(id, decision){
     await refreshTasks();
     await refreshActivity({ silent: true });
     showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', decision === 'clean' ? 'Points have been confirmed.' : 'The employee will see this note on the task.');
+    if(decision === 'clean') openSendToClientModal(id);
   } catch(e){
     document.getElementById('reviewFormError').textContent = e.message;
     document.getElementById('reviewFormError').style.display = 'block';
   }
 }
+  function openSendToClientModal(id){
+    const t = findTask(id);
+    if(!t) return;
+    document.getElementById('modalBox').innerHTML = `
+    <h3>Send to client?</h3>
+    <div class="modal-sub">${esc(t.name)} was reviewed clean — send this report directly to the client?</div>
+    <div class="modal-actions">
+    <button class="btn" onclick="submitSendToClient('${id}','no')">No, not yet</button>
+    <button class="btn primary" onclick="submitSendToClient('${id}','yes')">Yes, send it</button>
+    </div>
+    `;
+    openModal();
+  }
+  async function submitSendToClient(id, decision){
+    try {
+      await api(`/api/tasks/${encodeURIComponent(id)}/send-to-client`, { method:'POST', body: JSON.stringify({ decision }) });
+      closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+      showToast('info', decision === 'yes' ? 'Sent to client' : 'Not sent to client', '');
+    } catch(e){ showToast('error', 'Could not record decision', e.message); }
+  }
 function openReviewViewModal(id){
   const t = findTask(id);
   if(!t) return;
@@ -2515,6 +2564,7 @@ function openReviewViewModal(id){
       <div><b style="color:var(--text);">Reviewed by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
       <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(t.reviewedAt.slice(0,10)) : '—'}</div>
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
+      <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision ? '<span style="color:#B45309;">Awaiting decision on sending to client</span>' : t.sentToClient === true ? '<span style="color:#0D9488;">✓ Sent directly to client</span>' : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>' : '<span style="color:var(--text-faint);">—</span>'}</div>
     </div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
   `;
