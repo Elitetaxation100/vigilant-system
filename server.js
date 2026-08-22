@@ -394,6 +394,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     // immediately too.
     acceptedAt: status === 'accepted' ? new Date().toISOString() : null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
+    reviewerId: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote }]
   };
   state.tasks.unshift(task);
@@ -446,11 +447,18 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'accepted') return res.status(400).json({ error: 'Only an accepted task can be marked complete.' });
+  const { reviewerId } = req.body || {};
+  if (!reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
+  const reviewer = findEmployee(state, reviewerId);
+  if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
+  if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't review your own work." });
   const elapsed = t.acceptedAt ? (Date.now() - new Date(t.acceptedAt).getTime()) / 3600000 : 0;
   t.logged += elapsed;
   t.status = 'completed';
   t.completedAt = new Date().toISOString();
+  t.reviewerId = reviewerId;
   logEvent(state, t.assignedTo, `Marked "${escHtml(t.name)}" complete — ${t.logged.toFixed(2)} hrs actual vs ${t.tat} hrs agreed.`, { points: t.points });
+  logEvent(state, reviewerId, `<b>${escHtml(findEmployee(state, t.assignedTo)?.name || 'Someone')}</b> asked you to review "${escHtml(t.name)}".`);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -469,15 +477,16 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
 // a task sitting in this pipeline no longer satisfies status==='completed',
 // so it can't be counted as "commitment met" until it's genuinely
 // redelivered.
-app.post('/api/tasks/:id/review', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: "You're not authorized to review this employee's work." });
+  const isAssignedReviewer = t.reviewerId && t.reviewerId === req.employee.id;
+  if (!isAssignedReviewer && !canManageEmployee(state, req.employee, t.assignedTo)) {
+    return res.status(403).json({ error: "You're not authorized to review this task." });
   }
   if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
-  const { status, note } = req.body || {}; // 'clean' | 'error'
+  const { status, note } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
   t.reviewStatus = status;
   t.reviewedBy = req.employee.id;
@@ -488,8 +497,43 @@ app.post('/api/tasks/:id/review', requireAuth, requireAdmin, (req, res) => {
     t.reworkCount = (t.reworkCount || 0) + 1;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for rework — error found. Accept it (or propose a new window) to start fixing it. ${note ? 'Note: ' + escHtml(note) : ''}`);
   } else {
+    t.awaitingClientDecision = true;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
+    const managers = state.employees.filter(e => (e.managesIds || []).includes(t.assignedTo));
+    managers.forEach(m => {
+      logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was reviewed clean by <b>${escHtml(req.employee.name)}</b>.`);
+    });
   }
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
+// Send-to-client decision — asked once a task is reviewed clean. Logged
+// for the assignee and their reporting manager(s) the same way every
+// other task event is, so both see the same outcome.
+app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const isAssignedReviewer = t.reviewerId && t.reviewerId === req.employee.id;
+  if (!isAssignedReviewer && !canManageEmployee(state, req.employee, t.assignedTo)) {
+    return res.status(403).json({ error: "You're not authorized to do this." });
+  }
+  if (t.reviewStatus !== 'clean' || !t.awaitingClientDecision) {
+    return res.status(400).json({ error: 'This task has no pending client-send decision.' });
+  }
+  const { decision } = req.body || {};
+  if (!['yes', 'no'].includes(decision)) return res.status(400).json({ error: 'Decision must be yes or no.' });
+  t.sentToClient = decision === 'yes';
+  t.sentToClientAt = new Date().toISOString();
+  t.sentToClientBy = req.employee.id;
+  t.awaitingClientDecision = false;
+  const outcome = decision === 'yes' ? 'sent directly to the client' : 'held back — not sent to the client';
+  logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was ${outcome} by <b>${escHtml(req.employee.name)}</b>.`);
+  const managers = state.employees.filter(e => (e.managesIds || []).includes(t.assignedTo));
+  managers.forEach(m => {
+    logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was ${outcome}.`);
+  });
   db.save();
   res.json({ task: taskForClient(t) });
 });
