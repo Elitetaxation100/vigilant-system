@@ -1458,8 +1458,40 @@ function renderTaskTable(){
   renderManagerStatics();
   renderTaskEngineVisuals();
   renderChartBuilder();
+        renderStatusDonut();
+        renderAssigneeBarChart();
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
 }
+  function renderStatusDonut(){
+      const wrap = document.getElementById('statusDonutWrap');
+      if(!wrap) return;
+      if(tasks.length === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
+      const colors = { awaiting_acceptance:'#F0B93E', window_proposed:'#7C6CF6', accepted:'#2FBE93', pending:'#6B7390', rework:'#F0603E', completed:'#0D9488' };
+      const counts = {};
+      tasks.forEach(t => { counts[t.status] = (counts[t.status]||0) + 1; });
+      const order = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
+      const total = tasks.length;
+      let acc = 0;
+      const stops = order.map(status => {
+            const pct = counts[status] / total * 100;
+            const start = acc; acc += pct;
+                                                                                                    return `${colors[status]||'#6B7390'} ${start*3.6}deg ${acc*3.6}deg`;
+      }).join(', ');
+      const legend = order.map(status => `<div class="donut-legend-item"><span class="dot" style="background:${colors[status]||'#6B7390'};"></span>${statusLabel(status)} <b>${counts[status]}</b></div>`).join('');
+      wrap.innerHTML = `<div class="donut-ring" style="background:conic-gradient(${stops});"><div class="donut-ring-hole"><b>${total}</b><span>Total</span></div></div><div class="donut-legend">${legend}</div>`;
+    }
+            function renderAssigneeBarChart(){
+                const wrap = document.getElementById('assigneeBarWrap');
+                if(!wrap) return;
+                const open = tasks.filter(t => t.status !== 'completed');
+                if(open.length === 0){ wrap.innerHTML = '<div class="chart-empty">No open tasks right now.</div>'; return; }
+                const counts = {};
+                open.forEach(t => { const name = empById(t.assignedTo)?.name || 'Unassigned'; counts[name] = (counts[name]||0) + 1; });
+                let entries = Object.keys(counts).map(name => ({ name, count: counts[name] })).sort((a,b) => b.count - a.count);
+                if(entries.length > 8) entries = entries.slice(0, 8);
+                const max = Math.max(...entries.map(e => e.count));
+                wrap.innerHTML = entries.map(e => `<div class="bar-row"><div class="bar-label" title="${esc(e.name)}">${esc(e.name)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max((e.count/max)*100,4)}%;"></div></div><div class="bar-val">${e.count}</div></div>`).join('');
+            }
 function renderWorkloadBlockers(){
   const wrap = document.getElementById('workloadBlockersWrap');
   if(!wrap) return;
