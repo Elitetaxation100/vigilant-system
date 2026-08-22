@@ -9,22 +9,22 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
-    --bg-deep:       #EEF1F7;
-    --panel:         #FFFFFF;
-    --panel-2:       #F5F7FB;
-    --panel-border:  #E6E9F1;
-    --line:          #EDEFF5;
-    --text:          #1D2233;
-    --text-dim:      #666E80;
-    --text-faint:    #9AA1B3;
-    --purple:        #6C5CE7;
-    --purple-dim:    #EEEBFD;
-    --teal:          #15B79E;
-    --teal-dim:      #DDF9F1;
-    --amber:         #E5A02E;
-    --amber-dim:     #FCF0D8;
-    --coral:         #F0603E;
-    --coral-dim:     #FDE8E2;
+    --bg-deep:      #0B0E14;
+    --panel:        #131826;
+    --panel-2:      #161C29;
+    --panel-border: #232838;
+    --line:         #1E2330;
+    --text:         #E7EAF2;
+    --text-dim:     #9BA3BC;
+    --text-faint:   #6B7390;
+    --purple:       #7C6CF6;
+    --purple-dim: #EEEBFD;
+    --teal:         #2FBE93;
+    --teal-dim:   #DDF9F1;
+    --amber:        #F0B93E;
+    --amber-dim:  #FCF0D8;
+    --coral:        #F0603E;
+    --coral-dim:  #FDE8E2;
     --radius-s: 8px;
     --radius-m: 12px;
     --radius-l: 18px;
@@ -60,7 +60,7 @@
   /* ============ SIDEBAR ============ */
   .sidebar{
     width:250px; flex-shrink:0;
-    background:#FFFFFF;
+    background:var(--panel);
     border-right:1px solid var(--panel-border);
     display:flex; flex-direction:column;
     padding:22px 16px 18px;
@@ -116,9 +116,8 @@
   .admin-btn:hover{ border-color:var(--purple); color:#6D28D9; }
   .admin-status{ font-size:12.5px; color:#0D9488; margin-top:8px; text-align:center; }
 
-  /* ============ MAIN ============ */
+  .topbar{ display:flex; align-items:center; justify-content:space-between; padding:16px 28px; border-bottom:1px solid var(--line); background:#131826cc; backdrop-filter:blur(10px); position:sticky; top:0; z-index:20; }
   .main{ flex:1; min-width:0; }
-  .topbar{ display:flex; align-items:center; justify-content:space-between; padding:16px 28px; border-bottom:1px solid var(--line); background:#FFFFFFcc; backdrop-filter:blur(10px); position:sticky; top:0; z-index:20; }
   .topbar h1{ font-family:var(--font-display); font-size:22px; font-weight:700; letter-spacing:-.2px; }
   .topbar .sub{ font-size:14px; color:var(--text-faint); margin-top:2px; }
   .topbar-right{ display:flex; align-items:center; gap:16px; }
