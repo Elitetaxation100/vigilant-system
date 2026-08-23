@@ -301,6 +301,26 @@
   .bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:8px; }
   .bar{ width:100%; border-radius:6px 6px 3px 3px; background:linear-gradient(180deg, #5B4FCF, #7C6CF6); }
   .bar-col .bl{ font-size:12px; color:var(--text-faint); }
+    .cap-list{ display:flex; flex-direction:column; gap:12px; }
+  .cap-row{ display:flex; align-items:center; gap:14px; padding:14px; background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); }
+  .cap-avatar{ width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg,#7C6CF6,#F0603E); display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; font-size:14px; flex-shrink:0; }
+  .cap-main{ flex:1; min-width:0; }
+  .cap-top{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:7px; }
+  .cap-name{ font-weight:600; font-size:14.5px; }
+  .cap-hours{ font-family:var(--font-mono); font-size:12.5px; color:var(--text-faint); white-space:nowrap; }
+  .cap-bar-track{ height:6px; border-radius:4px; background:var(--line); overflow:hidden; }
+  .cap-bar-fill{ height:100%; border-radius:4px; transition:width .2s ease; }
+  .cap-sub{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:9px; font-size:12.5px; color:var(--text-dim); }
+  .cap-tag{ font-size:11px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; padding:3px 9px; border-radius:20px; white-space:nowrap; }
+  .cap-tag.free{ background:var(--teal-dim); color:#0D9488; }
+  .cap-tag.busy{ background:var(--coral-dim); color:#C2410C; }
+
+  .attn-list{ display:flex; flex-direction:column; gap:10px; }
+  .attn-item{ display:flex; align-items:flex-start; gap:12px; padding:14px; background:var(--coral-dim); border:1px solid #F0603E3a; border-radius:var(--radius-m); }
+  .attn-icon{ width:28px; height:28px; border-radius:50%; background:var(--coral); color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:13px; }
+  .attn-title{ font-weight:700; font-size:14px; color:#C2410C; }
+  .attn-sub{ font-size:12.5px; color:#B45309; margin-top:3px; }
+
   .leaderboard{ list-style:none; margin-top:10px; }
   .leaderboard li{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); font-size:14.5px; }
   .leaderboard li:last-child{ border-bottom:none; }
@@ -833,10 +853,17 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Workload Blockers</h2></div>
-          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Who's already booked with agreed work, and until when — new tasks with an overlapping deadline are blocked until they're free.</p>
-          <div id="workloadBlockersWrap" style="font-size:14.5px; color:var(--text-faint);">Nobody has any active work yet.</div>
+          <div class="panel-head"><h2>Team Capacity by Employee</h2></div>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Peak agreed hours on any single day against each employee's daily capacity — new work is blocked once it would push them over.</p>
+          <div id="workloadBlockersWrap" class="cap-list">Nobody has any active work yet.</div>
         </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Needs Attention</h2></div>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Open tasks already past their internal deadline — the longer these sit, the bigger the breach risk.</p>
+          <div id="needsAttentionWrap" class="attn-list">Nothing overdue right now.</div>
+        </div>
+
 
         <div class="panel">
           <div class="panel-head">
@@ -1705,16 +1732,50 @@ function renderWorkloadBlockers(){
   const wrap = document.getElementById('workloadBlockersWrap');
   if(!wrap) return;
   if(workload.length === 0){ wrap.innerHTML = 'Nobody has any active work yet.'; return; }
-  const rows = [...workload].sort((a,b) => (b.busyUntil||'').localeCompare(a.busyUntil||''));
-  wrap.innerHTML = `<table><thead><tr><th>Employee</th><th>Active Tasks</th><th>Occupied Until</th><th>Next Available</th></tr></thead><tbody>
-    ${rows.map(w => `<tr>
-        <td>${esc(w.name)}</td>
-        <td>${w.activeCount}</td>
-        <td>${w.busyUntil ? `<span class="badge overdue dot">${fmtDate(w.busyUntil)}</span>` : '<span class="badge completed dot">Free</span>'}</td>
-        <td>${fmtDate(w.nextAvailable)}</td>
-      </tr>`).join('')}
-  </tbody></table>`;
+  const rows = [...workload].sort((a,b) => b.peakHours - a.peakHours);
+  wrap.innerHTML = rows.map(w => {
+    const pct = w.capacityHours ? Math.min(100, Math.round(w.peakHours / w.capacityHours * 100)) : 0;
+    const initials = (w.name || '?').split(' ').map(p => p[0]).slice(0,2).join('').toUpperCase();
+    const tag = w.busyUntil
+      ? `<span class="cap-tag busy">Busy until ${fmtDate(w.busyUntil)}</span>`
+      : `<span class="cap-tag free">Free ${fmtDate(w.nextAvailable)}</span>`;
+    return `<div class="cap-row">
+      <div class="cap-avatar">${esc(initials)}</div>
+      <div class="cap-main">
+        <div class="cap-top">
+          <span class="cap-name">${esc(w.name)}</span>
+          <span class="cap-hours">${w.peakHours}h of ${w.capacityHours}h</span>
+        </div>
+        <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%; background:${w.overloaded ? 'var(--coral)' : 'var(--teal)'};"></div></div>
+        <div class="cap-sub">
+          <span>${w.activeCount} active task${w.activeCount === 1 ? '' : 's'}${w.peakDate ? ' &middot; peak ' + fmtDate(w.peakDate) : ''}</span>
+          ${tag}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
 }
+function renderNeedsAttention(){
+  const wrap = document.getElementById('needsAttentionWrap');
+  if(!wrap) return;
+  const today = todayISO();
+  const overdue = tasks.filter(t => t.internalDeadline && t.internalDeadline < today && t.status !== 'completed')
+    .slice()
+    .sort((a,b) => a.internalDeadline.localeCompare(b.internalDeadline));
+  if(overdue.length === 0){ wrap.innerHTML = '<div style="font-size:14.5px; color:var(--text-faint);">Nothing overdue right now.</div>'; return; }
+  wrap.innerHTML = overdue.map(t => {
+    const emp = empById(t.assignedTo);
+    const days = Math.max(1, Math.round((new Date(today) - new Date(t.internalDeadline)) / 86400000));
+    return `<div class="attn-item">
+      <div class="attn-icon">&#9888;</div>
+      <div>
+        <div class="attn-title">${esc(t.name)}${t.clientName ? ' &mdash; ' + esc(t.clientName) : ''}</div>
+        <div class="attn-sub">${emp ? esc(emp.name) : 'Unassigned'} &middot; ${days} day${days === 1 ? '' : 's'} overdue &middot; due ${fmtDate(t.internalDeadline)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 
 /* =========================================================================
    TASK ACTIONS — every one of these calls the server, which enforces who's
@@ -2141,6 +2202,7 @@ function renderManagerStatics(){
   renderProductivity();
   renderCommitment();
   renderAccuracy();
+    renderNeedsAttention();
 }
 
 /* =========================================================================
