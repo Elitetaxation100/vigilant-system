@@ -1474,7 +1474,7 @@ function actionCell(t){
   } else if(t.status === 'completed'){
     if(t.reviewStatus === 'clean') html += `<span class="badge completed dot" style="cursor:pointer;" onclick="openReviewViewModal('${t.id}')">✓ Reviewed Clean</span>`;
     else if(t.reviewStatus === 'error') html += `<span class="badge overdue dot" style="cursor:pointer;" title="${esc(t.reviewNote||'')}" onclick="openReviewViewModal('${t.id}')">⚠ Error Found</span>`;
-          else if(isAdmin || t.reviewerId === currentViewerId) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+                    else if(isAdmin && !isMine || t.reviewerId === currentViewerId) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else html += `<button class="verify-btn" disabled>Awaiting Review</button>`;
   }
   if(isAdmin && t.status !== 'completed'){
