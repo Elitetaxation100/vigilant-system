@@ -481,11 +481,12 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  const isAssignedReviewer = t.reviewerId && t.reviewerId === req.employee.id;
-  if (!isAssignedReviewer && !canManageEmployee(state, req.employee, t.assignedTo)) {
+const isAssignedReviewer = t.reviewerId && t.reviewerId === req.employee.id;
+  const isSelfReview = req.employee.id === t.assignedTo;
+  if (!isAssignedReviewer && (isSelfReview || !canManageEmployee(state, req.employee, t.assignedTo))) {
     return res.status(403).json({ error: "You're not authorized to review this task." });
   }
-  if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
+if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
   const { status, note } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
   t.reviewStatus = status;
