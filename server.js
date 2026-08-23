@@ -92,19 +92,31 @@ function canManageEmployee(state, actor, employeeId) {
 
 // ---------------------------------------------------------------------------
 // TIME — there is no manual Start/Pause clock anymore. Once a task is
-// Accepted, it's automatically "in progress" from that moment
-// (t.acceptedAt) until it's marked Complete. "Actual delivery time" is
-// simply the wall-clock gap between those two timestamps — the same
-// figure a Start/Pause timer used to approximate, just measured directly
-// instead of requiring the employee to remember to click a button. A
-// rework round is timed the same way, from reworkStartedAt.
-// ---------------------------------------------------------------------------
-function liveElapsedHours(t) {
-  if (t.status === 'completed') return t.logged;
-  const startRef = t.status === 'rework' ? t.reworkStartedAt : t.acceptedAt;
-  if (!startRef) return t.logged; // not yet accepted — nothing running yet
-  return t.logged + (Date.now() - new Date(startRef).getTime()) / 3600000;
-}
+  // TIME — a task now has a real Start/Pause clock. t.timerStartedAt holds
+  // the wall-clock moment the assignee's timer was last started for this
+  // task, or null when it's paused. Only one task per employee can run at
+  // once — starting or resuming one auto-pauses any other active task for
+  // that employee (see pauseOtherActiveTasks below). "Actual delivery time"
+  // is t.logged (hours already banked from past running stretches) plus
+  // whatever has accrued since timerStartedAt, if the clock is running.
+  // ---------------------------------------------------------------------
+  function liveElapsedHours(t) {
+    if (t.status === 'completed') return t.logged;
+    if (!t.timerStartedAt) return t.logged;
+    return t.logged + (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
+  }
+  /** Starting or resuming one task auto-pauses any other task that same
+   *  employee currently has running, banking whatever time had accrued. */
+  function pauseOtherActiveTasks(state, assigneeId, exceptId) {
+    const now = Date.now();
+    state.tasks.forEach(other => {
+      if (other.id !== exceptId && other.assignedTo === assigneeId && other.timerStartedAt) {
+        other.logged += (now - new Date(other.timerStartedAt).getTime()) / 3600000;
+        other.timerStartedAt = null;
+      }
+    });
+  }
+
 /** Live elapsed time (wall-clock) since a task currently in rework was sent back — null once it's resubmitted. */
 function reworkElapsedHours(t) {
   if (t.status !== 'rework' || !t.reworkStartedAt) return null;
@@ -393,11 +405,13 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     // 'accepted' with no separate acceptance step, so its clock starts
     // immediately too.
     acceptedAt: status === 'accepted' ? new Date().toISOString() : null,
+            timerStartedAt: status === 'accepted' ? new Date().toISOString() : null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote }]
   };
   state.tasks.unshift(task);
+        if (task.status === 'accepted') pauseOtherActiveTasks(state, task.assignedTo, task.id);
   if (mode === 'team') {
     const assigneeEmp = findEmployee(state, assignee);
     logEvent(state, assignee, `New task assigned — <b>${assigneeEmp ? escHtml(assigneeEmp.name) : '—'}</b>, awaiting acceptance.`, {
@@ -407,6 +421,36 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   db.save();
   res.status(201).json({ task: taskForClient(task) });
 });
+  app.post('/api/tasks/:id/pause', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
+    if (!['accepted', 'rework'].includes(t.status)) return res.status(400).json({ error: 'Only an active task can be paused.' });
+    if (!t.timerStartedAt) return res.status(400).json({ error: "This task isn't running." });
+    t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
+    t.timerStartedAt = null;
+    logEvent(state, t.assignedTo, `Paused "${escHtml(t.name)}".`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // Resuming one task auto-pauses whatever else the same employee currently
+  // has running (see pauseOtherActiveTasks) — this is how "choose to pause
+  // the current task and start working on another one" is implemented:
+  // switching is just Resume on the new task.
+  app.post('/api/tasks/:id/resume', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
+    if (!['accepted', 'rework'].includes(t.status)) return res.status(400).json({ error: 'Only an active task can be resumed.' });
+    if (t.timerStartedAt) return res.status(400).json({ error: 'This task is already running.' });
+    t.timerStartedAt = new Date().toISOString();
+    pauseOtherActiveTasks(state, t.assignedTo, t.id);
+    logEvent(state, t.assignedTo, `Resumed "${escHtml(t.name)}".`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
 
 function taskActionGuard(req, res, t, { mustBeAssignee = false, mustBeAdmin = false } = {}) {
   if (!t) { res.status(404).json({ error: 'Task not found.' }); return false; }
@@ -438,6 +482,9 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
     t.acceptedAt = new Date().toISOString();
     logEvent(state, t.assignedTo, `Accepted "${escHtml(t.name)}" — now due ${t.internalDeadline || 'as agreed'}.`);
   }
+        t.timerStartedAt = new Date().toISOString();
+      pauseOtherActiveTasks(state, t.assignedTo, t.id);
+
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -452,8 +499,9 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   const reviewer = findEmployee(state, reviewerId);
   if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't review your own work." });
-  const elapsed = t.acceptedAt ? (Date.now() - new Date(t.acceptedAt).getTime()) / 3600000 : 0;
+    const elapsed = t.timerStartedAt ? (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000 : 0;
   t.logged += elapsed;
+    t.timerStartedAt = null;
   t.status = 'completed';
   t.completedAt = new Date().toISOString();
   t.reviewerId = reviewerId;
@@ -615,6 +663,9 @@ app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
     t.status = 'accepted';
     t.acceptedAt = new Date().toISOString();
   }
+        t.timerStartedAt = new Date().toISOString();
+      pauseOtherActiveTasks(state, t.assignedTo, t.id);
+
   logEvent(state, req.employee.id, `Approved the proposed window for "${escHtml(t.name)}" — now due ${t.internalDeadline}.`);
   db.save();
   res.json({ task: taskForClient(t) });
@@ -636,6 +687,9 @@ app.post('/api/tasks/:id/reject-window', requireAuth, (req, res) => {
     t.status = 'accepted';
     t.acceptedAt = new Date().toISOString();
   }
+        t.timerStartedAt = new Date().toISOString();
+      pauseOtherActiveTasks(state, t.assignedTo, t.id);
+
   logEvent(state, req.employee.id, `Rejected the proposed window for "${escHtml(t.name)}" — original deadline stands.`);
   db.save();
   res.json({ task: taskForClient(t) });
@@ -689,8 +743,8 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   // is flushed into t.logged before handing the task off, same idea as
   // the old stopTimer() — the new owner's clock starts clean from their
   // own Accept.
-  if (t.acceptedAt && t.status === 'accepted') {
-    t.logged += (Date.now() - new Date(t.acceptedAt).getTime()) / 3600000;
+    if (t.timerStartedAt) {
+    t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
   }
   t.reassignHistory = t.reassignHistory || [];
   t.reassignHistory.push({ from: t.assignedTo, to: newAssigneeId, by: req.employee.id, at: new Date().toISOString(), reason: reason || null });
@@ -706,6 +760,7 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   // If reviewStatus is still 'error', the new assignee's own Accept (or
   // an approved/rejected window) will set a fresh reworkStartedAt.
   t.reworkStartedAt = null;
+  t.timerStartedAt = null;
   const reworkNote = t.reviewStatus === 'error' ? ' This task is flagged for rework — the new assignee will see the reviewer\'s note.' : '';
   logEvent(state, newAssigneeId, `Task "${escHtml(t.name)}" reassigned from <b>${fromEmp ? escHtml(fromEmp.name) : '—'}</b> to <b>${escHtml(newEmp.name)}</b> — approval needed before the clock starts.${reworkNote}${reason ? ' Reason: ' + escHtml(reason) : ''}`, {
     client: t.clientName, clientDate: t.clientDate, internalDeadline: t.internalDeadline, reassignReason: reason || null
