@@ -616,7 +616,7 @@
               <option value="window_proposed">Window Proposed</option>
               <option value="accepted">In Progress</option>
               <option value="rework">Needs Rework</option>
-              <option value="completed">Completed</option>
+                            <option value="completed">Sent for Review</option>
               <option value="pending">Pending</option>
             </select>
             <select id="scopeFilter" onchange="renderTaskTable()">
@@ -1422,7 +1422,11 @@ function statusBadge(t){
     case 'accepted': return `<span class="badge pending dot">In Progress</span>`;
     case 'pending': return `<span class="badge pending dot">Pending</span>`;
     case 'rework': return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
-    case 'completed': return `<span class="badge completed dot">Completed</span>`;
+        case 'completed':
+      if(t.reviewStatus === 'clean') return `<span class="badge completed dot">✓ Reviewed Clean</span>`;
+      if(t.reviewStatus === 'error') return `<span class="badge overdue dot">⚠ Error Found</span>`;
+      return `<span class="badge pending dot">Sent for Review</span>`;
+
     default: return '';
   }
 }
@@ -1530,7 +1534,7 @@ function renderTaskTable(){
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
 }
 
-  function primaryAction(t){
+    function primaryAction(t){
   const isMine = t.assignedTo === currentViewerId;
   if(!isMine) return null;
   if(t.status === 'awaiting_acceptance') return { label:'Accept task', icon:'&#9654;', fn:`acceptTask('${t.id}')` };
@@ -1538,12 +1542,27 @@ function renderTaskTable(){
   if(t.status === 'rework') return { label:'View error & resubmit', icon:'&#9888;', fn:`openReworkDetailModal('${t.id}')` };
   return null;
 }
+// A second, independent action: Pause the running clock, or Resume (which
+// auto-pauses whatever else is running) — lets an employee freely switch
+// which of their open tasks the timer is on.
+function timerAction(t){
+  const isMine = t.assignedTo === currentViewerId;
+  if(!isMine) return null;
+  if(t.status !== 'accepted' && t.status !== 'rework') return null;
+  if(t.timerStartedAt) return { label:'Pause task', icon:'&#10074;&#10074;', fn:`pauseTask('${t.id}')` };
+  return { label:'Resume task', icon:'&#9654;', fn:`resumeTask('${t.id}')` };
+}
 
 function actionButtonHtml(t){
   const a = primaryAction(t);
-  if(a) return `<button class="circle-btn" title="${esc(a.label)}" aria-label="${esc(a.label)}" onclick="${a.fn}">${a.icon}</button>`;
+  const ta = timerAction(t);
+  let out = '';
+  if(ta) out += `<button class="circle-btn" style="background:${t.timerStartedAt ? 'var(--amber)' : 'var(--teal)'};" title="${esc(ta.label)}" aria-label="${esc(ta.label)}" onclick="${ta.fn}">${ta.icon}</button>`;
+  if(a) out += `<button class="circle-btn" title="${esc(a.label)}" aria-label="${esc(a.label)}" onclick="${a.fn}">${a.icon}</button>`;
+  if(out) return out;
   return statusBadge(t);
 }
+
 
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
@@ -1580,13 +1599,15 @@ function renderMyDay(){
   // most time-sensitive open commitment. Everything else assigned & still open
   // (regardless of its exact due date) shows under "Also on today" so newly
   // assigned tasks are never silently dropped.
-  const primary = mineOpen.find(t => t.status === 'accepted') || mineOpen[0] || null;
+      const running = mineOpen.find(t => t.timerStartedAt);
+    const primary = running || mineOpen.find(t => t.status === 'accepted' || t.status === 'rework') || mineOpen[0] || null;
   const rest = mineOpen.filter(t => t !== primary);
 
   const ttEl = document.getElementById('myTasksToday');
   if(ttEl) ttEl.textContent = dueToday.length;
   const hcEl = document.getElementById('myHoursCommitted');
-  if(hcEl) hcEl.innerHTML = dueToday.reduce((s,t) => s + (t.tat || 0), 0).toFixed(1) + '<small>h</small>';
+      const mineCompletedForHours = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'completed');
+    if(hcEl) hcEl.innerHTML = mineCompletedForHours.reduce((s,t) => s + (t.tat || 0), 0).toFixed(1) + '<small>h</small>';
 
   const mineCompleted = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'completed');
   const onTimeBase = mineCompleted.filter(t => t.clientDate && t.completedAt);
@@ -1645,7 +1666,7 @@ function renderMyDay(){
           <span class="today-row-title">${esc(t.clientName || '')}: ${esc(t.name || '')}</span>
           <div class="today-row-sub">${t.tat} hrs budget &middot; internal date ${fmtDate(t.internalDeadline)}</div>
         </div>
-        <div class="today-row-right">${statusBadge(t)}</div>
+                  <div class="today-row-right">${actionButtonHtml(t)}</div>
       </div>`).join('') + `</div>`;
   }
   wrap.innerHTML = html;
@@ -1806,6 +1827,15 @@ async function acceptTask(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/accept`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
   catch(e){ showToast('error', 'Could not accept task', e.message); }
 }
+  async function pauseTask(id){
+  try { await api(`/api/tasks/${encodeURIComponent(id)}/pause`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
+  catch(e){ showToast('error', 'Could not pause task', e.message); }
+}
+async function resumeTask(id){
+  try { await api(`/api/tasks/${encodeURIComponent(id)}/resume`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
+  catch(e){ showToast('error', 'Could not resume task', e.message); }
+}
+
 function openCompleteModal(id){
   const t = findTask(id);
   if(!t) return;
@@ -2287,7 +2317,7 @@ function statusLabel(status){
     case 'pending': return 'Pending';
     case 'paused': return 'Paused';
     case 'rework': return 'In Rework';
-    case 'completed': return 'Completed';
+          case 'completed': return 'Sent for Review';
     default: return status || 'Unknown';
   }
 }
