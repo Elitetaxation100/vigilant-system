@@ -185,6 +185,31 @@
     .pill{ display:inline-flex; align-items:center; font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px; letter-spacing:.2px; }
     .pill-purple{ background:#7C6CF61f; color:#B7AEFA; }
     .pill-teal{ background:#2FBE931f; color:#6EE7C4; }
+    .greeting-block{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+  .greeting-block h1{ font-family:var(--font-display); font-size:24px; font-weight:700; letter-spacing:-.3px; }
+  .greeting-block .greeting-sub{ margin-top:6px; font-size:13.5px; color:var(--text-faint); }
+  .greeting-block .greeting-sub b{ color:var(--text-dim); font-weight:600; }
+  .top-grid{ display:grid; grid-template-columns:repeat(4,1fr) 1.6fr; gap:14px; margin-bottom:24px; }
+  .metric-tile{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:18px 18px 16px; }
+  .metric-tile .mt-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-faint); font-weight:600; margin-bottom:10px; }
+  .metric-tile .mt-value{ font-family:var(--font-display); font-size:26px; font-weight:700; letter-spacing:-.3px; }
+  .metric-tile .mt-value small{ font-family:var(--font-body); font-size:13px; font-weight:500; color:var(--text-faint); margin-left:2px; }
+  .metric-tile .mt-value.teal{ color:var(--teal); }
+  .metric-tile .mt-value.purple{ color:var(--purple); }
+  .donut-tile{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:18px 20px; display:flex; flex-direction:column; }
+  .donut-tile .mt-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-faint); font-weight:600; margin-bottom:12px; }
+  .donut-tile .donut-wrap{ gap:16px; }
+  .donut-tile .donut-ring{ width:84px; height:84px; flex-shrink:0; }
+  .donut-tile .donut-ring-hole{ inset:14px; }
+  .donut-tile .donut-ring-hole b{ font-size:16px; }
+  .donut-tile .donut-ring-hole span{ font-size:9px; }
+  .donut-tile .donut-legend{ gap:6px; flex:1; min-width:0; }
+  .donut-tile .donut-legend-item{ font-size:11.5px; white-space:nowrap; }
+  .donut-tile .donut-legend-item b{ margin-left:auto; padding-left:10px; font-weight:600; }
+  .circle-btn{ width:36px; height:36px; border-radius:50%; flex-shrink:0; background:var(--teal); border:none; color:#052015; font-size:14px; display:flex; align-items:center; justify-content:center; transition:transform .15s ease, box-shadow .15s ease; }
+  .circle-btn:hover{ transform:translateY(-1px); box-shadow:0 6px 16px #2FBE9344; }
+  .today-row-right{ flex-shrink:0; }
+
 
   .panel{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:20px 22px; margin-bottom:20px; box-shadow:0 1px 2px #10182804, 0 8px 24px -6px #10182812; }
   .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;}
@@ -528,32 +553,51 @@
 
       <!-- ===================== DASHBOARD VIEW ===================== -->
       <section class="view active" id="view-dashboard">
+        <div id="myGreetingWrap"></div>
+
         <div class="banner">
           <span>ⓘ</span>
           <span><b>Workflow Standard TAT Guidelines:</b> GST Filing tasks default to an average of <b>3.0 hours</b> (fast-track cases complete in <span class="tag">40–45 mins</span>).</span>
         </div>
 
-                <div class="section-label">Working on now</div>
-                                <div id="myDayWrap"></div>
-        
+        <div class="top-grid">
+          <div class="metric-tile">
+            <div class="mt-label">Tasks Today</div>
+            <div class="mt-value" id="myTasksToday">0</div>
+          </div>
+          <div class="metric-tile">
+            <div class="mt-label">Hours Committed</div>
+            <div class="mt-value" id="myHoursCommitted">0.0<small>h</small></div>
+          </div>
+          <div class="metric-tile">
+            <div class="mt-label">Productivity</div>
+            <div class="mt-value teal" id="myProductivity">—</div>
+          </div>
+          <div class="metric-tile">
+            <div class="mt-label">Accuracy</div>
+            <div class="mt-value purple" id="myAccuracy">—</div>
+          </div>
+          <div class="donut-tile">
+            <div class="mt-label">Task Status Breakdown</div>
+            <div class="donut-wrap" id="statusDonutWrap"></div>
+          </div>
+        </div>
 
+        <div class="section-label">Working on now</div>
+        <div id="myDayWrap"></div>
+
+        <div class="chart-panel" style="margin-bottom:24px;">
+          <h3>Open Tasks by Assignee</h3>
+          <div class="bar-list" id="assigneeBarWrap"></div>
+        </div>
+
+        <div class="section-label">Detailed commitments</div>
         <div class="stat-grid">
           <div class="stat-card"><div class="label">Total Commitments</div><div class="value" id="statTotal">0</div></div>
           <div class="stat-card"><div class="label">Total Task Points</div><div class="value purple" id="statPoints">0 <span style="font-size:15px;">pts</span></div></div>
           <div class="stat-card"><div class="label">Pending Verification</div><div class="value amber" id="statPending">0</div></div>
           <div class="stat-card"><div class="label">Verified Completed</div><div class="value teal" id="statCompleted">0</div></div>
           <div class="stat-card"><div class="label">Hours Logged</div><div class="value coral" id="statHours">0.0</div></div>
-        </div>
-
-        <div class="charts-row">
-          <div class="chart-panel">
-            <h3>Task Status Breakdown</h3>
-            <div class="donut-wrap" id="statusDonutWrap"></div>
-          </div>
-            <div class="chart-panel">
-            <h3>Open Tasks by Assignee</h3>
-            <div class="bar-list" id="assigneeBarWrap"></div>
-            </div>
         </div>
 
         <div class="panel">
@@ -1482,17 +1526,87 @@ function renderTaskTable(){
         renderStatusDonut();
         renderAssigneeBarChart();
   renderMyDay();
+  renderGreeting();
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
 }
 
-  function renderMyDay(){
+  function primaryAction(t){
+  const isMine = t.assignedTo === currentViewerId;
+  if(!isMine) return null;
+  if(t.status === 'awaiting_acceptance') return { label:'Accept task', icon:'&#9654;', fn:`acceptTask('${t.id}')` };
+  if(t.status === 'accepted') return { label:'Mark complete', icon:'&#10003;', fn:`openCompleteModal('${t.id}')` };
+  if(t.status === 'rework') return { label:'View error & resubmit', icon:'&#9888;', fn:`openReworkDetailModal('${t.id}')` };
+  return null;
+}
+
+function actionButtonHtml(t){
+  const a = primaryAction(t);
+  if(a) return `<button class="circle-btn" title="${esc(a.label)}" aria-label="${esc(a.label)}" onclick="${a.fn}">${a.icon}</button>`;
+  return statusBadge(t);
+}
+
+function renderGreeting(){
+  const wrap = document.getElementById('myGreetingWrap');
+  if(!wrap) return;
+  const me = currentViewer();
+  const firstName = me ? ((me.name || '').split(' ')[0] || me.name) : '';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const weekday = new Date().toLocaleDateString('en-NZ', { weekday:'long' });
+  const dateStr = new Date().toLocaleDateString('en-NZ', { day:'2-digit', month:'long' });
+  const today = todayISO();
+  const weekEnd = addDaysISO(6);
+  const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed');
+  const dueThisWeek = mineOpen.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= weekEnd).length;
+  const dueToday = mineOpen.filter(t => t.internalDeadline === today);
+  const hoursToday = dueToday.reduce((s,t) => s + (t.tat || 0), 0);
+  wrap.innerHTML = `<div class="greeting-block">
+    <div>
+      <h1>${greeting}${firstName ? ', ' + esc(firstName) : ''}</h1>
+      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueThisWeek} task${dueThisWeek === 1 ? '' : 's'} due this week &middot; ${hoursToday.toFixed(1)} hours committed today</div>
+    </div>
+  </div>`;
+}
+
+function renderMyDay(){
   const wrap = document.getElementById('myDayWrap');
   if(!wrap) return;
   const today = todayISO();
-  const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed');
+  const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed')
+    .slice()
+    .sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
   const dueToday = mineOpen.filter(t => t.internalDeadline === today);
-  const primary = mineOpen.find(t => t.status === 'accepted') || dueToday[0] || null;
-  const rest = dueToday.filter(t => t !== primary);
+  // Primary = whichever open task is actively being worked (accepted), else the
+  // most time-sensitive open commitment. Everything else assigned & still open
+  // (regardless of its exact due date) shows under "Also on today" so newly
+  // assigned tasks are never silently dropped.
+  const primary = mineOpen.find(t => t.status === 'accepted') || mineOpen[0] || null;
+  const rest = mineOpen.filter(t => t !== primary);
+
+  const ttEl = document.getElementById('myTasksToday');
+  if(ttEl) ttEl.textContent = dueToday.length;
+  const hcEl = document.getElementById('myHoursCommitted');
+  if(hcEl) hcEl.innerHTML = dueToday.reduce((s,t) => s + (t.tat || 0), 0).toFixed(1) + '<small>h</small>';
+
+  const mineCompleted = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'completed');
+  const onTimeBase = mineCompleted.filter(t => t.clientDate && t.completedAt);
+  const prodEl = document.getElementById('myProductivity');
+  if(prodEl){
+    if(onTimeBase.length === 0){ prodEl.textContent = '—'; }
+    else {
+      const onTime = onTimeBase.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length;
+      prodEl.innerHTML = Math.round(onTime / onTimeBase.length * 100) + '<small>%</small>';
+    }
+  }
+  const reviewedBase = mineCompleted.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
+  const accEl = document.getElementById('myAccuracy');
+  if(accEl){
+    if(reviewedBase.length === 0){ accEl.textContent = '—'; }
+    else {
+      const clean = reviewedBase.filter(t => t.reviewStatus === 'clean').length;
+      accEl.innerHTML = Math.round(clean / reviewedBase.length * 100) + '<small>%</small>';
+    }
+  }
 
   function metaBlock(t){
     const pct = t.tat ? Math.min(100, Math.round(displayedLogged(t) / t.tat * 100)) : 0;
@@ -1513,7 +1627,7 @@ function renderTaskTable(){
           <span class="working-client">${esc(primary.clientName || '')}</span>
           <div class="working-title">${esc(primary.name || '')}</div>
         </div>
-        <div style="text-align:right;">${statusBadge(primary)}<div style="margin-top:8px;">${actionCell(primary)}</div></div>
+        ${actionButtonHtml(primary)}
       </div>
       ${metaBlock(primary)}
     </div>`;
@@ -1523,7 +1637,7 @@ function renderTaskTable(){
 
   html += `<div class="section-label">Also on today</div>`;
   if(rest.length === 0){
-    html += `<div class="myday-empty">No other commitments due today.</div>`;
+    html += `<div class="myday-empty">No other open commitments right now.</div>`;
   } else {
     html += `<div class="today-list">` + rest.map(t => `<div class="today-row">
         <div>
@@ -1531,13 +1645,12 @@ function renderTaskTable(){
           <span class="today-row-title">${esc(t.clientName || '')}: ${esc(t.name || '')}</span>
           <div class="today-row-sub">${t.tat} hrs budget &middot; internal date ${fmtDate(t.internalDeadline)}</div>
         </div>
-        <div style="text-align:right;">${statusBadge(t)}<div style="margin-top:6px;">${actionCell(t)}</div></div>
+        <div class="today-row-right">${statusBadge(t)}</div>
       </div>`).join('') + `</div>`;
   }
   wrap.innerHTML = html;
 }
-
-  function renderStatusDonut(){
+function renderStatusDonut(){
       const wrap = document.getElementById('statusDonutWrap');
       if(!wrap) return;
       if(tasks.length === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
