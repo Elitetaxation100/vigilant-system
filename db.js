@@ -30,7 +30,7 @@ const DB_PATH = path.join(DATA_DIR, 'db.json');
 // hardcoded credentials to go stale in, too.
 // ---------------------------------------------------------------------------
 const ROSTER = [
-  { name: 'Shubham Sharma', email: 'shubham@elitetaxation.co.nz', password: 'Shubham@2026', jobTitle: 'Director', team: 'Management', accessRole: 'superadmin' },
+  { name: 'Shubam Sharma', email: 'shubham@elitetaxation.co.nz', password: 'Shubham@2026', jobTitle: 'Director', team: 'Management', accessRole: 'superadmin' },
   { name: 'Parvinder Kumar', email: 'parvinder@elitetaxation.co.nz', password: 'Parvinder@2026', jobTitle: 'Senior Accountant', team: 'Rideshare Team', accessRole: 'admin' },
   { name: 'Ranjit Choudhary', email: 'ranjit@elitetaxation.co.nz', password: 'Ranjit@2026', jobTitle: 'Tax Associate', team: 'Rental Team', accessRole: 'employee' },
   { name: 'Suneha', email: 'suneha@elitetaxation.co.nz', password: 'Suneha@2026', jobTitle: 'Tax Associate', team: 'GST Team', accessRole: 'employee' },
@@ -148,6 +148,13 @@ let state = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
 // the new fields so existing data doesn't break.
 if (!state.clients) state.clients = [];
 if (!state.attendance) state.attendance = {};
+// Name-spelling fix: existing databases seeded before this correction still
+// have the old spelling on disk — seedData()/ensureOrgChart() only add
+// missing employees, they don't update fields on ones that already exist.
+{
+  const shubamRec = state.employees.find(e => e.email.toLowerCase() === 'shubham@elitetaxation.co.nz');
+  if (shubamRec && shubamRec.name === 'Shubham Sharma') shubamRec.name = 'Shubam Sharma';
+}
 state.tasks.forEach(t => {
   // The Start/Pause timer and the pause-with-screenshot flow are gone —
   // the agreed-time-vs-actual-delivery clock now runs off acceptedAt
