@@ -830,6 +830,13 @@
       <!-- ===================== MANAGER DASHBOARD VIEW ===================== -->
       <section class="view" id="view-manager">
         <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
+          <div class="stat-card"><div class="label">Active Tasks</div><div class="value purple" id="statActiveTasks">0</div></div>
+          <div class="stat-card"><div class="label">On Track</div><div class="value teal" id="statOnTrack">0</div></div>
+          <div class="stat-card"><div class="label">At Risk</div><div class="value amber" id="statAtRisk">0</div></div>
+          <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="statOverdueTasks">0</div></div>
+        </div>
+
+        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
           <div class="stat-card"><div class="label">Gap %</div><div class="value coral" id="statGapPct">0%</div></div>
           <div class="stat-card"><div class="label">Adherence</div><div class="value teal" id="statAdherencePct">—</div></div>
           <div class="stat-card"><div class="label">Timing Accuracy</div><div class="value purple" id="statTimingAcc">—</div></div>
@@ -2197,6 +2204,7 @@ function renderManagerStatics(){
     lbWrap.innerHTML = ranked.map((e,i) => `<li><span class="rank">${i+1}</span><span class="lb-name">${esc(e.name)}</span><span class="lb-pts">${e.pts} pts</span></li>`).join('');
   }
   renderManagerTopStats();
+  renderManagerTeamStats();
   renderRiskFlags();
   renderClientOwnership();
   renderProductivity();
@@ -2628,6 +2636,18 @@ function renderManagerTopStats(){
   document.getElementById('statAdherencePct').textContent = adherencePct === null ? '—' : adherencePct + '%';
   document.getElementById('statTimingAcc').textContent = timingAcc === null ? '—' : '±' + timingAcc + 'h';
   document.getElementById('breachRiskCount').textContent = overdue.length + (overdue.length === 1 ? ' task' : ' tasks');
+}
+function renderManagerTeamStats(){
+  const active = tasks.filter(t => t.status !== 'completed');
+  const today = todayISO();
+  const riskCutoff = addDaysISO(1);
+  const overdue = active.filter(t => t.internalDeadline && t.internalDeadline < today);
+  const atRisk = active.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= riskCutoff);
+  const onTrack = active.length - overdue.length - atRisk.length;
+  document.getElementById('statActiveTasks').textContent = active.length;
+  document.getElementById('statOnTrack').textContent = Math.max(0, onTrack);
+  document.getElementById('statAtRisk').textContent = atRisk.length;
+  document.getElementById('statOverdueTasks').textContent = overdue.length;
 }
 function renderRiskFlags(){
   const wrap = document.getElementById('riskFlagsWrap');
