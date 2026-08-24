@@ -408,7 +408,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
             timerStartedAt: status === 'accepted' ? new Date().toISOString() : null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
-    reworkStartedAt: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote }]
+    reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
   };
   state.tasks.unshift(task);
         if (task.status === 'accepted') pauseOtherActiveTasks(state, task.assignedTo, task.id);
@@ -535,8 +535,11 @@ const isAssignedReviewer = t.reviewerId && t.reviewerId === req.employee.id;
     return res.status(403).json({ error: "You're not authorized to review this task." });
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
-  const { status, note } = req.body || {};
+  const { status, note, faultType } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
+  if (status === 'error' && !['processor', 'sop'].includes(faultType)) {
+    return res.status(400).json({ error: 'Choose whether this was a processor fault or an SOP/manager fault.' });
+  }
   t.reviewStatus = status;
   t.reviewedBy = req.employee.id;
   t.reviewNote = note || null;
@@ -544,6 +547,7 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
   if (status === 'error') {
     t.status = 'awaiting_acceptance';
     t.reworkCount = (t.reworkCount || 0) + 1;
+    t.faultType = faultType;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for rework — error found. Accept it (or propose a new window) to start fixing it. ${note ? 'Note: ' + escHtml(note) : ''}`);
   } else {
     t.awaitingClientDecision = true;
@@ -605,7 +609,7 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   const durationHours = startedAt ? Math.round(((new Date(endedAt) - new Date(startedAt)) / 3600000) * 100) / 100 : null;
   t.logged += durationHours || 0; // actual time spent on this rework round, added to the task's total
   t.reworkHistory = t.reworkHistory || [];
-  t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null });
+  t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null });
   t.reworkStartedAt = null;
   t.status = 'completed';
   t.completedAt = endedAt;
@@ -776,10 +780,15 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
+  // Optional ?days=N scopes delivered work and shift hours to a rolling
+  // window (used by the Founder View's 30-day snapshot). Omitted, this
+  // stays the all-time view the Command Center has always shown.
+  const days = parseInt(req.query.days, 10);
+  const sinceISO = Number.isFinite(days) && days > 0 ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10) : null;
   const rows = state.employees.map(emp => {
     const assignedToMe = state.tasks.filter(t => t.assignedTo === emp.id);
     const assignedByMe = state.tasks.filter(t => t.assignedBy === emp.id);
-    const delivered = assignedToMe.filter(t => t.status === 'completed');
+    const delivered = assignedToMe.filter(t => t.status === 'completed' && (!sinceISO || (t.completedAt || '').slice(0, 10) >= sinceISO));
     const cleanDelivered = delivered.filter(t => t.reviewStatus === 'clean');
     const errorDelivered = delivered.filter(t => t.reviewStatus === 'error');
     const reviewedCount = cleanDelivered.length + errorDelivered.length;
@@ -807,7 +816,7 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
     // shift hours actually logged in (from the daily login/logout clock).
     // A day nobody logged in for contributes 0 shift hours, so absence
     // pulls the denominator down rather than being silently ignored.
-    const shiftSeconds = Object.values(state.attendance[emp.id] || {}).reduce((s, d) => s + (d.secondsWorked || 0), 0);
+    const shiftSeconds = Object.entries(state.attendance[emp.id] || {}).filter(([d]) => !sinceISO || d >= sinceISO).reduce((s, [, d]) => s + (d.secondsWorked || 0), 0);
     const shiftHours = Math.round((shiftSeconds / 3600) * 100) / 100;
     const productivityPct = shiftHours > 0 ? Math.round((deliveredLoggedHours / shiftHours) * 100) : null;
     return {
