@@ -611,15 +611,6 @@
           <div class="bar-list" id="assigneeBarWrap"></div>
         </div>
 
-        <div class="section-label">Detailed commitments</div>
-        <div class="stat-grid">
-          <div class="stat-card"><div class="label">Total Commitments</div><div class="value" id="statTotal">0</div></div>
-          <div class="stat-card"><div class="label">Total Task Points</div><div class="value purple" id="statPoints">0 <span style="font-size:15px;">pts</span></div></div>
-          <div class="stat-card"><div class="label">Pending Verification</div><div class="value amber" id="statPending">0</div></div>
-          <div class="stat-card"><div class="label">Verified Completed</div><div class="value teal" id="statCompleted">0</div></div>
-          <div class="stat-card"><div class="label">Hours Logged</div><div class="value coral" id="statHours">0.0</div></div>
-        </div>
-
         <div class="panel">
           <div class="panel-head">
             <h2>Commitment Dashboard &amp; Verification Matrix</h2>
@@ -834,13 +825,6 @@
           <div class="stat-card"><div class="label">On Track</div><div class="value teal" id="statOnTrack">0</div></div>
           <div class="stat-card"><div class="label">At Risk</div><div class="value amber" id="statAtRisk">0</div></div>
           <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="statOverdueTasks">0</div></div>
-        </div>
-
-        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
-          <div class="stat-card"><div class="label">Gap %</div><div class="value coral" id="statGapPct">0%</div></div>
-          <div class="stat-card"><div class="label">Adherence</div><div class="value teal" id="statAdherencePct">—</div></div>
-          <div class="stat-card"><div class="label">Timing Accuracy</div><div class="value purple" id="statTimingAcc">—</div></div>
-          <div class="stat-card"><div class="label">Open Breach Risk</div><div class="value amber" id="breachRiskCount">0 tasks</div></div>
         </div>
 
         <div class="mgr-grid">
@@ -1551,11 +1535,6 @@ function renderTaskTable(){
     }).join('');
   }
   const mine = tasks.filter(t => t.assignedTo === currentViewerId);
-  document.getElementById('statTotal').textContent = mine.length;
-  document.getElementById('statPoints').innerHTML = mine.reduce((s,t)=>s+t.points,0) + ' <span style="font-size:15px;">pts</span>';
-  document.getElementById('statPending').textContent = mine.filter(t=>t.status==='pending'||t.status==='awaiting_acceptance').length;
-  document.getElementById('statCompleted').textContent = mine.filter(t=>t.status==='completed').length;
-  document.getElementById('statHours').textContent = mine.reduce((s,t)=>s+displayedLogged(t),0).toFixed(1);
   renderDeadlineBanner();
   renderWorkloadBlockers();
   renderManagerStatics();
@@ -2203,7 +2182,6 @@ function renderManagerStatics(){
   } else {
     lbWrap.innerHTML = ranked.map((e,i) => `<li><span class="rank">${i+1}</span><span class="lb-name">${esc(e.name)}</span><span class="lb-pts">${e.pts} pts</span></li>`).join('');
   }
-  renderManagerTopStats();
   renderManagerTeamStats();
   renderRiskFlags();
   renderClientOwnership();
@@ -2624,18 +2602,6 @@ function renderSlaChart(){
 function renderTaskEngineVisuals(){
   renderTaskHeatmap('taskHeatmapWrap');
   renderSlaChart();
-}
-function renderManagerTopStats(){
-  const completed = tasks.filter(t => t.status === 'completed');
-  const onTime = completed.filter(t => t.logged <= t.tat);
-  const overdue = tasks.filter(t => t.internalDeadline && t.internalDeadline < todayISO() && t.status !== 'completed');
-  const gapPct = completed.length ? Math.round(((completed.length - onTime.length) / completed.length) * 1000) / 10 : 0;
-  const adherencePct = completed.length ? Math.round((onTime.length / completed.length) * 1000) / 10 : null;
-  const timingAcc = completed.length ? (completed.reduce((s,t) => s + Math.abs(t.logged - t.tat), 0) / completed.length).toFixed(1) : null;
-  document.getElementById('statGapPct').textContent = gapPct + '%';
-  document.getElementById('statAdherencePct').textContent = adherencePct === null ? '—' : adherencePct + '%';
-  document.getElementById('statTimingAcc').textContent = timingAcc === null ? '—' : '±' + timingAcc + 'h';
-  document.getElementById('breachRiskCount').textContent = overdue.length + (overdue.length === 1 ? ' task' : ' tasks');
 }
 function renderManagerTeamStats(){
   const active = tasks.filter(t => t.status !== 'completed');
