@@ -149,6 +149,17 @@
   .stat-card .value.amber{ color:#B45309; }
   .stat-card .value.coral{ color:#C2410C; }
 
+  .fault-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .fault-card{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 18px; }
+  .fault-card .fc-top{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .fault-card .fc-label{ font-size:14px; font-weight:600; color:var(--text); }
+  .fault-card .fc-num{ font-family:var(--font-display); font-size:22px; font-weight:700; white-space:nowrap; }
+  .fault-card .fc-num small{ font-size:13px; font-weight:600; color:var(--text-faint); }
+  .fault-bar-track{ height:6px; border-radius:4px; background:var(--line); overflow:hidden; margin-bottom:9px; }
+  .fault-bar-fill{ height:100%; border-radius:4px; }
+  .fault-card .fc-note{ font-size:12.5px; color:var(--text-faint); line-height:1.5; }
+  @media (max-width:720px){ .fault-grid{ grid-template-columns:1fr; } }
+
     .charts-row{ display:flex; gap:20px; margin-bottom:20px; flex-wrap:wrap; }
   .chart-panel{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:20px 22px; flex:1 1 340px; box-shadow:0 1px 2px #10182820; }
   .chart-panel h3{ font-family:var(--font-display); font-size:15px; font-weight:700; letter-spacing:-.2px; margin-bottom:16px; color:var(--text); }
@@ -529,6 +540,10 @@
     <div class="nav-section">
       <div class="nav-title">Collaborate</div>
     </div>
+    <div class="nav-section" id="founderNavSection" style="display:none;">
+      <div class="nav-title">Founder</div>
+      <div class="nav-item" data-view="founder" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div>
+    </div>
     <div class="nav-section" id="commandCenterNavSection" style="display:none;">
       <div class="nav-title">Oversight</div>
       <div class="nav-item" data-view="command" onclick="showView('command', this)"><span class="nav-icon">🛡</span> Command Center</div>
@@ -773,6 +788,48 @@
             <thead><tr><th>Employee</th><th>Today's Status</th><th>Today Login</th><th>Today Logout</th><th>Last 14 Days</th></tr></thead>
             <tbody id="attendanceTableBody"></tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- ===================== FOUNDER VIEW ===================== -->
+      <section class="view" id="view-founder">
+        <div class="panel" style="margin-bottom:20px;">
+          <div class="panel-head"><h2>Founder View · Last 30 days</h2></div>
+          <p style="font-size:14px; color:var(--text-dim);">The single screen to see the whole firm — completed work, on-time delivery, first-time quality, and where rework is coming from.</p>
+        </div>
+
+        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
+          <div class="stat-card">
+            <div class="label">Tasks Completed</div>
+            <div class="value" id="fvTasksCompleted">0</div>
+            <div style="font-size:12px; color:var(--text-faint); margin-top:4px;" id="fvTasksCompletedSub">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Delivered On Time</div>
+            <div class="value teal" id="fvOnTimePct">—</div>
+            <div style="font-size:12px; color:var(--text-faint); margin-top:4px;" id="fvOnTimeSub">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">First-Time Quality</div>
+            <div class="value" id="fvQualityPct">—</div>
+            <div style="font-size:12px; color:var(--text-faint); margin-top:4px;" id="fvQualitySub">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Team Productivity</div>
+            <div class="value" id="fvProductivityPct">—</div>
+            <div style="font-size:12px; color:var(--text-faint); margin-top:4px;" id="fvProductivitySub">—</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Owner Performance · Last 30 days</h2></div>
+          <div id="fvOwnerPerfWrap" class="cap-list">Loading…</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Where the Failures Came From</h2></div>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;" id="fvReworkCasesNote">No rework cases in this period.</p>
+          <div class="fault-grid" id="fvFaultWrap"></div>
         </div>
       </section>
 
@@ -1183,6 +1240,7 @@ const titles = {
   clients: ['Client Directory', 'Admin-only — every client needs a clear owner'],
   command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
   attendance: ['Attendance Log', 'Superadmin-only — daily login/logout history for the whole team'],
+  founder: ['Founder View', 'The single screen you open in the morning to see the whole firm'],
 };
 function showView(id, el){
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -1199,6 +1257,7 @@ function showView(id, el){
   if(id === 'analytics') renderChartBuilder();
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
+  if(id === 'founder') renderFounderView();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 /* =========================================================================
@@ -2615,6 +2674,117 @@ function renderManagerTeamStats(){
   document.getElementById('statAtRisk').textContent = atRisk.length;
   document.getElementById('statOverdueTasks').textContent = overdue.length;
 }
+/* =========================================================================
+   FOUNDER VIEW — superadmin-only, last-30-days snapshot of the whole firm:
+   completed work, on-time delivery, first-time quality, per-owner
+   performance, and a fault breakdown of rework cases (processor vs
+   SOP/manager). Task-level numbers come from the tasks already in memory;
+   shift/productivity numbers come from /api/reports/summary?days=30
+   (superadmin-only, same endpoint the Command Center's ratings use).
+   ========================================================================= */
+async function renderFounderView(){
+  const wrap = document.getElementById('fvOwnerPerfWrap');
+  if(!wrap || !isSuperAdmin) return;
+  const sinceISO = addDaysISO(-30);
+  const monthStartISO = todayISO().slice(0,7) + '-01';
+  const completed = tasks.filter(t => t.status === 'completed' && t.completedAt);
+  const inPeriod = completed.filter(t => t.completedAt.slice(0,10) >= sinceISO);
+  const completedThisMonth = completed.filter(t => t.completedAt.slice(0,10) >= monthStartISO).length;
+
+  document.getElementById('fvTasksCompleted').textContent = inPeriod.length.toLocaleString();
+  document.getElementById('fvTasksCompletedSub').textContent = `+${completedThisMonth} this month`;
+
+  const onTimeInPeriod = inPeriod.filter(t => t.clientDate && t.completedAt.slice(0,10) <= t.clientDate);
+  const onTimePct = inPeriod.length ? Math.round((onTimeInPeriod.length / inPeriod.length) * 100) : null;
+  document.getElementById('fvOnTimePct').textContent = onTimePct === null ? '—' : onTimePct + '%';
+  document.getElementById('fvOnTimeSub').textContent = inPeriod.length ? `${onTimeInPeriod.length} of ${inPeriod.length}` : 'No completed tasks yet';
+
+  // A completed task's reviewStatus can only be 'clean' by the time it's
+  // sitting as completed (an 'error' verdict bounces it back out of
+  // completed status) — reworkCount is what actually shows it needed a
+  // fix at some point along the way, so that's what "first-time quality"
+  // is measured against.
+  const requiredRework = inPeriod.filter(t => (t.reworkCount||0) > 0).length;
+  const qualityPct = inPeriod.length ? Math.round(((inPeriod.length - requiredRework) / inPeriod.length) * 100) : null;
+  document.getElementById('fvQualityPct').textContent = qualityPct === null ? '—' : qualityPct + '%';
+  document.getElementById('fvQualitySub').textContent = inPeriod.length ? `${requiredRework} required rework` : 'No completed tasks yet';
+
+  let reportRows = [];
+  try {
+    const data = await api('/api/reports/summary?days=30');
+    reportRows = data.rows || [];
+  } catch(e){ reportRows = []; }
+
+  const totalDeliveredHours = reportRows.reduce((s,r) => s + (r.deliveredLoggedHours||0), 0);
+  const totalShiftHours = reportRows.reduce((s,r) => s + (r.shiftHours||0), 0);
+  const teamProdPct = totalShiftHours > 0 ? Math.round((totalDeliveredHours / totalShiftHours) * 100) : null;
+  document.getElementById('fvProductivityPct').textContent = teamProdPct === null ? '—' : teamProdPct + '%';
+  document.getElementById('fvProductivitySub').textContent = totalShiftHours > 0 ? `${totalDeliveredHours.toFixed(0)}h task / ${totalShiftHours.toFixed(0)}h online` : 'No shift hours logged yet';
+
+  const perfRows = reportRows.filter(r => r.delivered > 0).sort((a,b) => b.onTimeRate - a.onTimeRate);
+  if(perfRows.length === 0){
+    wrap.innerHTML = `<div style="font-size:14.5px; color:var(--text-faint); padding:20px 0;">No completed work in this period yet.</div>`;
+  } else {
+    wrap.innerHTML = perfRows.map(r => {
+      const initials = (r.name||'?').split(' ').map(p=>p[0]).slice(0,2).join('').toUpperCase();
+      const barColor = r.onTimeRate >= 85 ? 'var(--teal)' : r.onTimeRate >= 60 ? 'var(--amber)' : 'var(--coral)';
+      return `<div class="cap-row">
+        <div class="cap-avatar">${esc(initials)}</div>
+        <div class="cap-main">
+          <div class="cap-top">
+            <span class="cap-name">${esc(r.name)}</span>
+            <span class="cap-hours">${r.onTimeRate}% on-time</span>
+          </div>
+          <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${Math.min(100,r.onTimeRate)}%; background:${barColor};"></div></div>
+          <div class="cap-sub">
+            <span>${r.delivered} task${r.delivered===1?'':'s'}</span>
+            <span>Accuracy ${r.cleanRate}% &middot; Prod. ${r.productivityPct === null ? '—' : r.productivityPct + '%'}</span>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Every rework round in this window, by who was responsible: the
+  // processor (mistake despite a clear SOP) or the SOP/manager (the
+  // instructions were unclear, missing, or wrong). Closed rounds come from
+  // reworkHistory; a round still open (flagged but not yet resubmitted)
+  // is picked up from the task's own current faultType.
+  const cases = [];
+  tasks.forEach(t => {
+    (t.reworkHistory||[]).forEach(r => {
+      if((r.startedAt||'').slice(0,10) >= sinceISO) cases.push(r.faultType);
+    });
+    if(t.reviewStatus === 'error' && t.reviewedAt && t.reviewedAt.slice(0,10) >= sinceISO){
+      cases.push(t.faultType);
+    }
+  });
+  const processorCount = cases.filter(f => f === 'processor').length;
+  const sopCount = cases.filter(f => f === 'sop').length;
+  const totalCases = processorCount + sopCount;
+  const unclassified = cases.length - totalCases;
+  document.getElementById('fvReworkCasesNote').textContent = totalCases
+    ? `${totalCases} rework case${totalCases===1?'':'s'} in this period${unclassified ? ` (${unclassified} from before fault-tracking was added, not shown below)` : ''}`
+    : 'No rework cases in this period.';
+  const faultWrap = document.getElementById('fvFaultWrap');
+  if(totalCases === 0){
+    faultWrap.innerHTML = `<div style="font-size:14px; color:var(--text-faint); padding:8px 0;">Nothing to break down yet.</div>`;
+  } else {
+    const procPct = Math.round((processorCount/totalCases)*100);
+    const sopPct = 100 - procPct;
+    faultWrap.innerHTML = `
+      <div class="fault-card">
+        <div class="fc-top"><span class="fc-label">Processor fault</span><span class="fc-num" style="color:var(--coral);">${processorCount} <small>(${procPct}%)</small></span></div>
+        <div class="fault-bar-track"><div class="fault-bar-fill" style="width:${procPct}%; background:var(--coral);"></div></div>
+        <div class="fc-note">Owner made a mistake despite the SOP being clear. Feeds into individual accuracy scores.</div>
+      </div>
+      <div class="fault-card">
+        <div class="fc-top"><span class="fc-label">SOP / Manager fault</span><span class="fc-num" style="color:var(--amber);">${sopCount} <small>(${sopPct}%)</small></span></div>
+        <div class="fault-bar-track"><div class="fault-bar-fill" style="width:${sopPct}%; background:var(--amber);"></div></div>
+        <div class="fc-note">SOP was unclear, missing, or wrong. Manager owns fixing it.</div>
+      </div>`;
+  }
+}
 function renderRiskFlags(){
   const wrap = document.getElementById('riskFlagsWrap');
   const windowAfterClient = tasks.filter(t => t.clientDate && t.internalDeadline && t.internalDeadline > t.clientDate).length;
@@ -2831,6 +3001,13 @@ function openReviewFormModal(id){
       </div>
     </div>
     <div class="field"><label>Review notes ${''}<span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required if flagging an error)</span></label><textarea id="reviewFormNote" placeholder="e.g. Figures reconciled, no issues found"></textarea></div>
+    <div class="field"><label>What caused it? <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required if flagging an error)</span></label>
+      <select id="reviewFaultType">
+        <option value="">Select one…</option>
+        <option value="processor">Processor fault — owner made a mistake despite a clear SOP</option>
+        <option value="sop">SOP / Manager fault — SOP was unclear, missing, or wrong</option>
+      </select>
+    </div>
     <div class="modal-error" id="reviewFormError"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -2843,15 +3020,21 @@ function openReviewFormModal(id){
 async function submitReviewForm(id, decision){
   const checked = Array.from(document.querySelectorAll('.reviewChecklistItem:checked')).map(cb => REVIEW_CHECKLIST[parseInt(cb.value, 10)]);
   const noteInput = document.getElementById('reviewFormNote').value.trim();
+  const faultType = document.getElementById('reviewFaultType').value;
   if(decision === 'error' && !noteInput){
     document.getElementById('reviewFormError').textContent = 'Please note what was wrong before flagging an error.';
+    document.getElementById('reviewFormError').style.display = 'block';
+    return;
+  }
+  if(decision === 'error' && !faultType){
+    document.getElementById('reviewFormError').textContent = 'Choose whether this was a processor fault or an SOP/manager fault.';
     document.getElementById('reviewFormError').style.display = 'block';
     return;
   }
   const checklistLine = checked.length ? `Checklist confirmed: ${checked.join('; ')}.` : '';
   const note = [noteInput, checklistLine].filter(Boolean).join(' ') || undefined;
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({ status: decision, note }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({ status: decision, note, faultType: decision === 'error' ? faultType : undefined }) });
     closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
@@ -3309,6 +3492,7 @@ async function onLoginComplete(){
   document.getElementById('employeesNavSection').style.display = isAdmin ? '' : 'none';
   document.getElementById('commandCenterNavSection').style.display = isAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('founderNavSection').style.display = isSuperAdmin ? '' : 'none';
   // Visible to every Admin/Superadmin — actual assign permission (decided by
   // a Superadmin via Manage Access) is enforced inside the modal, not by
   // hiding the nav item from managers who haven't been granted anyone yet.
@@ -3360,6 +3544,7 @@ function logoutSession(){
   document.getElementById('employeesNavSection').style.display = 'none';
   document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
+  document.getElementById('founderNavSection').style.display = 'none';
   document.getElementById('assignTeamNavItem').style.display = 'none';
   document.getElementById('assignTeamBtn').style.display = 'none';
   document.getElementById('adminStatus').style.display = 'none';
