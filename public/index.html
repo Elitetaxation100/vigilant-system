@@ -493,6 +493,18 @@
   .cc-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#6B7390; padding:8px 10px; border-bottom:1px solid #1E2330; white-space:nowrap; }
   .cc-table td{ padding:10px 10px; border-bottom:1px solid #1A1F2B; font-size:13.5px; color:#D6DAE6; vertical-align:top; word-break:break-word; overflow-wrap:anywhere; }
   .cc-table tr:hover td{ background:#161C29; }
+
+  /* ===== Admin space + task source tags (calls-into-tasks, Phase 1) ===== */
+  .src-tag{ display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; font-family:var(--font-mono); padding:2px 7px; border-radius:6px; white-space:nowrap; letter-spacing:.2px; }
+  .src-tag.call{ background:#2FBE9316; color:#0D9488; }
+  .src-tag.slack{ background:#7C6CF616; color:#5B4FCF; }
+  .src-tag.manual{ background:#00000008; color:var(--text-faint); border:1px solid var(--panel-border); }
+  .src-subtabs{ display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
+  .src-subtab{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; font-weight:600; padding:7px 13px; border-radius:20px; transition:.15s; }
+  .src-subtab:hover{ border-color:var(--purple); color:#6D28D9; }
+  .src-subtab.on{ background:linear-gradient(135deg,var(--purple),#4E3FD1); color:#fff; border-color:transparent; }
+  .src-subtab .ct{ font-family:var(--font-mono); font-size:11.5px; opacity:.75; margin-left:5px; }
+  .admin-src-cell{ margin-top:5px; }
 </style>
 </head>
 <body>
@@ -524,6 +536,7 @@
     <div class="nav-section">
       <div class="nav-title">Commitment Hub</div>
       <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> Commitment Dashboard</div>
+      <div class="nav-item" id="adminNavItem" data-view="admin" onclick="showView('admin', this)" style="display:none;"><span class="nav-icon">▣</span> Admin</div>
     </div>
     <div class="nav-section">
       <div class="nav-title">Assign Work</div>
@@ -665,6 +678,61 @@
               </tr>
             </thead>
             <tbody id="taskTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===================== ADMIN VIEW (calls-into-tasks, Phase 1) =====================
+           New. Every task that came in from a call or a Slack message, in one
+           place, filterable by where it came from. Does not replace anything —
+           the Commitment Dashboard, Task Engine, Manager Dashboard etc. are
+           all unchanged. -->
+      <section class="view" id="view-admin">
+        <div class="banner">
+          <span>▣</span>
+          <span><b>Admin space.</b> Tasks created in Slack — from a call card or the “Convert to Task” shortcut — land here automatically, assigned to whoever, and show on their dashboard. The call itself (recording, listening, AI draft) stays in Slack.</span>
+        </div>
+
+        <div class="stat-grid" id="adminStatGrid" style="grid-template-columns:repeat(4,1fr);">
+          <div class="stat-card"><div class="label">Open</div><div class="value" id="adminStatOpen">0</div></div>
+          <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="adminStatOverdue">0</div></div>
+          <div class="stat-card"><div class="label">Unassigned</div><div class="value amber" id="adminStatUnassigned">0</div></div>
+          <div class="stat-card"><div class="label">Created today</div><div class="value teal" id="adminStatToday">0</div></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Tasks</h2>
+            <div class="panel-head-actions"><span style="font-size:12.5px;color:var(--text-faint);align-self:center;">Created in Slack — they appear here automatically</span></div>
+          </div>
+          <div class="src-subtabs" id="adminSrcSubtabs">
+            <button class="src-subtab on" data-src="all" onclick="setAdminSrc('all', this)">All <span class="ct" id="adminCtAll">0</span></button>
+            <button class="src-subtab" data-src="call" onclick="setAdminSrc('call', this)">☎ Call tasks <span class="ct" id="adminCtCall">0</span></button>
+            <button class="src-subtab" data-src="slack_message" onclick="setAdminSrc('slack_message', this)">⌗ Slack tasks <span class="ct" id="adminCtSlack">0</span></button>
+            <button class="src-subtab" data-src="manual" onclick="setAdminSrc('manual', this)">✎ Manual <span class="ct" id="adminCtManual">0</span></button>
+          </div>
+          <div class="filter-row">
+            <input type="text" id="adminSearch" placeholder="Search task, client, assignee…" oninput="renderAdminView()">
+            <select id="adminStatusFilter" onchange="renderAdminView()">
+              <option value="">Any status</option>
+              <option value="open">Open / in progress</option>
+              <option value="overdue">Overdue</option>
+              <option value="unassigned">Unassigned</option>
+              <option value="completed">Done</option>
+            </select>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Client</th>
+                <th>Source</th>
+                <th>Assignee</th>
+                <th>Due</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="adminTaskTableBody"></tbody>
           </table>
         </div>
       </section>
@@ -1241,6 +1309,7 @@ const titles = {
   command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
   attendance: ['Attendance Log', 'Superadmin-only — daily login/logout history for the whole team'],
   founder: ['Founder View', 'The single screen you open in the morning to see the whole firm'],
+  admin: ['Admin', 'Every task that came in from a call or a Slack message'],
 };
 function showView(id, el){
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -1258,7 +1327,73 @@ function showView(id, el){
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
+  if(id === 'admin') renderAdminView();
   window.scrollTo({top:0, behavior:'smooth'});
+}
+
+/* =========================================================================
+   ADMIN SPACE (calls-into-tasks, Phase 1) — a task view over the same
+   `tasks` global, filtered by where each task came from (source). Purely
+   additive: it reads task.source ('call' | 'slack_message' | 'manual'),
+   which Phase 0 backfilled onto every task.
+   ========================================================================= */
+let adminSrcFilter = 'all';
+function srcTag(source){
+  if(source === 'call') return '<span class="src-tag call">☎ call</span>';
+  if(source === 'slack_message') return '<span class="src-tag slack">⌗ slack</span>';
+  return '<span class="src-tag manual">✎ manual</span>';
+}
+function setAdminSrc(src, el){
+  adminSrcFilter = src;
+  document.querySelectorAll('#adminSrcSubtabs .src-subtab').forEach(b => b.classList.toggle('on', b === el));
+  renderAdminView();
+}
+function renderAdminView(){
+  const grid = document.getElementById('adminTaskTableBody');
+  if(!grid) return;
+  const all = tasks.slice();
+  // counts per source (independent of the active filter)
+  const bySrc = s => all.filter(t => (t.source || 'manual') === s).length;
+  const setTxt = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
+  setTxt('adminCtAll', all.length);
+  setTxt('adminCtCall', bySrc('call'));
+  setTxt('adminCtSlack', bySrc('slack_message'));
+  setTxt('adminCtManual', bySrc('manual'));
+
+  const openish = all.filter(t => t.status !== 'completed');
+  setTxt('adminStatOpen', openish.length);
+  setTxt('adminStatOverdue', openish.filter(t => t.internalDeadline && t.internalDeadline < todayISO()).length);
+  setTxt('adminStatUnassigned', openish.filter(t => !t.assignedTo).length);
+  setTxt('adminStatToday', all.filter(t => (t.assignedAt || '').slice(0,10) === todayISO()).length);
+
+  const q = (document.getElementById('adminSearch').value || '').toLowerCase();
+  const statusF = document.getElementById('adminStatusFilter').value;
+  const rows = all.filter(t => {
+    if(adminSrcFilter !== 'all' && (t.source || 'manual') !== adminSrcFilter) return false;
+    if(statusF === 'open' && t.status === 'completed') return false;
+    if(statusF === 'completed' && t.status !== 'completed') return false;
+    if(statusF === 'overdue' && !(t.status !== 'completed' && t.internalDeadline && t.internalDeadline < todayISO())) return false;
+    if(statusF === 'unassigned' && t.assignedTo) return false;
+    const hay = (t.name + ' ' + (t.scope||'') + ' ' + (t.clientName||'') + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
+    return hay.includes(q);
+  });
+
+  if(rows.length === 0){
+    grid.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:26px;">No tasks match this view.${all.length === 0 ? ' Tasks made in Slack will appear here.' : ''}</td></tr>`;
+    return;
+  }
+  grid.innerHTML = rows.map(t => {
+    const a = empById(t.assignedTo);
+    const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < todayISO();
+    return `<tr>
+      <td><div class="task-name">${esc(t.name)}</div>${t.scope && t.scope !== '—' ? `<div class="task-scope">${esc(t.scope)}</div>` : ''}<div class="task-scope">${t.id}</div></td>
+      <td class="clientcell">${esc(t.clientName) || '—'}</td>
+      <td>${srcTag(t.source || 'manual')}</td>
+      <td><div class="assignee">${a ? `<span class="mini-avatar">${esc(a.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span> ${esc(a.name)}` : '<span style="color:var(--amber);">Unassigned</span>'}</div></td>
+      <td class="logged" style="${overdue?'color:#C2410C;font-weight:700;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</td>
+      <td>${statusBadge(t)}</td>
+    </tr>`;
+  }).join('');
 }
 /* =========================================================================
    ATTENDANCE LOG — Superadmin-only view of everyone's daily login/logout
@@ -1583,7 +1718,7 @@ function renderTaskTable(){
       const isToday = t.internalDeadline === todayISO() && t.status !== 'completed';
       return `<tr>
         <td class="task-id">${t.id}</td>
-        <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${esc(t.scope)}</div></td>
+        <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${esc(t.scope)}</div>${(t.source && t.source !== 'manual') ? `<div class="admin-src-cell">${srcTag(t.source)}</div>` : ''}</td>
         <td class="clientcell">${esc(t.clientName) || '—'}<div class="cdate ${isToday?'deadline-today':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}</div><div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Agreed delivery: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
         <td class="pts">★ ${t.points} pts</td>
         <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
@@ -1604,6 +1739,7 @@ function renderTaskTable(){
   renderMyDay();
   renderGreeting();
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
+  if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
 }
 
     function primaryAction(t){
@@ -3489,6 +3625,7 @@ async function submitLogin(){
 }
 async function onLoginComplete(){
   seenAwaitingIds = null; // fresh baseline each login — don't re-pop tasks already surfaced last session
+  document.getElementById('adminNavItem').style.display = isAdmin ? '' : 'none';
   document.getElementById('employeesNavSection').style.display = isAdmin ? '' : 'none';
   document.getElementById('commandCenterNavSection').style.display = isAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
@@ -3541,6 +3678,7 @@ function logoutSession(){
   seenAwaitingIds = null;
   stopPolling();
   if(clockInterval){ clearInterval(clockInterval); clockInterval = null; }
+  document.getElementById('adminNavItem').style.display = 'none';
   document.getElementById('employeesNavSection').style.display = 'none';
   document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
