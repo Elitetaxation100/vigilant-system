@@ -409,6 +409,9 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
+    // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
+    // app are 'manual'; the Slack connector will send 'call' / 'slack' later.
+    source: 'manual', sourceRef: null,
   };
   state.tasks.unshift(task);
         if (task.status === 'accepted') pauseOtherActiveTasks(state, task.assignedTo, task.id);
@@ -982,6 +985,52 @@ app.get('/api/attendance/all', requireAuth, requireSuperAdmin, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// STORAGE ADMIN (Superadmin) — backup, disaster recovery, and the migration
+// safety net for moving onto Postgres. All additive; nothing else uses these.
+// ---------------------------------------------------------------------------
+
+// Which store is live and how much is in it — quick post-deploy check.
+app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  res.json({
+    mode: db._mode(),
+    rev: db._rev(),
+    employees: (state.employees || []).length,
+    tasks: (state.tasks || []).length,
+    clients: (state.clients || []).length,
+    teams: (state.teams || []).length,
+  });
+});
+
+// Full state snapshot — download it before any risky change, or to seed
+// Postgres from the currently-running instance.
+app.get('/api/admin/state-export', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  res.setHeader('Content-Disposition', `attachment; filename="governance-os-state-${todayISO()}.json"`);
+  res.json(state);
+});
+
+// Replace the entire state with an uploaded snapshot. Guarded, Superadmin
+// only, and it logs itself. Used once when Postgres comes online if the
+// local db.json didn't survive the deploy — export from the old instance,
+// import here.
+app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, (req, res) => {
+  const incoming = req.body;
+  if (!incoming || typeof incoming !== 'object' || !Array.isArray(incoming.employees) || !Array.isArray(incoming.tasks)) {
+    return res.status(400).json({ error: 'That does not look like a valid state export — it needs employees[] and tasks[] at least.' });
+  }
+  try {
+    db.replace(incoming);
+  } catch (e) {
+    return res.status(400).json({ error: 'Import rejected: ' + e.message });
+  }
+  const state = db.get();
+  logEvent(state, req.employee.id, `Imported a full state snapshot — ${(state.tasks || []).length} tasks, ${(state.employees || []).length} employees.`);
+  db.save();
+  res.json({ ok: true, mode: db._mode(), employees: state.employees.length, tasks: state.tasks.length });
+});
+
+// ---------------------------------------------------------------------------
 // Static frontend
 // ---------------------------------------------------------------------------
 app.use(express.static(path.join(__dirname, 'public')));
@@ -991,6 +1040,15 @@ app.get('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Elite Taxation Governance OS running at http://localhost:${PORT}`);
-});
+// db.init() loads the store (Postgres when DATABASE_URL is set, otherwise the
+// JSON file) and runs migrations before the first request can arrive.
+db.init()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Elite Taxation Governance OS running at http://localhost:${PORT} — storage: ${db._mode()}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Startup failed — could not initialise the database:', err);
+    process.exit(1);
+  });
