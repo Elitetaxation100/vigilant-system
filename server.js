@@ -287,8 +287,43 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   }
   if (jobTitle) emp.jobTitle = jobTitle;
   if (team) emp.team = team;
+
+  // calls-into-tasks (Phase 1) — additive access fields, all optional. The
+  // existing accessRole / managesIds above are untouched; these sit
+  // alongside them and drive the new Admin space / membership dashboards.
+  if (Array.isArray(req.body.memberships)) {
+    emp.memberships = req.body.memberships
+      .filter(m => m && typeof m.team === 'string' && m.team.trim())
+      .map(m => ({ team: m.team.trim(), level: m.level === 'admin' ? 'admin' : 'member' }));
+  }
+  if (typeof req.body.isFounder === 'boolean') emp.isFounder = req.body.isFounder;
+  if (req.body.slackUserId !== undefined) emp.slackUserId = req.body.slackUserId ? String(req.body.slackUserId).trim() : null;
+  if (req.body.aircallAgentId !== undefined) emp.aircallAgentId = req.body.aircallAgentId ? String(req.body.aircallAgentId).trim() : null;
+
   db.save();
   res.json({ employee: publicEmployee(emp) });
+});
+
+// ---------------------------------------------------------------------------
+// TEAMS (calls-into-tasks, Phase 1) — the team registry the membership model
+// and the Admin space read from. Additive: /api/employees/:id still owns the
+// legacy `team` string; this just lists/adds the named teams.
+// ---------------------------------------------------------------------------
+app.get('/api/teams', requireAuth, (req, res) => {
+  res.json({ teams: db.get().teams || [] });
+});
+app.post('/api/teams', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const name = String((req.body || {}).name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Team name is required.' });
+  state.teams = state.teams || [];
+  if (state.teams.some(t => t.name.toLowerCase() === name.toLowerCase())) {
+    return res.status(409).json({ error: 'That team already exists.' });
+  }
+  const team = { id: 't-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36), name, createdAt: Date.now() };
+  state.teams.push(team);
+  db.save();
+  res.status(201).json({ team });
 });
 
 // Remove an employee entirely — Superadmin only. Blocked while they still
@@ -982,6 +1017,93 @@ app.get('/api/attendance/all', requireAuth, requireSuperAdmin, (req, res) => {
   });
   db.save(); // getPunchState may have created today's record for someone who's never punched
   res.json({ rows, today });
+});
+
+// ---------------------------------------------------------------------------
+// INTEGRATION API (calls-into-tasks, Phase 1) — the endpoint the Slack
+// connector calls when someone turns a call card or a message into a task.
+// Authenticated with a single shared secret (INTEGRATION_SECRET env var),
+// NOT a user session. Fails closed if the secret isn't configured. Nothing
+// the app's own UI does touches these routes.
+// ---------------------------------------------------------------------------
+function requireIntegrationAuth(req, res, next) {
+  const secret = process.env.INTEGRATION_SECRET;
+  if (!secret) return res.status(503).json({ error: 'Integration API is not configured (no INTEGRATION_SECRET).' });
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token || token !== secret) return res.status(401).json({ error: 'Invalid integration credentials.' });
+  next();
+}
+
+// Create a task from Slack. Assignee and client are BOTH optional — an
+// unassigned "needs an owner" task is a valid state here (unlike the app's
+// own /api/tasks, which is the full commitment workflow). Lands as an active
+// 'accepted' task with no timer and no workload check, so it just appears on
+// the assignee's list and in the Admin space without ceremony.
+app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
+  const state = db.get();
+  const b = req.body || {};
+  const title = String(b.title || '').trim();
+  if (!title) return res.status(400).json({ error: 'title is required.' });
+  const source = b.source === 'call' ? 'call' : 'slack_message';
+
+  let assignee = null;
+  if (b.assigneeId) assignee = findEmployee(state, b.assigneeId);
+  if (!assignee && b.assigneeSlackId) assignee = state.employees.find(e => e.slackUserId && e.slackUserId === String(b.assigneeSlackId));
+  if (!assignee && b.assigneeEmail) assignee = state.employees.find(e => e.email.toLowerCase() === String(b.assigneeEmail).toLowerCase());
+
+  let client = null;
+  if (b.clientId) client = state.clients.find(c => c.id === b.clientId);
+  if (!client && b.clientName) client = state.clients.find(c => c.name.toLowerCase() === String(b.clientName).toLowerCase());
+
+  state.taskSeq += 1;
+  const now = new Date().toISOString();
+  const task = {
+    id: '#' + (100000000000 + state.taskSeq),
+    name: title,
+    scope: b.detail ? String(b.detail).trim() : '—',
+    clientId: client ? client.id : null,
+    clientName: client ? client.name : (b.clientName ? String(b.clientName).trim() : ''),
+    clientDate: null,
+    internalDeadline: b.dueDate || null,
+    points: parseInt(b.points, 10) || 0,
+    assignedTo: assignee ? assignee.id : null,
+    assignedBy: assignee ? assignee.id : null,
+    assignedAt: now, reassignHistory: [],
+    status: 'accepted',
+    logged: 0, tat: 0,
+    acceptedAt: now, timerStartedAt: null,
+    completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
+    reviewerId: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    reworkStartedAt: null, faultType: null, reworkHistory: [],
+    source, sourceRef: b.sourceRef || null,
+    estMinutes: b.estMinutes != null && !isNaN(Number(b.estMinutes)) ? Number(b.estMinutes) : null,
+    priority: b.priority || null,
+  };
+  state.tasks.unshift(task);
+  const logTargetId = assignee ? assignee.id : ((state.employees[0] || {}).id || null);
+  logEvent(state, logTargetId,
+    `Task from ${source === 'call' ? 'a call' : 'Slack'}: "${escHtml(task.name)}"${assignee ? ` — assigned to <b>${escHtml(assignee.name)}</b>` : ' — <b>unassigned</b>'}.`,
+    { source, sourceRef: task.sourceRef });
+  db.save();
+  res.status(201).json({ ok: true, id: task.id, task: taskForClient(task) });
+});
+
+// Status sync back from Slack — currently only "mark done".
+app.patch('/api/int/tasks/:id', requireIntegrationAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const status = String((req.body || {}).status || '');
+  if (status === 'done' || status === 'completed') {
+    if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+    t.status = 'completed';
+    t.completedAt = new Date().toISOString();
+    logEvent(state, t.assignedTo || ((state.employees[0] || {}).id || null), `"${escHtml(t.name)}" marked done from Slack.`);
+    db.save();
+    return res.json({ ok: true, task: taskForClient(t) });
+  }
+  return res.status(400).json({ error: 'Unsupported status update: ' + status });
 });
 
 // ---------------------------------------------------------------------------

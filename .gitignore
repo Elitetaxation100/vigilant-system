@@ -1,3 +1,5 @@
 node_modules/
 data/db.json
 data/jwt-secret.txt
+.claude/
+data/db.json.*
