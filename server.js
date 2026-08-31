@@ -1089,21 +1089,51 @@ app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
   res.status(201).json({ ok: true, id: task.id, task: taskForClient(task) });
 });
 
-// Status sync back from Slack — currently only "mark done".
+// Update a task from Slack — "mark done", and/or fill in details on a task
+// that was created earlier as a stub (e.g. "I'll Handle This" then later
+// "Log Outcome"). Every field is optional; only the ones present are touched.
 app.patch('/api/int/tasks/:id', requireIntegrationAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  const status = String((req.body || {}).status || '');
+  const b = req.body || {};
+  let changed = false;
+
+  if (typeof b.title === 'string' && b.title.trim()) { t.name = b.title.trim(); changed = true; }
+  if (typeof b.detail === 'string') { t.scope = b.detail.trim() || '—'; changed = true; }
+  if (b.dueDate !== undefined) { t.internalDeadline = b.dueDate || null; changed = true; }
+  if (b.estMinutes !== undefined) { t.estMinutes = (b.estMinutes != null && !isNaN(Number(b.estMinutes))) ? Number(b.estMinutes) : null; changed = true; }
+  if (b.priority !== undefined) { t.priority = b.priority || null; changed = true; }
+
+  if (b.assigneeId || b.assigneeSlackId || b.assigneeEmail) {
+    let a = null;
+    if (b.assigneeId) a = findEmployee(state, b.assigneeId);
+    if (!a && b.assigneeSlackId) a = state.employees.find(e => e.slackUserId && e.slackUserId === String(b.assigneeSlackId));
+    if (!a && b.assigneeEmail) a = state.employees.find(e => e.email.toLowerCase() === String(b.assigneeEmail).toLowerCase());
+    if (a) { t.assignedTo = a.id; if (!t.assignedBy) t.assignedBy = a.id; changed = true; }
+  }
+  if (b.clientId || b.clientName) {
+    let c = null;
+    if (b.clientId) c = state.clients.find(x => x.id === b.clientId);
+    if (!c && b.clientName) c = state.clients.find(x => x.name.toLowerCase() === String(b.clientName).toLowerCase());
+    if (c) { t.clientId = c.id; t.clientName = c.name; changed = true; }
+    else if (b.clientName) { t.clientName = String(b.clientName).trim(); changed = true; }
+  }
+
+  const status = String(b.status || '');
   if (status === 'done' || status === 'completed') {
     if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
     t.status = 'completed';
     t.completedAt = new Date().toISOString();
     logEvent(state, t.assignedTo || ((state.employees[0] || {}).id || null), `"${escHtml(t.name)}" marked done from Slack.`);
-    db.save();
-    return res.json({ ok: true, task: taskForClient(t) });
+    changed = true;
+  } else if (status && status !== 'open') {
+    return res.status(400).json({ error: 'Unsupported status: ' + status });
   }
-  return res.status(400).json({ error: 'Unsupported status update: ' + status });
+
+  if (!changed) return res.status(400).json({ error: 'Nothing to update.' });
+  db.save();
+  res.json({ ok: true, task: taskForClient(t) });
 });
 
 // ---------------------------------------------------------------------------
