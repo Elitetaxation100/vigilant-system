@@ -365,6 +365,13 @@
   .emp-card .en{ font-weight:600; font-size:15.5px; }
   .emp-card .ee{ font-size:13px; color:var(--text-faint); margin-top:1px; }
   .emp-card .et{ font-size:12.5px; color:#5B4FCF; margin-top:4px; }
+  /* Teams & Access — membership chips (calls-into-tasks, Phase 1b) */
+  .mchip{ display:inline-flex; align-items:center; gap:6px; font-size:12px; background:var(--panel-2); border:1px solid var(--panel-border); border-radius:20px; padding:3px 5px 3px 11px; color:var(--text-dim); }
+  .mchip.admin{ background:#7C6CF614; border-color:#7C6CF655; color:#6D28D9; }
+  .mchip .mx{ width:16px; height:16px; border-radius:50%; background:#00000012; border:none; color:var(--text-faint); font-size:11px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .mchip .mx:hover{ background:var(--coral); color:#fff; }
+  .founder-chip{ display:inline-block; font-size:10px; font-family:var(--font-mono); letter-spacing:.5px; background:linear-gradient(135deg,var(--amber),#C6890F); color:#3a2500; padding:2px 7px; border-radius:6px; font-weight:700; }
+  .emp-memberships{ display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
 
   /* modal */
   .modal-overlay{ position:fixed; inset:0; background:#151A2Bb3; backdrop-filter:blur(4px); display:none; align-items:center; justify-content:center; z-index:100; padding:20px; }
@@ -1160,6 +1167,7 @@ let productivityPeriod = 'week';
 let tasks = [];
 let activityLog = [];
 let workload = []; // per-employee occupancy from /api/workload — who's booked until when
+let teams = []; // named team registry from /api/teams (calls-into-tasks, Phase 1b)
 let loginTab = 'employee';
 let seenAwaitingIds = null; // null = not initialized yet (first load shouldn't pop every existing task)
 
@@ -1319,7 +1327,7 @@ function showView(id, el){
   document.getElementById('pageTitle').textContent = titles[id][0];
   document.getElementById('pageSub').textContent = titles[id][1];
   if(id === 'report') renderReportCard();
-  if(id === 'employees') renderEmployeeGrid();
+  if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
   if(id === 'clients') renderClientGrid();
   if(id === 'manager') renderManagerStatics();
   if(id === 'taskengine') renderTaskEngineVisuals();
@@ -3321,6 +3329,10 @@ async function refreshClients(){
     if(document.getElementById('view-clients').classList.contains('active')) renderClientGrid();
   } catch(e){ console.error('Failed to refresh clients', e); }
 }
+async function refreshTeams(){
+  try { const { teams: fresh } = await api('/api/teams'); teams = fresh || []; }
+  catch(e){ /* teams are optional context — never block the UI */ }
+}
 function clientById(id){ return clients.find(c => c.id === id); }
 function renderClientGrid(){
   const grid = document.getElementById('clientGrid');
@@ -3443,13 +3455,49 @@ function renderEmployeeGrid(){
         <div class="ee">${esc(e.email)}</div>
         <div class="et">${esc(e.jobTitle)} · ${esc(e.team)} <span style="color:var(--text-faint);">· ${accessLabel(e.accessRole)}</span></div>
         ${managesLine}
+        ${(e.isFounder || (e.memberships && e.memberships.length)) ? `<div class="emp-memberships">${e.isFounder ? '<span class="founder-chip">FOUNDER</span>' : ''}${(e.memberships||[]).map(m => `<span class="mchip ${m.level==='admin'?'admin':''}" style="padding:2px 9px;">${esc(m.team)} · ${esc(m.level)}</span>`).join('')}</div>` : ''}
         ${isSuperAdmin ? `<button class="verify-btn" style="margin-top:8px;" onclick="openManageEmployee('${e.id}')">Manage access</button>` : ''}
       </div>
     </div>`;
   }).join('');
 }
+// Teams & Access — membership editor state + helpers (calls-into-tasks, 1b).
+let meMembershipsDraft = [];
+function meTeamOptions(e){
+  const names = new Set(teams.map(t => t.name));
+  (e.memberships || []).forEach(m => m && m.team && names.add(m.team));
+  if(e.team) names.add(e.team);
+  return Array.from(names).sort().map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')
+    + '<option value="__new__">＋ New team…</option>';
+}
+function renderMembershipChips(){
+  const wrap = document.getElementById('meMembershipChips');
+  if(!wrap) return;
+  if(meMembershipsDraft.length === 0){ wrap.innerHTML = `<span style="font-size:12.5px; color:var(--text-faint);">No teams yet</span>`; return; }
+  wrap.innerHTML = meMembershipsDraft.map((m, i) =>
+    `<span class="mchip ${m.level === 'admin' ? 'admin' : ''}">${esc(m.team)} · ${esc(m.level)}<button class="mx" onclick="removeMembershipRow(${i})" aria-label="Remove ${esc(m.team)}">×</button></span>`
+  ).join('');
+}
+function addMembershipRow(){
+  const sel = document.getElementById('meAddTeam');
+  let team = sel ? sel.value : '';
+  const level = document.getElementById('meAddLevel').value === 'admin' ? 'admin' : 'member';
+  if(team === '__new__'){
+    team = (window.prompt('New team name') || '').trim();
+    if(!team) return;
+    // Register it so it appears in everyone's team list too.
+    api('/api/teams', { method:'POST', body: JSON.stringify({ name: team }) }).then(refreshTeams).catch(() => {});
+  }
+  if(!team) return;
+  const existing = meMembershipsDraft.find(m => m.team === team);
+  if(existing) existing.level = level; else meMembershipsDraft.push({ team, level });
+  renderMembershipChips();
+}
+function removeMembershipRow(i){ meMembershipsDraft.splice(i, 1); renderMembershipChips(); }
+
 function openManageEmployee(id){
   const e = employees.find(x => x.id === id);
+  meMembershipsDraft = (e.memberships || []).map(m => ({ team: m.team, level: m.level === 'admin' ? 'admin' : 'member' }));
   document.getElementById('modalBox').innerHTML = `
     <h3>Manage Access — ${esc(e.name)}</h3>
     <div class="modal-sub">${esc(e.email)}</div>
@@ -3472,6 +3520,27 @@ function openManageEmployee(id){
       </div>
     </div>
     <div class="field"><label>Reset password (leave blank to keep current)</label><input type="text" id="meNewPassword" placeholder="New password"></div>
+
+    <div style="border-top:1px solid var(--line); margin:14px 0 12px; padding-top:14px;">
+      <div style="font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); margin-bottom:10px;">Teams &amp; Access</div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
+        <input type="checkbox" id="meFounder" ${e.isFounder ? 'checked' : ''}> <span>Founder — sees every team's board</span>
+      </label>
+      <div class="field"><label>Slack user ID <span style="text-transform:none; color:var(--text-faint);">— so Slack tasks reach this person</span></label><input type="text" id="meSlackId" value="${esc(e.slackUserId || '')}" placeholder="U0XXXXXXXX"></div>
+      <div class="field"><label>Aircall agent ID <span style="text-transform:none; color:var(--text-faint);">— only if they take calls</span></label><input type="text" id="meAircallId" value="${esc(e.aircallAgentId || '')}" placeholder="1234567"></div>
+      <div class="field">
+        <label>Team memberships</label>
+        <div id="meMembershipChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;"></div>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <select id="meAddTeam" style="flex:1; min-width:130px; background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:var(--radius-s); padding:8px 10px; font-size:14px;">${meTeamOptions(e)}</select>
+          <select id="meAddLevel" style="background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:var(--radius-s); padding:8px 10px; font-size:14px;">
+            <option value="member">Member</option><option value="admin">Admin</option>
+          </select>
+          <button class="btn small" onclick="addMembershipRow()">Add</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-error" id="meError"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -3480,6 +3549,7 @@ function openManageEmployee(id){
     </div>
   `;
   openModal();
+  renderMembershipChips();
 }
 function removeEmployeeConfirm(id){
   const e = employees.find(x => x.id === id);
@@ -3515,12 +3585,19 @@ async function submitManageEmployee(id){
   const password = document.getElementById('meNewPassword').value.trim();
   const jobTitle = document.getElementById('meJobTitle').value.trim();
   const team = document.getElementById('meTeam').value.trim();
+  // Teams & Access — calls-into-tasks, Phase 1b
+  const memberships = meMembershipsDraft.map(m => ({ team: m.team, level: m.level }));
+  const isFounder = document.getElementById('meFounder').checked;
+  const slackUserId = document.getElementById('meSlackId').value.trim();
+  const aircallAgentId = document.getElementById('meAircallId').value.trim();
   try {
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({
-      accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined
+      accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
+      memberships, isFounder, slackUserId, aircallAgentId
     })});
     closeModal();
     await refreshEmployees();
+    await refreshTeams();
     renderEmployeeGrid();
     // The "Assign to Team" entry point is visible to any Admin/Superadmin —
     // whether they can actually assign to anyone (superadmin-granted) is
@@ -3644,6 +3721,7 @@ async function onLoginComplete(){
 
   await refreshEmployees();
   await refreshClients();
+  await refreshTeams();
   await refreshTasks();
   await refreshActivity();
   await loadPunchState();
