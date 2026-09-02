@@ -1129,6 +1129,51 @@ function mountConnector(app) {
     });
   });
 
+  // Roster — read current employees + teams, or set memberships / founder /
+  // aircall id in bulk. Token-gated.
+  //   GET  → { teams, employees:[{name,email,slackUserId,isFounder,aircallAgentId,memberships}] }
+  //   POST { set: { "<email>": { memberships:[{team,level}], isFounder, aircallAgentId } } }
+  //        ?dry=1 previews; unknown team names are created.
+  app.all('/webhooks/roster', async (req, res) => {
+    const v = verifyAircall(req);
+    if (!v.ok) return res.status(401).json({ error: v.why });
+    const state = db.get();
+    const dump = () => (state.employees || []).map(e => ({
+      name: e.name, email: e.email || null, slackUserId: e.slackUserId || null,
+      isFounder: !!e.isFounder, aircallAgentId: e.aircallAgentId || null,
+      memberships: e.memberships || [], accessRole: e.accessRole || null, team: e.team || null,
+    }));
+    if (req.method === 'GET') {
+      return res.json({ teams: (state.teams || []).map(t => t.name), employees: dump() });
+    }
+    if (req.method !== 'POST') return res.status(405).end();
+    const dry = req.query.dry === '1';
+    const set = (req.body && req.body.set) || {};
+    const known = new Set((state.teams || []).map(t => t.name.toLowerCase()));
+    const applied = [], notFound = [], teamsCreated = [];
+    for (const rawEmail of Object.keys(set)) {
+      const email = rawEmail.toLowerCase();
+      const emp = (state.employees || []).find(e => e.email && e.email.toLowerCase() === email);
+      if (!emp) { notFound.push(rawEmail); continue; }
+      const spec = set[rawEmail] || {};
+      if (Array.isArray(spec.memberships)) {
+        for (const m of spec.memberships) {
+          if (m && m.team && !known.has(String(m.team).toLowerCase())) {
+            known.add(String(m.team).toLowerCase()); teamsCreated.push(m.team);
+            if (!dry) { state.teams = state.teams || []; state.teams.push({ id: 't-' + String(m.team).toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now().toString(36), name: m.team, createdAt: Date.now() }); }
+          }
+        }
+        if (!dry) emp.memberships = spec.memberships.filter(m => m && m.team && ['member', 'admin'].includes(m.level)).map(m => ({ team: m.team, level: m.level }));
+      }
+      if (typeof spec.isFounder === 'boolean' && !dry) emp.isFounder = spec.isFounder;
+      if (spec.aircallAgentId !== undefined && !dry) emp.aircallAgentId = spec.aircallAgentId ? String(spec.aircallAgentId) : null;
+      applied.push({ name: emp.name, email: emp.email, memberships: spec.memberships || emp.memberships, isFounder: spec.isFounder !== undefined ? spec.isFounder : emp.isFounder });
+    }
+    if (!dry && (applied.length || teamsCreated.length)) db.save();
+    clog('info', 'roster set', { dry, applied: applied.length, notFound: notFound.length, teamsCreated });
+    res.json({ ok: true, dryRun: dry, applied, notFound, teamsCreated, teamsNow: (state.teams || []).map(t => t.name) });
+  });
+
   // Backfill employees' slackUserId. Token-gated. Matches Slack profile
   // emails to employee emails; a body { overrides: { "<employee email>":
   // "<slack id>" } } fills the rest (Slack profiles here mostly use personal
