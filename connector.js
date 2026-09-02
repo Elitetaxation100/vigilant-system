@@ -1139,13 +1139,16 @@ function mountConnector(app) {
       const dry = req.query.dry === '1';
       const overwrite = req.query.overwrite === '1';
       const byEmail = {};
+      const directory = [];
       let cursor = '';
       for (let page = 0; page < 20; page++) {
         const r = await slack('users.list', { limit: 200, cursor: cursor || undefined });
         if (!r.ok) return res.status(502).json({ error: 'users.list failed: ' + (r.error || '?') + (r.error === 'missing_scope' ? ' — add users:read + users:read.email scopes and reinstall the app' : '') });
         (r.members || []).forEach(m => {
+          if (m.deleted || m.is_bot || m.id === 'USLACKBOT') return;
           const em = m.profile && m.profile.email;
-          if (em && !m.deleted && !m.is_bot) byEmail[em.toLowerCase()] = m.id;
+          directory.push({ id: m.id, name: m.profile && (m.profile.real_name || m.profile.display_name) || m.name, email: em || null });
+          if (em) byEmail[em.toLowerCase()] = m.id;
         });
         cursor = r.response_metadata && r.response_metadata.next_cursor;
         if (!cursor) break;
@@ -1161,7 +1164,8 @@ function mountConnector(app) {
       });
       if (!dry && matched.length) db.save();
       clog('info', 'backfill-slack-ids', { dry, matched: matched.length, unmatched: unmatched.length, skipped: skipped.length });
-      res.json({ ok: true, dryRun: dry, slackUsersWithEmail: Object.keys(byEmail).length, matched, alreadySet: skipped, unmatched });
+      res.json({ ok: true, dryRun: dry, slackUsersWithEmail: Object.keys(byEmail).length, matched, alreadySet: skipped, unmatched,
+        slackDirectory: (req.query.dir === '1' ? directory.sort((a, b) => String(a.name).localeCompare(String(b.name))) : undefined) });
     } catch (e) { clog('error', 'backfill-slack-ids threw: ' + e); res.status(500).json({ error: String(e) }); }
   });
 
