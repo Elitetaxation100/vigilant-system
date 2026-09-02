@@ -1129,16 +1129,19 @@ function mountConnector(app) {
     });
   });
 
-  // Backfill employees' slackUserId by matching Slack profile emails to the
-  // task manager's employee emails. Token-gated. ?dry=1 previews without
-  // writing; ?overwrite=1 also replaces IDs that are already set.
+  // Backfill employees' slackUserId. Token-gated. Matches Slack profile
+  // emails to employee emails; a body { overrides: { "<employee email>":
+  // "<slack id>" } } fills the rest (Slack profiles here mostly use personal
+  // gmail). ?dry=1 previews; ?overwrite=1 replaces IDs already set.
   app.post('/webhooks/backfill-slack-ids', async (req, res) => {
     const v = verifyAircall(req);
     if (!v.ok) return res.status(401).json({ error: v.why });
     try {
       const dry = req.query.dry === '1';
       const overwrite = req.query.overwrite === '1';
+      const overrides = (req.body && req.body.overrides) || {};
       const byEmail = {};
+      Object.keys(overrides).forEach(k => { if (overrides[k]) byEmail[k.toLowerCase()] = String(overrides[k]); });
       const directory = [];
       let cursor = '';
       for (let page = 0; page < 20; page++) {
@@ -1148,7 +1151,7 @@ function mountConnector(app) {
           if (m.deleted || m.is_bot || m.id === 'USLACKBOT') return;
           const em = m.profile && m.profile.email;
           directory.push({ id: m.id, name: m.profile && (m.profile.real_name || m.profile.display_name) || m.name, email: em || null });
-          if (em) byEmail[em.toLowerCase()] = m.id;
+          if (em && !byEmail[em.toLowerCase()]) byEmail[em.toLowerCase()] = m.id; // overrides win
         });
         cursor = r.response_metadata && r.response_metadata.next_cursor;
         if (!cursor) break;
