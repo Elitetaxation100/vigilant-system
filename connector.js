@@ -289,64 +289,131 @@ function completeTask(state, taskId, byName) {
 
 // ---------------------------------------------------------------------------
 // Aircall webhook handlers
+//
+// Aircall does NOT guarantee ordering — in practice the recording-ready
+// event ("call.comm_assets_generated") often arrives ~20s BEFORE
+// "call.ended". So recording-ready with no call row stashes a `stub` row
+// carrying the recording URL; the later call.ended adopts that stub and
+// fills in agent / team / caller / duration, then posts the card straight
+// at the "recording ready" stage.
 // ---------------------------------------------------------------------------
+function recordingUrlOf(call) {
+  return call.recording || (call.asset && call.asset.url) ||
+    (Array.isArray(call.recordings) && call.recordings[0] && (call.recordings[0].url || call.recordings[0])) ||
+    call.voicemail || null;
+}
+
+// Post the card, or update it in place if we've posted before. Stage is
+// derived from whether we have a recording yet.
+async function syncCard(state, row) {
+  if (row.team === 'Unmapped' || row.status === 'not_picked_up' || row.status === 'voicemail') return;
+  const stage = row.recordingUrl ? 'recording' : 'ended';
+  const opts = cardOptsFor(state, row, stage);
+  if (row.slackTs) {
+    const upd = await slack('chat.update', {
+      channel: row.slackChannel || cfg().slackChannel, ts: row.slackTs,
+      text: callCardFallback(opts), blocks: buildCallCard(opts),
+    });
+    if (upd && upd.ok) return;
+  }
+  const posted = await slack('chat.postMessage', {
+    channel: cfg().slackChannel, text: callCardFallback(opts), blocks: buildCallCard(opts),
+  });
+  if (posted && posted.ok) { row.slackChannel = posted.channel; row.slackTs = posted.ts; db.save(); }
+}
+
 async function handleCallEnded(call) {
   const state = db.get();
-  if (findCall(state, call.id)) { clog('info', 'call.ended dedup', { id: call.id }); return; }
+  const existing = findCall(state, call.id);
+  if (existing && !existing.stub) { clog('info', 'call.ended dedup', { id: call.id }); return; }
 
   const agentId = call.user ? String(call.user.id) : null;
   const routing = agentId ? AGENT_MAP[agentId] : null;
   const callerPhone = normalizeNumber(call.raw_digits || '');
   const unanswered = isUnanswered(call);
   const vm = isVoicemail(call);
+  const status = unanswered ? 'not_picked_up' : (vm ? 'voicemail' : 'ended');
 
-  // Transfer-leg merge: same number, another leg logged in the last 15 min.
-  const cutoff = Date.now() - TRANSFER_MERGE_MINUTES * 60000;
-  const priorLeg = (state.calls || []).filter(c => c.callerPhone === callerPhone && callerPhone &&
-    new Date(c.occurredAt).getTime() >= cutoff).sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
-  if (priorLeg) {
-    priorLeg.aircallId = String(call.id);
-    priorLeg.agentName = routing ? routing.name : (call.user ? call.user.name : priorLeg.agentName);
-    priorLeg.agentAircallId = agentId || priorLeg.agentAircallId;
-    if (routing) { priorLeg.team = routing.team; priorLeg.mandatory = !!routing.mandatory; }
-    priorLeg.status = unanswered ? 'not_picked_up' : (vm ? 'voicemail' : 'ended');
-    db.save();
-    clog('info', 'call.ended merged into transfer leg', { id: call.id, into: priorLeg.id });
-    return;
+  // Transfer-leg merge: same number, another (real, non-stub) leg in the
+  // last 15 min. Skipped when this call.id already has a stub of its own.
+  if (!existing) {
+    const cutoff = Date.now() - TRANSFER_MERGE_MINUTES * 60000;
+    const priorLeg = (state.calls || []).filter(c => !c.stub && c.callerPhone === callerPhone && callerPhone &&
+      new Date(c.occurredAt).getTime() >= cutoff).sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
+    if (priorLeg) {
+      priorLeg.aircallId = String(call.id);
+      priorLeg.agentName = routing ? routing.name : (call.user ? call.user.name : priorLeg.agentName);
+      priorLeg.agentAircallId = agentId || priorLeg.agentAircallId;
+      if (routing) { priorLeg.team = routing.team; priorLeg.mandatory = !!routing.mandatory; }
+      priorLeg.status = status;
+      db.save();
+      clog('info', 'call.ended merged into transfer leg', { id: call.id, into: priorLeg.id });
+      return;
+    }
   }
 
   const caller = await resolveCaller(state, call);
-  state.callSeq = (state.callSeq || 0) + 1;
-  const row = {
-    id: 'call' + state.callSeq, aircallId: String(call.id), occurredAt: new Date().toISOString(),
+  const base = {
     direction: call.direction || null, durationSec: call.duration || null, callerPhone,
-    contactName: caller.name, clientId: caller.clientId,
+    contactName: caller.name, clientId: caller.clientId, clientName: caller.name,
     agentName: routing ? routing.name : (call.user ? call.user.name : 'Unknown agent'),
-    agentAircallId: agentId, team: routing ? routing.team : 'Unmapped', mandatory: routing ? !!routing.mandatory : false,
-    status: unanswered ? 'not_picked_up' : (vm ? 'voicemail' : 'ended'),
-    clientName: caller.name,
-    recordingUrl: null, recordingFetchedAt: null, listenedBy: null, listenedAt: null,
-    slackChannel: null, slackTs: null, aiOutcome: null, aiAction: null, aiDue: null,
-    taskId: null, finalOutcome: null, createdVia: 'node-connector',
+    agentAircallId: agentId, team: routing ? routing.team : 'Unmapped',
+    mandatory: routing ? !!routing.mandatory : false, status,
   };
-  state.calls.push(row);
-  if (state.calls.length > 5000) state.calls.shift();
+
+  let row;
+  if (existing && existing.stub) {
+    Object.assign(existing, base, { stub: false });
+    if (existing.recordingUrl && status === 'ended') existing.status = 'ended';
+    row = existing;
+    clog('info', 'call.ended adopted early-recording stub', { id: call.id, row: row.id, hadRecording: !!row.recordingUrl });
+  } else {
+    state.callSeq = (state.callSeq || 0) + 1;
+    row = Object.assign({
+      id: 'call' + state.callSeq, aircallId: String(call.id), occurredAt: new Date().toISOString(),
+      recordingUrl: null, recordingFetchedAt: null, listenedBy: null, listenedAt: null,
+      slackChannel: null, slackTs: null, aiOutcome: null, aiAction: null, aiDue: null,
+      taskId: null, finalOutcome: null, createdVia: 'node-connector',
+    }, base);
+    state.calls.push(row);
+    if (state.calls.length > 5000) state.calls.shift();
+  }
   db.save();
 
-  // Post the card — but only for a mapped team, and not for unanswered /
-  // voicemail calls (kept out of the channel, still logged).
-  if (routing && !unanswered && !vm) {
-    const opts = cardOptsFor(state, row, 'ended');
-    const posted = await slack('chat.postMessage', {
-      channel: cfg().slackChannel, text: callCardFallback(opts), blocks: buildCallCard(opts),
-    });
-    if (posted.ok) { row.slackChannel = posted.channel; row.slackTs = posted.ts; db.save(); }
+  if (row.recordingUrl && !vm && cfg().geminiApiKey && !row.aiOutcome) {
+    generateAiDraft(row.id).catch(e => clog('error', 'gemini draft threw: ' + (e && e.stack || e)));
   }
-  clog('info', 'call.ended', { id: call.id, team: row.team, status: row.status, posted: !!row.slackTs });
+  if (routing && !unanswered && !vm) await syncCard(state, row);
+  clog('info', 'call.ended', { id: call.id, team: row.team, status: row.status, posted: !!row.slackTs, hadRecording: !!row.recordingUrl });
+
+  // Backstop: if the recording-ready webhook never arrives (or was missed),
+  // poll the Aircall API once, a couple of minutes out.
+  if (routing && !unanswered && !vm && !row.recordingUrl) {
+    const rowId = row.id, aid = String(call.id);
+    setTimeout(() => backfillRecording(rowId, aid), 150000);
+  }
+}
+
+async function backfillRecording(rowId, aircallId) {
+  try {
+    const state = db.get();
+    const row = findCallByRowId(state, rowId);
+    if (!row || row.recordingUrl) return;
+    const url = await freshRecordingUrl(aircallId);
+    if (!url) { clog('info', 'recording backstop — none on API either', { row: rowId }); return; }
+    row.recordingUrl = url;
+    row.recordingFetchedAt = new Date().toISOString();
+    db.save();
+    if (!row.aiOutcome && cfg().geminiApiKey) generateAiDraft(rowId).catch(() => {});
+    await syncCard(state, row);
+    clog('info', 'recording backstop — fetched from Aircall API', { row: rowId });
+  } catch (e) { clog('error', 'recording backstop threw: ' + (e && e.stack || e)); }
 }
 
 async function handleRecordingReady(call) {
   const state = db.get();
+  const url = recordingUrlOf(call);
+  const vm = isVoicemail(call);
   let row = findCall(state, call.id);
   if (!row) {
     // Aircall sometimes uses a different call.id — match on phone + time.
@@ -356,31 +423,38 @@ async function handleRecordingReady(call) {
       new Date(c.occurredAt).getTime() >= cutoff).sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
     if (row) { row.aircallId = String(call.id); clog('warn', 'recording matched by phone fallback', { id: call.id, row: row.id }); }
   }
-  if (!row) { clog('warn', 'recording ready — no call row', { id: call.id }); return; }
 
-  row.recordingUrl = call.recording || (call.asset && call.asset.url) || call.voicemail || null;
+  if (!row) {
+    // Recording-ready before call.ended — stash a stub the call.ended will adopt.
+    state.callSeq = (state.callSeq || 0) + 1;
+    row = {
+      id: 'call' + state.callSeq, aircallId: String(call.id), stub: true,
+      occurredAt: new Date().toISOString(), callerPhone: normalizeNumber(call.raw_digits || ''),
+      direction: call.direction || null, durationSec: call.duration || null,
+      recordingUrl: url, recordingFetchedAt: new Date().toISOString(),
+      status: vm ? 'voicemail' : 'ended', team: 'Unmapped', mandatory: false,
+      contactName: null, clientName: null, clientId: null, agentName: null, agentAircallId: null,
+      listenedBy: null, listenedAt: null, slackChannel: null, slackTs: null,
+      aiOutcome: null, aiAction: null, aiDue: null, taskId: null, finalOutcome: null, createdVia: 'node-connector',
+    };
+    state.calls.push(row);
+    if (state.calls.length > 5000) state.calls.shift();
+    db.save();
+    clog('info', 'recording ready — stub stashed, awaiting call.ended', { id: call.id, hasUrl: !!url });
+    return;
+  }
+
+  row.recordingUrl = url;
   row.recordingFetchedAt = new Date().toISOString();
-  const vm = isVoicemail(call);
   if (vm) row.status = 'voicemail';
   db.save();
 
-  // Gemini action-item draft — off the hot path, founder-only when it lands.
-  if (!vm && row.recordingUrl && cfg().geminiApiKey && !row.aiOutcome) {
+  if (!vm && url && cfg().geminiApiKey && !row.aiOutcome) {
     generateAiDraft(row.id).catch(e => clog('error', 'gemini draft threw: ' + (e && e.stack || e)));
   }
-
-  if (!row.slackTs || vm || row.team === 'Unmapped') { clog('info', 'recording logged, no card edit', { id: call.id }); return; }
-  const opts = cardOptsFor(state, row, 'recording');
-  const upd = await slack('chat.update', {
-    channel: row.slackChannel || cfg().slackChannel, ts: row.slackTs,
-    text: callCardFallback(opts), blocks: buildCallCard(opts),
-  });
-  if (!upd.ok) {
-    // stale ts — post fresh and re-anchor
-    const posted = await slack('chat.postMessage', { channel: cfg().slackChannel, text: callCardFallback(opts), blocks: buildCallCard(opts) });
-    if (posted.ok) { row.slackChannel = posted.channel; row.slackTs = posted.ts; db.save(); }
-  }
-  clog('info', 'recording ready — card updated', { id: call.id });
+  if (row.stub || vm || row.team === 'Unmapped') { clog('info', 'recording logged, no card yet', { id: call.id, stub: !!row.stub }); return; }
+  await syncCard(state, row);
+  clog('info', 'recording ready — card synced', { id: call.id });
 }
 
 // ---------------------------------------------------------------------------
