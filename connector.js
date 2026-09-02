@@ -1134,19 +1134,23 @@ function mountConnector(app) {
   //   GET  → { teams, employees:[{name,email,slackUserId,isFounder,aircallAgentId,memberships}] }
   //   POST { set: { "<email>": { memberships:[{team,level}], isFounder, aircallAgentId } } }
   //        ?dry=1 previews; unknown team names are created.
-  app.all('/webhooks/roster', async (req, res) => {
+  app.get('/webhooks/roster', (req, res) => {
     const v = verifyAircall(req);
     if (!v.ok) return res.status(401).json({ error: v.why });
     const state = db.get();
-    const dump = () => (state.employees || []).map(e => ({
-      name: e.name, email: e.email || null, slackUserId: e.slackUserId || null,
-      isFounder: !!e.isFounder, aircallAgentId: e.aircallAgentId || null,
-      memberships: e.memberships || [], accessRole: e.accessRole || null, team: e.team || null,
-    }));
-    if (req.method === 'GET') {
-      return res.json({ teams: (state.teams || []).map(t => t.name), employees: dump() });
-    }
-    if (req.method !== 'POST') return res.status(405).end();
+    res.json({
+      teams: (state.teams || []).map(t => t.name),
+      employees: (state.employees || []).map(e => ({
+        name: e.name, email: e.email || null, slackUserId: e.slackUserId || null,
+        isFounder: !!e.isFounder, aircallAgentId: e.aircallAgentId || null,
+        memberships: e.memberships || [], accessRole: e.accessRole || null, team: e.team || null,
+      })),
+    });
+  });
+  app.post('/webhooks/roster', (req, res) => {
+    const v = verifyAircall(req);
+    if (!v.ok) return res.status(401).json({ error: v.why });
+    const state = db.get();
     const dry = req.query.dry === '1';
     const set = (req.body && req.body.set) || {};
     const known = new Set((state.teams || []).map(t => t.name.toLowerCase()));
