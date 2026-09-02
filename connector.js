@@ -199,7 +199,10 @@ function buildCallCard(o) {
     ] },
   ];
   if (o.assignedLine) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*Assigned:* ${o.assignedLine}` } });
-  if (o.footer) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: o.footer }] });
+  const ctx = [];
+  if (o.footer) ctx.push({ type: 'mrkdwn', text: o.footer });
+  ctx.push({ type: 'mrkdwn', text: `🟢 via *Governance OS*${o.ref ? ' · `' + o.ref + '`' : ''}` });
+  blocks.push({ type: 'context', elements: ctx });
   if (o.buttons && o.buttons.length) {
     blocks.push({ type: 'divider' });
     blocks.push({ type: 'actions', elements: o.buttons });
@@ -229,7 +232,7 @@ function cardOptsFor(state, row, stage) {
     return {
       icon: '📞', statusLabel: 'Call Ended', team: row.team, agent: row.agentName,
       client: row.clientName || 'Unknown / not saved', phone: row.callerPhone ? '+' + row.callerPhone : '—',
-      duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions,
+      duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions, ref: row.id,
       footer: row.mandatory ? '🎙️ Recording will follow once ready.' : null,
       buttons: endedButtons(row.id),
     };
@@ -237,7 +240,7 @@ function cardOptsFor(state, row, stage) {
   return {
     icon: '🎙️', statusLabel: 'Recording Ready', team: row.team, agent: row.agentName,
     client: row.clientName || 'Unknown / not saved', phone: row.callerPhone ? '+' + row.callerPhone : '—',
-    duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions,
+    duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions, ref: row.id,
     footer: resolved ? '✅ Already resolved — see the task manager.' : '👂 Please listen and note action items.',
     buttons: recordingButtons(row.id, resolved),
   };
@@ -441,7 +444,7 @@ async function postTaskCard(row, task, ownerSlackId, byName, selfAssigned) {
       { type: 'mrkdwn', text: `*Due*\n${fmtDate(task.internalDeadline)}` },
     ] },
     { type: 'section', text: { type: 'mrkdwn', text: `*Task:* ${esc(task.scope !== '—' ? task.scope : task.name)}` } },
-    { type: 'context', elements: [{ type: 'mrkdwn', text: `${selfAssigned ? '' : 'Assigned by *' + esc(byName) + '* · '}Task ${task.id}` }] },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: `${selfAssigned ? '' : 'Assigned by *' + esc(byName) + '* · '}Task ${task.id} · 🟢 via Governance OS` }] },
     { type: 'divider' },
     { type: 'actions', elements: [buttonEl('✅ Mark Done', 'task_done', task.id)] },
   ];
@@ -591,7 +594,7 @@ async function submitConvert(payload) {
   const blocks = [
     { type: 'section', text: { type: 'mrkdwn', text: `📌 *Task created* — <@${assigneeSlackId}>` } },
     { type: 'section', text: { type: 'mrkdwn', text: `*Task:* ${esc(desc)}` } },
-    { type: 'context', elements: [{ type: 'mrkdwn', text: `Task ${task.id}` }] },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: `Task ${task.id} · 🟢 via Governance OS` }] },
     { type: 'divider' }, { type: 'actions', elements: [buttonEl('✅ Mark Done', 'task_done', task.id)] },
   ];
   const posted = await slack('chat.postMessage', { channel: meta.channel, thread_ts: meta.ts, text: `Task created for <@${assigneeSlackId}>`, blocks });
