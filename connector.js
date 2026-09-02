@@ -43,7 +43,7 @@ const RECORDING_MATCH_MINUTES = 120;
 const DIGEST_HOURS = (process.env.CALL_DIGEST_HOURS || '9,15').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
 const DIGEST_TZ = process.env.CALL_DIGEST_TZ || 'Pacific/Auckland';
 const LISTEN_GRACE_HOURS = 2;   // don't nag about a recording younger than this
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
 // ---------------------------------------------------------------------------
 // tiny HTTPS JSON client (Node 18 — avoid depending on global fetch)
@@ -737,12 +737,19 @@ async function generateAiDraft(rowId) {
     ] }],
     generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
   };
-  const base = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
-  let r = await httpsRequest(base + '?key=' + encodeURIComponent(key), {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyObj,
-  });
-  if (r.status === 401 || r.status === 403) {
-    r = await httpsRequest(base, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: bodyObj });
+  const call = async (model) => {
+    const b = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent';
+    let rr = await httpsRequest(b + '?key=' + encodeURIComponent(key), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyObj });
+    if (rr.status === 401 || rr.status === 403) {
+      rr = await httpsRequest(b, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: bodyObj });
+    }
+    return rr;
+  };
+  let r = await call(GEMINI_MODEL);
+  // Self-heal on model churn: Google's 404 names the replacement model.
+  if (r.status === 404 && r.json && r.json.error && r.json.error.message) {
+    const m = r.json.error.message.match(/models\/([a-z0-9.\-]+)/i);
+    if (m && m[1] && m[1] !== GEMINI_MODEL) { clog('info', 'gemini: retrying with ' + m[1]); r = await call(m[1]); }
   }
   const text = r.json && r.json.candidates && r.json.candidates[0] &&
     r.json.candidates[0].content && r.json.candidates[0].content.parts &&
