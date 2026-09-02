@@ -1110,6 +1110,11 @@ function mountConnector(app) {
       digestHoursNZ: DIGEST_HOURS,
       pendingListens: pendingListenCalls(db.get()).length,
       reminders: { enabled: REMINDERS_ON, dryRun: REMINDER_DRY_RUN, digestHourNZ: REMINDER_DIGEST_HOUR, escalateHours: REMINDER_ESCALATE_HOURS },
+      // Fingerprints only (never the secret) — to diff against expected during a rotation.
+      fp: {
+        aircallWebhookToken: c.aircallWebhookToken ? { len: c.aircallWebhookToken.length, sha: crypto.createHash('sha256').update(c.aircallWebhookToken).digest('hex').slice(0, 12) } : null,
+        slackSigningSecret: c.slackSigningSecret ? { len: c.slackSigningSecret.length, sha: crypto.createHash('sha256').update(c.slackSigningSecret).digest('hex').slice(0, 12) } : null,
+      },
     });
   });
 
