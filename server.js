@@ -549,6 +549,54 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
+// Mark a task done WITHOUT the review step. calls-into-tasks (Phase 2b):
+// tasks that came from a call card or a Slack message are follow-ups, not
+// filed returns — they don't need a second person to check them. Allowed
+// for the assignee OR any admin over the assignee. Manual tasks still go
+// through /complete + review as before.
+app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (!t.source || t.source === 'manual') {
+    return res.status(400).json({ error: 'This task goes through review — use Mark Complete and choose a reviewer.' });
+  }
+  const isMine = t.assignedTo === req.employee.id;
+  const isAdminOver = isAdminRole(req.employee.accessRole) &&
+    (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo) || !t.assignedTo);
+  if (!isMine && !isAdminOver) {
+    return res.status(403).json({ error: 'Only the assignee or an admin can mark this done.' });
+  }
+  if (t.status === 'completed') return res.status(400).json({ error: 'Already done.' });
+  if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+  t.status = 'completed';
+  t.completedAt = new Date().toISOString();
+  t.reviewStatus = null; t.reviewerId = null; t.awaitingClientDecision = false;
+  logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (no review — ${t.source === 'call' ? 'call' : 'Slack'} task).`);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
+// Assign / reassign an integration task from the Admin space — a quick
+// owner pick for tasks that arrived unassigned. Admin only.
+app.post('/api/tasks/:id/set-owner', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (!t.source || t.source === 'manual') {
+    return res.status(400).json({ error: 'Use Reassign for workflow tasks.' });
+  }
+  const { assigneeId } = req.body || {};
+  const emp = findEmployee(state, assigneeId);
+  if (!emp) return res.status(400).json({ error: 'Person not found.' });
+  t.assignedTo = emp.id;
+  if (!t.assignedBy) t.assignedBy = req.employee.id;
+  t.assignedAt = new Date().toISOString();
+  logEvent(state, emp.id, `"${escHtml(t.name)}" assigned to you by <b>${escHtml(req.employee.name)}</b>.`, { source: t.source });
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
 // Review & Accuracy — a completed return gets checked off as clean or
 // flagged with an error. Only Admin/Superadmin review (separation of duties
 // between who files the return and who checks it).
