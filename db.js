@@ -220,6 +220,7 @@ function runMigrations(state) {
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];
   if (typeof state.callSeq !== 'number') state.callSeq = 0;
+  if (!state.connectorDigest || typeof state.connectorDigest !== 'object') state.connectorDigest = { lastSlot: null };
   // Name-spelling fix: existing databases seeded before this correction still
   // have the old spelling — seedData()/ensureOrgChart() only add missing
   // employees, they don't update fields on ones that already exist.

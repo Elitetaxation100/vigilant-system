@@ -38,6 +38,12 @@ const AGENT_MAP = {
 };
 const TRANSFER_MERGE_MINUTES = 15;
 const RECORDING_MATCH_MINUTES = 120;
+// Digest: reminder about un-listened mandatory calls + overdue call/Slack
+// tasks, posted to the call channel at these NZ hours (24h, comma list).
+const DIGEST_HOURS = (process.env.CALL_DIGEST_HOURS || '9,15').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+const DIGEST_TZ = process.env.CALL_DIGEST_TZ || 'Pacific/Auckland';
+const LISTEN_GRACE_HOURS = 2;   // don't nag about a recording younger than this
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 
 // ---------------------------------------------------------------------------
 // tiny HTTPS JSON client (Node 18 — avoid depending on global fetch)
@@ -355,6 +361,11 @@ async function handleRecordingReady(call) {
   if (vm) row.status = 'voicemail';
   db.save();
 
+  // Gemini action-item draft — off the hot path, founder-only when it lands.
+  if (!vm && row.recordingUrl && cfg().geminiApiKey && !row.aiOutcome) {
+    generateAiDraft(row.id).catch(e => clog('error', 'gemini draft threw: ' + (e && e.stack || e)));
+  }
+
   if (!row.slackTs || vm || row.team === 'Unmapped') { clog('info', 'recording logged, no card edit', { id: call.id }); return; }
   const opts = cardOptsFor(state, row, 'recording');
   const upd = await slack('chat.update', {
@@ -482,9 +493,11 @@ async function onPlayRecording(payload, rowId) {
 async function openLogOutcomeModal(payload, rowId) {
   const state = db.get();
   const row = findCallByRowId(state, rowId);
-  const ai = row && (row.aiOutcome || row.aiAction) ? row : null;
+  // The AI transcript/summary is hidden from staff by design — only the
+  // founder gets the modal pre-filled from it. Everyone else starts blank.
+  const ai = (row && (row.aiOutcome || row.aiAction) && isFounderSlackId(state, payload.user.id)) ? row : null;
   const blocks = [];
-  if (ai) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: '🤖 *AI draft below — review and edit before submitting.*' }] });
+  if (ai) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: '🤖 *AI draft (founder-only) — review and edit before submitting.*' }] });
   blocks.push(
     { type: 'input', block_id: 'outcome', label: { type: 'plain_text', text: 'Final Outcome' },
       element: Object.assign({ type: 'plain_text_input', action_id: 'v', multiline: true }, ai && ai.aiOutcome ? { initial_value: ai.aiOutcome } : {}) },
@@ -608,6 +621,198 @@ async function handleInteractivity(payload) {
 }
 
 // ---------------------------------------------------------------------------
+// Founder identity (Slack) — who may see the AI draft
+// ---------------------------------------------------------------------------
+function founderSlackIds(state) {
+  return (state.employees || []).filter(e => e.isFounder && e.slackUserId).map(e => e.slackUserId);
+}
+function isFounderSlackId(state, sid) {
+  if (!sid) return false;
+  return founderSlackIds(state).includes(sid) || (process.env.FOUNDER_SLACK_IDS || '').split(',').map(s => s.trim()).includes(sid);
+}
+
+// ---------------------------------------------------------------------------
+// Gemini — transcribe the recording and draft outcome + action item.
+// Result is stored on the call row; it is NEVER shown to staff (founder-only
+// modal pre-fill, founder-only App Home section).
+// ---------------------------------------------------------------------------
+async function generateAiDraft(rowId) {
+  const state = db.get();
+  const row = findCallByRowId(state, rowId);
+  if (!row || !row.recordingUrl) return;
+  const key = cfg().geminiApiKey;
+  if (!key) return;
+
+  const audio = await httpsRequest(row.recordingUrl);
+  if (audio.status !== 200 || !audio.raw || audio.raw.length > 19 * 1024 * 1024) {
+    clog('warn', 'gemini: recording unavailable or too large', { row: rowId, status: audio.status, bytes: audio.raw && audio.raw.length });
+    return;
+  }
+  const prompt =
+    'You are assisting a New Zealand tax & accounting firm. Listen to this client phone call and return ONLY minified JSON ' +
+    '(no markdown fence) with keys: "outcome" (2-3 sentence summary of what was discussed and decided), ' +
+    '"action" (the concrete follow-up task for our team, imperative, one or two lines; empty string if none), ' +
+    '"due" (ISO date YYYY-MM-DD if the call implies a deadline, else empty string). Keep it factual.';
+  const bodyObj = {
+    contents: [{ parts: [
+      { text: prompt },
+      { inline_data: { mime_type: audio.headers['content-type'] || 'audio/mpeg', data: audio.raw.toString('base64') } },
+    ] }],
+    generationConfig: { temperature: 0.2, responseMimeType: 'application/json' },
+  };
+  const base = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL + ':generateContent';
+  let r = await httpsRequest(base + '?key=' + encodeURIComponent(key), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyObj,
+  });
+  if (r.status === 401 || r.status === 403) {
+    r = await httpsRequest(base, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key }, body: bodyObj });
+  }
+  const text = r.json && r.json.candidates && r.json.candidates[0] &&
+    r.json.candidates[0].content && r.json.candidates[0].content.parts &&
+    r.json.candidates[0].content.parts.map(p => p.text || '').join('');
+  if (!text) { clog('warn', 'gemini: no candidate text', { row: rowId, status: r.status, err: r.json && r.json.error && r.json.error.message }); return; }
+  let parsed = null;
+  try { parsed = JSON.parse(text.trim().replace(/^```json\s*|\s*```$/g, '')); } catch (e) {}
+  if (!parsed) { clog('warn', 'gemini: unparseable response', { row: rowId }); return; }
+
+  const fresh = db.get();
+  const r2 = findCallByRowId(fresh, rowId);
+  if (!r2) return;
+  r2.aiOutcome = String(parsed.outcome || '').slice(0, 1500);
+  r2.aiAction = String(parsed.action || '').slice(0, 1500);
+  r2.aiDue = /^\d{4}-\d{2}-\d{2}$/.test(parsed.due || '') ? parsed.due : null;
+  db.save();
+  clog('info', 'gemini draft stored (founder-only)', { row: rowId, hasAction: !!r2.aiAction });
+}
+
+// ---------------------------------------------------------------------------
+// App Home tab — per-user view of what needs attention
+// ---------------------------------------------------------------------------
+function pendingListenCalls(state, { team } = {}) {
+  const graceMs = LISTEN_GRACE_HOURS * 3600000;
+  return (state.calls || []).filter(c =>
+    c.mandatory && c.recordingUrl && !c.listenedBy && !c.finalOutcome && c.status !== 'no_action' &&
+    Date.now() - new Date(c.recordingFetchedAt || c.occurredAt).getTime() > graceMs &&
+    (!team || c.team === team));
+}
+function openCallTasksFor(state, empId) {
+  return (state.tasks || []).filter(t =>
+    t.assignedTo === empId && (t.source === 'call' || t.source === 'slack_message') &&
+    t.status !== 'completed' && t.status !== 'cancelled');
+}
+function overdueIntegrationTasks(state) {
+  const today = new Date().toISOString().slice(0, 10);
+  return (state.tasks || []).filter(t =>
+    (t.source === 'call' || t.source === 'slack_message') && t.status !== 'completed' && t.status !== 'cancelled' &&
+    t.internalDeadline && t.internalDeadline < today);
+}
+function buildHomeView(state, slackUserId) {
+  const emp = empBySlackId(state, slackUserId);
+  const isFounder = isFounderSlackId(state, slackUserId);
+  const myTeams = emp && Array.isArray(emp.memberships) ? emp.memberships.map(m => m.team) : [];
+  const blocks = [{ type: 'header', text: { type: 'plain_text', text: '📞 Governance OS — Calls', emoji: true } }];
+
+  let mine = [];
+  (state.calls || []).forEach(c => {
+    if (!c.mandatory || !c.recordingUrl || c.listenedBy || c.finalOutcome || c.status === 'no_action') return;
+    if (isFounder || myTeams.includes(c.team) || (AGENT_MAP[c.agentAircallId] && (AGENT_MAP[c.agentAircallId].slackIds || []).includes(slackUserId))) mine.push(c);
+  });
+  mine = mine.sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt)).slice(0, 15);
+  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🎧 Calls awaiting a listen* (${mine.length})` } });
+  if (!mine.length) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: 'Nothing outstanding. 🎉' }] });
+  mine.forEach(c => {
+    const link = slackPermalink(c);
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text:
+      `• *${esc(c.clientName || 'Unknown')}* — ${esc(c.team)} · ${esc(c.agentName)} · ${fmtDate(c.occurredAt)}` + (link ? `  <${link}|open>` : '') } });
+  });
+
+  blocks.push({ type: 'divider' });
+  const tasks = emp ? openCallTasksFor(state, emp.id).slice(0, 15) : [];
+  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*📋 Your open call / Slack tasks* (${tasks.length})` } });
+  if (!emp) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: 'Your Slack ID is not linked in the task manager yet — ask an admin to add it.' }] });
+  else if (!tasks.length) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: 'No open tasks assigned to you.' }] });
+  tasks.forEach(t => blocks.push({ type: 'section', text: { type: 'mrkdwn', text:
+    `• ${esc(t.name)}${t.internalDeadline ? ` — _due ${fmtDate(t.internalDeadline)}_` : ''}` } }));
+
+  if (isFounder) {
+    blocks.push({ type: 'divider' });
+    const unlogged = (state.calls || []).filter(c => c.mandatory && c.recordingUrl && !c.finalOutcome && c.status !== 'no_action').length;
+    const overdue = overdueIntegrationTasks(state).length;
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🔒 Founder view*\n• ${unlogged} mandatory calls not yet logged\n• ${overdue} call/Slack tasks overdue` } });
+  }
+  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `Updated ${new Date().toLocaleString('en-NZ', { timeZone: DIGEST_TZ })}` }] });
+  return { type: 'home', blocks };
+}
+async function publishHome(slackUserId) {
+  if (!slackUserId) return;
+  const view = buildHomeView(db.get(), slackUserId);
+  await slack('views.publish', { user_id: slackUserId, view });
+}
+
+// ---------------------------------------------------------------------------
+// Digest — one channel post, only when something is pending
+// ---------------------------------------------------------------------------
+async function runDigest(reason) {
+  const state = db.get();
+  const pending = pendingListenCalls(state);
+  const overdue = overdueIntegrationTasks(state);
+  if (!pending.length && !overdue.length) { clog('info', 'digest: nothing pending', { reason }); return; }
+
+  const byTeam = {};
+  pending.forEach(c => { (byTeam[c.team] = byTeam[c.team] || []).push(c); });
+  const blocks = [{ type: 'header', text: { type: 'plain_text', text: '⏰ Call accountability digest', emoji: true } }];
+
+  if (pending.length) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🎧 ${pending.length} mandatory call${pending.length === 1 ? '' : 's'} still need a listen*` } });
+    Object.keys(byTeam).forEach(team => {
+      const list = byTeam[team];
+      const mentions = [...new Set(list.flatMap(c => (AGENT_MAP[c.agentAircallId] && AGENT_MAP[c.agentAircallId].slackIds) || []))].map(id => `<@${id}>`).join(' ');
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text:
+        `*${esc(team)}* — ${list.length}  ${mentions}\n` + list.slice(0, 8).map(c => {
+          const link = slackPermalink(c);
+          return `• ${esc(c.clientName || 'Unknown')} (${fmtDate(c.occurredAt)})` + (link ? ` <${link}|open>` : '');
+        }).join('\n') } });
+    });
+  }
+  if (overdue.length) {
+    blocks.push({ type: 'divider' });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*📋 ${overdue.length} call/Slack task${overdue.length === 1 ? '' : 's'} overdue*\n` +
+      overdue.slice(0, 10).map(t => {
+        const a = (state.employees || []).find(e => e.id === t.assignedTo);
+        const m = a && a.slackUserId ? ` <@${a.slackUserId}>` : (a ? ` _${esc(a.name)}_` : '');
+        return `• ${esc(t.name)} — due ${fmtDate(t.internalDeadline)}${m}`;
+      }).join('\n') } });
+  }
+  const posted = await slack('chat.postMessage', { channel: cfg().slackChannel, text: '⏰ Call accountability digest', blocks });
+  clog('info', 'digest posted', { reason, pending: pending.length, overdue: overdue.length, ok: !!posted.ok });
+}
+
+// hourly tick; fires the digest once per DIGEST_HOURS slot per day
+let _schedTimer = null;
+function startSchedulers() {
+  if (_schedTimer) return;
+  const tick = async () => {
+    try {
+      const state = db.get();
+      if (!Array.isArray(DIGEST_HOURS) || !DIGEST_HOURS.length || !cfg().slackChannel || !cfg().slackBotToken) return;
+      const now = new Date();
+      const hr = parseInt(now.toLocaleString('en-NZ', { timeZone: DIGEST_TZ, hour: '2-digit', hour12: false }), 10);
+      const dayKey = now.toLocaleDateString('en-CA', { timeZone: DIGEST_TZ }); // YYYY-MM-DD
+      state.connectorDigest = state.connectorDigest || {};
+      const slot = dayKey + ':' + hr;
+      if (DIGEST_HOURS.includes(hr) && state.connectorDigest.lastSlot !== slot) {
+        state.connectorDigest.lastSlot = slot; db.save();
+        await runDigest('scheduled ' + slot);
+      }
+    } catch (e) { clog('error', 'scheduler tick threw: ' + (e && e.stack || e)); }
+  };
+  _schedTimer = setInterval(tick, 10 * 60 * 1000); // every 10 min
+  if (_schedTimer.unref) _schedTimer.unref();
+  setTimeout(tick, 15000);
+  console.log('[connector] digest scheduler started — NZ hours ' + DIGEST_HOURS.join(','));
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 function mountConnector(app) {
@@ -622,6 +827,8 @@ function mountConnector(app) {
         gemini: !!c.geminiApiKey,
       },
       calls: (db.get().calls || []).length,
+      digestHoursNZ: DIGEST_HOURS,
+      pendingListens: pendingListenCalls(db.get()).length,
     });
   });
 
@@ -646,8 +853,13 @@ function mountConnector(app) {
     if (!v.ok) { clog('warn', 'slack event rejected', { why: v.why }); return res.status(401).send('bad signature'); }
     if (!slackPayloadIsOurs(req.body)) return res.status(200).send('ignored');
     res.status(200).send('ok');
-    // App Home handling comes in 5.4
-    clog('info', 'slack event', { type: req.body && req.body.event && req.body.event.type });
+    const ev = req.body && req.body.event;
+    (async () => {
+      try {
+        if (ev && ev.type === 'app_home_opened' && ev.tab === 'home') await publishHome(ev.user);
+        else clog('info', 'slack event', { type: ev && ev.type });
+      } catch (e) { clog('error', 'slack event handler threw: ' + (e && e.stack || e)); }
+    })();
   });
 
   app.post('/webhooks/slack/interactivity', (req, res) => {
@@ -663,7 +875,16 @@ function mountConnector(app) {
     })();
   });
 
-  console.log('[connector] routes mounted: /webhooks/{aircall,slack/events,slack/interactivity,health}');
+  // Manual digest trigger, for testing — same shared secret as the Aircall hook.
+  app.post('/webhooks/run-digest', (req, res) => {
+    const v = verifyAircall(req);
+    if (!v.ok) return res.status(401).json({ error: v.why });
+    runDigest('manual').catch(e => clog('error', 'manual digest threw: ' + e));
+    res.json({ ok: true, triggered: true });
+  });
+
+  startSchedulers();
+  console.log('[connector] routes mounted: /webhooks/{aircall,slack/events,slack/interactivity,run-digest,health}');
 }
 
 module.exports = { mountConnector };
