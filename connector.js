@@ -46,10 +46,11 @@ const LISTEN_GRACE_HOURS = 2;   // don't nag about a recording younger than this
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
 // Phase 3 — per-person task reminders + escalation ladder (Slack DM).
-// OFF by default: nothing is DM'd to staff until REMINDERS_ENABLED=true is
-// set on Railway. REMINDER_DRY_RUN=true logs what it *would* send instead.
-const REMINDERS_ON = process.env.REMINDERS_ENABLED === 'true';
-const REMINDER_DRY_RUN = process.env.REMINDER_DRY_RUN === 'true';
+// OFF by default: nothing is DM'd to staff until REMINDERS_ENABLED is truthy
+// on Railway. REMINDER_DRY_RUN logs what it *would* send instead.
+const truthy = (v) => ['true', '1', 'yes', 'on', 'enabled'].includes(String(v == null ? '' : v).trim().toLowerCase());
+const REMINDERS_ON = truthy(process.env.REMINDERS_ENABLED);
+const REMINDER_DRY_RUN = truthy(process.env.REMINDER_DRY_RUN);
 const REMINDER_DIGEST_HOUR = parseInt(process.env.REMINDER_DIGEST_HOUR || '8', 10);   // NZ hour for the daily "what's on your plate" DM
 const REMINDER_ESCALATE_HOURS = parseFloat(process.env.REMINDER_ESCALATE_HOURS || '24'); // gap between escalation rungs
 const REMINDER_MGMT_CHANNEL = process.env.REMINDER_MGMT_CHANNEL || '';                 // optional channel for level-3 escalations
@@ -1156,7 +1157,8 @@ function mountConnector(app) {
       calls: (db.get().calls || []).length,
       digestHoursNZ: DIGEST_HOURS,
       pendingListens: pendingListenCalls(db.get()).length,
-      reminders: { enabled: REMINDERS_ON, dryRun: REMINDER_DRY_RUN, digestHourNZ: REMINDER_DIGEST_HOUR, escalateHours: REMINDER_ESCALATE_HOURS },
+      reminders: { enabled: REMINDERS_ON, dryRun: REMINDER_DRY_RUN, digestHourNZ: REMINDER_DIGEST_HOUR, escalateHours: REMINDER_ESCALATE_HOURS,
+        envSeen: process.env.REMINDERS_ENABLED === undefined ? '(not set)' : JSON.stringify(process.env.REMINDERS_ENABLED) },
       // Fingerprints only (never the secret) — to diff against expected during a rotation.
       fp: {
         aircallWebhookToken: c.aircallWebhookToken ? { len: c.aircallWebhookToken.length, sha: crypto.createHash('sha256').update(c.aircallWebhookToken).digest('hex').slice(0, 12) } : null,
