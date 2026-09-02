@@ -45,6 +45,15 @@ const DIGEST_TZ = process.env.CALL_DIGEST_TZ || 'Pacific/Auckland';
 const LISTEN_GRACE_HOURS = 2;   // don't nag about a recording younger than this
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
+// Phase 3 — per-person task reminders + escalation ladder (Slack DM).
+// OFF by default: nothing is DM'd to staff until REMINDERS_ENABLED=true is
+// set on Railway. REMINDER_DRY_RUN=true logs what it *would* send instead.
+const REMINDERS_ON = process.env.REMINDERS_ENABLED === 'true';
+const REMINDER_DRY_RUN = process.env.REMINDER_DRY_RUN === 'true';
+const REMINDER_DIGEST_HOUR = parseInt(process.env.REMINDER_DIGEST_HOUR || '8', 10);   // NZ hour for the daily "what's on your plate" DM
+const REMINDER_ESCALATE_HOURS = parseFloat(process.env.REMINDER_ESCALATE_HOURS || '24'); // gap between escalation rungs
+const REMINDER_MGMT_CHANNEL = process.env.REMINDER_MGMT_CHANNEL || '';                 // optional channel for level-3 escalations
+
 // ---------------------------------------------------------------------------
 // tiny HTTPS JSON client (Node 18 — avoid depending on global fetch)
 // ---------------------------------------------------------------------------
@@ -536,6 +545,57 @@ async function onTaskDone(payload, taskId) {
   blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `✅ *Marked done* by *${esc(who)}* — ${new Date().toLocaleString('en-NZ')}` }] });
   await editMessage(payload, blocks);
 }
+async function onTaskSnooze(payload, taskId) {
+  const state = db.get();
+  const t = (state.tasks || []).find(x => x.id === taskId);
+  if (!t) return;
+  const today = nzToday();
+  const until = nzToday(new Date(Date.now() + 24 * 3600000));
+  t.reminderState = t.reminderState || { escLevel: 0, escAt: null, snoozeUntil: null };
+  t.reminderState.snoozeUntil = until;
+  db.save();
+  activity(state, t.assignedTo, `Snoozed reminders for "${esc(t.name)}" until ${until}.`);
+  db.save();
+  const blocks = removeButton(payload.message.blocks, 'task_snooze');
+  blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `😴 Snoozed until *${until}* — the ladder resumes after that if it's still open.` }] });
+  await editMessage(payload, blocks);
+}
+async function onTaskNeedTime(payload, taskId) {
+  await slack('views.open', {
+    trigger_id: payload.trigger_id,
+    view: { type: 'modal', callback_id: 'need_time_modal', private_metadata: taskId,
+      title: { type: 'plain_text', text: 'Need more time' }, submit: { type: 'plain_text', text: 'Update' },
+      close: { type: 'plain_text', text: 'Cancel' },
+      blocks: [
+        { type: 'input', block_id: 'newdue', label: { type: 'plain_text', text: 'New due date' },
+          element: { type: 'datepicker', action_id: 'v' } },
+        { type: 'input', block_id: 'why', optional: true, label: { type: 'plain_text', text: 'Reason (shared with your team lead)' },
+          element: { type: 'plain_text_input', action_id: 'v', multiline: true } },
+      ] },
+  });
+}
+async function submitNeedTime(payload) {
+  const state = db.get();
+  const taskId = payload.view.private_metadata;
+  const t = (state.tasks || []).find(x => x.id === taskId);
+  if (!t) { clog('error', 'need-time submit — no task', { taskId }); return; }
+  const v = payload.view.state.values;
+  const newDue = v.newdue && v.newdue.v.selected_date;
+  const why = (v.why && v.why.v.value) || '';
+  if (!newDue) return;
+  const old = t.internalDeadline;
+  t.internalDeadline = newDue;
+  t.reminderState = { escLevel: 0, escAt: null, snoozeUntil: null };
+  db.save();
+  const emp = empById(state, t.assignedTo);
+  activity(state, t.assignedTo, `Moved "${esc(t.name)}" due date ${old || '—'} → <b>${newDue}</b>${why ? ` — ${esc(why)}` : ''}.`);
+  db.save();
+  await dm(payload.user.id, `🗓️ "${t.name}" is now due ${newDue}.`);
+  if (emp) for (const target of escalationTargets(state, emp)) {
+    await dm(target, `🗓️ *${esc(emp.name)}* moved a due date`,
+      [{ type: 'section', text: { type: 'mrkdwn', text: `*${esc(t.name)}*\n${old || '—'} → *${newDue}*${why ? `\n_${esc(why)}_` : ''}` } }]);
+  }
+}
 async function onPlayRecording(payload, rowId) {
   const state = db.get();
   const row = findCallByRowId(state, rowId);
@@ -685,6 +745,7 @@ async function handleInteractivity(payload) {
     const map = {
       mark_listened: onMarkListened, no_action: onNoAction, self_assign: onSelfAssign,
       task_done: onTaskDone, play_recording: onPlayRecording, log_outcome: openLogOutcomeModal,
+      task_snooze: onTaskSnooze, task_need_time: onTaskNeedTime,
     };
     if (map[a.action_id]) await map[a.action_id](payload, a.value);
     else clog('info', 'unhandled block action', { action: a.action_id });
@@ -692,6 +753,7 @@ async function handleInteractivity(payload) {
     const cb = payload.view.callback_id;
     if (cb === 'log_outcome_modal') await submitLogOutcome(payload);
     else if (cb === 'convert_to_task_modal') await submitConvert(payload);
+    else if (cb === 'need_time_modal') await submitNeedTime(payload);
   } else if (type === 'message_action') {
     if (payload.callback_id === 'convert_to_task') await openConvertModal(payload);
   }
@@ -871,29 +933,163 @@ async function runDigest(reason) {
   clog('info', 'digest posted', { reason, pending: pending.length, overdue: overdue.length, ok: !!posted.ok });
 }
 
-// hourly tick; fires the digest once per DIGEST_HOURS slot per day
+// ---------------------------------------------------------------------------
+// Phase 3 — task reminders + escalation ladder
+// ---------------------------------------------------------------------------
+function nzHour(d) { return parseInt((d || new Date()).toLocaleString('en-NZ', { timeZone: DIGEST_TZ, hour: '2-digit', hour12: false }), 10); }
+function nzToday(d) { return (d || new Date()).toLocaleDateString('en-CA', { timeZone: DIGEST_TZ }); } // YYYY-MM-DD
+function activeAssignedTasks(state) {
+  return (state.tasks || []).filter(t => t.assignedTo && !['completed', 'cancelled'].includes(t.status));
+}
+function isSnoozed(t, today) {
+  return !!(t.reminderState && t.reminderState.snoozeUntil && t.reminderState.snoozeUntil >= today);
+}
+function daysOverdue(t, today) {
+  return Math.max(0, Math.round((new Date(today) - new Date(t.internalDeadline)) / 86400000));
+}
+function empById(state, id) { return (state.employees || []).find(e => e.id === id); }
+// Who to escalate an assignee's overdue task to: admins of any team they're
+// a member of, plus anyone whose legacy managesIds covers them.
+function escalationTargets(state, emp) {
+  const teams = Array.isArray(emp.memberships) ? emp.memberships.map(m => m.team) : [];
+  const out = new Set();
+  (state.employees || []).forEach(e => {
+    if (e.id === emp.id || !e.slackUserId) return;
+    const isTeamAdmin = Array.isArray(e.memberships) && e.memberships.some(m => m.level === 'admin' && teams.includes(m.team));
+    const isLegacyMgr = Array.isArray(e.managesIds) && e.managesIds.includes(emp.id);
+    if (isTeamAdmin || isLegacyMgr) out.add(e.slackUserId);
+  });
+  return [...out];
+}
+let _reminderDryRun = false; // toggled by /webhooks/run-reminders?dry=1
+async function dm(slackUserId, text, blocks) {
+  if (!slackUserId) return { ok: false };
+  if (REMINDER_DRY_RUN || _reminderDryRun) { clog('info', 'reminder DRY-RUN → dm', { to: slackUserId, text }); return { ok: true }; }
+  return slack('chat.postMessage', { channel: slackUserId, text, blocks });
+}
+function taskLine(state, t, today, withAssignee) {
+  const a = withAssignee ? empById(state, t.assignedTo) : null;
+  const who = a ? (a.slackUserId ? ` — <@${a.slackUserId}>` : ` — ${esc(a.name)}`) : '';
+  const od = t.internalDeadline && t.internalDeadline < today ? ` · _${daysOverdue(t, today)}d overdue_` : (t.internalDeadline === today ? ' · _today_' : '');
+  const src = (t.source && t.source !== 'manual') ? ` · ${t.source === 'call' ? '📞' : '💬'}` : '';
+  return `• *${esc(t.name)}*${od}${src}${who}` + (t.sourceRef ? `  <${t.sourceRef}|open>` : '');
+}
+function reminderButtons(taskId) {
+  return { type: 'actions', elements: [
+    buttonEl('✅ Done', 'task_done', taskId),
+    buttonEl('😴 Snooze 1 day', 'task_snooze', taskId),
+    buttonEl('🗓️ Need more time', 'task_need_time', taskId),
+  ] };
+}
+
+async function runReminders(reason) {
+  const state = db.get();
+  const manual = reason === 'manual';
+  if (!REMINDERS_ON && !manual) return;
+  if (!cfg().slackBotToken) return;
+  const today = nzToday();
+  const now = Date.now();
+  state.reminderRun = state.reminderRun || {};
+  let sent = 0;
+
+  // A) Daily "what's on your plate" DM — once per assignee per day, at the
+  //    configured hour (or immediately on a manual run).
+  const digestSlot = today + ':' + REMINDER_DIGEST_HOUR;
+  if (manual || (nzHour() === REMINDER_DIGEST_HOUR && state.reminderRun.digestSlot !== digestSlot)) {
+    state.reminderRun.digestSlot = digestSlot;
+    const byAssignee = {};
+    activeAssignedTasks(state).forEach(t => {
+      if (!t.internalDeadline) return;
+      if (t.internalDeadline > today) return;           // only due-today / overdue
+      if (isSnoozed(t, today)) return;
+      (byAssignee[t.assignedTo] = byAssignee[t.assignedTo] || []).push(t);
+    });
+    for (const empId of Object.keys(byAssignee)) {
+      const emp = empById(state, empId);
+      if (!emp || !emp.slackUserId) continue;
+      if (emp.notifyPrefs && emp.notifyPrefs.channel === 'off') continue;
+      const list = byAssignee[empId].sort((a, b) => (a.internalDeadline < b.internalDeadline ? -1 : 1));
+      const overdue = list.filter(t => t.internalDeadline < today);
+      const dueToday = list.filter(t => t.internalDeadline === today);
+      const blocks = [
+        { type: 'section', text: { type: 'mrkdwn', text: `👋 *Your tasks* — ${overdue.length} overdue, ${dueToday.length} due today` } },
+      ];
+      if (overdue.length) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Overdue*\n' + overdue.map(t => taskLine(state, t, today)).join('\n') } });
+      if (dueToday.length) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Due today*\n' + dueToday.map(t => taskLine(state, t, today)).join('\n') } });
+      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: 'Mark items done in Slack or the task manager · 🟢 Governance OS' }] });
+      await dm(emp.slackUserId, `Your tasks — ${overdue.length} overdue, ${dueToday.length} due today`, blocks);
+      sent++;
+    }
+  }
+
+  // B) Overdue escalation ladder — evaluated every tick, advances one rung
+  //    per REMINDER_ESCALATE_HOURS.
+  for (const t of activeAssignedTasks(state)) {
+    if (!t.internalDeadline || t.internalDeadline >= today) continue;
+    if (isSnoozed(t, today)) continue;
+    const emp = empById(state, t.assignedTo);
+    if (!emp || !emp.slackUserId) continue;
+    if (emp.notifyPrefs && emp.notifyPrefs.channel === 'off') continue;
+    t.reminderState = t.reminderState || { escLevel: 0, escAt: null, snoozeUntil: null };
+    const rs = t.reminderState;
+    const hoursSince = rs.escAt ? (now - new Date(rs.escAt).getTime()) / 3600000 : Infinity;
+    const od = daysOverdue(t, today);
+
+    if (rs.escLevel === 0) {
+      rs.escLevel = 1; rs.escAt = new Date().toISOString();
+      await dm(emp.slackUserId, `⚠️ Overdue: ${t.name}`,
+        [{ type: 'section', text: { type: 'mrkdwn', text: `⚠️ *This task is overdue* (${od}d)\n${taskLine(state, t, today)}` } }, reminderButtons(t.id)]);
+      clog('info', 'reminder L1 (assignee)', { task: t.id, od }); sent++;
+    } else if (rs.escLevel === 1 && hoursSince >= REMINDER_ESCALATE_HOURS) {
+      rs.escLevel = 2; rs.escAt = new Date().toISOString();
+      await dm(emp.slackUserId, `⚠️ Still overdue: ${t.name}`,
+        [{ type: 'section', text: { type: 'mrkdwn', text: `⚠️ *Still overdue* (${od}d) — your team lead has been notified.\n${taskLine(state, t, today)}` } }, reminderButtons(t.id)]);
+      for (const target of escalationTargets(state, emp)) {
+        await dm(target, `📣 Overdue task needs attention`,
+          [{ type: 'section', text: { type: 'mrkdwn', text: `📣 *${esc(emp.name)}* has a task ${od}d overdue:\n${taskLine(state, t, today, true)}` } }]);
+      }
+      clog('info', 'reminder L2 (assignee + leads)', { task: t.id, od }); sent++;
+    } else if (rs.escLevel === 2 && hoursSince >= REMINDER_ESCALATE_HOURS) {
+      rs.escLevel = 3; rs.escAt = new Date().toISOString();
+      const note = { type: 'section', text: { type: 'mrkdwn', text: `🚨 *Escalation* — ${od}d overdue, no movement.\n${taskLine(state, t, today, true)}` } };
+      for (const f of founderSlackIds(state)) await dm(f, `🚨 Escalation: ${t.name}`, [note]);
+      if (REMINDER_MGMT_CHANNEL) await slack('chat.postMessage', { channel: REMINDER_MGMT_CHANNEL, text: `🚨 Overdue escalation: ${t.name}`, blocks: [note] });
+      clog('info', 'reminder L3 (founder)', { task: t.id, od }); sent++;
+    }
+  }
+
+  db.save();
+  clog('info', 'reminders run', { reason, sent, remindersOn: REMINDERS_ON, dryRun: REMINDER_DRY_RUN });
+  return sent;
+}
+
+// hourly tick; fires the digest once per DIGEST_HOURS slot per day + the
+// reminder pass every tick
 let _schedTimer = null;
 function startSchedulers() {
   if (_schedTimer) return;
   const tick = async () => {
     try {
       const state = db.get();
-      if (!Array.isArray(DIGEST_HOURS) || !DIGEST_HOURS.length || !cfg().slackChannel || !cfg().slackBotToken) return;
+      if (!cfg().slackBotToken) return;
       const now = new Date();
-      const hr = parseInt(now.toLocaleString('en-NZ', { timeZone: DIGEST_TZ, hour: '2-digit', hour12: false }), 10);
-      const dayKey = now.toLocaleDateString('en-CA', { timeZone: DIGEST_TZ }); // YYYY-MM-DD
-      state.connectorDigest = state.connectorDigest || {};
-      const slot = dayKey + ':' + hr;
-      if (DIGEST_HOURS.includes(hr) && state.connectorDigest.lastSlot !== slot) {
-        state.connectorDigest.lastSlot = slot; db.save();
-        await runDigest('scheduled ' + slot);
+      const hr = nzHour(now);
+      const dayKey = nzToday(now);
+      if (Array.isArray(DIGEST_HOURS) && DIGEST_HOURS.length && cfg().slackChannel) {
+        state.connectorDigest = state.connectorDigest || {};
+        const slot = dayKey + ':' + hr;
+        if (DIGEST_HOURS.includes(hr) && state.connectorDigest.lastSlot !== slot) {
+          state.connectorDigest.lastSlot = slot; db.save();
+          await runDigest('scheduled ' + slot);
+        }
       }
+      await runReminders('scheduled ' + dayKey + ':' + hr);
     } catch (e) { clog('error', 'scheduler tick threw: ' + (e && e.stack || e)); }
   };
   _schedTimer = setInterval(tick, 10 * 60 * 1000); // every 10 min
   if (_schedTimer.unref) _schedTimer.unref();
   setTimeout(tick, 15000);
-  console.log('[connector] digest scheduler started — NZ hours ' + DIGEST_HOURS.join(','));
+  console.log('[connector] schedulers started — digest NZ hours ' + DIGEST_HOURS.join(',') + '; reminders ' + (REMINDERS_ON ? 'ON' : 'OFF') + (REMINDER_DRY_RUN ? ' (dry-run)' : ''));
 }
 
 // ---------------------------------------------------------------------------
@@ -913,6 +1109,7 @@ function mountConnector(app) {
       calls: (db.get().calls || []).length,
       digestHoursNZ: DIGEST_HOURS,
       pendingListens: pendingListenCalls(db.get()).length,
+      reminders: { enabled: REMINDERS_ON, dryRun: REMINDER_DRY_RUN, digestHourNZ: REMINDER_DIGEST_HOUR, escalateHours: REMINDER_ESCALATE_HOURS },
     });
   });
 
@@ -976,16 +1173,29 @@ function mountConnector(app) {
     })();
   });
 
-  // Manual digest trigger, for testing — same shared secret as the Aircall hook.
+  // Manual triggers, for testing — same shared secret as the Aircall hook.
   app.post('/webhooks/run-digest', (req, res) => {
     const v = verifyAircall(req);
     if (!v.ok) return res.status(401).json({ error: v.why });
     runDigest('manual').catch(e => clog('error', 'manual digest threw: ' + e));
     res.json({ ok: true, triggered: true });
   });
+  // A manual reminder run always executes (even with REMINDERS_ENABLED unset),
+  // so add ?dry=1 the first time to see what it WOULD send without DMing anyone.
+  app.post('/webhooks/run-reminders', async (req, res) => {
+    const v = verifyAircall(req);
+    if (!v.ok) return res.status(401).json({ error: v.why });
+    const dry = req.query.dry === '1';
+    if (dry) _reminderDryRun = true;
+    try {
+      const sent = await runReminders('manual');
+      res.json({ ok: true, actions: sent, dryRun: dry || REMINDER_DRY_RUN });
+    } catch (e) { clog('error', 'manual reminders threw: ' + e); res.status(500).json({ error: String(e) }); }
+    finally { if (dry) _reminderDryRun = false; }
+  });
 
   startSchedulers();
-  console.log('[connector] routes mounted: /webhooks/{aircall,slack/events,slack/interactivity,run-digest,health}');
+  console.log('[connector] routes mounted: /webhooks/{aircall,slack/events,slack/interactivity,run-digest,run-reminders,log,health}');
 }
 
 module.exports = { mountConnector };
