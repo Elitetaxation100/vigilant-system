@@ -1037,7 +1037,7 @@ async function runReminders(reason) {
   //    configured hour (or immediately on a manual run).
   const digestSlot = today + ':' + REMINDER_DIGEST_HOUR;
   if (manual || (nzHour() === REMINDER_DIGEST_HOUR && state.reminderRun.digestSlot !== digestSlot)) {
-    state.reminderRun.digestSlot = digestSlot;
+    if (!manual) { state.reminderRun.digestSlot = digestSlot; db.save(); } // claim the slot before the slow DM loop, so a crash can't double-send
     const byAssignee = {};
     activeAssignedTasks(state).forEach(t => {
       if (!t.internalDeadline) return;
