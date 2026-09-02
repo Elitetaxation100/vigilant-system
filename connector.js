@@ -1129,6 +1129,42 @@ function mountConnector(app) {
     });
   });
 
+  // Backfill employees' slackUserId by matching Slack profile emails to the
+  // task manager's employee emails. Token-gated. ?dry=1 previews without
+  // writing; ?overwrite=1 also replaces IDs that are already set.
+  app.post('/webhooks/backfill-slack-ids', async (req, res) => {
+    const v = verifyAircall(req);
+    if (!v.ok) return res.status(401).json({ error: v.why });
+    try {
+      const dry = req.query.dry === '1';
+      const overwrite = req.query.overwrite === '1';
+      const byEmail = {};
+      let cursor = '';
+      for (let page = 0; page < 20; page++) {
+        const r = await slack('users.list', { limit: 200, cursor: cursor || undefined });
+        if (!r.ok) return res.status(502).json({ error: 'users.list failed: ' + (r.error || '?') + (r.error === 'missing_scope' ? ' — add users:read + users:read.email scopes and reinstall the app' : '') });
+        (r.members || []).forEach(m => {
+          const em = m.profile && m.profile.email;
+          if (em && !m.deleted && !m.is_bot) byEmail[em.toLowerCase()] = m.id;
+        });
+        cursor = r.response_metadata && r.response_metadata.next_cursor;
+        if (!cursor) break;
+      }
+      const state = db.get();
+      const matched = [], unmatched = [], skipped = [];
+      (state.employees || []).forEach(e => {
+        const hit = e.email && byEmail[e.email.toLowerCase()];
+        if (!hit) { unmatched.push({ name: e.name, email: e.email || null }); return; }
+        if (e.slackUserId && !overwrite) { skipped.push({ name: e.name, slackUserId: e.slackUserId }); return; }
+        matched.push({ name: e.name, email: e.email, slackUserId: hit, was: e.slackUserId || null });
+        if (!dry) e.slackUserId = hit;
+      });
+      if (!dry && matched.length) db.save();
+      clog('info', 'backfill-slack-ids', { dry, matched: matched.length, unmatched: unmatched.length, skipped: skipped.length });
+      res.json({ ok: true, dryRun: dry, slackUsersWithEmail: Object.keys(byEmail).length, matched, alreadySet: skipped, unmatched });
+    } catch (e) { clog('error', 'backfill-slack-ids threw: ' + e); res.status(500).json({ error: String(e) }); }
+  });
+
   app.post('/webhooks/aircall', (req, res) => {
     const v = verifyAircall(req);
     if (!v.ok) { clog('warn', 'aircall rejected', { why: v.why }); return res.status(401).send('unauthorized'); }
