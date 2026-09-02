@@ -57,9 +57,12 @@ const REMINDER_MGMT_CHANNEL = process.env.REMINDER_MGMT_CHANNEL || '';          
 // ---------------------------------------------------------------------------
 // tiny HTTPS JSON client (Node 18 — avoid depending on global fetch)
 // ---------------------------------------------------------------------------
-function httpsRequest(url, { method = 'GET', headers = {}, body = null } = {}) {
+function httpsRequest(url, { method = 'GET', headers = {}, body = null, timeoutMs = 30000 } = {}) {
   return new Promise((resolve) => {
-    const u = new URL(url);
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    let u;
+    try { u = new URL(url); } catch (e) { return finish({ status: 0, json: null, error: 'bad url' }); }
     const req = https.request(
       { method, hostname: u.hostname, path: u.pathname + u.search, headers },
       (res) => {
@@ -69,12 +72,13 @@ function httpsRequest(url, { method = 'GET', headers = {}, body = null } = {}) {
           const raw = Buffer.concat(chunks);
           let json = null;
           try { json = JSON.parse(raw.toString('utf8')); } catch (e) {}
-          resolve({ status: res.statusCode, json, raw, headers: res.headers });
+          finish({ status: res.statusCode, json, raw, headers: res.headers });
         });
       }
     );
-    req.on('error', (e) => resolve({ status: 0, json: null, error: String(e) }));
-    if (body != null) req.write(typeof body === 'string' ? body : JSON.stringify(body));
+    req.on('error', (e) => finish({ status: 0, json: null, error: String(e) }));
+    if (typeof req.setTimeout === 'function') req.setTimeout(timeoutMs, () => req.destroy(new Error('request timeout ' + timeoutMs + 'ms')));
+    if (body != null) req.write(Buffer.isBuffer(body) || typeof body === 'string' ? body : JSON.stringify(body));
     req.end();
   });
 }
@@ -87,7 +91,9 @@ async function slack(method, payload) {
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: 'Bearer ' + c.slackBotToken },
     body: payload || {},
   });
-  if (!r.json || !r.json.ok) clog('error', 'slack ' + method + ' failed', { error: (r.json && r.json.error) || r.status });
+  // A failed chat.update / views.publish is usually transient (stale ts, home
+  // tab not opened yet) and the callers handle it — log as warn, not error.
+  if (!r.json || !r.json.ok) clog('warn', 'slack ' + method + ' not ok', { error: (r.json && r.json.error) || r.status });
   return r.json || { ok: false };
 }
 function aircallAuthHeader() {
@@ -137,7 +143,9 @@ function clog(level, msg, meta) {
     if (!Array.isArray(state.connectorLog)) state.connectorLog = [];
     state.connectorLog.push({ at: new Date().toISOString(), level, msg, meta: meta || null });
     if (state.connectorLog.length > 400) state.connectorLog.shift();
-    db.save();
+    // Persist immediately only for warn/error; info lines ride along with the
+    // next real db.save() (every handler saves) to avoid write amplification.
+    if (level === 'warn' || level === 'error') db.save();
   } catch (e) {}
 }
 
@@ -149,9 +157,13 @@ function isUnanswered(call) { return !!call.missed_call_reason || !call.answered
 function isVoicemail(call) { return !!call.voicemail || call.missed_call_reason === 'voicemail'; }
 function findCall(state, aircallId) { return (state.calls || []).find(c => String(c.aircallId) === String(aircallId)); }
 function findCallByRowId(state, rowId) { return (state.calls || []).find(c => c.id === rowId); }
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]));
+function esc(s, max) {
+  let v = String(s == null ? '' : s);
+  if (max && v.length > max) v = v.slice(0, max - 1) + '…';
+  return v.replace(/[&<>]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[ch]));
 }
+// Slack section text hard-caps at 3000 chars — keep user-supplied blocks under it.
+const SLACK_TEXT_MAX = 2800;
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso);
@@ -291,7 +303,10 @@ function completeTask(state, taskId, byName) {
   const t = (state.tasks || []).find(x => x.id === taskId);
   if (!t || t.status === 'completed') return t;
   if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
-  t.status = 'completed'; t.completedAt = new Date().toISOString(); t.reviewStatus = null;
+  t.status = 'completed'; t.completedAt = new Date().toISOString();
+  // Call / Slack tasks skip review (Phase 2b); a manual task keeps whatever
+  // review state it had so the app's review flow still applies.
+  if (t.source === 'call' || t.source === 'slack_message') t.reviewStatus = null;
   activity(state, t.assignedTo, `"${esc(t.name)}" marked done from Slack${byName ? ' by <b>' + esc(byName) + '</b>' : ''}.`);
   return t;
 }
@@ -343,12 +358,17 @@ async function handleCallEnded(call) {
   const vm = isVoicemail(call);
   const status = unanswered ? 'not_picked_up' : (vm ? 'voicemail' : 'ended');
 
-  // Transfer-leg merge: same number, another (real, non-stub) leg in the
-  // last 15 min. Skipped when this call.id already has a stub of its own.
+  // Transfer-leg merge: an earlier leg of the SAME call routed to another
+  // agent. Only merge when it really looks like a transfer — the prior leg
+  // was unanswered, or it landed in the last 90s — so a genuine second call
+  // from the same number a few minutes later is NOT swallowed.
   if (!existing) {
     const cutoff = Date.now() - TRANSFER_MERGE_MINUTES * 60000;
-    const priorLeg = (state.calls || []).filter(c => !c.stub && c.callerPhone === callerPhone && callerPhone &&
+    const cand = (state.calls || []).filter(c => !c.stub && c.callerPhone === callerPhone && callerPhone &&
       new Date(c.occurredAt).getTime() >= cutoff).sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
+    const looksLikeTransfer = cand && (cand.status === 'not_picked_up' ||
+      Date.now() - new Date(cand.occurredAt).getTime() < 90000);
+    const priorLeg = looksLikeTransfer ? cand : null;
     if (priorLeg) {
       priorLeg.aircallId = String(call.id);
       priorLeg.agentName = routing ? routing.name : (call.user ? call.user.name : priorLeg.agentName);
@@ -413,7 +433,7 @@ async function backfillRecording(rowId, aircallId) {
     row.recordingUrl = url;
     row.recordingFetchedAt = new Date().toISOString();
     db.save();
-    if (!row.aiOutcome && cfg().geminiApiKey) generateAiDraft(rowId).catch(() => {});
+    if (!row.aiOutcome && cfg().geminiApiKey) generateAiDraft(rowId).catch(e => clog('error', 'gemini draft threw: ' + (e && e.stack || e)));
     await syncCard(state, row);
     clog('info', 'recording backstop — fetched from Aircall API', { row: rowId });
   } catch (e) { clog('error', 'recording backstop threw: ' + (e && e.stack || e)); }
@@ -526,7 +546,7 @@ async function postTaskCard(row, task, ownerSlackId, byName, selfAssigned) {
       { type: 'mrkdwn', text: `*Owner*\n<@${ownerSlackId}>` },
       { type: 'mrkdwn', text: `*Due*\n${fmtDate(task.internalDeadline)}` },
     ] },
-    { type: 'section', text: { type: 'mrkdwn', text: `*Task:* ${esc(task.scope !== '—' ? task.scope : task.name)}` } },
+    { type: 'section', text: { type: 'mrkdwn', text: `*Task:* ${esc(task.scope !== '—' ? task.scope : task.name, SLACK_TEXT_MAX)}` } },
     { type: 'context', elements: [{ type: 'mrkdwn', text: `${selfAssigned ? '' : 'Assigned by *' + esc(byName) + '* · '}Task ${task.id} · 🟢 via Governance OS` }] },
     { type: 'divider' },
     { type: 'actions', elements: [buttonEl('✅ Mark Done', 'task_done', task.id)] },
@@ -601,9 +621,14 @@ async function onPlayRecording(payload, rowId) {
   const row = findCallByRowId(state, rowId);
   if (!row) return;
   const url = await freshRecordingUrl(row.aircallId);
-  if (!url) { clog('warn', 'play recording — no url', { row: rowId }); return; }
-  const audio = await httpsRequest(url);
-  if (audio.status !== 200 || !audio.raw) { clog('error', 'play recording — audio fetch failed', { status: audio.status }); return; }
+  if (!url) {
+    clog('warn', 'play recording — no url', { row: rowId });
+    await slack('chat.postMessage', { channel: payload.channel.id, thread_ts: payload.message.ts, text: '⚠️ Recording not available from Aircall (it may have expired or is still processing).' });
+    return;
+  }
+  const audio = await httpsRequest(url, { timeoutMs: 90000 });
+  if (audio.status !== 200 || !audio.raw || !audio.raw.length) { clog('warn', 'play recording — audio fetch failed', { status: audio.status }); return; }
+  if (audio.raw.length > 60 * 1024 * 1024) { clog('warn', 'play recording — file too large', { bytes: audio.raw.length }); return; }
   // Slack's external-upload flow is form-encoded, not JSON:
   const c = cfg();
   const form = 'filename=' + encodeURIComponent('call-' + row.aircallId + '.mp3') + '&length=' + audio.raw.length;
@@ -612,11 +637,11 @@ async function onPlayRecording(payload, rowId) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: 'Bearer ' + c.slackBotToken },
     body: form,
   });
-  if (!gu.json || !gu.json.ok) { clog('error', 'getUploadURLExternal failed', { e: gu.json && gu.json.error }); return; }
+  if (!gu.json || !gu.json.ok) { clog('warn', 'getUploadURLExternal failed', { e: gu.json && gu.json.error }); return; }
   const put = await httpsRequest(gu.json.upload_url, {
-    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: audio.raw,
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: audio.raw, timeoutMs: 90000,
   });
-  if (put.status >= 300) { clog('error', 'audio upload failed', { status: put.status }); return; }
+  if (put.status >= 300 || put.status === 0) { clog('warn', 'audio upload failed', { status: put.status }); return; }
   await slack('files.completeUploadExternal', {
     files: [{ id: gu.json.file_id, title: 'Call recording — ' + row.aircallId }],
     channel_id: cfg().slackChannel, thread_ts: row.slackTs || undefined,
@@ -692,16 +717,18 @@ async function submitLogOutcome(payload) {
 
 // Convert to Task message shortcut
 async function openConvertModal(payload) {
-  const src = (payload.message && payload.message.text) || '';
+  const src = ((payload.message && payload.message.text) || '').trim();
   const meta = JSON.stringify({ channel: payload.channel.id, ts: payload.message.ts });
+  // Slack rejects an empty initial_value — only pre-fill when there's text.
+  const descEl = { type: 'plain_text_input', action_id: 'v', multiline: true };
+  if (src) descEl.initial_value = src.slice(0, 2900);
   await slack('views.open', {
     trigger_id: payload.trigger_id,
     view: { type: 'modal', callback_id: 'convert_to_task_modal', private_metadata: meta,
       title: { type: 'plain_text', text: 'Convert to Task' }, submit: { type: 'plain_text', text: 'Create Task' },
       close: { type: 'plain_text', text: 'Cancel' },
       blocks: [
-        { type: 'input', block_id: 'desc', label: { type: 'plain_text', text: 'Task Description' },
-          element: { type: 'plain_text_input', action_id: 'v', multiline: true, initial_value: src.slice(0, 2900) } },
+        { type: 'input', block_id: 'desc', label: { type: 'plain_text', text: 'Task Description' }, element: descEl },
         { type: 'input', block_id: 'assignee', label: { type: 'plain_text', text: 'Assign To' },
           element: { type: 'users_select', action_id: 'v' } },
         { type: 'input', block_id: 'due', optional: true, label: { type: 'plain_text', text: 'Due Date' },
@@ -727,7 +754,7 @@ async function submitConvert(payload) {
   db.save();
   const blocks = [
     { type: 'section', text: { type: 'mrkdwn', text: `📌 *Task created* — <@${assigneeSlackId}>` } },
-    { type: 'section', text: { type: 'mrkdwn', text: `*Task:* ${esc(desc)}` } },
+    { type: 'section', text: { type: 'mrkdwn', text: `*Task:* ${esc(desc, SLACK_TEXT_MAX)}` } },
     { type: 'context', elements: [{ type: 'mrkdwn', text: `Task ${task.id} · 🟢 via Governance OS` }] },
     { type: 'divider' }, { type: 'actions', elements: [buttonEl('✅ Mark Done', 'task_done', task.id)] },
   ];
@@ -751,9 +778,16 @@ async function handleInteractivity(payload) {
     else clog('info', 'unhandled block action', { action: a.action_id });
   } else if (type === 'view_submission') {
     const cb = payload.view.callback_id;
-    if (cb === 'log_outcome_modal') await submitLogOutcome(payload);
-    else if (cb === 'convert_to_task_modal') await submitConvert(payload);
-    else if (cb === 'need_time_modal') await submitNeedTime(payload);
+    try {
+      if (cb === 'log_outcome_modal') await submitLogOutcome(payload);
+      else if (cb === 'convert_to_task_modal') await submitConvert(payload);
+      else if (cb === 'need_time_modal') await submitNeedTime(payload);
+    } catch (e) {
+      clog('error', 'modal submit "' + cb + '" failed: ' + (e && e.stack || e));
+      if (payload.user && payload.user.id) {
+        await slack('chat.postMessage', { channel: payload.user.id, text: "⚠️ Something went wrong saving that — nothing was created. Try again, or use the task manager directly." });
+      }
+    }
   } else if (type === 'message_action') {
     if (payload.callback_id === 'convert_to_task') await openConvertModal(payload);
   }
@@ -783,7 +817,9 @@ async function generateAiDraft(rowId) {
   if (!key) return;
 
   const audio = await httpsRequest(row.recordingUrl);
-  if (audio.status !== 200 || !audio.raw || audio.raw.length > 19 * 1024 * 1024) {
+  // Gemini's inline-data request cap is ~20MB; base64 inflates by ~33%, so
+  // keep the raw audio under ~14MB.
+  if (audio.status !== 200 || !audio.raw || !audio.raw.length || audio.raw.length > 14 * 1024 * 1024) {
     clog('warn', 'gemini: recording unavailable or too large', { row: rowId, status: audio.status, bytes: audio.raw && audio.raw.length });
     return;
   }
@@ -914,20 +950,20 @@ async function runDigest(reason) {
       const list = byTeam[team];
       const mentions = [...new Set(list.flatMap(c => (AGENT_MAP[c.agentAircallId] && AGENT_MAP[c.agentAircallId].slackIds) || []))].map(id => `<@${id}>`).join(' ');
       blocks.push({ type: 'section', text: { type: 'mrkdwn', text:
-        `*${esc(team)}* — ${list.length}  ${mentions}\n` + list.slice(0, 8).map(c => {
+        (`*${esc(team)}* — ${list.length}  ${mentions}\n` + list.slice(0, 8).map(c => {
           const link = slackPermalink(c);
-          return `• ${esc(c.clientName || 'Unknown')} (${fmtDate(c.occurredAt)})` + (link ? ` <${link}|open>` : '');
-        }).join('\n') } });
+          return `• ${esc(c.clientName || 'Unknown', 80)} (${fmtDate(c.occurredAt)})` + (link ? ` <${link}|open>` : '');
+        }).join('\n')).slice(0, SLACK_TEXT_MAX) } });
     });
   }
   if (overdue.length) {
     blocks.push({ type: 'divider' });
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*📋 ${overdue.length} call/Slack task${overdue.length === 1 ? '' : 's'} overdue*\n` +
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: (`*📋 ${overdue.length} call/Slack task${overdue.length === 1 ? '' : 's'} overdue*\n` +
       overdue.slice(0, 10).map(t => {
         const a = (state.employees || []).find(e => e.id === t.assignedTo);
         const m = a && a.slackUserId ? ` <@${a.slackUserId}>` : (a ? ` _${esc(a.name)}_` : '');
-        return `• ${esc(t.name)} — due ${fmtDate(t.internalDeadline)}${m}`;
-      }).join('\n') } });
+        return `• ${esc(t.name, 120)} — due ${fmtDate(t.internalDeadline)}${m}`;
+      }).join('\n')).slice(0, SLACK_TEXT_MAX) } });
   }
   const posted = await slack('chat.postMessage', { channel: cfg().slackChannel, text: '⏰ Call accountability digest', blocks });
   clog('info', 'digest posted', { reason, pending: pending.length, overdue: overdue.length, ok: !!posted.ok });
@@ -936,7 +972,12 @@ async function runDigest(reason) {
 // ---------------------------------------------------------------------------
 // Phase 3 — task reminders + escalation ladder
 // ---------------------------------------------------------------------------
-function nzHour(d) { return parseInt((d || new Date()).toLocaleString('en-NZ', { timeZone: DIGEST_TZ, hour: '2-digit', hour12: false }), 10); }
+function nzHour(d) {
+  // hourCycle h23 so midnight is "00", not "24" (which some ICU builds emit
+  // for hour12:false and would never match a configured digest hour).
+  const h = parseInt((d || new Date()).toLocaleString('en-US', { timeZone: DIGEST_TZ, hour: '2-digit', hourCycle: 'h23' }), 10);
+  return isNaN(h) ? new Date().getUTCHours() : (h === 24 ? 0 : h);
+}
 function nzToday(d) { return (d || new Date()).toLocaleDateString('en-CA', { timeZone: DIGEST_TZ }); } // YYYY-MM-DD
 function activeAssignedTasks(state) {
   return (state.tasks || []).filter(t => t.assignedTo && !['completed', 'cancelled'].includes(t.status));
@@ -996,7 +1037,7 @@ async function runReminders(reason) {
   //    configured hour (or immediately on a manual run).
   const digestSlot = today + ':' + REMINDER_DIGEST_HOUR;
   if (manual || (nzHour() === REMINDER_DIGEST_HOUR && state.reminderRun.digestSlot !== digestSlot)) {
-    state.reminderRun.digestSlot = digestSlot;
+    if (!manual) { state.reminderRun.digestSlot = digestSlot; db.save(); } // claim the slot before the slow DM loop, so a crash can't double-send
     const byAssignee = {};
     activeAssignedTasks(state).forEach(t => {
       if (!t.internalDeadline) return;
@@ -1014,8 +1055,14 @@ async function runReminders(reason) {
       const blocks = [
         { type: 'section', text: { type: 'mrkdwn', text: `👋 *Your tasks* — ${overdue.length} overdue, ${dueToday.length} due today` } },
       ];
-      if (overdue.length) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Overdue*\n' + overdue.map(t => taskLine(state, t, today)).join('\n') } });
-      if (dueToday.length) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '*Due today*\n' + dueToday.map(t => taskLine(state, t, today)).join('\n') } });
+      const listBlock = (heading, arr) => {
+        if (!arr.length) return;
+        const shown = arr.slice(0, 20).map(t => taskLine(state, t, today)).join('\n');
+        const more = arr.length > 20 ? `\n_…and ${arr.length - 20} more_` : '';
+        blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*${heading}*\n${shown}${more}`.slice(0, SLACK_TEXT_MAX) } });
+      };
+      listBlock('Overdue', overdue);
+      listBlock('Due today', dueToday);
       blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: 'Mark items done in Slack or the task manager · 🟢 Governance OS' }] });
       await dm(emp.slackUserId, `Your tasks — ${overdue.length} overdue, ${dueToday.length} due today`, blocks);
       sent++;
