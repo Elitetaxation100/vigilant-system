@@ -717,16 +717,18 @@ async function submitLogOutcome(payload) {
 
 // Convert to Task message shortcut
 async function openConvertModal(payload) {
-  const src = (payload.message && payload.message.text) || '';
+  const src = ((payload.message && payload.message.text) || '').trim();
   const meta = JSON.stringify({ channel: payload.channel.id, ts: payload.message.ts });
+  // Slack rejects an empty initial_value — only pre-fill when there's text.
+  const descEl = { type: 'plain_text_input', action_id: 'v', multiline: true };
+  if (src) descEl.initial_value = src.slice(0, 2900);
   await slack('views.open', {
     trigger_id: payload.trigger_id,
     view: { type: 'modal', callback_id: 'convert_to_task_modal', private_metadata: meta,
       title: { type: 'plain_text', text: 'Convert to Task' }, submit: { type: 'plain_text', text: 'Create Task' },
       close: { type: 'plain_text', text: 'Cancel' },
       blocks: [
-        { type: 'input', block_id: 'desc', label: { type: 'plain_text', text: 'Task Description' },
-          element: { type: 'plain_text_input', action_id: 'v', multiline: true, initial_value: src.slice(0, 2900) } },
+        { type: 'input', block_id: 'desc', label: { type: 'plain_text', text: 'Task Description' }, element: descEl },
         { type: 'input', block_id: 'assignee', label: { type: 'plain_text', text: 'Assign To' },
           element: { type: 'users_select', action_id: 'v' } },
         { type: 'input', block_id: 'due', optional: true, label: { type: 'plain_text', text: 'Due Date' },
