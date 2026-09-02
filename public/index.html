@@ -737,6 +737,7 @@
                 <th>Assignee</th>
                 <th>Due</th>
                 <th>Status</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="adminTaskTableBody"></tbody>
@@ -1387,12 +1388,22 @@ function renderAdminView(){
   });
 
   if(rows.length === 0){
-    grid.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:26px;">No tasks match this view.${all.length === 0 ? ' Tasks made in Slack will appear here.' : ''}</td></tr>`;
+    grid.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-faint); padding:26px;">No tasks match this view.${all.length === 0 ? ' Tasks made in Slack will appear here.' : ''}</td></tr>`;
     return;
   }
   grid.innerHTML = rows.map(t => {
     const a = empById(t.assignedTo);
     const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < todayISO();
+    const isIntegration = (t.source || 'manual') !== 'manual';
+    let actions = '';
+    if(isIntegration && t.status !== 'completed'){
+      if(isAdmin || t.assignedTo === currentViewerId){
+        actions += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="markIntegrationTaskDone('${t.id}')">✓ Done</button>`;
+      }
+      if(isAdmin && !t.assignedTo){
+        actions += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openSetOwnerModal('${t.id}')">Assign</button>`;
+      }
+    }
     return `<tr>
       <td><div class="task-name">${esc(t.name)}</div>${t.scope && t.scope !== '—' ? `<div class="task-scope">${esc(t.scope)}</div>` : ''}<div class="task-scope">${t.id}</div></td>
       <td class="clientcell">${esc(t.clientName) || '—'}</td>
@@ -1400,8 +1411,47 @@ function renderAdminView(){
       <td><div class="assignee">${a ? `<span class="mini-avatar">${esc(a.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span> ${esc(a.name)}` : '<span style="color:var(--amber);">Unassigned</span>'}</div></td>
       <td class="logged" style="${overdue?'color:#C2410C;font-weight:700;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</td>
       <td>${statusBadge(t)}</td>
+      <td><div class="action-stack">${actions}</div></td>
     </tr>`;
   }).join('');
+}
+
+// Integration tasks (call / Slack) don't need a review — mark done directly.
+async function markIntegrationTaskDone(id){
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/done`, { method:'POST' });
+    await refreshTasks(); await refreshActivity();
+    if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
+    showToast('success', 'Task marked done', 'No review needed for call / Slack tasks.');
+  } catch(e){ showToast('error', 'Could not mark done', e.message); }
+}
+function openSetOwnerModal(id){
+  const t = tasks.find(x => x.id === id);
+  if(!t) return;
+  const opts = employees.map(e => `<option value="${e.id}">${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('');
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Assign task</h3>
+    <div class="modal-sub">${esc(t.name)}</div>
+    <div class="field"><label>Owner</label><select id="soOwner">${opts}</select></div>
+    <div class="modal-error" id="soError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitSetOwner('${id}')">Assign</button>
+    </div>`;
+  openModal();
+}
+async function submitSetOwner(id){
+  const assigneeId = document.getElementById('soOwner').value;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/set-owner`, { method:'POST', body: JSON.stringify({ assigneeId }) });
+    closeModal();
+    await refreshTasks(); await refreshActivity();
+    if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
+    showToast('success', 'Task assigned', '');
+  } catch(e){
+    const el = document.getElementById('soError');
+    if(el){ el.textContent = e.message; el.style.display = 'block'; } else showToast('error', 'Could not assign', e.message);
+  }
 }
 /* =========================================================================
    ATTENDANCE LOG — Superadmin-only view of everyone's daily login/logout
@@ -1673,6 +1723,22 @@ function actionCell(t){
   const isMine = t.assignedTo === currentViewerId;
   let html = '<div class="action-stack">';
   const flagged = isReworkFlagged(t);
+  // Call / Slack tasks: a follow-up, not a filed return — no review, no
+  // accept gate. Just "Mark done" (and Reassign for admins).
+  if((t.source || 'manual') !== 'manual'){
+    if(t.status !== 'completed'){
+      if(isMine || isAdmin){
+        html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="markIntegrationTaskDone('${t.id}')">✓ Done</button>`;
+      }
+      if(isAdmin){
+        html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openSetOwnerModal('${t.id}')">${t.assignedTo ? 'Reassign' : 'Assign'}</button>`;
+      }
+    } else {
+      html += `<span class="badge completed dot">✓ Done</span>`;
+    }
+    html += '</div>';
+    return html;
+  }
   if(t.status === 'awaiting_acceptance' && isMine){
     if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back for rework — accept to start fixing it</span>`;
     html += `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTask('${t.id}')">Accept</button>`;
@@ -1753,6 +1819,11 @@ function renderTaskTable(){
     function primaryAction(t){
   const isMine = t.assignedTo === currentViewerId;
   if(!isMine) return null;
+  // Call / Slack tasks are follow-ups, not filed returns — no review step.
+  if((t.source || 'manual') !== 'manual'){
+    if(t.status !== 'completed') return { label:'Mark done', icon:'&#10003;', fn:`markIntegrationTaskDone('${t.id}')` };
+    return null;
+  }
   if(t.status === 'awaiting_acceptance') return { label:'Accept task', icon:'&#9654;', fn:`acceptTask('${t.id}')` };
   if(t.status === 'accepted') return { label:'Mark complete', icon:'&#10003;', fn:`openCompleteModal('${t.id}')` };
   if(t.status === 'rework') return { label:'View error & resubmit', icon:'&#9888;', fn:`openReworkDetailModal('${t.id}')` };
