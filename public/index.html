@@ -560,6 +560,10 @@
     <div class="nav-section">
       <div class="nav-title">Collaborate</div>
     </div>
+    <div class="nav-section" id="teamBoardNavSection" style="display:none;">
+      <div class="nav-title">Teams</div>
+      <div class="nav-item" data-view="teamboard" onclick="showView('teamboard', this)"><span class="nav-icon">◲</span> Team Board</div>
+    </div>
     <div class="nav-section" id="founderNavSection" style="display:none;">
       <div class="nav-title">Founder</div>
       <div class="nav-item" data-view="founder" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div>
@@ -741,6 +745,42 @@
               </tr>
             </thead>
             <tbody id="adminTaskTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===================== TEAM BOARD (membership-scoped) ===================== -->
+      <section class="view" id="view-teamboard">
+        <div class="banner">
+          <span>◲</span>
+          <span><b>Team Board.</b> Scoped to the team(s) you lead — every member's open work, what's overdue, and what's due this week. Founders see all teams.</span>
+        </div>
+        <div class="src-subtabs" id="tbTeamPills"></div>
+        <div class="stat-grid" id="tbStatGrid" style="grid-template-columns:repeat(4,1fr);">
+          <div class="stat-card"><div class="label">Members</div><div class="value purple" id="tbStatMembers">0</div></div>
+          <div class="stat-card"><div class="label">Open tasks</div><div class="value" id="tbStatOpen">0</div></div>
+          <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="tbStatOverdue">0</div></div>
+          <div class="stat-card"><div class="label">Due this week</div><div class="value amber" id="tbStatWeek">0</div></div>
+        </div>
+        <div class="panel" id="tbAllTeamsPanel" style="display:none;">
+          <div class="panel-head"><h2>All teams</h2></div>
+          <table>
+            <thead><tr><th>Team</th><th>Members</th><th>Open</th><th>Overdue</th><th>Due this week</th><th></th></tr></thead>
+            <tbody id="tbAllTeamsBody"></tbody>
+          </table>
+        </div>
+        <div class="panel" id="tbMembersPanel">
+          <div class="panel-head"><h2>Members</h2></div>
+          <table>
+            <thead><tr><th>Member</th><th>Role</th><th>Open</th><th>Overdue</th><th>Next due</th><th>Most urgent</th></tr></thead>
+            <tbody id="tbMembersBody"></tbody>
+          </table>
+        </div>
+        <div class="panel" id="tbTasksPanel">
+          <div class="panel-head"><h2>Open tasks</h2><div class="panel-head-actions"><span style="font-size:12.5px;color:var(--text-faint);align-self:center;">assigned to a member of this team</span></div></div>
+          <table>
+            <thead><tr><th>Task</th><th>Client</th><th>Source</th><th>Assignee</th><th>Due</th><th>Status</th></tr></thead>
+            <tbody id="tbTasksBody"></tbody>
           </table>
         </div>
       </section>
@@ -1319,6 +1359,7 @@ const titles = {
   attendance: ['Attendance Log', 'Superadmin-only — daily login/logout history for the whole team'],
   founder: ['Founder View', 'The single screen you open in the morning to see the whole firm'],
   admin: ['Admin', 'Every task that came in from a call or a Slack message'],
+  teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
 };
 function showView(id, el){
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -1337,6 +1378,7 @@ function showView(id, el){
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
   if(id === 'admin') renderAdminView();
+  if(id === 'teamboard') renderTeamBoard();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -1414,6 +1456,135 @@ function renderAdminView(){
       <td><div class="action-stack">${actions}</div></td>
     </tr>`;
   }).join('');
+}
+
+/* =========================================================================
+   TEAM BOARD (Phase A) — membership-scoped. Reads the same `tasks` /
+   `employees` globals; scopes by each person's `memberships[]` (team +
+   level). A team admin sees the team(s) they admin; a founder sees all.
+   Purely additive — nothing else changes.
+   ========================================================================= */
+let teamBoardTeam = null;
+function myBoardTeams(){
+  if(!session) return { teams: [], founder: false };
+  const me = empById(session.id) || session;
+  const adminTeams = (me.memberships || []).filter(m => m && m.level === 'admin' && m.team).map(m => m.team);
+  const founder = !!me.isFounder;
+  let teams;
+  if(founder){
+    const all = new Set(adminTeams);
+    employees.forEach(e => (e.memberships || []).forEach(m => m && m.team && all.add(m.team)));
+    teams = [...all];
+  } else {
+    teams = [...new Set(adminTeams)];
+  }
+  return { teams: teams.sort((a,b) => a.localeCompare(b)), founder };
+}
+function teamMembers(team){
+  return employees.filter(e => (e.memberships || []).some(m => m && m.team === team))
+    .sort((a,b) => a.name.localeCompare(b.name));
+}
+function openTasksFor(empId){
+  return tasks.filter(t => t.assignedTo === empId && t.status !== 'completed');
+}
+function tbOverdue(t){ return t.status !== 'completed' && t.internalDeadline && t.internalDeadline < todayISO(); }
+function renderTeamBoard(){
+  const pillWrap = document.getElementById('tbTeamPills');
+  if(!pillWrap) return;
+  const { teams, founder } = myBoardTeams();
+  if(!teams.length && !founder){
+    pillWrap.innerHTML = '';
+    document.getElementById('tbMembersBody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:26px;">You don\'t lead a team yet. A founder can make you a team admin in Employees → Manage access.</td></tr>';
+    document.getElementById('tbTasksBody').innerHTML = '';
+    document.getElementById('tbAllTeamsPanel').style.display = 'none';
+    ['tbStatMembers','tbStatOpen','tbStatOverdue','tbStatWeek'].forEach(id => document.getElementById(id).textContent = '0');
+    return;
+  }
+  const options = founder ? ['__all__', ...teams] : teams;
+  if(!teamBoardTeam || !options.includes(teamBoardTeam)) teamBoardTeam = options[0];
+  pillWrap.innerHTML = options.map(t => {
+    const label = t === '__all__' ? 'All teams' : esc(t);
+    return `<button class="src-subtab ${t === teamBoardTeam ? 'on' : ''}" onclick="setTeamBoardTeam('${t.replace(/'/g,"\\'")}', this)">${label}</button>`;
+  }).join('');
+
+  const weekEnd = addDaysISO(6);
+  if(teamBoardTeam === '__all__'){
+    document.getElementById('tbAllTeamsPanel').style.display = '';
+    document.getElementById('tbMembersPanel').style.display = 'none';
+    document.getElementById('tbTasksPanel').style.display = 'none';
+    let tM=0, tO=0, tOd=0, tW=0;
+    const rows = teams.map(team => {
+      const mem = teamMembers(team);
+      const ids = new Set(mem.map(m => m.id));
+      const open = tasks.filter(t => ids.has(t.assignedTo) && t.status !== 'completed');
+      const overdue = open.filter(tbOverdue).length;
+      const week = open.filter(t => t.internalDeadline && t.internalDeadline >= todayISO() && t.internalDeadline <= weekEnd).length;
+      tM += mem.length; tO += open.length; tOd += overdue; tW += week;
+      return `<tr>
+        <td><b>${esc(team)}</b></td><td>${mem.length}</td><td>${open.length}</td>
+        <td style="${overdue?'color:#C2410C;font-weight:700;':''}">${overdue}</td><td>${week}</td>
+        <td><button class="verify-btn" onclick="setTeamBoardTeam('${team.replace(/'/g,"\\'")}')">Open →</button></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('tbAllTeamsBody').innerHTML = rows || '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:20px;">No teams.</td></tr>';
+    document.getElementById('tbStatMembers').textContent = tM;
+    document.getElementById('tbStatOpen').textContent = tO;
+    document.getElementById('tbStatOverdue').textContent = tOd;
+    document.getElementById('tbStatWeek').textContent = tW;
+    return;
+  }
+
+  document.getElementById('tbAllTeamsPanel').style.display = 'none';
+  document.getElementById('tbMembersPanel').style.display = '';
+  document.getElementById('tbTasksPanel').style.display = '';
+  const members = teamMembers(teamBoardTeam);
+  const memberIds = new Set(members.map(m => m.id));
+  const teamTasks = tasks.filter(t => memberIds.has(t.assignedTo) && t.status !== 'completed');
+  document.getElementById('tbStatMembers').textContent = members.length;
+  document.getElementById('tbStatOpen').textContent = teamTasks.length;
+  document.getElementById('tbStatOverdue').textContent = teamTasks.filter(tbOverdue).length;
+  document.getElementById('tbStatWeek').textContent = teamTasks.filter(t => t.internalDeadline && t.internalDeadline >= todayISO() && t.internalDeadline <= weekEnd).length;
+
+  document.getElementById('tbMembersBody').innerHTML = members.length ? members.map(m => {
+    const mine = openTasksFor(m.id);
+    const overdue = mine.filter(tbOverdue).length;
+    const withDue = mine.filter(t => t.internalDeadline).sort((a,b) => a.internalDeadline < b.internalDeadline ? -1 : 1);
+    const next = withDue[0];
+    const lvl = (m.memberships || []).find(x => x.team === teamBoardTeam);
+    const roleChip = lvl && lvl.level === 'admin' ? '<span class="mchip admin" style="padding:2px 9px;">admin</span>' : '<span class="mchip" style="padding:2px 9px;">member</span>';
+    return `<tr>
+      <td><div class="assignee"><span class="mini-avatar">${esc(m.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span> ${esc(m.name)}</div></td>
+      <td>${roleChip}</td>
+      <td>${mine.length}</td>
+      <td style="${overdue?'color:#C2410C;font-weight:700;':''}">${overdue}</td>
+      <td class="logged" style="${next && tbOverdue(next)?'color:#C2410C;font-weight:700;':''}">${next ? fmtDate(next.internalDeadline) : '—'}</td>
+      <td>${next ? esc(next.name) : '<span style="color:var(--text-faint);">—</span>'}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:26px;">No members on this team yet.</td></tr>';
+
+  const sorted = teamTasks.slice().sort((a,b) => {
+    const ad = a.internalDeadline || '9999', bd = b.internalDeadline || '9999';
+    return ad < bd ? -1 : ad > bd ? 1 : 0;
+  });
+  document.getElementById('tbTasksBody').innerHTML = sorted.length ? sorted.map(t => {
+    const a = empById(t.assignedTo);
+    return `<tr>
+      <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${t.id}</div></td>
+      <td class="clientcell">${esc(t.clientName) || '—'}</td>
+      <td>${srcTag(t.source || 'manual')}</td>
+      <td><div class="assignee">${a ? esc(a.name) : '<span style="color:var(--amber);">Unassigned</span>'}</div></td>
+      <td class="logged" style="${tbOverdue(t)?'color:#C2410C;font-weight:700;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</td>
+      <td>${statusBadge(t)}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:26px;">Nothing open for this team. 🎉</td></tr>';
+}
+function setTeamBoardTeam(team, el){
+  teamBoardTeam = team;
+  if(!document.getElementById('view-teamboard').classList.contains('active')){
+    showView('teamboard', document.querySelector('.nav-item[data-view="teamboard"]'));
+  } else {
+    renderTeamBoard();
+  }
 }
 
 // Integration tasks (call / Slack) don't need a review — mark done directly.
@@ -1814,6 +1985,7 @@ function renderTaskTable(){
   renderGreeting();
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
   if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
+  if(document.getElementById('view-teamboard')?.classList.contains('active')) renderTeamBoard();
 }
 
     function primaryAction(t){
@@ -3791,6 +3963,13 @@ async function onLoginComplete(){
   document.getElementById('topRole').textContent = session.jobTitle + ' · ' + session.team;
 
   await refreshEmployees();
+  // Team Board — visible to a founder or anyone with an admin-level membership
+  // (independent of accessRole; a manager may be an 'employee' access-wise).
+  {
+    const meRec = empById(session.id) || session;
+    const leadsTeam = !!(meRec && (meRec.isFounder || (meRec.memberships || []).some(m => m && m.level === 'admin')));
+    document.getElementById('teamBoardNavSection').style.display = leadsTeam ? '' : 'none';
+  }
   await refreshClients();
   await refreshTeams();
   await refreshTasks();
@@ -3832,6 +4011,7 @@ function logoutSession(){
   document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
+  document.getElementById('teamBoardNavSection').style.display = 'none';
   document.getElementById('assignTeamNavItem').style.display = 'none';
   document.getElementById('assignTeamBtn').style.display = 'none';
   document.getElementById('adminStatus').style.display = 'none';
