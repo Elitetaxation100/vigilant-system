@@ -216,6 +216,10 @@ function ensureExtendedFields(state) {
 function runMigrations(state) {
   if (!state.clients) state.clients = [];
   if (!state.attendance) state.attendance = {};
+  // calls-into-tasks Phase 5: the connector's call log moves off the Google
+  // Sheet into here. Each row mirrors what the "Call Log" tab held.
+  if (!Array.isArray(state.calls)) state.calls = [];
+  if (typeof state.callSeq !== 'number') state.callSeq = 0;
   // Name-spelling fix: existing databases seeded before this correction still
   // have the old spelling — seedData()/ensureOrgChart() only add missing
   // employees, they don't update fields on ones that already exist.

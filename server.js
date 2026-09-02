@@ -20,7 +20,13 @@ if (process.env.ALLOWED_ORIGIN) {
 } else {
   app.use(cors());
 }
-app.use(express.json({ limit: '12mb' })); // pause screenshots are base64 images
+// Keep the raw request bytes around — the Slack connector (Phase 5) needs
+// them to verify Slack's request signature (an HMAC over the exact body).
+function rawBodySaver(req, res, buf) { if (buf && buf.length) req.rawBody = buf; }
+app.use(express.json({ limit: '12mb', verify: rawBodySaver })); // pause screenshots are base64 images
+// Slack interactivity posts as form-urlencoded (the payload is a JSON string
+// in one field). No existing route sends this content type.
+app.use(express.urlencoded({ extended: true, limit: '2mb', verify: rawBodySaver }));
 
 // Throttle login attempts — without this, nothing stood between a guesser
 // and unlimited attempts against an account, especially risky given how
@@ -1229,6 +1235,13 @@ app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, (req, res) =
   db.save();
   res.json({ ok: true, mode: db._mode(), employees: state.employees.length, tasks: state.tasks.length });
 });
+
+// ---------------------------------------------------------------------------
+// CONNECTOR (calls-into-tasks, Phase 5) — Aircall + Slack webhooks, moving
+// off Google Apps Script. Routes: /webhooks/aircall, /webhooks/slack/events,
+// /webhooks/slack/interactivity, /webhooks/health.
+// ---------------------------------------------------------------------------
+require('./connector').mountConnector(app);
 
 // ---------------------------------------------------------------------------
 // Static frontend
