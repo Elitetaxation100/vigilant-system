@@ -835,16 +835,33 @@ function mountConnector(app) {
     });
   });
 
+  // Diagnostic log — token-gated (same shared secret as the Aircall hook).
+  app.get('/webhooks/log', (req, res) => {
+    const v = verifyAircall(req);
+    if (!v.ok) return res.status(401).json({ error: v.why });
+    const state = db.get();
+    const n = Math.min(parseInt(req.query.n, 10) || 60, 400);
+    res.json({
+      log: (state.connectorLog || []).slice(-n),
+      calls: (state.calls || []).slice(-15).map(c => ({
+        id: c.id, aircallId: c.aircallId, team: c.team, agent: c.agentName, client: c.clientName,
+        status: c.status, recording: !!c.recordingUrl, listenedBy: c.listenedBy, taskId: c.taskId,
+        slackTs: c.slackTs, occurredAt: c.occurredAt,
+      })),
+    });
+  });
+
   app.post('/webhooks/aircall', (req, res) => {
     const v = verifyAircall(req);
     if (!v.ok) { clog('warn', 'aircall rejected', { why: v.why }); return res.status(401).send('unauthorized'); }
     res.status(200).send('ok'); // ack immediately; process after
     const event = req.body && req.body.event;
     const call = (req.body && req.body.data) || {};
+    clog('info', 'aircall webhook in', { event, callId: call && call.id, hasRecording: !!(call && (call.recording || (call.asset && call.asset.url) || call.voicemail)) });
     (async () => {
       try {
         if (event === 'call.ended') await handleCallEnded(call);
-        else if (event === 'call.comm_assets_generated') await handleRecordingReady(call);
+        else if (event === 'call.comm_assets_generated' || event === 'call.recording_generated') await handleRecordingReady(call);
         else clog('info', 'aircall event ignored', { event });
       } catch (e) { clog('error', 'aircall handler threw: ' + (e && e.stack || e)); }
     })();
