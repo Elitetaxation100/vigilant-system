@@ -1123,52 +1123,81 @@
 
       <!-- ===================== MANAGER DASHBOARD VIEW ===================== -->
       <section class="view" id="view-manager">
-        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);">
-          <div class="stat-card"><div class="label">Active Tasks</div><div class="value purple" id="statActiveTasks">0</div></div>
-          <div class="stat-card"><div class="label">On Track</div><div class="value teal" id="statOnTrack">0</div></div>
-          <div class="stat-card"><div class="label">At Risk</div><div class="value amber" id="statAtRisk">0</div></div>
-          <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="statOverdueTasks">0</div></div>
+        <div class="dscope" id="mgScope">
+          <div class="dg">
+            <label>Viewing</label>
+            <select id="mgView" onchange="onDashScope('mg')"></select>
+          </div>
+          <div class="dg">
+            <label>Period</label>
+            <select id="mgPeriod" onchange="onDashScope('mg')">
+              <option value="this-week">This week</option>
+              <option value="this-month" selected>This month</option>
+              <option value="this-quarter">This quarter</option>
+              <option value="this-year">This year</option>
+              <option value="last-30">Last 30 days</option>
+              <option value="last-90">Last 90 days</option>
+              <option value="all">All time</option>
+              <option value="custom">Custom range…</option>
+            </select>
+            <span class="drange"><input type="date" id="mgCStart" onchange="onDashScope('mg')"> → <input type="date" id="mgCEnd" onchange="onDashScope('mg')"></span>
+          </div>
+          <label class="dcmp"><input type="checkbox" id="mgCmp" checked onchange="onDashScope('mg')"> vs previous period</label>
+          <span class="dcrumb" id="mgCrumb"><b>Scope:</b> —</span>
         </div>
 
-        <div class="mgr-grid">
-          <div class="panel">
-            <div class="panel-head"><h2>Adherence by Employee</h2></div>
-            <div class="bars" id="barsWrap"></div>
-            <div class="panel-head" style="margin-top:26px;"><h2>Gap Heatmap — Task Type × Weekday</h2></div>
-            <div id="heatmapWrap"></div>
-          </div>
+        <div class="stat-grid g8">
+          <div class="stat-card"><div class="label">Active Tasks</div><div class="value purple" id="statActiveTasks">0</div><div class="delta" id="mgActiveSub">—</div></div>
+          <div class="stat-card"><div class="label">On Track</div><div class="value teal" id="statOnTrack">0</div><div class="delta">due &gt; 1 day out</div></div>
+          <div class="stat-card"><div class="label">At Risk</div><div class="value amber" id="statAtRisk">0</div><div class="delta">due in ≤ 1 day</div></div>
+          <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="statOverdueTasks">0</div><div class="delta" id="mgOverdueSub">—</div></div>
+          <div class="stat-card"><div class="label">Team Productivity</div><div class="value" id="mgKpiProd">—</div><div class="delta">worked vs planned hrs</div></div>
+          <div class="stat-card"><div class="label">Commitment Met</div><div class="value teal" id="mgKpiCommit">—</div><div class="delta">on/before client date</div></div>
+          <div class="stat-card"><div class="label">Accuracy</div><div class="value" id="mgKpiAcc">—</div><div class="delta">error-free on review</div></div>
+          <div class="stat-card"><div class="label">Awaiting Review</div><div class="value amber" id="mgKpiPending">0</div><div class="delta" id="mgPendingSub">—</div></div>
+        </div>
 
+        <div class="dgrid-2e">
           <div class="panel">
-            <div class="panel-head"><h2>Leaderboard — August</h2></div>
+            <div class="panel-head"><h2>Adherence by Employee</h2><span style="font-size:12px;color:var(--text-faint);">% completed within agreed hours</span></div>
+            <div class="bars" id="barsWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2 id="mgLeaderTitle">Leaderboard</h2><span style="font-size:12px;color:var(--text-faint);">points earned</span></div>
             <ul class="leaderboard" id="leaderboardWrap"></ul>
-            <div class="panel-head" style="margin-top:20px;"><h2>AI-Flagged Risks</h2></div>
+            <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px;">AI-Flagged Risks</h2></div>
             <div id="riskFlagsWrap"></div>
           </div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head"><h2>Team Capacity by Employee</h2></div>
-          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Peak agreed hours on any single day against each employee's daily capacity — new work is blocked once it would push them over.</p>
-          <div id="workloadBlockersWrap" class="cap-list">Nobody has any active work yet.</div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><h2>Needs Attention</h2></div>
-          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Open tasks already past their internal deadline — the longer these sit, the bigger the breach risk.</p>
-          <div id="needsAttentionWrap" class="attn-list">Nothing overdue right now.</div>
-        </div>
-
-
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Client Ownership</h2>
-            <div class="panel-head-actions"><button class="btn small" onclick="showView('clients', document.querySelector('.nav-item[data-view=\'clients\']'))">Manage Clients →</button></div>
+        <div class="dgrid-2e">
+          <div class="panel">
+            <div class="panel-head"><h2>Gap Heatmap</h2><span style="font-size:12px;color:var(--text-faint);">task type × weekday</span></div>
+            <div id="heatmapWrap"></div>
           </div>
-          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every client should have a clear owner — no task sits unassigned, no client falls through the cracks.</p>
-          <div id="clientOwnershipWrap"></div>
+          <div class="panel">
+            <div class="panel-head"><h2>Needs Attention</h2><span style="font-size:12px;color:var(--text-faint);">overdue in your scope</span></div>
+            <div id="needsAttentionWrap" class="attn-list">Nothing overdue right now.</div>
+          </div>
         </div>
 
-        <div class="mgr-grid">
+        <div class="dgrid-2e">
+          <div class="panel">
+            <div class="panel-head"><h2>Team Capacity by Employee</h2></div>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Peak agreed hours on any single day vs each person's daily capacity — new work is blocked once it would push them over.</p>
+            <div id="workloadBlockersWrap" class="cap-list">Nobody has any active work yet.</div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Client Ownership</h2>
+              <div class="panel-head-actions"><button class="btn small" onclick="showView('clients', document.querySelector('.nav-item[data-view=\'clients\']'))">Manage →</button></div>
+            </div>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every client needs a clear owner — no task sits unassigned, no client falls through the cracks.</p>
+            <div id="clientOwnershipWrap"></div>
+          </div>
+        </div>
+
+        <div class="dgrid-2e">
           <div class="panel">
             <div class="panel-head">
               <h2>Productivity</h2>
@@ -1177,20 +1206,19 @@
                 <button id="prodMonthBtn" onclick="setProductivityPeriod('month')">This Month</button>
               </div>
             </div>
-            <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Hours worked vs. hours planned (TAT) for tasks completed in this period.</p>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Hours worked vs. hours planned (TAT) for tasks completed in this period.</p>
             <div id="productivityWrap"></div>
           </div>
-
           <div class="panel">
             <div class="panel-head"><h2>Commitment</h2></div>
-            <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Share of completed tasks delivered on or before the client's agreed date.</p>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Share of completed tasks delivered on or before the client's agreed date.</p>
             <div id="commitmentWrap"></div>
           </div>
         </div>
 
         <div class="panel">
           <div class="panel-head"><h2>Review &amp; Accuracy</h2></div>
-          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Returns submitted vs. error-free returns, based on Admin/Superadmin review of completed work.</p>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Returns submitted vs. error-free returns, based on Admin/Superadmin review of completed work.</p>
           <div id="accuracyWrap"></div>
           <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px;">Awaiting Review</h2></div>
           <div id="pendingReviewWrap"></div>
@@ -1565,6 +1593,12 @@ function dHeatColour(v, max){
   const r = mix(0x16,0xF0), g = mix(0x1C,0x60), b = mix(0x29,0x3E);
   return `rgb(${r},${g},${b})`;
 }
+// Manager dashboard scope — when set by renderManagerStatics, the shared
+// sub-render helpers below narrow to it; null = whole firm (unchanged).
+let mgScopeIds = null; // { emps:Set<id>, tasks:Set<id> } | null
+function mgTasks(){ return mgScopeIds ? tasks.filter(t => mgScopeIds.tasks.has(t.id)) : tasks; }
+function mgEmps(){ return mgScopeIds ? employees.filter(e => mgScopeIds.emps.has(e.id)) : employees; }
+function mgWorkload(){ return mgScopeIds ? (workload||[]).filter(w => mgScopeIds.emps.has(w.id)) : (workload||[]); }
 function fmtDate(iso){ if(!iso) return '—'; const d = new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtClock(s){
   const h = String(Math.floor(s/3600)).padStart(2,'0');
@@ -1606,7 +1640,7 @@ function displayedLogged(t){ return t.displayedLogged !== undefined ? t.displaye
 const titles = {
   dashboard: ['Commitment Dashboard', 'Verification matrix & live task tracking'],
   taskengine: ['Task Engine', 'Measuring what gets done'],
-  manager: ['Manager Dashboard', 'Deeper analytics for managers and owners'],
+  manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   analytics: ['Analytics', 'Build a chart from any breakdown and any metric'],
   report: ['My Report Card', 'Auto-generated monthly, shareable as a PDF'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
@@ -2420,8 +2454,9 @@ function renderStatusDonut(){
 function renderWorkloadBlockers(){
   const wrap = document.getElementById('workloadBlockersWrap');
   if(!wrap) return;
-  if(workload.length === 0){ wrap.innerHTML = 'Nobody has any active work yet.'; return; }
-  const rows = [...workload].sort((a,b) => b.peakHours - a.peakHours);
+  const wl = mgWorkload();
+  if(wl.length === 0){ wrap.innerHTML = 'Nobody in this scope has active work yet.'; return; }
+  const rows = [...wl].sort((a,b) => b.peakHours - a.peakHours);
   wrap.innerHTML = rows.map(w => {
     const pct = w.capacityHours ? Math.min(100, Math.round(w.peakHours / w.capacityHours * 100)) : 0;
     const initials = (w.name || '?').split(' ').map(p => p[0]).slice(0,2).join('').toUpperCase();
@@ -2448,7 +2483,7 @@ function renderNeedsAttention(){
   const wrap = document.getElementById('needsAttentionWrap');
   if(!wrap) return;
   const today = todayISO();
-  const overdue = tasks.filter(t => t.internalDeadline && t.internalDeadline < today && t.status !== 'completed')
+  const overdue = mgTasks().filter(t => t.internalDeadline && t.internalDeadline < today && t.status !== 'completed')
     .slice()
     .sort((a,b) => a.internalDeadline.localeCompare(b.internalDeadline));
   if(overdue.length === 0){ wrap.innerHTML = '<div style="font-size:14.5px; color:var(--text-faint);">Nothing overdue right now.</div>'; return; }
@@ -2856,7 +2891,7 @@ async function submitReassign(id){
    is authoritative because it came from the server).
    ========================================================================= */
 function computeEmployeeStats(empId){
-  const empTasks = tasks.filter(t => t.assignedTo === empId);
+  const empTasks = mgTasks().filter(t => t.assignedTo === empId);
   const completed = empTasks.filter(t => t.status === 'completed');
   const onTime = completed.filter(t => t.logged <= t.tat);
   const pts = completed.reduce((s,t) => s + t.points, 0);
@@ -2865,10 +2900,32 @@ function computeEmployeeStats(empId){
 }
 function renderManagerStatics(){
   const barsWrap = document.getElementById('barsWrap');
-  const stats = employees.map(e => ({ name: e.name.split(' ')[0], ...computeEmployeeStats(e.id) }));
+  if(!barsWrap) return;
+  const mineOnly = !isSuperAdmin;
+
+  // ---- scope bar ----
+  const sel = document.getElementById('mgView');
+  if(sel){
+    populateScopeSelect('mgView', 'mg', mineOnly);
+    if(![...sel.options].some(o => o.value === dashScope.mg.view)) dashScope.mg.view = 'firm';
+    sel.value = dashScope.mg.view;
+    document.getElementById('mgScope').classList.toggle('is-custom', dashScope.mg.period === 'custom');
+    const cr = document.getElementById('mgCrumb');
+    if(cr) cr.innerHTML = `<b>Scope:</b> ${esc(mineOnly && dashScope.mg.view === 'firm' ? 'My teams' : dashScopeLabel('mg'))} · ${esc(dashPeriodLabel('mg'))}`;
+  }
+  const scopedEmps = dashPeople('mg', mineOnly);
+  const empIds = new Set(scopedEmps.map(e => e.id));
+  const scopedTasks = tasks.filter(t => (t.assignedTo && empIds.has(t.assignedTo)) || (!mineOnly && dashScope.mg.view === 'firm' && !t.assignedTo));
+  mgScopeIds = { emps: empIds, tasks: new Set(scopedTasks.map(t => t.id)) };
+  const r = dashPeriod('mg');
+  const lt = document.getElementById('mgLeaderTitle');
+  if(lt) lt.textContent = 'Leaderboard · ' + dashPeriodLabel('mg');
+
+  // ---- adherence bars + leaderboard (scoped people) ----
+  const stats = scopedEmps.map(e => ({ name: e.name.split(' ')[0], ...computeEmployeeStats(e.id) }));
   const anyCompleted = stats.some(s => s.completed.length > 0);
   if(!anyCompleted){
-    barsWrap.innerHTML = `<div style="font-size:14.5px; color:var(--text-faint); padding:20px 0;">No completed tasks yet — adherence will populate once work is logged.</div>`;
+    barsWrap.innerHTML = `<div style="font-size:14.5px; color:var(--text-faint); padding:20px 0;">No completed tasks in this scope yet.</div>`;
   } else {
     barsWrap.innerHTML = stats.map(e => `<div class="bar-col">
         <div style="font-size:12.5px; color:#5B4FCF; font-family:'JetBrains Mono',monospace;">${e.adherence}%</div>
@@ -2880,18 +2937,34 @@ function renderManagerStatics(){
   renderTaskHeatmap('heatmapWrap');
   const lbWrap = document.getElementById('leaderboardWrap');
   const ranked = [...stats].sort((a,b) => b.pts - a.pts);
-  if(!anyCompleted){
-    lbWrap.innerHTML = `<li style="border-bottom:none; color:var(--text-faint); font-size:14.5px;">No points earned yet.</li>`;
-  } else {
-    lbWrap.innerHTML = ranked.map((e,i) => `<li><span class="rank">${i+1}</span><span class="lb-name">${esc(e.name)}</span><span class="lb-pts">${e.pts} pts</span></li>`).join('');
-  }
+  lbWrap.innerHTML = anyCompleted
+    ? ranked.map((e,i) => `<li><span class="rank">${i+1}</span><span class="lb-name">${esc(e.name)}</span><span class="lb-pts">${e.pts} pts</span></li>`).join('')
+    : `<li style="border-bottom:none; color:var(--text-faint); font-size:14.5px;">No points earned yet.</li>`;
+
+  // ---- KPI strip: extra 4 (existing 4 come from renderManagerTeamStats) ----
+  const compIn = scopedTasks.filter(t => t.status === 'completed' && dashInRange(t.completedAt, r));
+  const otwd = compIn.filter(t => t.clientDate);
+  const commitPct = otwd.length ? Math.round(otwd.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / otwd.length * 100) : null;
+  const worked = compIn.reduce((s,t)=>s+t.logged,0), planned = compIn.reduce((s,t)=>s+t.tat,0);
+  const prodPct = planned > 0 ? Math.round(worked/planned*100) : null;
+  const rev = scopedTasks.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
+  const accPct = rev.length ? Math.round(rev.filter(t => t.reviewStatus === 'clean').length / rev.length * 100) : null;
+  const pend = scopedTasks.filter(t => t.status === 'completed' && !t.reviewStatus);
+  const setT = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
+  setT('mgKpiProd', prodPct == null ? '—' : prodPct + '%');
+  setT('mgKpiCommit', commitPct == null ? '—' : commitPct + '%');
+  setT('mgKpiAcc', accPct == null ? '—' : accPct + '%');
+  setT('mgKpiPending', pend.length);
+  const ps = document.getElementById('mgPendingSub'); if(ps) ps.textContent = pend.length ? 'oldest ' + (pend.map(t=>t.completedAt).sort()[0]||'').slice(0,10) : 'none';
+  const as = document.getElementById('mgActiveSub'); if(as) as.textContent = `${scopedEmps.length} ${scopedEmps.length===1?'person':'people'} in scope`;
+
   renderManagerTeamStats();
   renderRiskFlags();
   renderClientOwnership();
   renderProductivity();
   renderCommitment();
   renderAccuracy();
-    renderNeedsAttention();
+  renderNeedsAttention();
 }
 
 /* =========================================================================
@@ -3307,7 +3380,7 @@ function renderTaskEngineVisuals(){
   renderSlaChart();
 }
 function renderManagerTeamStats(){
-  const active = tasks.filter(t => t.status !== 'completed');
+  const active = mgTasks().filter(t => t.status !== 'completed');
   const today = todayISO();
   const riskCutoff = addDaysISO(1);
   const overdue = active.filter(t => t.internalDeadline && t.internalDeadline < today);
@@ -3534,9 +3607,10 @@ async function renderFounderView(){
 }
 function renderRiskFlags(){
   const wrap = document.getElementById('riskFlagsWrap');
-  const windowAfterClient = tasks.filter(t => t.clientDate && t.internalDeadline && t.internalDeadline > t.clientDate).length;
+  const _t = mgTasks();
+  const windowAfterClient = _t.filter(t => t.clientDate && t.internalDeadline && t.internalDeadline > t.clientDate).length;
   const overTatCounts = {};
-  tasks.filter(t => t.status === 'completed' && t.logged > t.tat).forEach(t => {
+  _t.filter(t => t.status === 'completed' && t.logged > t.tat).forEach(t => {
     overTatCounts[t.assignedTo] = (overTatCounts[t.assignedTo] || 0) + 1;
   });
   const repeatedBreaches = Object.values(overTatCounts).filter(c => c >= 2).length;
@@ -3554,14 +3628,19 @@ function renderRiskFlags(){
 function renderClientOwnership(){
   const wrap = document.getElementById('clientOwnershipWrap');
   if(!wrap) return;
-  if(clients.length === 0){
-    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No clients on file yet.</p>`;
+  // In a scoped view, only clients owned by someone in scope (plus every
+  // unowned client, which is a firm-wide problem worth surfacing anywhere).
+  const scopedEmpIds = mgScopeIds ? mgScopeIds.emps : null;
+  const list = scopedEmpIds ? clients.filter(c => !c.ownerId || scopedEmpIds.has(c.ownerId)) : clients;
+  if(list.length === 0){
+    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No clients in this scope.</p>`;
     return;
   }
-  const unowned = clients.filter(c => !c.ownerId);
-  const rows = clients.map(c => {
+  const _t = mgTasks();
+  const unowned = list.filter(c => !c.ownerId);
+  const rows = list.map(c => {
     const owner = empById(c.ownerId);
-    const openTasks = tasks.filter(t => t.clientId === c.id && t.status !== 'completed').length;
+    const openTasks = _t.filter(t => t.clientId === c.id && t.status !== 'completed').length;
     return `<div class="flag-row" style="${owner ? '' : 'color:#C2410C;'}">
       <span>${owner ? '●' : '⚠'}</span>
       <span>${esc(c.name)}${openTasks ? ` <span style="color:var(--text-faint);">· ${openTasks} open task${openTasks>1?'s':''}</span>` : ''}</span>
@@ -3601,8 +3680,9 @@ function renderProductivity(){
   if(!wrap) return;
   const { start, end } = periodBounds(productivityPeriod);
   const inPeriod = t => t.completedAt && new Date(t.completedAt) >= start && new Date(t.completedAt) < end;
-  const rows = employees.map(e => {
-    const done = tasks.filter(t => t.assignedTo === e.id && t.status === 'completed' && inPeriod(t));
+  const _t = mgTasks();
+  const rows = mgEmps().map(e => {
+    const done = _t.filter(t => t.assignedTo === e.id && t.status === 'completed' && inPeriod(t));
     const worked = done.reduce((s,t) => s + t.logged, 0);
     const planned = done.reduce((s,t) => s + t.tat, 0);
     const pct = planned > 0 ? Math.round((worked / planned) * 100) : null;
@@ -3626,7 +3706,7 @@ function renderProductivity(){
 function renderCommitment(){
   const wrap = document.getElementById('commitmentWrap');
   if(!wrap) return;
-  const completedWithDate = tasks.filter(t => t.status === 'completed' && t.clientDate && t.completedAt);
+  const completedWithDate = mgTasks().filter(t => t.status === 'completed' && t.clientDate && t.completedAt);
   if(completedWithDate.length === 0){
     wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No completed tasks with a client date yet.</p>`;
     return;
@@ -3634,7 +3714,7 @@ function renderCommitment(){
   const onCommit = t => t.completedAt.slice(0,10) <= t.clientDate;
   const overallMet = completedWithDate.filter(onCommit).length;
   const overallPct = Math.round((overallMet / completedWithDate.length) * 100);
-  const perEmp = employees.map(e => {
+  const perEmp = mgEmps().map(e => {
     const mine = completedWithDate.filter(t => t.assignedTo === e.id);
     if(mine.length === 0) return null;
     const met = mine.filter(onCommit).length;
@@ -3652,13 +3732,13 @@ function renderCommitment(){
 function renderAccuracy(){
   const wrap = document.getElementById('accuracyWrap');
   if(!wrap) return;
-  const reviewed = tasks.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
+  const reviewed = mgTasks().filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
   if(reviewed.length === 0){
     wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No reviews recorded yet.</p>`;
   } else {
     const clean = reviewed.filter(t => t.reviewStatus === 'clean').length;
     const pct = Math.round((clean / reviewed.length) * 100);
-    const perEmp = employees.map(e => {
+    const perEmp = mgEmps().map(e => {
       const mine = reviewed.filter(t => t.assignedTo === e.id);
       if(mine.length === 0) return null;
       const mClean = mine.filter(t => t.reviewStatus === 'clean').length;
@@ -3675,7 +3755,7 @@ function renderAccuracy(){
 function renderPendingReview(){
   const wrap = document.getElementById('pendingReviewWrap');
   if(!wrap) return;
-  const pending = tasks.filter(t => t.status === 'completed' && !t.reviewStatus);
+  const pending = mgTasks().filter(t => t.status === 'completed' && !t.reviewStatus);
   if(pending.length === 0){
     wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">Nothing awaiting review.</p>`;
     return;
@@ -3697,7 +3777,7 @@ function renderNeedsRework(){
   // or window_proposed, reviewStatus==='error') and actively being fixed
   // (status==='rework', post-acceptance) — same underlying "not yet
   // redelivered" condition the Accuracy panel and commitment tracking use.
-  const rework = tasks.filter(isReworkFlagged);
+  const rework = mgTasks().filter(isReworkFlagged);
   if(rework.length === 0){
     wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">Nothing sitting in rework right now.</p>`;
     return;
