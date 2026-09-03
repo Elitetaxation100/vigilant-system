@@ -692,6 +692,22 @@
       <section class="view active" id="view-dashboard">
         <div id="myGreetingWrap"></div>
 
+        <div class="dscope" id="empScope" style="margin-bottom:16px;">
+          <div class="dg"><label>Viewing</label><span id="empWhoChip" style="font-size:13px;font-weight:600;color:var(--text);padding:6px 4px;">👤 My work</span></div>
+          <div class="dg">
+            <label>Period</label>
+            <select id="empPeriod" onchange="renderEmployeeStats()">
+              <option value="this-week">This week</option>
+              <option value="this-month" selected>This month</option>
+              <option value="this-quarter">This quarter</option>
+              <option value="all">All time</option>
+            </select>
+          </div>
+          <span class="dcrumb" id="empCrumb"></span>
+        </div>
+
+        <div id="empDeadlineNote"></div>
+
         <div class="banner">
           <span>ⓘ</span>
           <span><b>Workflow Standard TAT Guidelines:</b> GST Filing tasks default to an average of <b>3.0 hours</b> (fast-track cases complete in <span class="tag">40–45 mins</span>).</span>
@@ -720,8 +736,16 @@
           </div>
         </div>
 
-        <div class="section-label">Working on now</div>
-        <div id="myDayWrap"></div>
+        <div class="dgrid-2e">
+          <div class="panel">
+            <div class="panel-head"><h2>Working on now</h2><span style="font-size:12px;color:var(--text-faint);">your open tasks, most urgent first</span></div>
+            <div id="myDayWrap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h2 id="empRcTitle">My Report Card</h2><div class="panel-head-actions"><button class="btn small" onclick="showView('report', document.querySelector('.nav-item[data-view=\'report\']'))">Full card →</button></div></div>
+            <div id="empReportCard"></div>
+          </div>
+        </div>
 
         <div class="chart-panel" style="margin-bottom:24px;">
           <h3>Open Tasks by Assignee</h3>
@@ -1638,7 +1662,7 @@ function displayedLogged(t){ return t.displayedLogged !== undefined ? t.displaye
    VIEW SWITCHING
    ========================================================================= */
 const titles = {
-  dashboard: ['Commitment Dashboard', 'Verification matrix & live task tracking'],
+  dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
   taskengine: ['Task Engine', 'Measuring what gets done'],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   analytics: ['Analytics', 'Build a chart from any breakdown and any metric'],
@@ -2273,6 +2297,7 @@ function renderTaskTable(){
         renderAssigneeBarChart();
   renderMyDay();
   renderGreeting();
+  renderEmployeeStats();
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
   if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
   if(document.getElementById('view-teamboard')?.classList.contains('active')) renderTeamBoard();
@@ -2314,6 +2339,80 @@ function actionButtonHtml(t){
 }
 
 
+/* =========================================================================
+   EMPLOYEE DASHBOARD — the personal stat window + report-card summary.
+   Period-scoped; the Verification Matrix task table below is untouched.
+   ========================================================================= */
+function empPeriodBounds(){
+  const now = new Date(), iso = d => d.toISOString().slice(0,10);
+  const p = (document.getElementById('empPeriod')||{}).value || 'this-month';
+  let start, end = iso(new Date(now.getTime()+86400000));
+  if(p === 'this-week'){ const wd = (now.getDay()+6)%7; const s = new Date(now); s.setDate(now.getDate()-wd); start = iso(s); }
+  else if(p === 'this-quarter'){ const q = Math.floor(now.getMonth()/3); start = iso(new Date(now.getFullYear(), q*3, 1)); }
+  else if(p === 'all'){ start = '2000-01-01'; }
+  else { start = iso(new Date(now.getFullYear(), now.getMonth(), 1)); }
+  const label = { 'this-week':'This week','this-month':'This month','this-quarter':'This quarter','all':'All time' }[p] || 'This month';
+  return { start, end, label };
+}
+function renderEmployeeStats(){
+  const me = currentViewer();
+  if(!me || !document.getElementById('empReportCard')) return;
+  const { start, end, label } = empPeriodBounds();
+  const today = todayISO();
+  const mine = tasks.filter(t => t.assignedTo === currentViewerId);
+  const inP = t => t.completedAt && t.completedAt.slice(0,10) >= start && t.completedAt.slice(0,10) < end;
+  const doneP = mine.filter(t => t.status === 'completed' && inP(t));
+
+  document.getElementById('empWhoChip').textContent = '👤 ' + me.name.split(' ')[0] + "'s work";
+  const crumb = document.getElementById('empCrumb');
+  if(crumb) crumb.innerHTML = `<b>You:</b> ${esc(me.name)}${me.team ? ' · ' + esc(me.team) : ''} · ${esc(label)}`;
+
+  const dueToday = mine.filter(t => t.status !== 'completed' && t.internalDeadline === today).length;
+  const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
+  setV('myTasksToday', dueToday);
+  setV('myHoursCommitted', doneP.reduce((s,t) => s + (t.logged || 0), 0).toFixed(1) + '<small>h</small>');
+  const withDate = doneP.filter(t => t.clientDate);
+  setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / withDate.length * 100) + '<small>%</small>' : '—');
+  const reviewed = doneP.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
+  setV('myAccuracy', reviewed.length ? Math.round(reviewed.filter(t => t.reviewStatus === 'clean').length / reviewed.length * 100) + '<small>%</small>' : '—');
+
+  // report-card summary (mirrors renderReportCard's numbers, period-scoped where it makes sense)
+  const completedAll = mine.filter(t => t.status === 'completed');
+  const onTimeAdh = doneP.filter(t => t.logged <= t.tat);
+  const adherence = doneP.length ? Math.round(onTimeAdh.length / doneP.length * 100) : 0;
+  const gapPct = doneP.length ? Math.round((doneP.length - onTimeAdh.length) / doneP.length * 1000) / 10 : null;
+  const points = doneP.reduce((s,t) => s + (t.points||0), 0);
+  let streak = 0, best = 0;
+  for(const t of mine){ if(t.status === 'completed'){ streak++; best = Math.max(best, streak); } else streak = 0; }
+  const allPts = employees.map(e => ({ id:e.id, pts: tasks.filter(t => t.assignedTo === e.id && t.status === 'completed').reduce((s,t)=>s+(t.points||0),0) })).sort((a,b)=>b.pts-a.pts);
+  const totalPtsAll = completedAll.reduce((s,t)=>s+(t.points||0),0);
+  const rank = totalPtsAll > 0 ? allPts.findIndex(e => e.id === currentViewerId) + 1 : null;
+  const cwd = doneP.filter(t => t.clientDate);
+  const commitPct = cwd.length ? Math.round(cwd.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / cwd.length * 100) : null;
+  const C = 402, off = doneP.length ? C - (C * adherence / 100) : C;
+  document.getElementById('empRcTitle').textContent = 'My Report Card · ' + label;
+  document.getElementById('empReportCard').innerHTML = `
+    <div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap;">
+      <div style="position:relative;width:118px;height:118px;flex:none;">
+        <svg width="118" height="118" viewBox="0 0 150 150" style="transform:rotate(-90deg);">
+          <circle cx="75" cy="75" r="64" fill="none" stroke="var(--line)" stroke-width="11"/>
+          <circle cx="75" cy="75" r="64" fill="none" stroke="var(--teal)" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}"/>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <div style="font-family:var(--font-display);font-size:24px;font-weight:700;">${doneP.length ? adherence + '%' : '—'}</div>
+          <div style="font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px;">adherence</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px 22px;font-size:13px;flex:1;min-width:180px;">
+        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Points</div><b style="font-family:var(--font-mono);font-size:16px;color:#5B4FCF;">${points}</b></div>
+        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Rank</div><b style="font-family:var(--font-mono);font-size:16px;">${rank ? '#' + rank : '—'}</b></div>
+        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Gap %</div><b style="font-family:var(--font-mono);font-size:16px;">${gapPct === null ? '—' : gapPct + '%'}</b></div>
+        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Best streak</div><b style="font-family:var(--font-mono);font-size:16px;">${best > 0 ? '🔥 ' + best : '—'}</b></div>
+        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Commitment</div><b style="font-family:var(--font-mono);font-size:16px;color:#0D9488;">${commitPct === null ? '—' : commitPct + '%'}</b></div>
+        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Badges</div><b style="font-size:15px;">${points > 0 ? '🎯 🔥 ⭐' : '—'}</b></div>
+      </div>
+    </div>`;
+}
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
   if(!wrap) return;
