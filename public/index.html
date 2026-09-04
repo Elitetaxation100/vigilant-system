@@ -1725,6 +1725,14 @@ function iCanReview(t){
 function myReviewTasks(){
   return tasks.filter(t => t.status === 'completed' && !t.reviewStatus && iCanReview(t));
 }
+// Can the viewer re-open a closed task (marked done, or reviewed clean)
+// and send it to someone for a review? The assignee, whoever assigned it,
+// or an admin over them.
+function iCanSendForReview(t){
+  if(!t || t.status !== 'completed') return false;
+  if(t.reviewStatus !== 'done' && t.reviewStatus !== 'clean') return false;
+  return isAdmin || t.assignedTo === currentViewerId || t.assignedBy === currentViewerId;
+}
 // Approving a self-assigned task stays manager-only.
 function iCanApproveAssignment(t){ return t && empManagesWork(currentViewer(), t.assignedTo); }
 // Every team name in use (org chart + registry) — for the assign-task team picker.
@@ -2365,6 +2373,8 @@ function actionCell(t){
       }
     } else {
       html += statusBadge(t);
+      if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+      if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open and send it to someone to check">Send for Review</button>`;
     }
     if(iCanRemoveTask(t)) html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="removeTask('${t.id}')">Remove</button>`;
     html += '</div>';
@@ -2412,6 +2422,7 @@ function actionCell(t){
     else if(t.reviewStatus === 'error') html += `<span class="badge overdue dot" style="cursor:pointer;" title="${esc(t.reviewNote||'')}" onclick="openReviewViewModal('${t.id}')">⚠ Error Found</span>`;
     else if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else html += `<button class="verify-btn" disabled>Awaiting Review</button>`;
+    if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open and send it to someone to check">Send for Review</button>`;
   }
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
     html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>`;
@@ -3128,6 +3139,37 @@ function openCompleteModal(id){
       document.getElementById('cmpError').style.display = 'block';
     }
   }
+// Re-open a closed task (Done / Reviewed clean) and send it for review.
+function openSendForReviewModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  const reviewers = eligibleReviewersFor(t.assignedTo).slice().sort((a,b) => a.name.localeCompare(b.name));
+  const options = reviewers.map(e => `<option value="${e.id}">${esc(e.name)} — ${esc(e.jobTitle||'')}</option>`).join('');
+  const wasClean = t.reviewStatus === 'clean';
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Send for review — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''} · currently <b>${wasClean ? 'reviewed clean' : 'marked done, no review'}</b></div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:10px 0 4px;">This re-opens the task and puts it in front of a reviewer${wasClean ? ' for another look' : ''}. It stays counted as delivered; the review outcome just gets recorded on top.</p>
+    ${reviewers.length
+      ? `<div class="field"><label>Send for review to</label><select id="sfrReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
+      : `<div class="modal-error" style="display:block;">There's no one else to review this.</div>`}
+    <div class="modal-error" id="sfrError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      ${reviewers.length ? `<button class="btn primary" onclick="submitSendForReview('${id}')">Send for Review</button>` : ''}
+    </div>`;
+  openModal();
+}
+async function submitSendForReview(id){
+  const reviewerId = (document.getElementById('sfrReviewer')||{}).value || '';
+  const err = document.getElementById('sfrError');
+  if(!reviewerId){ if(err){ err.textContent = 'Choose who should review this task first.'; err.style.display = 'block'; } return; }
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/send-for-review`, { method:'POST', body: JSON.stringify({ reviewerId }) });
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('info', 'Sent for review', 'The task is back in front of a reviewer.');
+  } catch(e){ if(err){ err.textContent = e.message; err.style.display = 'block'; } }
+}
 function openProposeModal(id){
   const t = findTask(id);
   document.getElementById('modalBox').innerHTML = `

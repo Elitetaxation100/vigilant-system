@@ -727,6 +727,42 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
+// Re-open an already-closed task and send it for review. Covers the case
+// where something was marked done (no review) or even signed off clean,
+// and someone now wants a second pair of eyes on it. The assignee or an
+// admin over them can; it goes back to "completed, awaiting review" with
+// the chosen reviewer and a fresh review slate.
+app.post('/api/tasks/:id/send-for-review', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const isMine = t.assignedTo === req.employee.id;
+  const isAdminOver = isAdminRole(req.employee.accessRole) &&
+    (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo) || !t.assignedTo);
+  if (!isMine && !isAdminOver) {
+    return res.status(403).json({ error: 'Only the assignee or an admin can send this for review.' });
+  }
+  if (t.status !== 'completed' || !['done', 'clean'].includes(t.reviewStatus)) {
+    return res.status(400).json({ error: 'Only a closed task (marked done, or reviewed clean) can be re-sent for review.' });
+  }
+  const { reviewerId } = req.body || {};
+  if (!reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
+  const reviewer = findEmployee(state, reviewerId);
+  if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
+  if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send a task to its own owner for review — pick someone else." });
+  t.reviewStatus = null;
+  t.reviewerId = reviewerId;
+  t.reviewedBy = null; t.reviewedAt = null; t.reviewNote = null;
+  t.closedBy = null; t.closedAt = null;
+  t.awaitingClientDecision = false;
+  logEvent(state, reviewerId, `<b>${escHtml(req.employee.name)}</b> asked you to review "${escHtml(t.name)}" — a task that had already been closed.`);
+  if (t.assignedTo && t.assignedTo !== reviewerId) {
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was re-opened and sent to <b>${escHtml(reviewer.name)}</b> for review by <b>${escHtml(req.employee.name)}</b>.`);
+  }
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
 // Delete a task added by mistake. The assignee, whoever assigned it, or an
 // admin over the assignee can. Gone for good — the activity trail keeps a
 // note that it was removed.
