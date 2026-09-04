@@ -305,10 +305,12 @@ function completeTask(state, taskId, byName) {
   const t = (state.tasks || []).find(x => x.id === taskId);
   if (!t || t.status === 'completed') return t;
   if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+  if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed'; t.completedAt = new Date().toISOString();
-  // Call / Slack tasks skip review (Phase 2b); a manual task keeps whatever
+  // Call / Slack tasks skip review (Phase 2b) — mark them terminally 'done'
+  // so they read as done, not "awaiting review". A manual task keeps whatever
   // review state it had so the app's review flow still applies.
-  if (t.source === 'call' || t.source === 'slack_message') t.reviewStatus = null;
+  if (t.source === 'call' || t.source === 'slack_message') t.reviewStatus = 'done';
   activity(state, t.assignedTo, `"${esc(t.name)}" marked done from Slack${byName ? ' by <b>' + esc(byName) + '</b>' : ''}.`);
   return t;
 }

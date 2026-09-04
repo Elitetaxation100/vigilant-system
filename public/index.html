@@ -791,6 +791,7 @@
               <option value="awaiting_acceptance">Awaiting Acceptance</option>
               <option value="window_proposed">Window Proposed</option>
               <option value="accepted">In Progress</option>
+              <option value="on_hold">On Hold</option>
               <option value="rework">Needs Rework</option>
                             <option value="completed">Sent for Review</option>
               <option value="pending">Pending</option>
@@ -1684,6 +1685,19 @@ function assignableEmployees(){
 }
 function canAssignTo(empId){ return assignableEmployees().some(e => e.id === empId); }
 function displayedLogged(t){ return t.displayedLogged !== undefined ? t.displayedLogged : t.logged; }
+// Best hours figure for a task: actual (if more than a blip), else agreed,
+// else the estimate. A hold-inflated task is capped at its agreed hours.
+function taskHrs(t){
+  let h = Number(t.logged) >= 0.05 ? Number(t.logged)
+        : Number(t.tat) > 0 ? Number(t.tat)
+        : Number(t.estMinutes) > 0 ? Number(t.estMinutes) / 60 : 0;
+  if((t.holdCount || 0) > 0 && Number(t.tat) > 0) h = Math.min(h, Number(t.tat));
+  return h;
+}
+// Did the task land within its agreed hours? A task that ran long only
+// because it went on hold (query / client delay) isn't counted against the
+// person — the overrun is external, not inefficiency.
+function withinAgreedHours(t){ return t.logged <= t.tat || (t.holdCount || 0) > 0; }
 
 /* Is `emp` a manager/admin responsible for `assigneeId` (or a superadmin)?
    Used for self-assignment approval and as one of the two ways to review. */
@@ -2110,61 +2124,59 @@ function applyPunchUI(punchedOut){
     display.textContent = fmtClock(seconds);
   }
 }
+function punchOutBlockers(){
+  const t = todayISO();
+  return tasks.filter(x => x.assignedTo === session.id && (
+    ['awaiting_acceptance','rework','window_proposed'].includes(x.status) ||
+    (x.status === 'accepted' && (!x.internalDeadline || x.internalDeadline <= t))
+  ));
+}
 async function togglePunch(){
   if(!session) return;
-  // NON-NEGOTIABLE RULE: nothing carries over unacknowledged. Checked here
-  // for immediate feedback, but the server enforces this too (see
-  // /api/punch/toggle) so it can't be bypassed.
+  // NON-NEGOTIABLE RULE: you can only punch out when every task is delivered
+  // or explicitly on hold. Checked here for instant feedback; the server
+  // enforces it too (see /api/punch/toggle) so it can't be bypassed.
   if(punching){
-    const unaccepted = tasks.filter(t => t.assignedTo === session.id && t.status === 'awaiting_acceptance');
-    if(unaccepted.length > 0){
-      openUnacceptedBlockModal(unaccepted);
-      return;
-    }
+    const blockers = punchOutBlockers();
+    if(blockers.length > 0){ openUnacceptedBlockModal(blockers); return; }
   }
   doTogglePunch();
 }
-function openUnacceptedBlockModal(unaccepted, rework){
-  unaccepted = unaccepted || [];
-  rework = rework || [];
+function openUnacceptedBlockModal(list){
+  list = (list || []).map(x => findTask(x.id) || x);
+  const card = (t) => {
+    const flagged = isReworkFlagged(t);
+    let actions = '';
+    if(t.status === 'awaiting_acceptance'){
+      actions = `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTaskFromBlock('${t.id}')">Accept</button>
+                 <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>`;
+    } else if(t.status === 'rework'){
+      actions = `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>`;
+    } else if(t.status === 'window_proposed'){
+      actions = `<span style="font-size:12.5px;color:var(--text-faint);">Waiting on your manager's decision — or put it on hold.</span>`;
+    } else {
+      actions = `<button class="verify-btn" onclick="closeModal(); openCompleteModal('${t.id}')">Mark Complete</button>`;
+    }
+    actions += `<button class="verify-btn" style="border-color:#F0B93E;color:#B45309;" onclick="closeModal(); openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+    return `
+      <div style="background:${flagged?'var(--coral-dim)':'var(--panel-2)'}; border:1px solid ${flagged?'#F0603E4a':'var(--panel-border)'}; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
+        <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)} <span style="font-weight:400;font-size:12px;color:var(--text-faint);">· ${statusLabel(t.status)}</span></div>
+        <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''}${flagged && t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">${actions}</div>
+      </div>`;
+  };
   document.getElementById('modalBox').innerHTML = `
-    <h3>🔒 Cannot Punch Out Yet</h3>
-    <div class="modal-sub">Non-negotiable: every task must be accepted, given a proposed window, or resubmitted before you log off. Nothing carries over unacknowledged.</div>
-    <div style="max-height:320px; overflow-y:auto; margin-bottom:6px;">
-      ${unaccepted.map(t => {
-        const flagged = isReworkFlagged(t);
-        return `
-        <div style="background:${flagged?'var(--coral-dim)':'var(--panel-2)'}; border:1px solid ${flagged?'#F0603E4a':'var(--panel-border)'}; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
-          <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)}${flagged && t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
-          <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${flagged ? ' · Sent back for rework' + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') : ''}</div>
-          <div style="display:flex; gap:8px;">
-            <button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTaskFromBlock('${t.id}')">Accept</button>
-            <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>
-          </div>
-        </div>`;
-      }).join('')}
-      ${rework.map(t => `
-        <div style="background:var(--coral-dim); border:1px solid #F0603E4a; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
-          <div style="font-weight:600; font-size:15px; color:#7A2A0C;">⚠ ${esc(t.name)} — needs rework</div>
-          <div style="font-size:12.5px; color:#9A3412; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}</div>
-          <div style="display:flex; gap:8px;">
-            <button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>
-          </div>
-        </div>`).join('')}
-    </div>
+    <h3>🔒 Cannot punch out yet</h3>
+    <div class="modal-sub">Every task has to be delivered, or put on hold with a reason, before you log off. Nothing carries over unhandled.</div>
+    <div style="max-height:340px; overflow-y:auto; margin-bottom:6px;">${list.map(card).join('')}</div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
   `;
   openModal();
 }
 async function acceptTaskFromBlock(id){
   await acceptTask(id);
-  const stillPending = tasks.filter(t => t.assignedTo === session.id && t.status === 'awaiting_acceptance');
-  const stillRework = tasks.filter(t => t.assignedTo === session.id && t.status === 'rework');
-  if(stillPending.length > 0 || stillRework.length > 0){
-    openUnacceptedBlockModal(stillPending, stillRework);
-  } else {
-    closeModal();
-  }
+  const still = punchOutBlockers();
+  if(still.length > 0) openUnacceptedBlockModal(still); else closeModal();
 }
 async function doTogglePunch(){
   try {
@@ -2181,7 +2193,7 @@ async function doTogglePunch(){
       }, 1000);
     }
   } catch(e){
-    if(e.pendingTasks || e.pendingRework){ openUnacceptedBlockModal(e.pendingTasks, e.pendingRework); }
+    if(e.code === 'PENDING_ACCEPTANCE'){ openUnacceptedBlockModal(punchOutBlockers()); }
     else showToast('error', 'Could not punch', e.message);
   }
 }
@@ -2275,11 +2287,13 @@ function statusBadge(t){
       ? `<span class="badge overdue dot">⚠ Rework — Window Proposed</span>`
       : `<span class="badge awaiting dot">Window Proposed</span>`;
     case 'accepted': return `<span class="badge pending dot">In Progress</span>`;
+    case 'on_hold': return `<span class="badge awaiting dot" title="${esc(t.holdReason||'')}">⏸ On Hold</span>`;
     case 'pending_approval': return `<span class="badge awaiting dot">Awaiting Manager Approval</span>`;
     case 'pending': return `<span class="badge pending dot">Pending</span>`;
     case 'rework': return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
         case 'completed':
       if(t.reviewStatus === 'clean') return `<span class="badge completed dot" title="Reviewed clean">✓ Done</span>`;
+      if(t.reviewStatus === 'done') return `<span class="badge completed dot" title="Closed — no review needed">✓ Done</span>`;
       if(t.reviewStatus === 'error') return `<span class="badge overdue dot">⚠ Error Found</span>`;
       return `<span class="badge pending dot">Sent for Review</span>`;
 
@@ -2313,10 +2327,13 @@ function actionCell(t){
   // accept gate. Just "Mark done" (and Reassign for admins).
   if((t.source || 'manual') !== 'manual'){
     if(t.status !== 'completed'){
-      if(isMine || isAdmin){
+      if(t.status === 'on_hold'){
+        html += holdControlsHtml(t);
+      } else if(isMine || isAdmin){
         html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="markIntegrationTaskDone('${t.id}')">✓ Done</button>`;
+        html += holdControlsHtml(t);
       }
-      if(isAdmin){
+      if(isAdmin && t.status !== 'on_hold'){
         html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openSetOwnerModal('${t.id}')">${t.assignedTo ? 'Reassign' : 'Assign'}</button>`;
       }
     } else {
@@ -2346,13 +2363,17 @@ function actionCell(t){
     } else {
       html += `<span style="font-size:13px;color:var(--text-faint);">Awaiting manager approval</span>`;
     }
+  } else if(t.status === 'on_hold'){
+    html += holdControlsHtml(t);
   } else if(t.status === 'accepted' || t.status === 'pending'){
     if(t.status === 'accepted' && isMine){
       html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')">Mark Complete</button>`;
+      html += holdControlsHtml(t);
     }
   } else if(t.status === 'rework'){
     if(isMine){
       html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="openReworkDetailModal('${t.id}')">View Error &amp; Resubmit</button>`;
+      html += holdControlsHtml(t);
     } else {
       html += `<span style="font-size:13px;color:var(--text-faint);" title="${esc(t.reviewNote||'')}">Sent back for rework</span>`;
     }
@@ -2512,12 +2533,12 @@ function renderEmployeeStats(){
   if(crumb) crumb.innerHTML = `<b>You:</b> ${esc(me.name)}${me.team ? ' · ' + esc(me.team) : ''} · ${esc(label)}`;
 
   // "To do today" = every task on the person's plate that isn't finished —
-  // to accept, in progress, in rework, or sent for review and not yet
-  // signed off. Excludes work already reviewed clean and self-assignments
-  // still waiting on a manager. Overdue items sort to the top.
+  // to accept, in progress, on hold, in rework, or sent for review and not
+  // yet signed off. Excludes fully-closed work (reviewed clean, or a call /
+  // Slack task marked done) and self-assignments still waiting on a manager.
   myTodaysWork = mine.filter(t =>
     t.status !== 'pending_approval' &&
-    !(t.status === 'completed' && t.reviewStatus === 'clean'));
+    !(t.status === 'completed' && (t.reviewStatus === 'clean' || t.reviewStatus === 'done')));
   // "Done today" = tasks this person completed today (used by the tile +
   // its date-range drill-down, which starts on today).
   myDoneToday = mine.filter(t => t.completedAt && t.completedAt.slice(0,10) === today);
@@ -2532,7 +2553,7 @@ function renderEmployeeStats(){
 
   // report-card summary (mirrors renderReportCard's numbers, period-scoped where it makes sense)
   const completedAll = mine.filter(t => t.status === 'completed');
-  const onTimeAdh = doneP.filter(t => t.logged <= t.tat);
+  const onTimeAdh = doneP.filter(t => withinAgreedHours(t));
   const adherence = doneP.length ? Math.round(onTimeAdh.length / doneP.length * 100) : 0;
   const gapPct = doneP.length ? Math.round((doneP.length - onTimeAdh.length) / doneP.length * 1000) / 10 : null;
   const points = doneP.reduce((s,t) => s + (t.points||0), 0);
@@ -2580,12 +2601,20 @@ function renderGreeting(){
   const weekEnd = addDaysISO(6);
   const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed');
   const dueThisWeek = mineOpen.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= weekEnd).length;
-  const dueToday = mineOpen.filter(t => t.internalDeadline === today);
-  const hoursToday = dueToday.reduce((s,t) => s + (t.tat || 0), 0);
+  // Hours committed today = agreed hours still to do today + actual hours
+  // already worked on tasks finished today. Mirrors the 8-hour capacity rule.
+  const plannedToday = mineOpen
+    .filter(t => t.internalDeadline === today && t.status !== 'on_hold' && t.status !== 'pending_approval')
+    .reduce((s,t) => s + (Number(t.tat) || 0), 0);
+  const doneTodayHrs = tasks
+    .filter(t => t.assignedTo === currentViewerId && t.status === 'completed' && (t.completedAt||'').slice(0,10) === today)
+    .reduce((s,t) => s + taskHrs(t), 0);
+  const hoursToday = plannedToday + doneTodayHrs;
+  const over = hoursToday > 8;
   wrap.innerHTML = `<div class="greeting-block">
     <div>
       <h1>${greeting}${firstName ? ', ' + esc(firstName) : ''}</h1>
-      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueThisWeek} task${dueThisWeek === 1 ? '' : 's'} due this week &middot; ${hoursToday.toFixed(1)} hours committed today</div>
+      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueThisWeek} task${dueThisWeek === 1 ? '' : 's'} due this week &middot; <span${over ? ' style="color:var(--flag,#C2410C);font-weight:600;"' : ''}>${hoursToday.toFixed(1)} / 8 hrs committed today${over ? ' — over capacity' : ''}</span></div>
     </div>
   </div>`;
 }
@@ -2860,6 +2889,105 @@ function findTask(id){ return tasks.find(t => t.id === id); }
 async function acceptTask(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/accept`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
   catch(e){ showToast('error', 'Could not accept task', e.message); }
+}
+
+/* ---- ON HOLD ---- a task blocked by a query / the client. Reason required,
+   screenshot optional. The task stays on the list as pending; its time is
+   banked and only counts once. ---- */
+function iCanHold(t){
+  return t && (t.assignedTo === currentViewerId || empManagesWork(currentViewer(), t.assignedTo));
+}
+function holdControlsHtml(t){
+  if(!iCanHold(t)) return '';
+  if(t.status === 'on_hold'){
+    return `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="unholdTask('${t.id}')">Resume</button>`
+         + `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
+  }
+  return `<button class="verify-btn" style="border-color:#F0B93E;color:#B45309;" onclick="openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+}
+function openHoldModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Put on hold — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName)||'—'} · It stays on your list as pending. Time already logged is kept; when you resume, the new time adds on top — the agreed hours don't change.</div>
+    <div class="field"><label>Why is it on hold? <span style="color:var(--flag,#C2410C);">(required)</span></label>
+      <textarea id="holdReason" rows="3" placeholder="e.g. Waiting on the client's bank statements / query raised with IRD / missing signed authority"></textarea></div>
+    <div class="field"><label>Screenshot (optional)</label>
+      <input type="file" id="holdShot" accept="image/*">
+      <div id="holdShotPreview" style="margin-top:8px;"></div></div>
+    <div class="modal-error" id="holdErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitHold('${id}')">Put on Hold</button>
+    </div>`;
+  openModal();
+  const fileEl = document.getElementById('holdShot');
+  fileEl.addEventListener('change', () => previewHoldShot(fileEl));
+}
+let _holdShotData = null;
+async function previewHoldShot(fileEl){
+  _holdShotData = null;
+  const f = fileEl.files && fileEl.files[0];
+  const box = document.getElementById('holdShotPreview');
+  if(!f){ box.innerHTML = ''; return; }
+  if(!/^image\//.test(f.type)){ box.innerHTML = '<span style="color:var(--flag,#C2410C);font-size:12.5px;">Not an image.</span>'; return; }
+  try {
+    _holdShotData = await downscaleImage(f, 1600, 0.82);
+    box.innerHTML = `<img src="${_holdShotData}" alt="screenshot preview" style="max-width:100%;max-height:180px;border:1px solid var(--panel-border);border-radius:6px;">`;
+  } catch(e){ box.innerHTML = '<span style="color:var(--flag,#C2410C);font-size:12.5px;">Could not read that image.</span>'; }
+}
+function downscaleImage(file, maxDim, quality){
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+async function submitHold(id){
+  const reason = (document.getElementById('holdReason').value || '').trim();
+  const errEl = document.getElementById('holdErr');
+  if(!reason){ errEl.textContent = 'A reason is required.'; errEl.style.display = 'block'; return; }
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify({ reason, screenshot: _holdShotData || undefined }) });
+    _holdShotData = null;
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'On hold', 'The task stays on your list as pending until you resume it.');
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+async function unholdTask(id){
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/unhold`, { method:'POST' });
+    await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Back on the list', 'Press play on the task to start the clock again.');
+  } catch(e){ showToast('error', 'Could not resume', e.message); }
+}
+function openHoldDetailModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  const hist = (t.holdHistory || []).slice().reverse();
+  document.getElementById('modalBox').innerHTML = `
+    <h3>On hold — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName)||'—'} · Held ${t.holdCount || 1} time${(t.holdCount||1) > 1 ? 's' : ''} · Agreed ${t.tat} hrs, ${displayedLogged(t).toFixed(1)} hrs logged so far</div>
+    <div style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;margin:12px 0;font-size:13.5px;line-height:1.6;">
+      <b style="color:var(--text);">Current reason:</b> ${esc(t.holdReason) || '—'}
+      ${t.holdScreenshot ? `<div style="margin-top:10px;"><img src="${t.holdScreenshot}" alt="hold screenshot" style="max-width:100%;border:1px solid var(--panel-border);border-radius:6px;"></div>` : ''}
+    </div>
+    ${hist.length > 1 ? `<div class="label" style="margin-bottom:6px;">History</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${fmtDate((h.heldAt||'').slice(0,10))} — ${esc(h.reason||'')}${h.resumedAt ? ' <span style="color:var(--text-faint);">(resumed)</span>' : ''}</li>`).join('')}</ul>` : ''}
+    <div class="modal-actions">
+      ${iCanHold(t) ? `<button class="btn primary" onclick="unholdTask('${t.id}'); closeModal();">Resume</button>` : ''}
+      <button class="btn" onclick="closeModal()">Close</button>
+    </div>`;
+  openModal();
 }
 async function approveAssignment(id, force){
   try {
@@ -3180,7 +3308,7 @@ async function submitReassign(id){
 function computeEmployeeStats(empId){
   const empTasks = mgTasks().filter(t => t.assignedTo === empId);
   const completed = empTasks.filter(t => t.status === 'completed');
-  const onTime = completed.filter(t => t.logged <= t.tat);
+  const onTime = completed.filter(t => withinAgreedHours(t));
   const pts = completed.reduce((s,t) => s + t.points, 0);
   const adherence = completed.length ? Math.round((onTime.length / completed.length) * 100) : 0;
   return { empTasks, completed, pts, adherence };
@@ -3426,6 +3554,7 @@ function statusLabel(status){
     case 'awaiting_acceptance': return 'Awaiting Acceptance';
     case 'window_proposed': return 'Window Proposed';
     case 'accepted': return 'In Progress';
+    case 'on_hold': return 'On Hold';
     case 'pending_approval': return 'Awaiting Manager Approval';
     case 'pending': return 'Pending';
     case 'paused': return 'Paused';
@@ -3463,7 +3592,7 @@ function chartMetricValue(metric, groupTasks){
     case 'adherence': {
       const completed = groupTasks.filter(t => t.status === 'completed');
       if(!completed.length) return null;
-      const onTime = completed.filter(t => t.logged <= t.tat).length;
+      const onTime = completed.filter(t => withinAgreedHours(t)).length;
       return Math.round((onTime / completed.length) * 100);
     }
     default: return null;
@@ -3603,7 +3732,7 @@ function computeSlaSeries(days){
   return dates.map(dateStr => {
     const doneThatDay = tasks.filter(t => t.status === 'completed' && t.completedAt && t.completedAt.slice(0,10) === dateStr);
     if(doneThatDay.length === 0) return { date: dateStr, value: 0 };
-    const onTime = doneThatDay.filter(t => t.logged <= t.tat).length;
+    const onTime = doneThatDay.filter(t => withinAgreedHours(t)).length;
     return { date: dateStr, value: Math.round((onTime / doneThatDay.length) * 100) };
   });
 }
@@ -3671,16 +3800,18 @@ function renderTaskEngineVisuals(){
 let mgTileData = {};
 function renderManagerTeamStats(){
   const active = mgTasks().filter(t => t.status !== 'completed');
+  const held = active.filter(t => t.status === 'on_hold');
+  const live = active.filter(t => t.status !== 'on_hold'); // held work is paused — deadlines don't apply
   const today = todayISO();
   const riskCutoff = addDaysISO(1);
-  const overdue = active.filter(t => t.internalDeadline && t.internalDeadline < today);
-  const atRisk = active.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= riskCutoff);
-  const onTrackList = active.filter(t => !overdue.includes(t) && !atRisk.includes(t));
+  const overdue = live.filter(t => t.internalDeadline && t.internalDeadline < today);
+  const atRisk = live.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= riskCutoff);
+  const onTrackList = live.filter(t => !overdue.includes(t) && !atRisk.includes(t));
   document.getElementById('statActiveTasks').textContent = active.length;
   document.getElementById('statOnTrack').textContent = onTrackList.length;
   document.getElementById('statAtRisk').textContent = atRisk.length;
   document.getElementById('statOverdueTasks').textContent = overdue.length;
-  Object.assign(mgTileData, { active, ontrack: onTrackList, atrisk: atRisk, overdue });
+  Object.assign(mgTileData, { active, ontrack: onTrackList, atrisk: atRisk, overdue, held });
 }
 const MG_TILE_META = {
   active:       { title: 'Active tasks',        empty: 'No active tasks in this scope.' },
@@ -4361,7 +4492,7 @@ function renderReportCard(){
 
   const mine = tasks.filter(t => t.assignedTo === currentViewerId);
   const completed = mine.filter(t => t.status === 'completed');
-  const onTime = completed.filter(t => t.logged <= t.tat);
+  const onTime = completed.filter(t => withinAgreedHours(t));
   const points = completed.reduce((s,t) => s + t.points, 0);
   const adherencePct = completed.length ? Math.round((onTime.length / completed.length) * 100) : 0;
   const gapPct = completed.length ? Math.round(((completed.length - onTime.length) / completed.length) * 1000) / 10 : null;

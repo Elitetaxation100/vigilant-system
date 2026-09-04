@@ -170,17 +170,36 @@ function nextAvailableDate(busyUntil) {
   const iso = d.toISOString().slice(0, 10);
   return iso > todayISO() ? iso : todayISO();
 }
-// Sum of agreed hours (tat) for this employee's active tasks that are
-// already due on `date` — the actual committed workload for that day.
-// Self-assigned tasks still awaiting a manager's approval don't count yet.
-function hoursCommittedOnDate(state, employeeId, date, excludeTaskId) {
-  return state.tasks
-    .filter(t => t.assignedTo === employeeId && t.status !== 'completed' && t.status !== 'pending_approval'
-      && t.internalDeadline === date && t.id !== excludeTaskId)
-    .reduce((sum, t) => sum + (Number(t.tat) || 0), 0);
+// Best available hours figure for a task: what it actually took (if that's
+// more than a rounding blip), else its agreed hours, else its call/Slack
+// estimate. A task that ran long only because it went on hold is capped at
+// its agreed hours — the overrun is an external delay, counted once.
+function taskHours(t) {
+  let h = Number(t.logged) >= 0.05 ? Number(t.logged)
+        : Number(t.tat) > 0 ? Number(t.tat)
+        : Number(t.estMinutes) > 0 ? Number(t.estMinutes) / 60 : 0;
+  if ((t.holdCount || 0) > 0 && Number(t.tat) > 0) h = Math.min(h, Number(t.tat));
+  return h;
 }
-// Total agreed hours of active work this person has on their plate TODAY —
-// the "how loaded am I right now" number the assign picker shows.
+// A person's committed hours for `date`:
+//   - agreed hours (tat) of active work due that day, PLUS
+//   - actual hours of work they finished that day.
+// On-hold tasks are paused work — they don't count toward any day until
+// resumed. Self-assignments awaiting approval don't count yet either.
+function hoursCommittedOnDate(state, employeeId, date, excludeTaskId) {
+  const planned = state.tasks
+    .filter(t => t.assignedTo === employeeId && t.id !== excludeTaskId
+      && t.status !== 'completed' && t.status !== 'pending_approval' && t.status !== 'on_hold'
+      && t.internalDeadline === date)
+    .reduce((sum, t) => sum + (Number(t.tat) || 0), 0);
+  const done = state.tasks
+    .filter(t => t.assignedTo === employeeId && t.id !== excludeTaskId
+      && t.status === 'completed' && (t.completedAt || '').slice(0, 10) === date)
+    .reduce((sum, t) => sum + taskHours(t), 0);
+  return planned + done;
+}
+// Total committed hours this person has on their plate TODAY (planned + done)
+// — the "how loaded am I right now" number the assign picker shows.
 function hoursCommittedToday(state, employeeId) {
   return hoursCommittedOnDate(state, employeeId, todayISO(), null);
 }
@@ -513,6 +532,66 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     res.json({ task: taskForClient(t) });
   });
 
+  // Put a task on hold — blocked by a client, a query, missing info. Needs a
+  // reason; a screenshot is optional. The clock is banked, the task stays on
+  // the assignee's list as pending, and it stops counting toward any day's
+  // capacity until it's resumed. Time only ever counts once: the hours
+  // already logged stay logged, and when the task resumes the new day's work
+  // adds on top — the agreed hours (tat) never change, so a task that ran
+  // long because of a hold is visibly flagged rather than counted against
+  // the person.
+  app.post('/api/tasks/:id/hold', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    const isMine = t.assignedTo === req.employee.id;
+    if (!isMine && !canManageEmployee(state, req.employee, t.assignedTo)) {
+      return res.status(403).json({ error: 'Only the assignee or a manager over them can put this on hold.' });
+    }
+    if (!['accepted', 'rework', 'awaiting_acceptance'].includes(t.status)) {
+      return res.status(400).json({ error: 'Only active work can be put on hold.' });
+    }
+    const reason = String((req.body || {}).reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'A reason is required to put a task on hold.' });
+    let shot = (req.body || {}).screenshot || null;
+    if (shot && (typeof shot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(shot) || shot.length > 6_000_000)) {
+      shot = null; // ignore anything that isn't a reasonably-sized inline image
+    }
+    if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+    t.preHoldStatus = t.status;
+    t.status = 'on_hold';
+    t.heldAt = new Date().toISOString();
+    t.holdReason = reason;
+    t.holdScreenshot = shot;
+    t.holdCount = (t.holdCount || 0) + 1;
+    t.holdHistory = t.holdHistory || [];
+    t.holdHistory.push({ heldAt: t.heldAt, reason, hasShot: !!shot, resumedAt: null, by: req.employee.name });
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by ' + '<b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(reason)}`, { hold: true });
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // Take a task off hold — back to whatever active state it was in, clock not
+  // auto-started (the assignee presses play when they actually pick it up).
+  app.post('/api/tasks/:id/unhold', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    const isMine = t.assignedTo === req.employee.id;
+    if (!isMine && !canManageEmployee(state, req.employee, t.assignedTo)) {
+      return res.status(403).json({ error: 'Only the assignee or a manager over them can take this off hold.' });
+    }
+    if (t.status !== 'on_hold') return res.status(400).json({ error: 'This task is not on hold.' });
+    t.status = ['accepted', 'rework', 'awaiting_acceptance'].includes(t.preHoldStatus) ? t.preHoldStatus : 'accepted';
+    t.preHoldStatus = null;
+    const last = (t.holdHistory || [])[t.holdHistory.length - 1];
+    if (last && !last.resumedAt) last.resumedAt = new Date().toISOString();
+    t.heldAt = null;
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by ' + '<b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
   // Resuming one task auto-pauses whatever else the same employee currently
   // has running (see pauseOtherActiveTasks) — this is how "choose to pause
   // the current task and start working on another one" is implemented:
@@ -664,9 +743,12 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   }
   if (t.status === 'completed') return res.status(400).json({ error: 'Already done.' });
   if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+  if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed';
   t.completedAt = new Date().toISOString();
-  t.reviewStatus = null; t.reviewerId = null; t.awaitingClientDecision = false;
+  // 'done' is a terminal review state meaning "closed, no formal review
+  // needed" — so the task reads as done, not "sent for review".
+  t.reviewStatus = 'done'; t.reviewerId = null; t.awaitingClientDecision = false;
   logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (no review — ${t.source === 'call' ? 'call' : 'Slack'} task).`);
   db.save();
   res.json({ task: taskForClient(t) });
@@ -1096,30 +1178,32 @@ app.post('/api/punch/toggle', requireAuth, (req, res) => {
     st.punchedInAt = Date.now();
     if (!day.loginAt) day.loginAt = new Date().toISOString();
   } else {
-    // NON-NEGOTIABLE RULE: nothing carries over unacknowledged. An employee
-    // cannot punch out while they have tasks still sitting in
-    // "awaiting_acceptance" (must Accept or Propose a New Window — this
-    // now includes tasks a reviewer flagged with an error, since those
-    // route through this same gate rather than an immediate "fix it now"
-    // state) or "rework" (must fix and resubmit — only reached once
-    // they've actually accepted the rework) — both are enforced here, not
-    // just in the UI, so they can't be bypassed by calling the API
-    // directly.
-    const pendingAcceptance = state.tasks.filter(t => t.assignedTo === req.employee.id && t.status === 'awaiting_acceptance');
-    const pendingRework = state.tasks.filter(t => t.assignedTo === req.employee.id && t.status === 'rework');
-    if (pendingAcceptance.length > 0 || pendingRework.length > 0) {
+    // NON-NEGOTIABLE RULE: you can only punch out once every task is settled
+    // — delivered, or explicitly put on hold with a reason. Anything left
+    // awaiting acceptance, in rework, with a window proposed, or actively in
+    // progress and due today/overdue must be dealt with first. Enforced here,
+    // not just in the UI, so it can't be bypassed by calling the API direct.
+    const today = todayISO();
+    const mine = state.tasks.filter(t => t.assignedTo === req.employee.id);
+    const unsettled = mine.filter(t =>
+      ['awaiting_acceptance', 'rework', 'window_proposed'].includes(t.status) ||
+      (t.status === 'accepted' && (!t.internalDeadline || t.internalDeadline <= today)));
+    if (unsettled.length > 0) {
+      const acc = unsettled.filter(t => t.status === 'awaiting_acceptance');
+      const rw = unsettled.filter(t => t.status === 'rework');
+      const wp = unsettled.filter(t => t.status === 'window_proposed');
+      const ip = unsettled.filter(t => t.status === 'accepted');
       const parts = [];
-      if (pendingAcceptance.length > 0) parts.push(`${pendingAcceptance.length} task${pendingAcceptance.length > 1 ? 's' : ''} awaiting your acceptance`);
-      if (pendingRework.length > 0) parts.push(`${pendingRework.length} task${pendingRework.length > 1 ? 's' : ''} still in rework`);
+      if (acc.length) parts.push(`${acc.length} awaiting your acceptance`);
+      if (rw.length) parts.push(`${rw.length} in rework`);
+      if (wp.length) parts.push(`${wp.length} with a window proposed`);
+      if (ip.length) parts.push(`${ip.length} in progress due today`);
       return res.status(409).json({
-        error: `You have ${parts.join(' and ')}. Handle ${(pendingAcceptance.length + pendingRework.length) > 1 ? 'each of them' : 'it'} before logging off.`,
+        error: `You have ${parts.join(', ')}. Finish ${unsettled.length > 1 ? 'them' : 'it'}, or put ${unsettled.length > 1 ? 'them' : 'it'} on hold with a reason, before logging off.`,
         code: 'PENDING_ACCEPTANCE',
-        // reviewStatus/reviewNote/reworkCount included so the client can
-        // flag which of these are rework items (reviewStatus === 'error')
-        // and show the reviewer's note, not just treat them as plain new
-        // assignments.
-        pendingTasks: pendingAcceptance.map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, reviewStatus: t.reviewStatus, reviewNote: t.reviewNote, reworkCount: t.reworkCount, kind: 'acceptance' })),
-        pendingRework: pendingRework.map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, reviewNote: t.reviewNote, reworkCount: t.reworkCount, kind: 'rework' }))
+        pendingTasks: acc.map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, reviewStatus: t.reviewStatus, reviewNote: t.reviewNote, reworkCount: t.reworkCount, kind: 'acceptance' })),
+        pendingRework: rw.map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, reviewNote: t.reviewNote, reworkCount: t.reworkCount, kind: 'rework' })),
+        pendingActive: [...wp, ...ip].map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, status: t.status, kind: 'active' })),
       });
     }
     st.seconds += Math.floor((Date.now() - st.punchedInAt) / 1000);
@@ -1267,8 +1351,10 @@ app.patch('/api/int/tasks/:id', requireIntegrationAuth, (req, res) => {
   const status = String(b.status || '');
   if (status === 'done' || status === 'completed') {
     if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+    if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
     t.status = 'completed';
     t.completedAt = new Date().toISOString();
+    if (!t.reviewStatus) t.reviewStatus = 'done';
     logEvent(state, t.assignedTo || ((state.employees[0] || {}).id || null), `"${escHtml(t.name)}" marked done from Slack.`);
     changed = true;
   } else if (status && status !== 'open') {

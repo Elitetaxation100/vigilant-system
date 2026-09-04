@@ -263,6 +263,21 @@ function runMigrations(state) {
       const owner = (state.employees || []).find(e => e.id === t.assignedTo);
       t.team = owner ? (owner.team || null) : null;
     }
+    // On-hold state — a task blocked by a query / the client, with a reason
+    // and an optional screenshot. It stays visible on the assignee's list as
+    // pending, its clock is banked, and it doesn't count toward any day's
+    // capacity until it's resumed.
+    if (t.heldAt === undefined) t.heldAt = null;
+    if (t.holdReason === undefined) t.holdReason = null;
+    if (t.holdScreenshot === undefined) t.holdScreenshot = null;
+    if (t.holdCount === undefined) t.holdCount = 0;
+    if (t.holdHistory === undefined) t.holdHistory = []; // [{ heldAt, reason, hasShot, resumedAt }]
+    if (t.preHoldStatus === undefined) t.preHoldStatus = null;
+    // A call / Slack task marked done skips formal review — record that as a
+    // terminal 'done' review state so it reads as done, not "awaiting review".
+    if (t.status === 'completed' && !t.reviewStatus && t.source && t.source !== 'manual') {
+      t.reviewStatus = 'done';
+    }
   });
   ensureOrgChart(state);
   ensureExtendedFields(state);
