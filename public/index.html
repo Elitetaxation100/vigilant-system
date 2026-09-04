@@ -142,10 +142,10 @@
   .stat-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:22px; }
   .stat-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:16px 16px 14px; position:relative; overflow:hidden; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
   .stat-card:hover{ transform:translateY(-2px); box-shadow:0 12px 28px -8px #10182820; border-color:#D7DBE6; }
-  .stat-card.mg-tile{ cursor:pointer; }
-  .stat-card.mg-tile:hover{ border-color:var(--purple); }
-  .stat-card.mg-tile::after{ content:'View list →'; position:absolute; right:12px; bottom:10px; font-size:10px; letter-spacing:.4px; color:var(--text-faint); opacity:0; transition:opacity .15s ease; }
-  .stat-card.mg-tile:hover::after{ opacity:.9; }
+  .mg-tile{ cursor:pointer; position:relative; }
+  .mg-tile:hover{ border-color:var(--purple); }
+  .mg-tile::after{ content:'View list →'; position:absolute; right:12px; bottom:10px; font-size:10px; letter-spacing:.4px; color:var(--text-faint); opacity:0; transition:opacity .15s ease; }
+  .mg-tile:hover::after{ opacity:.9; }
   #modalOverlay:has(.tasklist-modal) .modal-box{ max-width:720px; }
   .tasklist-modal table{ width:100%; border-collapse:collapse; font-size:13px; }
   .tasklist-modal th{ text-align:left; padding:7px 10px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); border-bottom:1px solid var(--panel-border); }
@@ -726,8 +726,8 @@
         </div>
 
         <div class="top-grid">
-          <div class="metric-tile">
-            <div class="mt-label">Tasks Today</div>
+          <div class="metric-tile mg-tile" onclick="openMyTodayList()">
+            <div class="mt-label">To Do Today</div>
             <div class="mt-value" id="myTasksToday">0</div>
           </div>
           <div class="metric-tile">
@@ -1404,6 +1404,7 @@ let tasks = [];
 let activityLog = [];
 let workload = []; // per-employee occupancy from /api/workload — who's booked until when
 let teams = []; // named team registry from /api/teams (calls-into-tasks, Phase 1b)
+let myTodaysWork = []; // the current viewer's "to-do today" list, for the dashboard tile drill-down
 let loginTab = 'employee';
 let seenAwaitingIds = null; // null = not initialized yet (first load shouldn't pop every existing task)
 
@@ -2453,9 +2454,19 @@ function renderEmployeeStats(){
   const crumb = document.getElementById('empCrumb');
   if(crumb) crumb.innerHTML = `<b>You:</b> ${esc(me.name)}${me.team ? ' · ' + esc(me.team) : ''} · ${esc(label)}`;
 
-  const dueToday = mine.filter(t => t.status !== 'completed' && t.internalDeadline === today).length;
+  // "To-do today" = everything on the person's plate that needs action now,
+  // so they know what to work on even with no manager around: anything due
+  // today or already overdue, anything waiting for them to accept or fix,
+  // and whatever they're actively timing. (Not tasks due later this week,
+  // completed work, or self-assignments still pending a manager's approval.)
+  myTodaysWork = mine.filter(t =>
+    t.status !== 'completed' && t.status !== 'pending_approval' && (
+      (t.internalDeadline && t.internalDeadline <= today) ||  // due today or overdue (any status)
+      t.status === 'rework' ||                                 // sent back — fix it
+      !!t.timerStartedAt                                       // actively being worked
+    ));
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
-  setV('myTasksToday', dueToday);
+  setV('myTasksToday', myTodaysWork.length);
   setV('myHoursCommitted', doneP.reduce((s,t) => s + (t.logged || 0), 0).toFixed(1) + '<small>h</small>');
   const withDate = doneP.filter(t => t.clientDate);
   setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / withDate.length * 100) + '<small>%</small>' : '—');
@@ -3626,32 +3637,47 @@ const MG_TILE_META = {
   accuracy:     { title: 'Accuracy — reviewed tasks', empty: 'No reviewed tasks in this scope.' },
   productivity: { title: 'Productivity — completed tasks in this period', empty: 'No completed tasks in this period.' },
 };
-function openMgTileList(key){
-  const meta = MG_TILE_META[key]; if(!meta) return;
-  const list = (mgTileData[key] || []).slice().sort((a,b) =>
-    (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
-  const rows = list.map(t => {
+/* Shared task-list modal — task + client, owner, due (overdue flagged),
+   status. Used by the Manager Dashboard KPI tiles and the employee's
+   "To-Do Today" tile. Pass showOwner:false to drop the Owner column. */
+function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner = true } = {}){
+  const today = todayISO();
+  const sorted = list.slice().sort((a,b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+  const rows = sorted.map(t => {
     const o = empById(t.assignedTo);
     const due = t.internalDeadline ? fmtDate(t.internalDeadline) : '—';
-    const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < todayISO();
+    const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today;
     return `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
-      <td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}${t.scope && t.scope !== '—' ? ' · ' + esc(t.scope) : ''}</div></td>
+      ${showOwner ? `<td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>` : ''}
       <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${due}${overdue ? ' · overdue' : ''}${t.clientDate ? `<div class="tl-sub">client: ${fmtDate(t.clientDate)}</div>` : ''}</td>
       <td>${statusBadge(t)}</td>
     </tr>`;
   }).join('');
   document.getElementById('modalBox').innerHTML = `
     <div class="tasklist-modal">
-      <h3>${esc(meta.title)} <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
-      <div class="modal-sub">${esc(dashScopeLabel('mg'))} · ${esc(dashPeriodLabel('mg'))}</div>
-      ${list.length ? `<div class="tl-scroll"><table>
-        <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead>
+      <h3>${esc(title)} <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${sorted.length}</span></h3>
+      ${subtitle ? `<div class="modal-sub">${esc(subtitle)}</div>` : ''}
+      ${sorted.length ? `<div class="tl-scroll"><table>
+        <thead><tr><th>Task</th>${showOwner ? '<th>Owner</th>' : ''}<th>Due</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`
-        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">${esc(meta.empty)}</p>`}
+        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">${esc(empty)}</p>`}
       <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
     </div>`;
   openModal();
+}
+function openMgTileList(key){
+  const meta = MG_TILE_META[key]; if(!meta) return;
+  taskListModal(meta.title, `${dashScopeLabel('mg')} · ${dashPeriodLabel('mg')}`, mgTileData[key] || [], { empty: meta.empty });
+}
+function openMyTodayList(){
+  const me = currentViewer();
+  taskListModal(
+    "To do today",
+    (me ? me.name + ' · ' : '') + new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'2-digit', month:'short' }),
+    myTodaysWork,
+    { showOwner: false, empty: "Nothing needs doing today — you're clear. Anything due later this week is in the Verification Matrix below." }
+  );
 }
 /* =========================================================================
    FOUNDER VIEW — superadmin-only, last-30-days snapshot of the whole firm:
