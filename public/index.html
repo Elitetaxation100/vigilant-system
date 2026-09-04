@@ -142,6 +142,18 @@
   .stat-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:22px; }
   .stat-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:16px 16px 14px; position:relative; overflow:hidden; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
   .stat-card:hover{ transform:translateY(-2px); box-shadow:0 12px 28px -8px #10182820; border-color:#D7DBE6; }
+  .stat-card.mg-tile{ cursor:pointer; }
+  .stat-card.mg-tile:hover{ border-color:var(--purple); }
+  .stat-card.mg-tile::after{ content:'View list →'; position:absolute; right:12px; bottom:10px; font-size:10px; letter-spacing:.4px; color:var(--text-faint); opacity:0; transition:opacity .15s ease; }
+  .stat-card.mg-tile:hover::after{ opacity:.9; }
+  #modalOverlay:has(.tasklist-modal) .modal-box{ max-width:720px; }
+  .tasklist-modal table{ width:100%; border-collapse:collapse; font-size:13px; }
+  .tasklist-modal th{ text-align:left; padding:7px 10px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); border-bottom:1px solid var(--panel-border); }
+  .tasklist-modal td{ padding:8px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
+  .tasklist-modal tr:last-child td{ border-bottom:none; }
+  .tasklist-modal .tl-name{ font-weight:600; color:var(--text); }
+  .tasklist-modal .tl-sub{ font-size:11.5px; color:var(--text-faint); }
+  .tasklist-modal .tl-scroll{ max-height:52vh; overflow:auto; margin:6px -4px 4px; }
   .stat-card .label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); margin-bottom:8px; }
   .stat-card .value{ font-family:var(--font-display); font-size:27px; font-weight:700; }
   .stat-card .value.purple{ color:#5B4FCF; }
@@ -1172,14 +1184,14 @@
         </div>
 
         <div class="stat-grid g8">
-          <div class="stat-card"><div class="label">Active Tasks</div><div class="value purple" id="statActiveTasks">0</div><div class="delta" id="mgActiveSub">—</div></div>
-          <div class="stat-card"><div class="label">On Track</div><div class="value teal" id="statOnTrack">0</div><div class="delta">due &gt; 1 day out</div></div>
-          <div class="stat-card"><div class="label">At Risk</div><div class="value amber" id="statAtRisk">0</div><div class="delta">due in ≤ 1 day</div></div>
-          <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="statOverdueTasks">0</div><div class="delta" id="mgOverdueSub">—</div></div>
-          <div class="stat-card"><div class="label">Team Productivity</div><div class="value" id="mgKpiProd">—</div><div class="delta">worked vs planned hrs</div></div>
-          <div class="stat-card"><div class="label">Commitment Met</div><div class="value teal" id="mgKpiCommit">—</div><div class="delta">on/before client date</div></div>
-          <div class="stat-card"><div class="label">Accuracy</div><div class="value" id="mgKpiAcc">—</div><div class="delta">error-free on review</div></div>
-          <div class="stat-card"><div class="label">Awaiting Review</div><div class="value amber" id="mgKpiPending">0</div><div class="delta" id="mgPendingSub">—</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('active')"><div class="label">Active Tasks</div><div class="value purple" id="statActiveTasks">0</div><div class="delta" id="mgActiveSub">—</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('ontrack')"><div class="label">On Track</div><div class="value teal" id="statOnTrack">0</div><div class="delta">due &gt; 1 day out</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('atrisk')"><div class="label">At Risk</div><div class="value amber" id="statAtRisk">0</div><div class="delta">due in ≤ 1 day</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('overdue')"><div class="label">Overdue</div><div class="value coral" id="statOverdueTasks">0</div><div class="delta" id="mgOverdueSub">—</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('productivity')"><div class="label">Team Productivity</div><div class="value" id="mgKpiProd">—</div><div class="delta">worked vs planned hrs</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('commitment')"><div class="label">Commitment Met</div><div class="value teal" id="mgKpiCommit">—</div><div class="delta">on/before client date</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('accuracy')"><div class="label">Accuracy</div><div class="value" id="mgKpiAcc">—</div><div class="delta">error-free on review</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('pending')"><div class="label">Awaiting Review</div><div class="value amber" id="mgKpiPending">0</div><div class="delta" id="mgPendingSub">—</div></div>
         </div>
 
         <div class="dgrid-2e">
@@ -3164,6 +3176,7 @@ function renderManagerStatics(){
   setT('mgKpiCommit', commitPct == null ? '—' : commitPct + '%');
   setT('mgKpiAcc', accPct == null ? '—' : accPct + '%');
   setT('mgKpiPending', pend.length);
+  Object.assign(mgTileData, { pending: pend, commitment: otwd, accuracy: rev, productivity: compIn });
   const ps = document.getElementById('mgPendingSub'); if(ps) ps.textContent = pend.length ? 'oldest ' + (pend.map(t=>t.completedAt).sort()[0]||'').slice(0,10) : 'none';
   const as = document.getElementById('mgActiveSub'); if(as) as.textContent = `${scopedEmps.length} ${scopedEmps.length===1?'person':'people'} in scope`;
 
@@ -3589,17 +3602,56 @@ function renderTaskEngineVisuals(){
   renderTaskHeatmap('taskHeatmapWrap');
   renderSlaChart();
 }
+let mgTileData = {};
 function renderManagerTeamStats(){
   const active = mgTasks().filter(t => t.status !== 'completed');
   const today = todayISO();
   const riskCutoff = addDaysISO(1);
   const overdue = active.filter(t => t.internalDeadline && t.internalDeadline < today);
   const atRisk = active.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= riskCutoff);
-  const onTrack = active.length - overdue.length - atRisk.length;
+  const onTrackList = active.filter(t => !overdue.includes(t) && !atRisk.includes(t));
   document.getElementById('statActiveTasks').textContent = active.length;
-  document.getElementById('statOnTrack').textContent = Math.max(0, onTrack);
+  document.getElementById('statOnTrack').textContent = onTrackList.length;
   document.getElementById('statAtRisk').textContent = atRisk.length;
   document.getElementById('statOverdueTasks').textContent = overdue.length;
+  Object.assign(mgTileData, { active, ontrack: onTrackList, atrisk: atRisk, overdue });
+}
+const MG_TILE_META = {
+  active:       { title: 'Active tasks',        empty: 'No active tasks in this scope.' },
+  ontrack:      { title: 'On track',            empty: 'Nothing on track right now.' },
+  atrisk:       { title: 'At risk (due within a day)', empty: 'Nothing at risk right now.' },
+  overdue:      { title: 'Overdue',             empty: 'Nothing overdue — nice.' },
+  pending:      { title: 'Awaiting review',     empty: 'Nothing awaiting review.' },
+  commitment:   { title: 'Commitment — completed tasks with a client date', empty: 'No completed tasks with a client date in this period.' },
+  accuracy:     { title: 'Accuracy — reviewed tasks', empty: 'No reviewed tasks in this scope.' },
+  productivity: { title: 'Productivity — completed tasks in this period', empty: 'No completed tasks in this period.' },
+};
+function openMgTileList(key){
+  const meta = MG_TILE_META[key]; if(!meta) return;
+  const list = (mgTileData[key] || []).slice().sort((a,b) =>
+    (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+  const rows = list.map(t => {
+    const o = empById(t.assignedTo);
+    const due = t.internalDeadline ? fmtDate(t.internalDeadline) : '—';
+    const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < todayISO();
+    return `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
+      <td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>
+      <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${due}${overdue ? ' · overdue' : ''}${t.clientDate ? `<div class="tl-sub">client: ${fmtDate(t.clientDate)}</div>` : ''}</td>
+      <td>${statusBadge(t)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('modalBox').innerHTML = `
+    <div class="tasklist-modal">
+      <h3>${esc(meta.title)} <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
+      <div class="modal-sub">${esc(dashScopeLabel('mg'))} · ${esc(dashPeriodLabel('mg'))}</div>
+      ${list.length ? `<div class="tl-scroll"><table>
+        <thead><tr><th>Task</th><th>Owner</th><th>Due</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`
+        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">${esc(meta.empty)}</p>`}
+      <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+    </div>`;
+  openModal();
 }
 /* =========================================================================
    FOUNDER VIEW — superadmin-only, last-30-days snapshot of the whole firm:
