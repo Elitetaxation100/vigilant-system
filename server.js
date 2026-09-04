@@ -457,9 +457,29 @@ app.delete('/api/clients/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Which tasks is `me` allowed to see? A superadmin sees the firm. Everyone
+// else sees only tasks they're actually involved in: assigned to them or
+// someone they manage, assigned BY them, sent to them for review (or that
+// they reviewed), or that passed through their hands in a reassignment.
+// An admin additionally sees unassigned work and their own team's tasks
+// (the Admin/Slack space and their oversight views need that). This is the
+// real boundary — the client-side filtering on top of it is just cosmetics.
+function visibleTasks(state, me) {
+  if (me.accessRole === 'superadmin') return state.tasks;
+  const scopeIds = new Set([me.id, ...(me.managesIds || [])]);
+  const isAdmin = me.accessRole === 'admin';
+  return state.tasks.filter(t =>
+    scopeIds.has(t.assignedTo) ||
+    t.assignedBy === me.id ||
+    t.reviewerId === me.id ||
+    t.reviewedBy === me.id ||
+    (t.reassignHistory || []).some(h => h.from === me.id || h.to === me.id || h.by === me.id) ||
+    (isAdmin && (!t.assignedTo || (t.team && me.team && t.team === me.team)))
+  );
+}
 app.get('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  res.json({ tasks: state.tasks.map(taskForClient) });
+  res.json({ tasks: visibleTasks(state, req.employee).map(taskForClient) });
 });
 // The hold screenshot for one task — pulled only when the detail is opened.
 // Visible to the assignee, whoever put it on hold, or a manager over them.
