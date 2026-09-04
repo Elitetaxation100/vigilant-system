@@ -709,18 +709,15 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
-// Mark a task done WITHOUT the review step. calls-into-tasks (Phase 2b):
-// tasks that came from a call card or a Slack message are follow-ups, not
-// filed returns — they don't need a second person to check them. Allowed
-// for the assignee OR any admin over the assignee. Manual tasks still go
-// through /complete + review as before.
+// Mark a task done WITHOUT the review step — for the many tasks that don't
+// need a second person to check them (call / Slack follow-ups, and any
+// manual task the assignee decides needs no review). The assignee or an
+// admin over them can do it. "Mark Complete" + a reviewer is still there
+// for anything that should be checked.
 app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (!t.source || t.source === 'manual') {
-    return res.status(400).json({ error: 'This task goes through review — use Mark Complete and choose a reviewer.' });
-  }
   const isMine = t.assignedTo === req.employee.id;
   const isAdminOver = isAdminRole(req.employee.accessRole) &&
     (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo) || !t.assignedTo);
@@ -728,6 +725,9 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Only the assignee or an admin can mark this done.' });
   }
   if (t.status === 'completed') return res.status(400).json({ error: 'Already done.' });
+  if (!['accepted', 'rework', 'on_hold', 'awaiting_acceptance', 'window_proposed', 'pending'].includes(t.status)) {
+    return res.status(400).json({ error: 'This task can\'t be marked done from its current state.' });
+  }
   if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
   if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed';
@@ -735,7 +735,8 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   // 'done' is a terminal review state meaning "closed, no formal review
   // needed" — so the task reads as done, not "sent for review".
   t.reviewStatus = 'done'; t.reviewerId = null; t.awaitingClientDecision = false;
-  logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (no review — ${t.source === 'call' ? 'call' : 'Slack'} task).`);
+  const kind = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'call' : 'Slack') + ' task' : 'no review needed';
+  logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (${kind}).`);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -784,6 +785,7 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
     return res.status(403).json({ error: "You can't review this task — it wasn't sent to you, and it isn't your report's work." });
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
+  if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
   const { status, note, faultType } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
   if (status === 'error' && !['processor', 'sop'].includes(faultType)) {
