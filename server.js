@@ -181,41 +181,21 @@ function taskHours(t) {
   if ((t.holdCount || 0) > 0 && Number(t.tat) > 0) h = Math.min(h, Number(t.tat));
   return h;
 }
-// A person's committed hours for `date`:
-//   - agreed hours (tat) of active work due that day, PLUS
-//   - actual hours of work they finished that day.
-// On-hold tasks are paused work — they don't count toward any day until
-// resumed. Self-assignments awaiting approval don't count yet either.
-function hoursCommittedOnDate(state, employeeId, date, excludeTaskId) {
-  const planned = state.tasks
-    .filter(t => t.assignedTo === employeeId && t.id !== excludeTaskId
-      && t.status !== 'completed' && t.status !== 'pending_approval' && t.status !== 'on_hold'
-      && t.internalDeadline === date)
-    .reduce((sum, t) => sum + (Number(t.tat) || 0), 0);
-  const done = state.tasks
-    .filter(t => t.assignedTo === employeeId && t.id !== excludeTaskId
-      && t.status === 'completed' && (t.completedAt || '').slice(0, 10) === date)
+// Actual hours of work a person finished on `date` — the "how much did they
+// get through today" figure the dashboards and the assign picker show. This
+// is informational only; there is no cap on how much work can be assigned.
+function hoursDoneOnDate(state, employeeId, date) {
+  return state.tasks
+    .filter(t => t.assignedTo === employeeId && t.status === 'completed'
+      && (t.completedAt || '').slice(0, 10) === date)
     .reduce((sum, t) => sum + taskHours(t), 0);
-  return planned + done;
 }
-// Total committed hours this person has on their plate TODAY (planned + done)
-// — the "how loaded am I right now" number the assign picker shows.
-function hoursCommittedToday(state, employeeId) {
-  return hoursCommittedOnDate(state, employeeId, todayISO(), null);
+function hoursDoneToday(state, employeeId) {
+  return hoursDoneOnDate(state, employeeId, todayISO());
 }
-function workloadConflict(state, employeeId, deadline, excludeTaskId, newTaskHours) {
-  if (!deadline) return null;
-  const committedHours = hoursCommittedOnDate(state, employeeId, deadline, excludeTaskId);
-  const incomingHours = Number(newTaskHours) || 0;
-  const projectedHours = Math.round((committedHours + incomingHours) * 100) / 100;
-  if (projectedHours > DAILY_CAPACITY_HOURS) {
-    return {
-      busyUntil: deadline, nextAvailable: nextAvailableDate(deadline),
-      committedHours: Math.round(committedHours * 100) / 100, projectedHours, capacityHours: DAILY_CAPACITY_HOURS,
-    };
-  }
-  return null;
-}
+// The daily-capacity blocker was removed — work can always be assigned. This
+// stays as a no-op so callers that still reference it don't need surgery.
+function workloadConflict() { return null; }
 
 // Escapes user-controlled text (names, task titles, notes) before it's
 // embedded in an activity-log entry that already carries deliberate HTML
@@ -443,37 +423,19 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   if (!clientId) return res.status(400).json({ error: 'A client is required — every task needs a clear client owner.' });
   const client = state.clients.find(c => c.id === clientId);
   if (!client) return res.status(400).json({ error: 'Client not found.' });
-  // The whole workload/blocker model runs off the agreed delivery date, so
-  // it's mandatory now rather than a nice-to-have — a task with no agreed
-  // date can't be checked for overlap against anything else.
+  // Every task needs an agreed delivery date — the whole commitment model
+  // is judged against it.
   if (!internalDeadline) return res.status(400).json({ error: 'Agreed delivery date is required.' });
 
   let assignee = req.employee.id;
-  // A plain employee can't hand themselves live work — a self-assigned task
-  // waits in 'pending_approval' until a manager/admin over them approves it.
-  // Admins and superadmins still self-assign straight into active work.
-  let needsApproval = false;
   if (mode === 'team') {
     assignee = assignedTo;
     const allowed = assignableEmployees(state, req.employee).some(e => e.id === assignee);
     if (!allowed) return res.status(403).json({ error: "You're not authorized to assign work to this person." });
-  } else {
-    needsApproval = !isAdminRole(req.employee.accessRole);
   }
-  // Workload blocker — refuse to schedule this employee into a day whose
-  // committed hours would exceed daily capacity. See workloadConflict() above.
-  // A task still pending approval isn't a commitment yet, so skip the gate
-  // here and re-check it when the manager approves.
-  const conflict = needsApproval ? null : workloadConflict(state, assignee, internalDeadline, undefined, tat);
-  if (conflict && !force) {
-    const who = (findEmployee(state, assignee) || {}).name || 'This employee';
-    return res.status(409).json({
-      error: `${who} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — adding this ${tat || 0}hr task would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
-      code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
-    });
-  }
-  if (conflict && force) { logEvent(state, assignee, `Emergency override used — assigned despite workload conflict (${conflict.projectedHours}h projected vs ${conflict.capacityHours}h capacity) by <b>${escHtml(req.employee.name)}</b>.`); }
-  const status = mode === 'team' ? 'awaiting_acceptance' : (needsApproval ? 'pending_approval' : 'accepted');
+  // No daily-hours cap and no self-assignment approval — anyone can hand
+  // themselves (or someone they manage) work, whatever the day already holds.
+  const status = mode === 'team' ? 'awaiting_acceptance' : 'accepted';
   state.taskSeq += 1;
   const task = {
     id: '#' + (100000000000 + state.taskSeq),
@@ -506,14 +468,6 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     const assigneeEmp = findEmployee(state, assignee);
     logEvent(state, assignee, `New task assigned — <b>${assigneeEmp ? escHtml(assigneeEmp.name) : '—'}</b>, awaiting acceptance.`, {
       client: task.clientName, clientDate: task.clientDate, internalDeadline: task.internalDeadline
-    });
-  } else if (needsApproval) {
-    logEvent(state, assignee, `Self-assigned "${escHtml(task.name)}" — waiting for a manager to approve it before the clock starts.`, {
-      client: task.clientName, internalDeadline: task.internalDeadline
-    });
-    // Let the people who can approve it know it's waiting.
-    state.employees.filter(e => canReviewWorkOf(state, e, assignee)).forEach(m => {
-      logEvent(state, m.id, `<b>${escHtml(req.employee.name)}</b> self-assigned "${escHtml(task.name)}" — needs your approval.`);
     });
   }
   db.save();
@@ -1124,7 +1078,7 @@ app.get('/api/workload', requireAuth, (req, res) => {
   const rows = visible.map(e => {
     const busyUntil = employeeBusyUntil(state, e.id);
     const activeCount = state.tasks.filter(t => t.assignedTo === e.id && t.status !== 'completed').length;
-    return (()=>{ const active=state.tasks.filter(t=>t.assignedTo===e.id&&t.status!=='completed'&&t.status!=='pending_approval'&&t.internalDeadline); const hrs={}; active.forEach(t=>{hrs[t.internalDeadline]=(hrs[t.internalDeadline]||0)+(Number(t.tat)||0);}); let peakDate=null,peakHours=0; Object.entries(hrs).forEach(([d,h])=>{ if(h>peakHours){ peakHours=h; peakDate=d; } }); const todayHours=Math.round(hoursCommittedToday(state,e.id)*100)/100; return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount, todayHours, bookedToday: todayHours > DAILY_CAPACITY_HOURS, peakHours: Math.round(peakHours*100)/100, peakDate, overloaded: peakHours > DAILY_CAPACITY_HOURS, capacityHours: DAILY_CAPACITY_HOURS }; })();
+    return (()=>{ const active=state.tasks.filter(t=>t.assignedTo===e.id&&t.status!=='completed'&&t.status!=='pending_approval'&&t.status!=='on_hold'&&t.internalDeadline); const hrs={}; active.forEach(t=>{hrs[t.internalDeadline]=(hrs[t.internalDeadline]||0)+(Number(t.tat)||0);}); let peakDate=null,peakHours=0; Object.entries(hrs).forEach(([d,h])=>{ if(h>peakHours){ peakHours=h; peakDate=d; } }); const hoursDoneToday_=Math.round(hoursDoneToday(state,e.id)*100)/100; const REF_DAY=8; return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount, hoursDoneToday: hoursDoneToday_, todayHours: hoursDoneToday_, peakHours: Math.round(peakHours*100)/100, peakDate, capacityHours: REF_DAY, overloaded: peakHours > REF_DAY }; })();
   });
   res.json({ workload: rows });
 });

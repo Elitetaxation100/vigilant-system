@@ -2226,7 +2226,7 @@ function renderDeadlineBanner(){
     const busy = workload.filter(w => w.overloaded);
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
     if(busy.length > 0){
-      banners.push(`<div class="banner warn"><span>🔴</span><span><b>${busy.length} team member${busy.length>1?'s':''} overloaded:</b> ${busy.map(w => esc(w.name) + ' — ' + w.peakHours + 'h committed ' + fmtDate(w.peakDate) + ' (cap ' + w.capacityHours + 'h)').join(' · ')}</span></div>`);
+      banners.push(`<div class="banner warn"><span>🔴</span><span><b>Heavy day ahead for ${busy.length} team member${busy.length>1?'s':''}:</b> ${busy.map(w => esc(w.name) + ' — ' + w.peakHours + 'h of agreed work ' + fmtDate(w.peakDate)).join(' · ')}</span></div>`);
     }
     if(proposedOrg.length > 0){
       banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed:</b> ${proposedOrg.map(t => esc(empById(t.assignedTo)?.name||'—') + ' — ' + esc(t.name)).join(' · ')} — <a href="#" onclick="showView('dashboard', document.querySelector('.nav-item[data-view=&quot;dashboard&quot;]')); document.getElementById('statusFilter').value='window_proposed'; document.getElementById('scopeFilter').value='all'; renderTaskTable(); return false;" style="color:#6D28D9; text-decoration:underline;">review</a></span></div>`);
@@ -2601,20 +2601,14 @@ function renderGreeting(){
   const weekEnd = addDaysISO(6);
   const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed');
   const dueThisWeek = mineOpen.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= weekEnd).length;
-  // Hours committed today = agreed hours still to do today + actual hours
-  // already worked on tasks finished today. Mirrors the 8-hour capacity rule.
-  const plannedToday = mineOpen
-    .filter(t => t.internalDeadline === today && t.status !== 'on_hold' && t.status !== 'pending_approval')
-    .reduce((s,t) => s + (Number(t.tat) || 0), 0);
+  // Hours of work actually finished today — informational, no cap.
   const doneTodayHrs = tasks
     .filter(t => t.assignedTo === currentViewerId && t.status === 'completed' && (t.completedAt||'').slice(0,10) === today)
     .reduce((s,t) => s + taskHrs(t), 0);
-  const hoursToday = plannedToday + doneTodayHrs;
-  const over = hoursToday > 8;
   wrap.innerHTML = `<div class="greeting-block">
     <div>
       <h1>${greeting}${firstName ? ', ' + esc(firstName) : ''}</h1>
-      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueThisWeek} task${dueThisWeek === 1 ? '' : 's'} due this week &middot; <span${over ? ' style="color:var(--flag,#C2410C);font-weight:600;"' : ''}>${hoursToday.toFixed(1)} / 8 hrs committed today${over ? ' — over capacity' : ''}</span></div>
+      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueThisWeek} task${dueThisWeek === 1 ? '' : 's'} due this week &middot; ${doneTodayHrs.toFixed(1)} hrs done today</div>
     </div>
   </div>`;
 }
@@ -2995,7 +2989,6 @@ async function approveAssignment(id, force){
     await refreshTasks(); await refreshActivity({ silent:true });
     showToast('success', 'Approved', 'The task is now active and the clock is running.');
   } catch(e){
-    if(e.code === 'WORKLOAD_CONFLICT' && !force){ showOverloadWarning(e.message, () => approveAssignment(id, true)); return; }
     showToast('error', 'Could not approve', e.message);
   }
 }
@@ -3187,11 +3180,8 @@ function openAssignModal(mode){
     </div>
     ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee">${assignableEmployees().map(e=>{
       const w = workload.find(x => x.id === e.id);
-      let load = '';
-      if(w){
-        if(w.todayHours > (w.capacityHours || 8)) load = ` — ⚠ booked today (${w.todayHours}h)`;
-        else if(w.todayHours > 0) load = ` — ${w.todayHours}h today`;
-      }
+      const doneH = w && (w.hoursDoneToday ?? w.todayHours);
+      const load = doneH > 0 ? ` — ${doneH}h done today` : '';
       return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${load}</option>`;
     }).join('')}</select></div>` : ''}
     <div class="field"><label>Client</label><select id="atClientId">${clients.map(c=>{
@@ -3228,27 +3218,17 @@ async function submitAssign(mode){
 }
   async function submitTaskPayload(payload){
     try {
-      const { task } = await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) });
+      await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) });
       closeModal();
       showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
       await refreshTasks();
       await refreshActivity({ silent: true });
-      if(task && task.status === 'pending_approval'){
-        showToast('success', 'Sent for approval', `"${payload.name}" — waiting for your manager to approve it before you can start.`);
-      } else {
-        const assigneeName = payload.mode === 'team' ? (empById(payload.assignedTo)?.name || 'team member') : 'yourself';
-        showToast('success', payload.mode === 'team' ? 'Task assigned' : 'Task created', `${payload.name} — sent to ${assigneeName}.`);
-      }
+      const assigneeName = payload.mode === 'team' ? (empById(payload.assignedTo)?.name || 'team member') : 'yourself';
+      showToast('success', payload.mode === 'team' ? 'Task assigned' : 'Task created', `${payload.name} — sent to ${assigneeName}.`);
     } catch(e){
-      if(e.code === 'WORKLOAD_CONFLICT' && !payload.force){ showOverloadWarning(e.message, () => { payload.force = true; submitTaskPayload(payload); }); return; }
       const errEl = document.getElementById('assignError');
       if(errEl){ errEl.textContent = e.message; errEl.style.display = 'block'; } else { showToast('error', 'Could not assign task', e.message); }
     }
-  }
-  function showOverloadWarning(message, onOverride){
-    document.getElementById('modalBox').innerHTML = `<h3>⚠️ Warning: Employee Is Overloaded</h3><div class="modal-sub">${esc(message)}</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="overloadOverrideBtn">Emergency Override — Assign Anyway</button></div>`;
-    document.getElementById('overloadOverrideBtn').onclick = async () => { await onOverride(); };
-    openModal();
   }
 
 /* =========================================================================
@@ -3294,7 +3274,6 @@ async function submitReassign(id){
       await refreshActivity({ silent:true });
       showToast('success', 'Task reassigned', `${empById(body.newAssigneeId)?.name || 'New assignee'} must accept or propose a new window.`);
     } catch(e){
-      if(e.code === 'WORKLOAD_CONFLICT' && !body.force){ showOverloadWarning(e.message, () => { body.force = true; submitReassignPayload(id, body); }); return; }
       const el = document.getElementById('reassignError');
       if(el){ el.textContent = e.message; el.style.display = 'block'; } else { showToast('error', 'Could not reassign task', e.message); }
     }

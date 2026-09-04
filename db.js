@@ -278,6 +278,12 @@ function runMigrations(state) {
     if (t.status === 'completed' && !t.reviewStatus && t.source && t.source !== 'manual') {
       t.reviewStatus = 'done';
     }
+    // Self-assignment approval was removed — any task still parked in
+    // 'pending_approval' just becomes active work for its owner.
+    if (t.status === 'pending_approval') {
+      t.status = 'accepted';
+      if (!t.acceptedAt) t.acceptedAt = new Date().toISOString();
+    }
   });
   ensureOrgChart(state);
   ensureExtendedFields(state);
