@@ -731,7 +731,7 @@
             <div class="mt-value purple" id="myAccuracy">—</div>
           </div>
           <div class="donut-tile">
-            <div class="mt-label">Task Status Breakdown</div>
+            <div class="mt-label">Task Status Breakdown <span id="statusDonutScope" style="text-transform:none;letter-spacing:0;color:var(--text-faint);font-weight:500;"></span></div>
             <div class="donut-wrap" id="statusDonutWrap"></div>
           </div>
         </div>
@@ -747,8 +747,8 @@
           </div>
         </div>
 
-        <div class="chart-panel" style="margin-bottom:24px;">
-          <h3>Open Tasks by Assignee</h3>
+        <div class="chart-panel" style="margin-bottom:24px;" id="assigneeBarPanel">
+          <h3>Open Tasks by Assignee <span id="assigneeBarScope" style="font-size:12px;color:var(--text-faint);font-weight:500;"></span></h3>
           <div class="bar-list" id="assigneeBarWrap"></div>
         </div>
 
@@ -764,6 +764,7 @@
             <input type="text" id="taskSearch" placeholder="Search commitments or tasks…" oninput="renderTaskTable()">
             <select id="statusFilter" onchange="renderTaskTable()">
               <option value="">All Statuses</option>
+              <option value="pending_approval">Awaiting Manager Approval</option>
               <option value="awaiting_acceptance">Awaiting Acceptance</option>
               <option value="window_proposed">Window Proposed</option>
               <option value="accepted">In Progress</option>
@@ -1658,6 +1659,46 @@ function assignableEmployees(){
 function canAssignTo(empId){ return assignableEmployees().some(e => e.id === empId); }
 function displayedLogged(t){ return t.displayedLogged !== undefined ? t.displayedLogged : t.logged; }
 
+/* Separation of duties — mirrors the server's canReviewWorkOf(). A person's
+   work can only be reviewed by a manager/admin responsible for them (or a
+   superadmin); never themselves, never a peer. */
+function empCanReviewWorkOf(emp, assigneeId){
+  if(!emp || !assigneeId || emp.id === assigneeId) return false;
+  if(emp.accessRole === 'superadmin') return true;
+  if(emp.accessRole === 'admin') return (emp.managesIds || []).includes(assigneeId);
+  return false;
+}
+function iCanReview(t){ return t && empCanReviewWorkOf(currentViewer(), t.assignedTo); }
+// Approving a self-assigned task uses the same "manager over this person" rule.
+function iCanApproveAssignment(t){ return t && empCanReviewWorkOf(currentViewer(), t.assignedTo); }
+// Every team name in use (org chart + registry) — for the assign-task team picker.
+function allTeamNames(){
+  const s = new Set();
+  (teams || []).forEach(t => t && t.name && s.add(t.name));
+  (employees || []).forEach(e => { if(e.team) s.add(e.team); (e.memberships||[]).forEach(m => m && m.team && s.add(m.team)); });
+  return [...s].sort();
+}
+function eligibleReviewersFor(assigneeId){
+  return employees.filter(e => empCanReviewWorkOf(e, assigneeId));
+}
+
+/* Which tasks a person's "My Dashboard" panels reflect:
+   employee → only their own; manager (admin) → their team (the people in
+   managesIds, plus themselves); founder / superadmin → the whole firm. */
+function dashboardScopeTasks(){
+  if(isSuperAdmin) return tasks;
+  if(session && session.accessRole === 'admin'){
+    const ids = new Set([...(session.managesIds || []), currentViewerId]);
+    return tasks.filter(t => ids.has(t.assignedTo));
+  }
+  return tasks.filter(t => t.assignedTo === currentViewerId);
+}
+function dashboardScopeLabelShort(){
+  if(isSuperAdmin) return 'whole firm';
+  if(session && session.accessRole === 'admin') return 'your team';
+  return 'your tasks';
+}
+
 /* =========================================================================
    VIEW SWITCHING
    ========================================================================= */
@@ -1716,7 +1757,17 @@ function setAdminSrc(src, el){
 function renderAdminView(){
   const grid = document.getElementById('adminTaskTableBody');
   if(!grid) return;
-  const all = tasks.slice();
+  // A plain admin's Admin space is scoped to their own team's work plus any
+  // still-unassigned tasks (which anyone can pick up). Superadmin sees all.
+  const all = (() => {
+    if(isSuperAdmin) return tasks.slice();
+    const myTeams = new Set([
+      ...((currentViewer()||{}).team ? [(currentViewer()).team] : []),
+      ...(((currentViewer()||{}).memberships)||[]).map(m => m && m.team).filter(Boolean),
+    ]);
+    const ids = new Set([...(session.managesIds || []), currentViewerId]);
+    return tasks.filter(t => !t.assignedTo || ids.has(t.assignedTo) || (t.team && myTeams.has(t.team)));
+  })();
   // counts per source (independent of the active filter)
   const bySrc = s => all.filter(t => (t.source || 'manual') === s).length;
   const setTxt = (id, v) => { const e = document.getElementById(id); if(e) e.textContent = v; };
@@ -2175,6 +2226,7 @@ function statusBadge(t){
       ? `<span class="badge overdue dot">⚠ Rework — Window Proposed</span>`
       : `<span class="badge awaiting dot">Window Proposed</span>`;
     case 'accepted': return `<span class="badge pending dot">In Progress</span>`;
+    case 'pending_approval': return `<span class="badge awaiting dot">Awaiting Manager Approval</span>`;
     case 'pending': return `<span class="badge pending dot">Pending</span>`;
     case 'rework': return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
         case 'completed':
@@ -2224,7 +2276,16 @@ function actionCell(t){
     html += '</div>';
     return html;
   }
-  if(t.status === 'awaiting_acceptance' && isMine){
+  if(t.status === 'pending_approval'){
+    if(iCanApproveAssignment(t)){
+      html += `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="approveAssignment('${t.id}')">Approve</button>`;
+      html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="declineAssignment('${t.id}')">Decline</button>`;
+    } else if(isMine){
+      html += `<span style="font-size:12.5px;color:var(--text-faint);">Waiting for your manager to approve</span>`;
+    } else {
+      html += `<span style="font-size:12.5px;color:var(--text-faint);">Self-assigned — pending approval</span>`;
+    }
+  } else if(t.status === 'awaiting_acceptance' && isMine){
     if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back for rework — accept to start fixing it</span>`;
     html += `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTask('${t.id}')">Accept</button>`;
     html += `<button class="verify-btn" onclick="openProposeModal('${t.id}')">Propose Window</button>`;
@@ -2249,10 +2310,10 @@ function actionCell(t){
   } else if(t.status === 'completed'){
     if(t.reviewStatus === 'clean') html += `<span class="badge completed dot" style="cursor:pointer;" onclick="openReviewViewModal('${t.id}')">✓ Reviewed Clean</span>`;
     else if(t.reviewStatus === 'error') html += `<span class="badge overdue dot" style="cursor:pointer;" title="${esc(t.reviewNote||'')}" onclick="openReviewViewModal('${t.id}')">⚠ Error Found</span>`;
-                    else if(isAdmin && !isMine || t.reviewerId === currentViewerId) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+    else if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else html += `<button class="verify-btn" disabled>Awaiting Review</button>`;
   }
-  if(isAdmin && t.status !== 'completed'){
+  if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
     html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>`;
   }
   html += '</div>';
@@ -2261,10 +2322,23 @@ function actionCell(t){
 function renderTaskTable(){
   const q = (document.getElementById('taskSearch').value || '').toLowerCase();
   const status = document.getElementById('statusFilter').value;
-  const scope = document.getElementById('scopeFilter').value;
+  const scopeSel = document.getElementById('scopeFilter');
+  // A plain employee only ever sees their own work here — lock the control.
+  if(scopeSel){
+    const canSeeWider = isSuperAdmin || (session && session.accessRole === 'admin');
+    scopeSel.disabled = !canSeeWider;
+    if(!canSeeWider) scopeSel.value = 'mine';
+    const allOpt = scopeSel.querySelector('option[value="all"]');
+    if(allOpt) allOpt.textContent = isSuperAdmin ? 'All Tasks (firm)' : (canSeeWider ? 'My Team' : 'All Tasks');
+  }
+  const scope = scopeSel ? scopeSel.value : 'mine';
+  // "all" for a manager means their team, not the whole firm.
+  const teamIds = new Set([...((session && session.managesIds) || []), currentViewerId]);
   const body = document.getElementById('taskTableBody');
   const rows = tasks.filter(t => {
     if(scope === 'mine' && t.assignedTo !== currentViewerId) return false;
+    if(scope === 'all' && !isSuperAdmin && session && session.accessRole === 'admin' && !teamIds.has(t.assignedTo)) return false;
+    if(scope === 'all' && !isSuperAdmin && !(session && session.accessRole === 'admin') && t.assignedTo !== currentViewerId) return false;
     if(status && t.status !== status) return false;
     const hay = (t.name + ' ' + t.scope + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
     return hay.includes(q);
@@ -2440,7 +2514,10 @@ function renderMyDay(){
   const wrap = document.getElementById('myDayWrap');
   if(!wrap) return;
   const today = todayISO();
-  const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed')
+  // Tasks I assigned to myself that a manager hasn't approved yet aren't
+  // active work — surface them separately, not in "Working on now".
+  const pendingApproval = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'pending_approval');
+  const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval')
     .slice()
     .sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
   const dueToday = mineOpen.filter(t => t.internalDeadline === today);
@@ -2451,32 +2528,9 @@ function renderMyDay(){
       const running = mineOpen.find(t => t.timerStartedAt);
     const primary = running || mineOpen.find(t => t.status === 'accepted' || t.status === 'rework') || mineOpen[0] || null;
   const rest = mineOpen.filter(t => t !== primary);
-
-  const ttEl = document.getElementById('myTasksToday');
-  if(ttEl) ttEl.textContent = dueToday.length;
-  const hcEl = document.getElementById('myHoursCommitted');
-      const mineCompletedForHours = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'completed');
-    if(hcEl) hcEl.innerHTML = mineCompletedForHours.reduce((s,t) => s + (t.tat || 0), 0).toFixed(1) + '<small>h</small>';
-
-  const mineCompleted = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'completed');
-  const onTimeBase = mineCompleted.filter(t => t.clientDate && t.completedAt);
-  const prodEl = document.getElementById('myProductivity');
-  if(prodEl){
-    if(onTimeBase.length === 0){ prodEl.textContent = '—'; }
-    else {
-      const onTime = onTimeBase.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length;
-      prodEl.innerHTML = Math.round(onTime / onTimeBase.length * 100) + '<small>%</small>';
-    }
-  }
-  const reviewedBase = mineCompleted.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
-  const accEl = document.getElementById('myAccuracy');
-  if(accEl){
-    if(reviewedBase.length === 0){ accEl.textContent = '—'; }
-    else {
-      const clean = reviewedBase.filter(t => t.reviewStatus === 'clean').length;
-      accEl.innerHTML = Math.round(clean / reviewedBase.length * 100) + '<small>%</small>';
-    }
-  }
+  // The four stat tiles (Due Today / Hours / Productivity / Accuracy) are
+  // owned by renderEmployeeStats() — period-scoped and the single source of
+  // truth. renderMyDay() only draws the "Working on now" list below.
 
   function metaBlock(t){
     const pct = t.tat ? Math.min(100, Math.round(displayedLogged(t) / t.tat * 100)) : 0;
@@ -2489,6 +2543,9 @@ function renderMyDay(){
   }
 
   let html = '';
+  if(pendingApproval.length){
+    html += `<div class="banner" style="margin-bottom:12px;"><span>⏳</span><span><b>${pendingApproval.length} self-assigned task${pendingApproval.length>1?'s':''} awaiting your manager's approval:</b> ${pendingApproval.map(t=>esc(t.name)).join(', ')}. You can't start ${pendingApproval.length>1?'them':'it'} until approved.</span></div>`;
+  }
   if(primary){
     html += `<div class="working-card">
       <div class="working-top">
@@ -2523,12 +2580,15 @@ function renderMyDay(){
 function renderStatusDonut(){
       const wrap = document.getElementById('statusDonutWrap');
       if(!wrap) return;
-      if(tasks.length === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
+      // Scoped to what this dashboard is about: an employee sees only their
+      // own tasks, a manager their team's, a founder/superadmin the firm.
+      const scoped = dashboardScopeTasks();
+      if(scoped.length === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
       const colors = { awaiting_acceptance:'#F0B93E', window_proposed:'#7C6CF6', accepted:'#2FBE93', pending:'#6B7390', rework:'#F0603E', completed:'#0D9488' };
       const counts = {};
-      tasks.forEach(t => { counts[t.status] = (counts[t.status]||0) + 1; });
+      scoped.forEach(t => { counts[t.status] = (counts[t.status]||0) + 1; });
       const order = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
-      const total = tasks.length;
+      const total = scoped.length;
       let acc = 0;
       const stops = order.map(status => {
             const pct = counts[status] / total * 100;
@@ -2537,11 +2597,21 @@ function renderStatusDonut(){
       }).join(', ');
       const legend = order.map(status => `<div class="donut-legend-item"><span class="dot" style="background:${colors[status]||'#6B7390'};"></span>${statusLabel(status)} <b>${counts[status]}</b></div>`).join('');
       wrap.innerHTML = `<div class="donut-ring" style="background:conic-gradient(${stops});"><div class="donut-ring-hole"><b>${total}</b><span>Total</span></div></div><div class="donut-legend">${legend}</div>`;
+      const sc = document.getElementById('statusDonutScope');
+      if(sc) sc.textContent = '· ' + dashboardScopeLabelShort();
     }
             function renderAssigneeBarChart(){
                 const wrap = document.getElementById('assigneeBarWrap');
                 if(!wrap) return;
-                const open = tasks.filter(t => t.status !== 'completed');
+                // "By assignee" only means something across more than one person —
+                // hide it for a plain employee (that's just their own single bar).
+                const panel = document.getElementById('assigneeBarPanel');
+                const isManagerish = isSuperAdmin || (session && session.accessRole === 'admin');
+                if(panel) panel.style.display = isManagerish ? '' : 'none';
+                if(!isManagerish){ wrap.innerHTML = ''; return; }
+                const scopeEl = document.getElementById('assigneeBarScope');
+                if(scopeEl) scopeEl.textContent = '· ' + dashboardScopeLabelShort();
+                const open = dashboardScopeTasks().filter(t => t.status !== 'completed');
                 if(open.length === 0){ wrap.innerHTML = '<div class="chart-empty">No open tasks right now.</div>'; return; }
                 const counts = {};
                 open.forEach(t => { const name = empById(t.assignedTo)?.name || 'Unassigned'; counts[name] = (counts[name]||0) + 1; });
@@ -2711,6 +2781,25 @@ async function acceptTask(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/accept`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
   catch(e){ showToast('error', 'Could not accept task', e.message); }
 }
+async function approveAssignment(id, force){
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/approve-assignment`, { method:'POST', body: JSON.stringify({ force: !!force }) });
+    await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Approved', 'The task is now active and the clock is running.');
+  } catch(e){
+    if(e.code === 'WORKLOAD_CONFLICT' && !force){ showOverloadWarning(e.message, () => approveAssignment(id, true)); return; }
+    showToast('error', 'Could not approve', e.message);
+  }
+}
+async function declineAssignment(id){
+  const reason = prompt('Decline this self-assigned task? Optional note for the employee:');
+  if(reason === null) return;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/reject-assignment`, { method:'POST', body: JSON.stringify({ reason }) });
+    await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Declined', 'The task was removed and the employee notified.');
+  } catch(e){ showToast('error', 'Could not decline', e.message); }
+}
   async function pauseTask(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/pause`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
   catch(e){ showToast('error', 'Could not pause task', e.message); }
@@ -2723,16 +2812,22 @@ async function resumeTask(id){
 function openCompleteModal(id){
   const t = findTask(id);
   if(!t) return;
-  const options = employees.filter(e => e.id !== t.assignedTo)
+  // Only a manager/admin responsible for the assignee (or a superadmin) may
+  // review — same rule the server enforces. No peer or self review.
+  const reviewers = eligibleReviewersFor(t.assignedTo);
+  const options = reviewers
   .map(e => `<option value="${e.id}">${esc(e.name)} — ${esc(e.jobTitle||'')}</option>`).join('');
+  const picker = reviewers.length
+    ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
+    : `<div class="modal-error" style="display:block;">No manager or admin is set up to review your work yet — ask a superadmin to assign you a manager, then mark this complete.</div>`;
   document.getElementById('modalBox').innerHTML = `
   <h3>Mark Complete — ${esc(t.name)}</h3>
   <div class="modal-sub">${esc(t.clientName)||'—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
-  <div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>
+  ${picker}
   <div class="modal-error" id="cmpError"></div>
   <div class="modal-actions">
   <button class="btn" onclick="closeModal()">Cancel</button>
-  <button class="btn primary" onclick="submitComplete('${id}')">Mark Complete</button>
+  ${reviewers.length ? `<button class="btn primary" onclick="submitComplete('${id}')">Mark Complete</button>` : ''}
   </div>
   `;
   openModal();
@@ -2879,10 +2974,20 @@ function openAssignModal(mode){
     <div class="field"><label>Task type</label><select id="atPreset" onchange="applyTaskPreset()">${taskPresetOptionsHtml()}</select></div>
     <div class="field"><label>Task name</label><input type="text" id="atName" placeholder="e.g. GST Return"></div>
     <div class="field"><label>Deliverable scope</label><input type="text" id="atScope" placeholder="e.g. Q3 filing"></div>
+    <div class="field"><label>Team / work category</label><select id="atTeam">${(() => {
+      const mine = (currentViewer() || {}).team || '';
+      const names = allTeamNames();
+      if(mine && !names.includes(mine)) names.unshift(mine);
+      return names.map(n => `<option value="${esc(n)}"${n === mine ? ' selected' : ''}>${esc(n)}</option>`).join('') || '<option value="">— none —</option>';
+    })()}</select></div>
     ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee">${assignableEmployees().map(e=>{
       const w = workload.find(x => x.id === e.id);
-      const busy = w && w.busyUntil ? ` — booked until ${fmtDate(w.busyUntil)}` : '';
-      return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${busy}</option>`;
+      let load = '';
+      if(w){
+        if(w.todayHours > (w.capacityHours || 8)) load = ` — ⚠ booked today (${w.todayHours}h)`;
+        else if(w.todayHours > 0) load = ` — ${w.todayHours}h today`;
+      }
+      return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${load}</option>`;
     }).join('')}</select></div>` : ''}
     <div class="field"><label>Client</label><select id="atClientId">${clients.map(c=>{
       if(!isTeam) return `<option value="${c.id}">${esc(c.name)}</option>`;
@@ -2911,18 +3016,23 @@ async function submitAssign(mode){
   const deadline = document.getElementById('atDeadline').value;
   const tat = parseFloat(document.getElementById('atTat').value) || 3;
   const points = parseInt(document.getElementById('atPoints').value) || 0;
-  const payload = { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline: deadline, tat, points };
+  const team = (document.getElementById('atTeam') || {}).value || '';
+  const payload = { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline: deadline, tat, points, team };
   await submitTaskPayload(payload);
 }
   async function submitTaskPayload(payload){
     try {
-      await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) });
+      const { task } = await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) });
       closeModal();
       showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
       await refreshTasks();
       await refreshActivity({ silent: true });
-      const assigneeName = payload.mode === 'team' ? (empById(payload.assignedTo)?.name || 'team member') : 'yourself';
-      showToast('success', payload.mode === 'team' ? 'Task assigned' : 'Task created', `${payload.name} — sent to ${assigneeName}.`);
+      if(task && task.status === 'pending_approval'){
+        showToast('success', 'Sent for approval', `"${payload.name}" — waiting for your manager to approve it before you can start.`);
+      } else {
+        const assigneeName = payload.mode === 'team' ? (empById(payload.assignedTo)?.name || 'team member') : 'yourself';
+        showToast('success', payload.mode === 'team' ? 'Task assigned' : 'Task created', `${payload.name} — sent to ${assigneeName}.`);
+      }
     } catch(e){
       if(e.code === 'WORKLOAD_CONFLICT' && !payload.force){ showOverloadWarning(e.message, () => { payload.force = true; submitTaskPayload(payload); }); return; }
       const errEl = document.getElementById('assignError');
@@ -3237,6 +3347,7 @@ function statusLabel(status){
     case 'awaiting_acceptance': return 'Awaiting Acceptance';
     case 'window_proposed': return 'Window Proposed';
     case 'accepted': return 'In Progress';
+    case 'pending_approval': return 'Awaiting Manager Approval';
     case 'pending': return 'Pending';
     case 'paused': return 'Paused';
     case 'rework': return 'In Rework';
@@ -3908,6 +4019,10 @@ const REVIEW_CHECKLIST = [
 function openReviewFormModal(id){
   const t = findTask(id);
   if(!t) return;
+  if(!iCanReview(t)){
+    showToast('error', 'Not allowed', 'Only a manager or admin responsible for this person can review their work.');
+    return;
+  }
   const assignee = empById(t.assignedTo);
   const cs = commitmentStatus(t);
   document.getElementById('modalBox').innerHTML = `
@@ -4567,6 +4682,11 @@ function openModal(){ document.getElementById('modalOverlay').classList.add('act
 function closeModal(){ document.getElementById('modalOverlay').classList.remove('active'); }
 document.getElementById('modalOverlay').addEventListener('click', function(e){
   if(e.target === this && !window.__loginGateActive) closeModal();
+});
+// Escape closes an open modal too (the login gate stays put — it's not dismissable).
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape' && !window.__loginGateActive &&
+     document.getElementById('modalOverlay').classList.contains('active')) closeModal();
 });
 
 /* =========================================================================

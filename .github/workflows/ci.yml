@@ -1,0 +1,31 @@
+# CI for the Governance OS app. This is an internal, private web app — it is
+# NOT an npm package, so there is no publish step. On every push / PR we
+# install dependencies and syntax-check the server so a broken commit is
+# caught before it reaches a deploy.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Syntax-check source
+        run: node --check server.js && node --check db.js && node --check connector.js
+      - name: Boot smoke test
+        run: |
+          node server.js &
+          SERVER_PID=$!
+          sleep 3
+          curl -fsS -o /dev/null -w "root %{http_code}\n" http://localhost:3000/
+          curl -fsS -o /dev/null -w "api  %{http_code}\n" http://localhost:3000/api/tasks || true
+          kill $SERVER_PID

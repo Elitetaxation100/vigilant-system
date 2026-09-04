@@ -289,6 +289,7 @@ function createTask(state, o) {
     clientId: client ? client.id : null, clientName: client ? client.name : (o.clientName || ''),
     clientDate: null, internalDeadline: o.dueDate || null, points: 0,
     assignedTo: assignee ? assignee.id : null, assignedBy: assignee ? assignee.id : null,
+    team: (assignee && assignee.team) || null,
     assignedAt: now, reassignHistory: [], status: 'accepted', logged: 0, tat: 0,
     acceptedAt: now, timerStartedAt: null, completedAt: null, reviewStatus: null, reviewedBy: null,
     reviewNote: null, reviewedAt: null, reworkCount: 0, reviewerId: null, awaitingClientDecision: false,

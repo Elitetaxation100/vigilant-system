@@ -95,6 +95,16 @@ function canManageEmployee(state, actor, employeeId) {
   if (actor.accessRole === 'admin') return (actor.managesIds || []).includes(employeeId);
   return false;
 }
+/**
+ * Can `actor` REVIEW work done by `assigneeId`? Separation of duties:
+ * a manager/admin responsible for that person (or a superadmin) — and
+ * never the person themselves, and never a peer. This is the single rule
+ * behind /complete's reviewer picker, /review, and /send-to-client.
+ */
+function canReviewWorkOf(state, actor, assigneeId) {
+  if (!actor || actor.id === assigneeId) return false;
+  return isAdminRole(actor.accessRole) && canManageEmployee(state, actor, assigneeId);
+}
 
 // ---------------------------------------------------------------------------
 // TIME — there is no manual Start/Pause clock anymore. Once a task is
@@ -146,7 +156,7 @@ function taskForClient(t) {
 // agreed date among active work" signal — it feeds the Workload Blockers
 // panel's "occupied until" display, which is just a heads-up, not a gate.
 // ---------------------------------------------------------------------------
-const DAILY_CAPACITY_HOURS = 9;
+const DAILY_CAPACITY_HOURS = 8;
 function employeeBusyUntil(state, employeeId, excludeTaskId) {
   const active = state.tasks.filter(t => t.assignedTo === employeeId && t.status !== 'completed' && t.internalDeadline && t.id !== excludeTaskId);
   if (active.length === 0) return null;
@@ -161,10 +171,17 @@ function nextAvailableDate(busyUntil) {
 }
 // Sum of agreed hours (tat) for this employee's active tasks that are
 // already due on `date` — the actual committed workload for that day.
+// Self-assigned tasks still awaiting a manager's approval don't count yet.
 function hoursCommittedOnDate(state, employeeId, date, excludeTaskId) {
   return state.tasks
-    .filter(t => t.assignedTo === employeeId && t.status !== 'completed' && t.internalDeadline === date && t.id !== excludeTaskId)
+    .filter(t => t.assignedTo === employeeId && t.status !== 'completed' && t.status !== 'pending_approval'
+      && t.internalDeadline === date && t.id !== excludeTaskId)
     .reduce((sum, t) => sum + (Number(t.tat) || 0), 0);
+}
+// Total agreed hours of active work this person has on their plate TODAY —
+// the "how loaded am I right now" number the assign picker shows.
+function hoursCommittedToday(state, employeeId) {
+  return hoursCommittedOnDate(state, employeeId, todayISO(), null);
 }
 function workloadConflict(state, employeeId, deadline, excludeTaskId, newTaskHours) {
   if (!deadline) return null;
@@ -401,7 +418,7 @@ app.get('/api/tasks', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points, force } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points, force, team } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
   if (!clientId) return res.status(400).json({ error: 'A client is required — every task needs a clear client owner.' });
   const client = state.clients.find(c => c.id === clientId);
@@ -412,14 +429,22 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   if (!internalDeadline) return res.status(400).json({ error: 'Agreed delivery date is required.' });
 
   let assignee = req.employee.id;
+  // A plain employee can't hand themselves live work — a self-assigned task
+  // waits in 'pending_approval' until a manager/admin over them approves it.
+  // Admins and superadmins still self-assign straight into active work.
+  let needsApproval = false;
   if (mode === 'team') {
     assignee = assignedTo;
     const allowed = assignableEmployees(state, req.employee).some(e => e.id === assignee);
     if (!allowed) return res.status(403).json({ error: "You're not authorized to assign work to this person." });
+  } else {
+    needsApproval = !isAdminRole(req.employee.accessRole);
   }
   // Workload blocker — refuse to schedule this employee into a day whose
   // committed hours would exceed daily capacity. See workloadConflict() above.
-  const conflict = workloadConflict(state, assignee, internalDeadline, undefined, tat);
+  // A task still pending approval isn't a commitment yet, so skip the gate
+  // here and re-check it when the manager approves.
+  const conflict = needsApproval ? null : workloadConflict(state, assignee, internalDeadline, undefined, tat);
   if (conflict && !force) {
     const who = (findEmployee(state, assignee) || {}).name || 'This employee';
     return res.status(409).json({
@@ -428,11 +453,12 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     });
   }
   if (conflict && force) { logEvent(state, assignee, `Emergency override used — assigned despite workload conflict (${conflict.projectedHours}h projected vs ${conflict.capacityHours}h capacity) by <b>${escHtml(req.employee.name)}</b>.`); }
-  const status = mode === 'team' ? 'awaiting_acceptance' : 'accepted';
+  const status = mode === 'team' ? 'awaiting_acceptance' : (needsApproval ? 'pending_approval' : 'accepted');
   state.taskSeq += 1;
   const task = {
     id: '#' + (100000000000 + state.taskSeq),
     name: String(name).trim(), scope: scope || '—',
+    team: team ? String(team).trim() : (findEmployee(state, assignee) || {}).team || null,
     clientId: client.id, clientName: client.name, clientDate: clientDate || null, internalDeadline: internalDeadline || null,
     points: parseInt(points, 10) || 0, assignedTo: assignee, assignedBy: req.employee.id,
     assignedAt: new Date().toISOString(), reassignHistory: [], status,
@@ -460,6 +486,14 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     const assigneeEmp = findEmployee(state, assignee);
     logEvent(state, assignee, `New task assigned — <b>${assigneeEmp ? escHtml(assigneeEmp.name) : '—'}</b>, awaiting acceptance.`, {
       client: task.clientName, clientDate: task.clientDate, internalDeadline: task.internalDeadline
+    });
+  } else if (needsApproval) {
+    logEvent(state, assignee, `Self-assigned "${escHtml(task.name)}" — waiting for a manager to approve it before the clock starts.`, {
+      client: task.clientName, internalDeadline: task.internalDeadline
+    });
+    // Let the people who can approve it know it's waiting.
+    state.employees.filter(e => canReviewWorkOf(state, e, assignee)).forEach(m => {
+      logEvent(state, m.id, `<b>${escHtml(req.employee.name)}</b> self-assigned "${escHtml(task.name)}" — needs your approval.`);
     });
   }
   db.save();
@@ -513,6 +547,14 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
+  // Accept only applies to work that's actually been handed to you. A task
+  // you assigned to yourself and is still 'pending_approval' can't be
+  // self-accepted — a manager has to approve it first.
+  if (t.status !== 'awaiting_acceptance') {
+    return res.status(400).json({ error: t.status === 'pending_approval'
+      ? 'This task is waiting for a manager to approve it.'
+      : 'This task is not awaiting your acceptance.' });
+  }
   // A task flagged with an error (reviewStatus === 'error') routes through
   // this exact same Accept step as a brand-new or reassigned task — see
   // the comment on /review below. Accepting it puts the rework clock in
@@ -533,6 +575,51 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
+// Approve / decline a task an employee assigned to themselves. Only a
+// manager/admin responsible for that person (or a superadmin). Approving
+// runs the same workload check a fresh assignment gets, then starts the
+// clock. Declining removes the task.
+app.post('/api/tasks/:id/approve-assignment', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (t.status !== 'pending_approval') return res.status(400).json({ error: 'This task is not waiting for approval.' });
+  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
+    return res.status(403).json({ error: "You're not authorized to approve this person's self-assigned work." });
+  }
+  const { force } = req.body || {};
+  const conflict = workloadConflict(state, t.assignedTo, t.internalDeadline, t.id, t.tat);
+  if (conflict && !force) {
+    const who = (findEmployee(state, t.assignedTo) || {}).name || 'This employee';
+    return res.status(409).json({
+      error: `${who} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — approving this ${t.tat || 0}hr task would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity.`,
+      code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
+    });
+  }
+  if (conflict && force) logEvent(state, req.employee.id, `Emergency override — approved a self-assigned task despite a workload conflict (${conflict.projectedHours}h vs ${conflict.capacityHours}h) for <b>${escHtml((findEmployee(state, t.assignedTo) || {}).name || '—')}</b>.`);
+  t.status = 'accepted';
+  t.acceptedAt = new Date().toISOString();
+  t.timerStartedAt = new Date().toISOString();
+  pauseOtherActiveTasks(state, t.assignedTo, t.id);
+  logEvent(state, t.assignedTo, `Your self-assigned task "${escHtml(t.name)}" was approved by <b>${escHtml(req.employee.name)}</b> — the clock is running.`);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+app.post('/api/tasks/:id/reject-assignment', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (t.status !== 'pending_approval') return res.status(400).json({ error: 'This task is not waiting for approval.' });
+  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
+    return res.status(403).json({ error: "You're not authorized to decline this person's self-assigned work." });
+  }
+  const reason = (req.body || {}).reason;
+  state.tasks = state.tasks.filter(x => x.id !== t.id);
+  logEvent(state, t.assignedTo, `Your self-assigned task "${escHtml(t.name)}" was declined by <b>${escHtml(req.employee.name)}</b>${reason ? ' — ' + escHtml(String(reason)) : ''}.`);
+  db.save();
+  res.json({ ok: true });
+});
+
 app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
@@ -543,6 +630,9 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   const reviewer = findEmployee(state, reviewerId);
   if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't review your own work." });
+  if (!canReviewWorkOf(state, reviewer, t.assignedTo)) {
+    return res.status(400).json({ error: 'That person can\'t review this work — pick a manager or admin responsible for you.' });
+  }
     const elapsed = t.timerStartedAt ? (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000 : 0;
   t.logged += elapsed;
     t.timerStartedAt = null;
@@ -621,10 +711,12 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-const isAssignedReviewer = t.reviewerId && t.reviewerId === req.employee.id;
-  const isSelfReview = req.employee.id === t.assignedTo;
-  if (!isAssignedReviewer && (isSelfReview || !canManageEmployee(state, req.employee, t.assignedTo))) {
-    return res.status(403).json({ error: "You're not authorized to review this task." });
+  // Separation of duties: only a manager/admin OVER the assignee (or a
+  // superadmin) can review — never the assignee themselves, and never a
+  // peer. Being named as `reviewerId` on completion does NOT grant review
+  // rights on its own; it only routes the notification.
+  if (!canReviewWorkOf(state, req.employee, t.assignedTo)) {
+    return res.status(403).json({ error: 'Only a manager or admin responsible for this person can review their work.' });
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
   const { status, note, faultType } = req.body || {};
@@ -660,9 +752,9 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  const isAssignedReviewer = t.reviewerId && t.reviewerId === req.employee.id;
-  if (!isAssignedReviewer && !canManageEmployee(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: "You're not authorized to do this." });
+  // Same gate as /review — a manager/admin over the assignee, or a superadmin.
+  if (!canReviewWorkOf(state, req.employee, t.assignedTo)) {
+    return res.status(403).json({ error: 'Only a manager or admin responsible for this person can decide this.' });
   }
   if (t.reviewStatus !== 'clean' || !t.awaitingClientDecision) {
     return res.status(400).json({ error: 'This task has no pending client-send decision.' });
@@ -953,7 +1045,7 @@ app.get('/api/workload', requireAuth, (req, res) => {
   const rows = visible.map(e => {
     const busyUntil = employeeBusyUntil(state, e.id);
     const activeCount = state.tasks.filter(t => t.assignedTo === e.id && t.status !== 'completed').length;
-    return (()=>{ const active=state.tasks.filter(t=>t.assignedTo===e.id&&t.status!=='completed'&&t.internalDeadline); const hrs={}; active.forEach(t=>{hrs[t.internalDeadline]=(hrs[t.internalDeadline]||0)+(Number(t.tat)||0);}); let peakDate=null,peakHours=0; Object.entries(hrs).forEach(([d,h])=>{ if(h>peakHours){ peakHours=h; peakDate=d; } }); return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount, peakHours: Math.round(peakHours*100)/100, peakDate, overloaded: peakHours > DAILY_CAPACITY_HOURS, capacityHours: DAILY_CAPACITY_HOURS }; })();
+    return (()=>{ const active=state.tasks.filter(t=>t.assignedTo===e.id&&t.status!=='completed'&&t.status!=='pending_approval'&&t.internalDeadline); const hrs={}; active.forEach(t=>{hrs[t.internalDeadline]=(hrs[t.internalDeadline]||0)+(Number(t.tat)||0);}); let peakDate=null,peakHours=0; Object.entries(hrs).forEach(([d,h])=>{ if(h>peakHours){ peakHours=h; peakDate=d; } }); const todayHours=Math.round(hoursCommittedToday(state,e.id)*100)/100; return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount, todayHours, bookedToday: todayHours > DAILY_CAPACITY_HOURS, peakHours: Math.round(peakHours*100)/100, peakDate, overloaded: peakHours > DAILY_CAPACITY_HOURS, capacityHours: DAILY_CAPACITY_HOURS }; })();
   });
   res.json({ workload: rows });
 });
@@ -1123,6 +1215,7 @@ app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
     points: parseInt(b.points, 10) || 0,
     assignedTo: assignee ? assignee.id : null,
     assignedBy: assignee ? assignee.id : null,
+    team: (b.team ? String(b.team).trim() : null) || (assignee ? assignee.team : null) || null,
     assignedAt: now, reassignHistory: [],
     status: 'accepted',
     logged: 0, tat: 0,

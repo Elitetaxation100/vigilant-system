@@ -257,6 +257,12 @@ function runMigrations(state) {
     // in a later phase. sourceRef holds a Slack permalink when relevant.
     if (t.source === undefined) t.source = 'manual';
     if (t.sourceRef === undefined) t.sourceRef = null;
+    // Which team's work this task is — set when the task is created; older
+    // tasks fall back to the assignee's team.
+    if (t.team === undefined) {
+      const owner = (state.employees || []).find(e => e.id === t.assignedTo);
+      t.team = owner ? (owner.team || null) : null;
+    }
   });
   ensureOrgChart(state);
   ensureExtendedFields(state);
