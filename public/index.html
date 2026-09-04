@@ -281,8 +281,9 @@
   .badge.awaiting{ background:var(--purple-dim); color:#6D28D9; }
   .badge.dot::before{ content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
 
-  .action-stack{ display:flex; gap:6px; flex-wrap:wrap; }
+  .action-stack{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .verify-btn{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; padding:6px 10px; border-radius:7px; transition:.15s; }
+  .act-muted{ font-size:12px; color:var(--text-faint); }
   .verify-btn:hover{ border-color:var(--teal); color:#0D9488; }
   .verify-btn:active{ transform:scale(.95); }
   .ss-thumb{ width:34px; height:34px; border-radius:6px; object-fit:cover; border:1px solid var(--panel-border); cursor:pointer; }
@@ -642,11 +643,14 @@
       <div class="nav-item" onclick="openAssignModal('me')"><span class="nav-icon">→</span> Assign to Me</div>
       <div class="nav-item" id="assignTeamNavItem" style="display:none;" onclick="openAssignModal('team')"><span class="nav-icon">⇉</span> Assign to Team</div>
     </div>
-    <div class="nav-section">
+    <div class="nav-section" id="analyticsNavSection" style="display:none;">
       <div class="nav-title">Engines & Analytics</div>
       <div class="nav-item" data-view="taskengine" onclick="showView('taskengine', this)"><span class="nav-icon">⚙</span> Task Engine</div>
       <div class="nav-item" data-view="manager" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
       <div class="nav-item" data-view="analytics" onclick="showView('analytics', this)"><span class="nav-icon">📊</span> Analytics</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-title">My Work</div>
       <div class="nav-item" data-view="report" onclick="showView('report', this)"><span class="nav-icon">◈</span> My Report Card</div>
     </div>
     <div class="nav-section">
@@ -802,10 +806,6 @@
               <option value="rework">Needs Rework</option>
                             <option value="completed">Sent for Review</option>
               <option value="pending">Pending</option>
-            </select>
-            <select id="scopeFilter" onchange="renderTaskTable()">
-              <option value="mine">My Tasks</option>
-              <option value="all">All Tasks</option>
             </select>
           </div>
 
@@ -1279,8 +1279,8 @@
           <div id="accuracyWrap"></div>
           <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px;">Awaiting Review</h2></div>
           <div id="pendingReviewWrap"></div>
-          <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px; color:#C2410C;">⚠ Needs Rework</h2></div>
-          <p style="font-size:13px; color:var(--text-faint); margin-bottom:10px;">Sent back after an error was found — not counted as commitment met until fixed and resubmitted.</p>
+          <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px; color:#C2410C;">⚠ Needs your attention</h2></div>
+          <p style="font-size:13px; color:var(--text-faint); margin-bottom:10px;">Work in rework, and any new deadline your team has proposed — approve or reject it here.</p>
           <div id="needsReworkWrap"></div>
         </div>
       </section>
@@ -1536,28 +1536,32 @@ const dashScope = {
   mg: { view:'firm', period:'this-month', cStart:null, cEnd:null, cmp:true },
 };
 function _iso(d){ return d.toISOString().slice(0,10); }
+// The real team list — just the distinct team names people are actually on.
+// (The org-chart / memberships layer carries stale phantom names like
+// "Companies" / "Leads" and duplicates like "Rental" vs "Rental Team"; it
+// is not used for scoping any more.)
 function teamListForScope(){
   const set = new Set();
-  employees.forEach(e => (e.memberships||[]).forEach(m => m && m.team && set.add(m.team)));
-  (teams||[]).forEach(t => t && t.name && set.add(t.name));
+  employees.forEach(e => { if(e.team) set.add(e.team); });
   return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b));
 }
-function empInTeam(e, team){
-  return (Array.isArray(e.memberships) && e.memberships.some(m => m && m.team === team)) || e.team === team;
+function empInTeam(e, team){ return e && e.team === team; }
+// The people a manager is responsible for: the explicit managesIds list
+// plus themselves. This is the authoritative manager→report mapping —
+// nothing is inferred from team names.
+function myScopedPeople(){
+  const me = empById(currentViewerId);
+  if(!me) return [];
+  const ids = new Set([me.id, ...(me.managesIds || [])]);
+  return employees.filter(e => ids.has(e.id));
 }
 function dashPeople(key, mineTeamsOnly){
   const s = dashScope[key];
-  if(s.view === 'firm'){
-    if(mineTeamsOnly){
-      const me = empById(currentViewerId);
-      const myTeams = me && Array.isArray(me.memberships) ? me.memberships.map(m=>m.team) : [];
-      return employees.filter(e => myTeams.some(t => empInTeam(e,t)));
-    }
-    return employees.slice();
-  }
-  if(s.view.startsWith('t:')){ const team = s.view.slice(2); return employees.filter(e => empInTeam(e, team)); }
-  if(s.view.startsWith('p:')){ const e = employees.find(x => x.id === s.view.slice(2)); return e ? [e] : []; }
-  return employees.slice();
+  const pool = mineTeamsOnly ? myScopedPeople() : employees;
+  if(s.view === 'firm') return pool.slice();
+  if(s.view.startsWith('t:')){ const team = s.view.slice(2); return pool.filter(e => e.team === team); }
+  if(s.view.startsWith('p:')){ const e = pool.find(x => x.id === s.view.slice(2)); return e ? [e] : []; }
+  return pool.slice();
 }
 function dashPeriod(key){
   const s = dashScope[key];
@@ -1582,12 +1586,12 @@ function dashPeriodLabel(key){
   if(s.period === 'custom') return (s.cStart||'?') + ' – ' + (s.cEnd||'?');
   return map[s.period] || 'This month';
 }
-function dashScopeLabel(key){
+function dashScopeLabel(key, mineOnly){
   const v = dashScope[key].view;
-  if(v === 'firm') return 'Whole firm';
+  if(v === 'firm') return mineOnly ? 'My reports' : 'Whole firm';
   if(v.startsWith('t:')) return v.slice(2);
   if(v.startsWith('p:')){ const e = employees.find(x=>x.id===v.slice(2)); return e ? e.name : 'Person'; }
-  return 'Whole firm';
+  return mineOnly ? 'My reports' : 'Whole firm';
 }
 function dashInRange(dateStr, r){ if(!dateStr) return false; const d = dateStr.slice(0,10); return d >= r.start && d < r.end; }
 // tasks whose assignee sits inside the current scope (all statuses). Firm
@@ -1602,18 +1606,18 @@ function populateScopeSelect(selId, key, mineOnly){
   const sel = document.getElementById(selId);
   if(!sel) return;
   const cur = sel.value || dashScope[key].view;
-  let people = employees.slice();
-  let teamOpts = teamListForScope();
+  let people, teamOpts;
   if(mineOnly){
-    const me = empById(currentViewerId);
-    const myTeams = me && Array.isArray(me.memberships) ? [...new Set(me.memberships.map(m=>m.team))] : [];
-    teamOpts = teamOpts.filter(t => myTeams.includes(t));
-    const inMy = new Set();
-    myTeams.forEach(t => employees.forEach(e => { if(empInTeam(e,t)) inMy.add(e.id); }));
-    people = employees.filter(e => inMy.has(e.id));
+    // A manager: just their own reports, and per-person options for them.
+    // No "by team" — the report list already IS their team.
+    people = myScopedPeople().filter(e => e.id !== currentViewerId);
+    teamOpts = [];
+  } else {
+    people = employees.slice();
+    teamOpts = teamListForScope();
   }
   people.sort((a,b)=>a.name.localeCompare(b.name));
-  let html = `<option value="firm">◈ ${mineOnly ? 'My teams' : 'Whole firm'}</option>`;
+  let html = `<option value="firm">◈ ${mineOnly ? 'My reports' : 'Whole firm'}</option>`;
   if(teamOpts.length) html += `<optgroup label="By team">${teamOpts.map(t=>`<option value="t:${esc(t)}">${esc(t)}</option>`).join('')}</optgroup>`;
   if(people.length) html += `<optgroup label="By person">${people.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
   sel.innerHTML = html;
@@ -1629,7 +1633,7 @@ function onDashScope(key){
   s.cmp = (document.getElementById(pfx+'Cmp')||{}).checked !== false;
   document.getElementById(pfx+'Scope').classList.toggle('is-custom', s.period === 'custom');
   const crumb = document.getElementById(pfx+'Crumb');
-  if(crumb) crumb.innerHTML = `<b>Scope:</b> ${esc(dashScopeLabel(key))} · ${esc(dashPeriodLabel(key))}`;
+  if(crumb) crumb.innerHTML = `<b>Scope:</b> ${esc(dashScopeLabel(key, key === 'mg' && !isSuperAdmin))} · ${esc(dashPeriodLabel(key))}`;
   if(key === 'fv') renderFounderView();
   if(key === 'mg') renderManagerStatics();
 }
@@ -1735,13 +1739,13 @@ function iCanSendForReview(t){
 }
 // Approving a self-assigned task stays manager-only.
 function iCanApproveAssignment(t){ return t && empManagesWork(currentViewer(), t.assignedTo); }
-// Every team name in use (org chart + registry) — for the assign-task team picker.
+// Team names for the assign-task "Team / work category" picker: the real
+// teams people are on, plus any custom category already used on a task.
 function allTeamNames(){
   const s = new Set();
-  (teams || []).forEach(t => t && t.name && s.add(t.name));
-  (employees || []).forEach(e => { if(e.team) s.add(e.team); (e.memberships||[]).forEach(m => m && m.team && s.add(m.team)); });
+  (employees || []).forEach(e => { if(e.team) s.add(e.team); });
   (tasks || []).forEach(t => { if(t.team) s.add(t.team); }); // keep custom categories once used
-  return [...s].sort();
+  return [...s].filter(Boolean).sort();
 }
 // Options for the "Team / work category" picker: every team, plus a fixed
 // "Admin" work category, plus a "Custom — type your own" escape hatch.
@@ -1838,12 +1842,9 @@ function renderAdminView(){
   // still-unassigned tasks (which anyone can pick up). Superadmin sees all.
   const all = (() => {
     if(isSuperAdmin) return tasks.slice();
-    const myTeams = new Set([
-      ...((currentViewer()||{}).team ? [(currentViewer()).team] : []),
-      ...(((currentViewer()||{}).memberships)||[]).map(m => m && m.team).filter(Boolean),
-    ]);
+    const myTeam = (currentViewer()||{}).team;
     const ids = new Set([...(session.managesIds || []), currentViewerId]);
-    return tasks.filter(t => !t.assignedTo || ids.has(t.assignedTo) || (t.team && myTeams.has(t.team)));
+    return tasks.filter(t => !t.assignedTo || ids.has(t.assignedTo) || (t.team && myTeam && t.team === myTeam));
   })();
   // counts per source (independent of the active filter)
   const bySrc = s => all.filter(t => (t.source || 'manual') === s).length;
@@ -1901,30 +1902,28 @@ function renderAdminView(){
 }
 
 /* =========================================================================
-   TEAM BOARD (Phase A) — membership-scoped. Reads the same `tasks` /
-   `employees` globals; scopes by each person's `memberships[]` (team +
-   level). A team admin sees the team(s) they admin; a founder sees all.
-   Purely additive — nothing else changes.
+   TEAM BOARD — the open work of the people you lead, by their real team.
+   "My teams" = the distinct team(s) of the people in your managesIds (plus
+   your own). A superadmin sees every team. Uses the real .team field, not
+   the stale memberships layer.
    ========================================================================= */
 let teamBoardTeam = null;
 function myBoardTeams(){
   if(!session) return { teams: [], founder: false };
   const me = empById(session.id) || session;
-  const adminTeams = (me.memberships || []).filter(m => m && m.level === 'admin' && m.team).map(m => m.team);
-  const founder = !!me.isFounder;
+  const founder = isSuperAdmin || !!me.isFounder;
   let teams;
   if(founder){
-    const all = new Set(adminTeams);
-    employees.forEach(e => (e.memberships || []).forEach(m => m && m.team && all.add(m.team)));
-    teams = [...all];
+    teams = [...new Set(employees.map(e => e.team).filter(Boolean))];
   } else {
-    teams = [...new Set(adminTeams)];
+    const mine = new Set((me.managesIds || []).map(id => (empById(id) || {}).team).filter(Boolean));
+    if(me.team) mine.add(me.team);
+    teams = [...mine];
   }
   return { teams: teams.sort((a,b) => a.localeCompare(b)), founder };
 }
 function teamMembers(team){
-  return employees.filter(e => (e.memberships || []).some(m => m && m.team === team))
-    .sort((a,b) => a.name.localeCompare(b.name));
+  return employees.filter(e => e.team === team).sort((a,b) => a.name.localeCompare(b.name));
 }
 function openTasksFor(empId){
   return tasks.filter(t => t.assignedTo === empId && t.status !== 'completed');
@@ -1992,8 +1991,7 @@ function renderTeamBoard(){
     const overdue = mine.filter(tbOverdue).length;
     const withDue = mine.filter(t => t.internalDeadline).sort((a,b) => a.internalDeadline < b.internalDeadline ? -1 : 1);
     const next = withDue[0];
-    const lvl = (m.memberships || []).find(x => x.team === teamBoardTeam);
-    const roleChip = lvl && lvl.level === 'admin' ? '<span class="mchip admin" style="padding:2px 9px;">admin</span>' : '<span class="mchip" style="padding:2px 9px;">member</span>';
+    const roleChip = (m.managesIds || []).length > 0 ? '<span class="mchip admin" style="padding:2px 9px;">lead</span>' : '<span class="mchip" style="padding:2px 9px;">member</span>';
     return `<tr>
       <td><div class="assignee"><span class="mini-avatar">${esc(m.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span> ${esc(m.name)}</div></td>
       <td>${roleChip}</td>
@@ -2260,7 +2258,7 @@ function renderDeadlineBanner(){
   if(isAdmin){
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
     if(proposedOrg.length > 0){
-      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed:</b> ${proposedOrg.map(t => esc(empById(t.assignedTo)?.name||'—') + ' — ' + esc(t.name)).join(' · ')} — <a href="#" onclick="showView('dashboard', document.querySelector('.nav-item[data-view=&quot;dashboard&quot;]')); document.getElementById('statusFilter').value='window_proposed'; document.getElementById('scopeFilter').value='all'; renderTaskTable(); return false;" style="color:#6D28D9; text-decoration:underline;">review</a></span></div>`);
+      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed:</b> ${proposedOrg.map(t => esc(empById(t.assignedTo)?.name||'—') + ' — ' + esc(t.name)).join(' · ')} — <a href="#" onclick="showView('manager', document.querySelector('.nav-item[data-view=&quot;manager&quot;]')); return false;" style="color:#6D28D9; text-decoration:underline;">review on Manager Dashboard</a></span></div>`);
     }
   }
   wrap.innerHTML = banners.join('');
@@ -2366,8 +2364,10 @@ function actionCell(t){
         html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openSetOwnerModal('${t.id}')">${t.assignedTo ? 'Reassign' : 'Assign'}</button>`;
       }
     } else {
-      html += statusBadge(t);
+      // status is already shown in the Status column — Actions only carries
+      // things you can actually do.
       if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+      else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
       if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open and send it to someone to check">Send for Review</button>`;
     }
     if(iCanRemoveTask(t)) html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="removeTask('${t.id}')">Remove</button>`;
@@ -2411,11 +2411,11 @@ function actionCell(t){
       html += `<span style="font-size:13px;color:var(--text-faint);" title="${esc(t.reviewNote||'')}">Sent back for rework</span>`;
     }
   } else if(t.status === 'completed'){
-    if(t.reviewStatus === 'clean') html += `<span class="badge completed dot" style="cursor:pointer;" title="Reviewed clean — click for details" onclick="openReviewViewModal('${t.id}')">✓ Done</span>`;
-    else if(t.reviewStatus === 'done') html += `<span class="badge completed dot" title="Closed — no review needed">✓ Done</span>`;
-    else if(t.reviewStatus === 'error') html += `<span class="badge overdue dot" style="cursor:pointer;" title="${esc(t.reviewNote||'')}" onclick="openReviewViewModal('${t.id}')">⚠ Error Found</span>`;
-    else if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
-    else html += `<button class="verify-btn" disabled>Awaiting Review</button>`;
+    // The Status column already shows ✓ Done / Sent for Review / Error —
+    // Actions only carries what this viewer can do about it.
+    if(!t.reviewStatus && iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+    else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
+    else if(t.reviewStatus === 'clean' || t.reviewStatus === 'error') html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewViewModal('${t.id}')">View review</button>`;
     if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open and send it to someone to check">Send for Review</button>`;
   }
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
@@ -2447,9 +2447,7 @@ function renderTaskTable(){
   // The Commitment Dashboard is personal for everyone — this table only
   // ever shows the viewer's own work plus anything sent to them to review.
   // Team- and firm-wide task lists live on the Manager Dashboard and the
-  // Command Center. The scope control is gone.
-  const scopeSel = document.getElementById('scopeFilter');
-  if(scopeSel) scopeSel.style.display = 'none';
+  // Command Center.
   const body = document.getElementById('taskTableBody');
   const rows = tasks.filter(t => {
     const mineOrToReview = t.assignedTo === currentViewerId ||
@@ -3422,7 +3420,7 @@ function renderManagerStatics(){
     sel.value = dashScope.mg.view;
     document.getElementById('mgScope').classList.toggle('is-custom', dashScope.mg.period === 'custom');
     const cr = document.getElementById('mgCrumb');
-    if(cr) cr.innerHTML = `<b>Scope:</b> ${esc(mineOnly && dashScope.mg.view === 'firm' ? 'My teams' : dashScopeLabel('mg'))} · ${esc(dashPeriodLabel('mg'))}`;
+    if(cr) cr.innerHTML = `<b>Scope:</b> ${esc(dashScopeLabel('mg', mineOnly))} · ${esc(dashPeriodLabel('mg'))}`;
   }
   const scopedEmps = dashPeople('mg', mineOnly);
   const empIds = new Set(scopedEmps.map(e => e.id));
@@ -3961,7 +3959,7 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
 }
 function openMgTileList(key){
   const meta = MG_TILE_META[key]; if(!meta) return;
-  taskListModal(meta.title, `${dashScopeLabel('mg')} · ${dashPeriodLabel('mg')}`, mgTileData[key] || [], { empty: meta.empty });
+  taskListModal(meta.title, `${dashScopeLabel('mg', !isSuperAdmin)} · ${dashPeriodLabel('mg')}`, mgTileData[key] || [], { empty: meta.empty });
 }
 // Superadmin: wipe every task for a clean demo. Employees, clients, teams
 // and the org chart are untouched. Two-step confirm.
@@ -4437,24 +4435,25 @@ function renderPendingReview(){
 function renderNeedsRework(){
   const wrap = document.getElementById('needsReworkWrap');
   if(!wrap) return;
-  // Covers both stages: flagged but not yet accepted (awaiting_acceptance
-  // or window_proposed, reviewStatus==='error') and actively being fixed
-  // (status==='rework', post-acceptance) — same underlying "not yet
-  // redelivered" condition the Accuracy panel and commitment tracking use.
-  const rework = mgTasks().filter(isReworkFlagged);
+  // Anything a manager may need to act on: rework in progress or flagged
+  // for it, plus every proposed-window awaiting approve/reject.
+  const rework = mgTasks().filter(t => isReworkFlagged(t) || t.status === 'window_proposed');
   if(rework.length === 0){
     wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">Nothing sitting in rework right now.</p>`;
     return;
   }
   wrap.innerHTML = rework.map(t => {
     const emp = empById(t.assignedTo);
-    let stageLabel;
+    let stageLabel, action = '';
     if(t.status === 'rework') stageLabel = t.reworkElapsedHours != null ? 'In rework ' + fmtHrsMins(t.reworkElapsedHours) : 'In rework';
-    else if(t.status === 'window_proposed') stageLabel = 'Proposed new window';
+    else if(t.status === 'window_proposed'){
+      stageLabel = 'Proposed: ' + fmtDate(t.proposedDate);
+      if(isAdmin) action = `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="approveProposal('${t.id}')">Approve</button> <button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
+    }
     else stageLabel = 'Awaiting acceptance';
     return `<div class="flag-row" style="align-items:center;">
-      <span>${esc(t.name)}${t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''} <span style="color:var(--text-faint); font-size:12.5px;">— with ${emp ? esc(emp.name) : '—'} · ${esc(t.clientName)}${t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}</span></span>
-      <span class="flag-count">${stageLabel}</span>
+      <span>${esc(t.name)}${t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''} <span style="color:var(--text-faint); font-size:12.5px;">— with ${emp ? esc(emp.name) : '—'} · ${esc(t.clientName)}${t.proposedReason ? ' · “' + esc(t.proposedReason) + '”' : (t.reviewNote ? ' · ' + esc(t.reviewNote) : '')}</span></span>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">${action}<span class="flag-count">${stageLabel}</span></span>
     </div>`;
   }).join('');
 }
@@ -5183,6 +5182,10 @@ async function onLoginComplete(){
   document.getElementById('commandCenterNavSection').style.display = isAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('founderNavSection').style.display = isSuperAdmin ? '' : 'none';
+  // Task Engine / Manager Dashboard / Analytics show cross-team performance —
+  // managers and above only. A plain employee sees their own work and their
+  // own report card, nothing about anyone else.
+  document.getElementById('analyticsNavSection').style.display = isAdmin ? '' : 'none';
   // Visible to every Admin/Superadmin — actual assign permission (decided by
   // a Superadmin via Manage Access) is enforced inside the modal, not by
   // hiding the nav item from managers who haven't been granted anyone yet.
@@ -5196,11 +5199,12 @@ async function onLoginComplete(){
   document.getElementById('topRole').textContent = session.jobTitle + ' · ' + session.team;
 
   await refreshEmployees();
-  // Team Board — visible to a founder or anyone with an admin-level membership
-  // (independent of accessRole; a manager may be an 'employee' access-wise).
+  // Team Board — for anyone who actually leads people: an admin/superadmin,
+  // or someone with reports assigned (managesIds). Not driven by the stale
+  // memberships layer any more.
   {
     const meRec = empById(session.id) || session;
-    const leadsTeam = !!(meRec && (meRec.isFounder || (meRec.memberships || []).some(m => m && m.level === 'admin')));
+    const leadsTeam = isAdmin || !!(meRec && (meRec.isFounder || (meRec.managesIds || []).length > 0));
     document.getElementById('teamBoardNavSection').style.display = leadsTeam ? '' : 'none';
   }
   await refreshClients();
@@ -5211,7 +5215,6 @@ async function onLoginComplete(){
   renderReportCard();
 
   if(isAdmin){
-    document.getElementById('scopeFilter').value = 'all';
     showView('manager', document.querySelector('.nav-item[data-view="manager"]'));
   }
   startPolling();
