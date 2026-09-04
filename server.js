@@ -521,7 +521,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     acceptedAt: status === 'accepted' ? new Date().toISOString() : null,
             timerStartedAt: status === 'accepted' ? new Date().toISOString() : null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
-    reviewerId: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
     // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
     // app are 'manual'; the Slack connector will send 'call' / 'slack' later.
@@ -720,6 +720,7 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   // 'done' is a terminal review state meaning "closed, no formal review
   // needed" — so the task reads as done, not "sent for review".
   t.reviewStatus = 'done'; t.reviewerId = null; t.awaitingClientDecision = false;
+  t.closedBy = req.employee.id; t.closedAt = t.completedAt;
   const kind = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'call' : 'Slack') + ' task' : 'no review needed';
   logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (${kind}).`);
   db.save();
@@ -1069,12 +1070,25 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
       rating,
     };
   });
+  const nameOf = id => (id ? (findEmployee(state, id) || {}).name || '—' : null);
   const assignments = state.tasks.map(t => ({
-    id: t.id, name: t.name, clientName: t.clientName,
-    assignedBy: (findEmployee(state, t.assignedBy) || {}).name || '—',
-    assignedTo: (findEmployee(state, t.assignedTo) || {}).name || '—',
+    id: t.id, name: t.name, clientName: t.clientName, kind: t.kind || 'client', source: t.source || 'manual',
+    assignedBy: nameOf(t.assignedBy) || '—',
+    assignedTo: nameOf(t.assignedTo) || '—',
     status: t.status, reassigned: (t.reassignHistory || []).length,
-    delivered: t.status === 'completed', completedAt: t.completedAt, clientDate: t.clientDate, assignedAt: t.assignedAt,
+    // Review / close trail — who actually did what, not just the status word.
+    reviewStatus: t.reviewStatus || null,
+    reviewer: nameOf(t.reviewerId),           // nominated, not yet acted
+    reviewedBy: nameOf(t.reviewedBy),         // who filed the review
+    reviewedAt: t.reviewedAt || null, reviewNote: t.reviewNote || null, faultType: t.faultType || null,
+    closedBy: nameOf(t.closedBy),             // who hit "Mark Done"
+    sentToClient: t.sentToClient, sentToClientBy: nameOf(t.sentToClientBy), sentToClientAt: t.sentToClientAt || null,
+    reworkCount: t.reworkCount || 0,
+    reassignTrail: (t.reassignHistory || []).map(h => ({
+      from: nameOf(h.from) || '—', to: nameOf(h.to) || '—', by: nameOf(h.by), at: h.at || null, reason: h.reason || null,
+    })),
+    delivered: t.status === 'completed', completedAt: t.completedAt, acceptedAt: t.acceptedAt || null,
+    clientDate: t.clientDate, assignedAt: t.assignedAt,
     loggedHours: Math.round(liveElapsedHours(t) * 100) / 100, tatHours: t.tat || 0,
   }));
   res.json({ rows, assignments });
@@ -1283,7 +1297,7 @@ app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
     logged: 0, tat: 0,
     acceptedAt: now, timerStartedAt: null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
-    reviewerId: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [],
     source, sourceRef: b.sourceRef || null,
     estMinutes: b.estMinutes != null && !isNaN(Number(b.estMinutes)) ? Number(b.estMinutes) : null,

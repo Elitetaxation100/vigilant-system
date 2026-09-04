@@ -283,6 +283,10 @@ function runMigrations(state) {
     if (t.status === 'completed' && !t.reviewStatus && t.source && t.source !== 'manual') {
       t.reviewStatus = 'done';
     }
+    // Who closed the task without a formal review ("Mark Done"). Older
+    // done-without-review tasks predate the field — leave it null.
+    if (t.closedBy === undefined) t.closedBy = null;
+    if (t.closedAt === undefined) t.closedAt = null;
     // Self-assignment approval was removed — any task still parked in
     // 'pending_approval' just becomes active work for its owner.
     if (t.status === 'pending_approval') {

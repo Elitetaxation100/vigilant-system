@@ -2464,7 +2464,7 @@ function renderTaskTable(){
         <td class="pts">★ ${t.points} pts</td>
         <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
         <td class="logged">${t.tat} hrs</td>
-        <td>${statusBadge(t)}</td>
+        <td style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')" title="Who did what — full history">${statusBadge(t)}<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">history ›</div></td>
         <td>${actionCell(t)}</td>
       </tr>`;
     }).join('');
@@ -3525,16 +3525,27 @@ async function renderCommandCenter(){
   const rows = ccAssignments.length ? ccAssignments.filter(a => ccInWindow(a.assignedAt)) : source.map(t => ({
     id: t.id, name: t.name, clientName: t.clientName,
     assignedBy: (empById(t.assignedBy)||{}).name || '—', assignedTo: (empById(t.assignedTo)||{}).name || '—',
-    status: t.status, reassigned: (t.reassignHistory||[]).length,
+    status: t.status, reviewStatus: t.reviewStatus || null,
+    reviewer: t.reviewerId ? ((empById(t.reviewerId)||{}).name || '—') : null,
+    reviewedBy: t.reviewedBy ? ((empById(t.reviewedBy)||{}).name || '—') : null,
+    closedBy: t.closedBy ? ((empById(t.closedBy)||{}).name || '—') : null,
+    reassigned: (t.reassignHistory||[]).length,
     loggedHours: displayedLogged(t), tatHours: t.tat || 0
   }));
+  // Small line under the status badge saying who actually acted.
+  const whoLine = r => {
+    if(r.reviewStatus === 'clean' || r.reviewStatus === 'error') return r.reviewedBy ? `reviewed by ${esc(r.reviewedBy)}` : '';
+    if(r.reviewStatus === 'done') return r.closedBy ? `closed by ${esc(r.closedBy)}` : 'closed — no review';
+    if(r.status === 'completed') return r.reviewer ? `with ${esc(r.reviewer)} for review` : 'awaiting review';
+    return '';
+  };
   document.getElementById('ccAssignBody').innerHTML = rows.length ? rows.map(r => `
-      <tr>
+      <tr style="cursor:pointer;" onclick="openTaskTrailModal('${r.id}')" title="Click for the full history — who did what, when">
         <td class="task-id">${r.id}</td>
         <td>${esc(r.name)}${r.clientName ? `<div style="font-size:12px;color:#6B7390;">${esc(r.clientName)}</div>` : ''}</td>
         <td>${esc(r.assignedBy)}</td>
         <td>${esc(r.assignedTo)}</td>
-        <td>${statusBadge(r)}</td>
+        <td>${statusBadge(r)}${whoLine(r) ? `<div style="font-size:11px;color:#6B7390;margin-top:3px;">${whoLine(r)}</div>` : ''}</td>
         <td style="font-family:var(--font-mono); white-space:nowrap;">${r.loggedHours.toFixed(2)} / ${r.tatHours} hrs</td>
         <td>${r.reassigned > 0 ? `<span class="badge overdue dot">${r.reassigned}×</span>` : '—'}</td>
       </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:#6B7390;padding:22px;">No assignments in this window.</td></tr>`;
@@ -4496,6 +4507,81 @@ function openReviewViewModal(id){
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
       <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision ? '<span style="color:#B45309;">Awaiting decision on sending to client</span>' : t.sentToClient === true ? '<span style="color:#0D9488;">✓ Sent directly to client</span>' : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>' : '<span style="color:var(--text-faint);">—</span>'}</div>
     </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+  `;
+  openModal();
+}
+/* =========================================================================
+   TASK TRAIL — the full "who did what, when" for one task, built from the
+   task's own timestamped fields. Reachable from every Command Center row.
+   ========================================================================= */
+function openTaskTrailModal(id){
+  const t = findTask(id);
+  if(!t){ showToast('error', 'Not found', 'That task is no longer in the list.'); return; }
+  const nm = eid => eid ? ((empById(eid)||{}).name || '—') : null;
+  const dt = iso => { if(!iso) return ''; const d = new Date(iso); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'}); };
+  const ev = [];
+  const push = (at, icon, text) => ev.push({ at: at || '', icon, text });
+
+  const assignedByName = nm(t.assignedBy), assignedToName = nm(t.assignedTo);
+  const srcLabel = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'from a call' : 'from Slack') : null;
+  push(t.assignedAt, '📌',
+    (t.assignedBy && t.assignedBy === t.assignedTo)
+      ? `<b>${esc(assignedToName)}</b> self-assigned this task${srcLabel ? ' ('+srcLabel+')' : ''}.`
+      : `<b>${esc(assignedByName||'—')}</b> assigned this to <b>${esc(assignedToName||'—')}</b>${srcLabel ? ' ('+srcLabel+')' : ''}.`);
+
+  (t.reassignHistory||[]).forEach(h => {
+    push(h.at, '↔', `<b>${esc(nm(h.by)||'—')}</b> reassigned it from <b>${esc(nm(h.from)||'—')}</b> to <b>${esc(nm(h.to)||'—')}</b>${h.reason ? ' — “'+esc(h.reason)+'”' : ''}.`);
+  });
+
+  if(t.acceptedAt) push(t.acceptedAt, '✅', `<b>${esc(assignedToName||'—')}</b> accepted it.`);
+
+  (t.holdHistory||[]).forEach(h => {
+    push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold — “${esc(h.reason||'')}”${h.hasShot ? ' (screenshot attached)' : ''}.`);
+    if(h.resumedAt) push(h.resumedAt, '▶', `Taken off hold.`);
+  });
+
+  (t.reworkHistory||[]).forEach(h => {
+    if(h.startedAt) push(h.startedAt, '⚠', `Sent back for rework (round ${h.round||'?'})${h.faultType ? ' — ' + (h.faultType === 'processor' ? 'processor fault' : 'SOP / manager fault') : ''}${h.reviewNote ? ': “'+esc(h.reviewNote)+'”' : ''}.`);
+    if(h.endedAt) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
+  });
+
+  if(t.completedAt){
+    if(t.reviewStatus === 'done'){
+      push(t.closedAt || t.completedAt, '🏁', `<b>${esc(nm(t.closedBy)||assignedToName||'—')}</b> marked it done — no review needed.`);
+    } else {
+      push(t.completedAt, '📤', `<b>${esc(assignedToName||'—')}</b> marked it complete${t.reviewerId ? ' and sent it to <b>'+esc(nm(t.reviewerId)||'—')+'</b> to review' : ' for review'}.`);
+    }
+  }
+
+  if(t.reviewedAt && (t.reviewStatus === 'clean' || t.reviewStatus === 'error')){
+    push(t.reviewedAt, t.reviewStatus === 'clean' ? '🔎' : '🛑',
+      `<b>${esc(nm(t.reviewedBy)||'—')}</b> reviewed it — ${t.reviewStatus === 'clean' ? 'error-free' : 'error found'}${t.reviewNote ? ': “'+esc(t.reviewNote)+'”' : ''}.`);
+  }
+
+  if(t.sentToClientAt){
+    push(t.sentToClientAt, t.sentToClient ? '📨' : '🚫',
+      t.sentToClient
+        ? `<b>${esc(nm(t.sentToClientBy)||'—')}</b> sent it to the client.`
+        : `<b>${esc(nm(t.sentToClientBy)||'—')}</b> decided not to send it to the client.`);
+  }
+
+  ev.sort((a,b) => (a.at||'').localeCompare(b.at||''));
+  const rowsHtml = ev.map(e => `
+    <div style="display:grid;grid-template-columns:26px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--panel-border);">
+      <div style="font-size:15px;line-height:1.4;">${e.icon}</div>
+      <div>
+        <div style="font-size:13.5px;color:var(--text-dim);line-height:1.55;">${e.text}</div>
+        <div style="font-size:11.5px;color:var(--text-faint);font-family:var(--font-mono);margin-top:2px;">${e.at ? dt(e.at) : '—'}</div>
+      </div>
+    </div>`).join('');
+
+  const stateNow = (t.reviewStatus === 'clean' || t.reviewStatus === 'done') ? 'Done'
+    : t.reviewStatus === 'error' ? 'In rework' : statusLabel(t.status);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Task history — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${t.id} · now: <b>${esc(stateNow)}</b></div>
+    <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
   `;
   openModal();
