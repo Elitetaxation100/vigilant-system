@@ -1061,7 +1061,9 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
     const cleanDelivered = delivered.filter(t => t.reviewStatus === 'clean');
     const errorDelivered = delivered.filter(t => t.reviewStatus === 'error');
     const reviewedCount = cleanDelivered.length + errorDelivered.length;
-    const onTime = delivered.filter(t => t.clientDate && t.completedAt && t.completedAt.slice(0, 10) <= t.clientDate);
+    // On-time is judged only against delivered work that HAD a client date.
+    const deliveredWithDate = delivered.filter(t => t.clientDate && t.completedAt);
+    const onTime = deliveredWithDate.filter(t => t.completedAt.slice(0, 10) <= t.clientDate);
     const reassignedAway = state.tasks.reduce((n, t) => n + (t.reassignHistory || []).filter(h => h.from === emp.id).length, 0);
     const reassignedIn = state.tasks.reduce((n, t) => n + (t.reassignHistory || []).filter(h => h.to === emp.id).length, 0);
     const reworkCount = assignedToMe.reduce((s, t) => s + (t.reworkCount || 0), 0);
@@ -1073,13 +1075,22 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
     const deliveredLoggedHours = delivered.reduce((s, t) => s + t.logged, 0);
     const deliveredTatHours = delivered.reduce((s, t) => s + (t.tat || 0), 0);
     const avgHoursPerTask = delivered.length ? deliveredLoggedHours / delivered.length : null;
-    const onTimeRate = delivered.length ? onTime.length / delivered.length : 0;
-    const cleanRate = reviewedCount ? cleanDelivered.length / reviewedCount : 0;
+    const onTimeRate = deliveredWithDate.length ? onTime.length / deliveredWithDate.length : null;
+    const cleanRate = reviewedCount ? cleanDelivered.length / reviewedCount : null;
+    // Rating = the average of whatever quality signals this person actually
+    // has (on-time on client-dated work, clean-review rate), minus a small
+    // penalty per rework round. No signals (e.g. only internal work, never
+    // reviewed) → no rating rather than a misleading zero.
     let rating = null;
     if (delivered.length > 0) {
-      let score = reviewedCount ? (0.5 * onTimeRate + 0.5 * cleanRate) : onTimeRate;
-      score -= Math.min(reworkCount * 0.05, 0.3);
-      rating = Math.round(Math.max(0, Math.min(1, score)) * 50) / 10; // 0–5, one decimal
+      const parts = [];
+      if (onTimeRate !== null) parts.push(onTimeRate);
+      if (cleanRate !== null) parts.push(cleanRate);
+      if (parts.length) {
+        let score = parts.reduce((a, b) => a + b, 0) / parts.length;
+        score -= Math.min(reworkCount * 0.05, 0.3);
+        rating = Math.round(Math.max(0, Math.min(1, score)) * 50) / 10; // 0–5, one decimal
+      }
     }
     // Productivity = actual delivery time on completed work against total
     // shift hours actually logged in (from the daily login/logout clock).
@@ -1091,12 +1102,13 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
     return {
       id: emp.id, name: emp.name, jobTitle: emp.jobTitle, team: emp.team, accessRole: emp.accessRole,
       assigned: assignedToMe.length, assignedByThem: assignedByMe.length,
-      delivered: delivered.length, onTime: onTime.length,
+      delivered: delivered.length, onTime: onTime.length, deliveredWithDate: deliveredWithDate.length,
       cleanDelivered: cleanDelivered.length, errorDelivered: errorDelivered.length,
       reassignedAway, reassignedIn, reworkCount,
       reworkHoursTotal: Math.round(reworkHoursTotal * 100) / 100,
       avgReworkHours: avgReworkHours === null ? null : Math.round(avgReworkHours * 100) / 100,
-      onTimeRate: Math.round(onTimeRate * 100), cleanRate: Math.round(cleanRate * 100),
+      onTimeRate: onTimeRate === null ? null : Math.round(onTimeRate * 100),
+      cleanRate: cleanRate === null ? null : Math.round(cleanRate * 100),
       totalLoggedHours: Math.round(totalLoggedHours * 100) / 100,
       activeLoggedHours: Math.round(activeLoggedHours * 100) / 100,
       deliveredLoggedHours: Math.round(deliveredLoggedHours * 100) / 100,

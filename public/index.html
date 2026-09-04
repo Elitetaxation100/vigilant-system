@@ -756,8 +756,8 @@
             <div class="mt-label">Productive Hours</div>
             <div class="mt-value" id="myHoursCommitted">0.0<small>h</small></div>
           </div>
-          <div class="metric-tile">
-            <div class="mt-label">Productivity</div>
+          <div class="metric-tile" title="Of your completed work that had a client date, how much landed on or before it">
+            <div class="mt-label">On-Time</div>
             <div class="mt-value teal" id="myProductivity">—</div>
           </div>
           <div class="metric-tile">
@@ -3537,8 +3537,10 @@ async function renderCommandCenter(){
   document.getElementById('ccStatReassigned').textContent = reassigned;
   const totalHours = source.reduce((s,t) => s + displayedLogged(t), 0);
   document.getElementById('ccStatHours').textContent = totalHours.toFixed(1);
-  const onTime = delivered.filter(t => t.clientDate && t.completedAt && t.completedAt.slice(0,10) <= t.clientDate);
-  document.getElementById('ccStatCompliance').textContent = (delivered.length ? Math.round((onTime.length/delivered.length)*100) : 0) + '%';
+  // Compliance is on-time delivery against work that had a client date.
+  const deliveredDated = delivered.filter(t => t.clientDate && t.completedAt);
+  const onTime = deliveredDated.filter(t => t.completedAt.slice(0,10) <= t.clientDate);
+  document.getElementById('ccStatCompliance').textContent = (deliveredDated.length ? Math.round((onTime.length/deliveredDated.length)*100) : 0) + '%';
 
   const teams = [...new Set(employees.map(e => e.team))];
   const teamHtml = teams.map(team => {
@@ -3601,8 +3603,8 @@ async function renderCommandCenter(){
         <td style="font-family:var(--font-mono);">${r.totalLoggedHours.toFixed(1)}h</td>
         <td style="font-family:var(--font-mono);">${r.avgHoursPerTask === null ? '—' : r.avgHoursPerTask.toFixed(2) + 'h'}</td>
         <td>${r.reassignedAway + r.reassignedIn}</td>
-        <td>${r.onTimeRate}%</td>
-        <td>${r.cleanRate}%</td>
+        <td>${r.onTimeRate === null ? '—' : r.onTimeRate + '%'}</td>
+        <td>${r.cleanRate === null ? '—' : r.cleanRate + '%'}</td>
         <td>${r.reworkCount}</td>
         <td style="font-family:var(--font-mono);">${r.reworkHoursTotal ? r.reworkHoursTotal.toFixed(2)+'h' : '—'}</td>
         <td style="font-family:var(--font-mono);">${r.shiftHours ? r.shiftHours.toFixed(1)+'h' : '—'}</td>
@@ -3619,11 +3621,11 @@ function downloadExcelReport(){
   const rows = ccReportRows.map(r => ({
     'Name': r.name, 'Job Title': r.jobTitle, 'Team': r.team, 'Access': accessLabel(r.accessRole),
     'Assigned (to them)': r.assigned, 'Assigned (by them)': r.assignedByThem,
-    'Delivered': r.delivered, 'On-Time Delivered': r.onTime, 'On-Time %': r.onTimeRate,
+    'Delivered': r.delivered, 'On-Time Delivered': r.onTime, 'Delivered w/ Client Date': r.deliveredWithDate, 'On-Time %': r.onTimeRate === null ? 'N/A' : r.onTimeRate,
     'Total Hours Logged': r.totalLoggedHours, 'Hours In-Progress (not yet delivered)': r.activeLoggedHours,
     'Avg Hours / Delivered Task': r.avgHoursPerTask === null ? 'N/A' : r.avgHoursPerTask,
     'Hours Logged vs TAT (delivered)': `${r.deliveredLoggedHours} / ${r.deliveredTatHours}`,
-    'Reviewed Clean': r.cleanDelivered, 'Reviewed w/ Error': r.errorDelivered, 'Clean Review %': r.cleanRate,
+    'Reviewed Clean': r.cleanDelivered, 'Reviewed w/ Error': r.errorDelivered, 'Clean Review %': r.cleanRate === null ? 'N/A' : r.cleanRate,
     'Reassigned Away': r.reassignedAway, 'Reassigned To Them': r.reassignedIn,
     'Rework Rounds': r.reworkCount, 'Rework Hours (total)': r.reworkHoursTotal,
     'Avg Rework Hours / Round': r.avgReworkHours === null ? 'N/A' : r.avgReworkHours,
@@ -4083,12 +4085,16 @@ async function renderFounderView(){
   setT('fvTasksCompleted', cIn.length.toLocaleString());
   setD('fvTasksCompletedSub', dashDeltaHtml(cIn.length, cPrev.length, { key:'fv', fallback:'in this period' }));
 
-  const otIn = cIn.filter(t => t.clientDate && t.completedAt.slice(0,10) <= t.clientDate);
-  const otPct = cIn.length ? Math.round(otIn.length/cIn.length*100) : null;
-  const otPrev = cPrev.filter(t => t.clientDate && t.completedAt.slice(0,10) <= t.clientDate);
-  const otPctPrev = cPrev.length ? Math.round(otPrev.length/cPrev.length*100) : null;
+  // On-time % is judged only against work that HAD a client date — internal
+  // tasks and anything with no agreed client date can't be early or late.
+  const cInDated = cIn.filter(t => t.clientDate);
+  const cPrevDated = cPrev.filter(t => t.clientDate);
+  const otIn = cInDated.filter(t => t.completedAt.slice(0,10) <= t.clientDate);
+  const otPct = cInDated.length ? Math.round(otIn.length/cInDated.length*100) : null;
+  const otPrev = cPrevDated.filter(t => t.completedAt.slice(0,10) <= t.clientDate);
+  const otPctPrev = cPrevDated.length ? Math.round(otPrev.length/cPrevDated.length*100) : null;
   setT('fvOnTimePct', otPct === null ? '—' : otPct + '%');
-  setD('fvOnTimeSub', cIn.length ? `${otIn.length} of ${cIn.length}` + (dashScope.fv.cmp && otPctPrev != null ? ` · <span class="${otPct>=otPctPrev?'dn':'up'}">${otPct>=otPctPrev?'▲':'▼'}</span> vs ${otPctPrev}%` : '') : 'No completed tasks');
+  setD('fvOnTimeSub', cInDated.length ? `${otIn.length} of ${cInDated.length} with a client date` + (dashScope.fv.cmp && otPctPrev != null ? ` · <span class="${otPct>=otPctPrev?'dn':'up'}">${otPct>=otPctPrev?'▲':'▼'}</span> vs ${otPctPrev}%` : '') : 'No client-dated work');
 
   const qReq = cIn.filter(t => (t.reworkCount||0) > 0).length;
   const qPct = cIn.length ? Math.round((cIn.length - qReq)/cIn.length*100) : null;
@@ -4156,18 +4162,19 @@ async function renderFounderView(){
     if(!done.length) return null;
     return Math.round(done.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / done.length * 100);
   };
-  const perfRows = scopedRows.filter(x => x.delivered > 0).sort((a,b) => b.onTimeRate - a.onTimeRate);
+  const perfRows = scopedRows.filter(x => x.delivered > 0).sort((a,b) => (b.onTimeRate ?? -1) - (a.onTimeRate ?? -1));
   const perfWrap = document.getElementById('fvOwnerPerfWrap');
   if(perfRows.length === 0){
     perfWrap.innerHTML = `<div style="font-size:14px;color:var(--text-faint);padding:18px 0;">No completed work in this scope yet.</div>`;
   } else {
     perfWrap.innerHTML = perfRows.map(x => {
-      const col = x.onTimeRate >= 85 ? 'var(--teal)' : x.onTimeRate >= 60 ? 'var(--amber)' : 'var(--coral)';
+      const ot = x.onTimeRate;
+      const col = ot === null ? 'var(--line)' : ot >= 85 ? 'var(--teal)' : ot >= 60 ? 'var(--amber)' : 'var(--coral)';
       const cm = commitFor(x.id);
       return `<div class="pr"><span class="av">${esc(dInitials(x.name))}</span><span class="pm">
-        <span class="pt"><b>${esc(x.name)}</b><span class="r">${x.onTimeRate}% on-time</span></span>
-        <span class="track"><span class="fl" style="width:${Math.min(100,x.onTimeRate)}%;background:${col}"></span></span>
-        <span class="ps"><span>${x.delivered} task${x.delivered===1?'':'s'}</span><span>Accuracy ${x.cleanRate}%</span><span>Prod. ${x.productivityPct==null?'—':x.productivityPct+'%'}</span><span>Commit ${cm==null?'—':cm+'%'}</span></span>
+        <span class="pt"><b>${esc(x.name)}</b><span class="r">${ot === null ? 'no client-dated work' : ot + '% on-time'}</span></span>
+        <span class="track"><span class="fl" style="width:${ot === null ? 0 : Math.min(100,ot)}%;background:${col}"></span></span>
+        <span class="ps"><span>${x.delivered} task${x.delivered===1?'':'s'}</span><span>Accuracy ${x.cleanRate==null?'—':x.cleanRate+'%'}</span><span>Prod. ${x.productivityPct==null?'—':x.productivityPct+'%'}</span><span>Commit ${cm==null?'—':cm+'%'}</span></span>
       </span></div>`;
     }).join('');
   }
