@@ -848,7 +848,9 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     t.faultType = faultType;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for rework — error found. Accept it (or propose a new window) to start fixing it. ${note ? 'Note: ' + escHtml(note) : ''}`);
   } else {
-    t.awaitingClientDecision = true;
+    // A client task then asks "send it to the client?"; an internal task
+    // (training, admin) has no client, so a clean review just closes it.
+    t.awaitingClientDecision = t.kind !== 'internal';
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
     const managers = state.employees.filter(e => (e.managesIds || []).includes(t.assignedTo));
     managers.forEach(m => {
