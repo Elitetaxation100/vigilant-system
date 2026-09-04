@@ -1380,14 +1380,20 @@ app.patch('/api/int/tasks/:id', requireIntegrationAuth, (req, res) => {
   }
 
   const status = String(b.status || '');
-  if (status === 'done' || status === 'completed') {
+  const wantsDone = status === 'done' || status === 'completed';
+  if (wantsDone && t.status !== 'completed') {
     if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
     if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
     t.status = 'completed';
     t.completedAt = new Date().toISOString();
-    if (!t.reviewStatus) t.reviewStatus = 'done';
+    // Only a fresh completion with nobody set to review it reads as 'done'.
+    // If it was already sent for review (reviewerId set), leave that alone.
+    if (!t.reviewStatus && !t.reviewerId) { t.reviewStatus = 'done'; t.closedBy = t.assignedTo || null; t.closedAt = t.completedAt; }
     logEvent(state, t.assignedTo || ((state.employees[0] || {}).id || null), `"${escHtml(t.name)}" marked done from Slack.`);
     changed = true;
+  } else if (wantsDone && t.status === 'completed') {
+    // Already done — a repeat Slack "done" click is a harmless no-op.
+    return res.json({ ok: true, task: taskForClient(t) });
   } else if (status && status !== 'open') {
     return res.status(400).json({ error: 'Unsupported status: ' + status });
   }

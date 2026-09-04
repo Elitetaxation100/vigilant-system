@@ -278,11 +278,6 @@ function runMigrations(state) {
     if (t.holdCount === undefined) t.holdCount = 0;
     if (t.holdHistory === undefined) t.holdHistory = []; // [{ heldAt, reason, hasShot, resumedAt }]
     if (t.preHoldStatus === undefined) t.preHoldStatus = null;
-    // A call / Slack task marked done skips formal review — record that as a
-    // terminal 'done' review state so it reads as done, not "awaiting review".
-    if (t.status === 'completed' && !t.reviewStatus && t.source && t.source !== 'manual') {
-      t.reviewStatus = 'done';
-    }
     // Who closed the task without a formal review ("Mark Done"). Older
     // done-without-review tasks predate the field — leave it null.
     if (t.closedBy === undefined) t.closedBy = null;
@@ -298,6 +293,20 @@ function runMigrations(state) {
     // rule, so it's a client task.
     if (t.kind === undefined) t.kind = 'client';
   });
+  // ONE-TIME historical backfill: call / Slack tasks that were already
+  // completed before the review flow existed should read as 'done', not
+  // "awaiting review". This must NOT re-run — after the flow shipped, a
+  // completed task with reviewStatus === null means it was deliberately
+  // sent for review (and carries a reviewerId). Re-running would clobber
+  // that on every deploy. New completions set reviewStatus themselves.
+  if (!state._slackDoneBackfilled) {
+    (state.tasks || []).forEach(t => {
+      if (t.status === 'completed' && !t.reviewStatus && !t.reviewerId && t.source && t.source !== 'manual') {
+        t.reviewStatus = 'done';
+      }
+    });
+    state._slackDoneBackfilled = true;
+  }
   ensureOrgChart(state);
   ensureExtendedFields(state);
 }
