@@ -1765,22 +1765,16 @@ function eligibleReviewersFor(assigneeId){
   return employees.filter(e => e.id !== assigneeId);
 }
 
-/* Which tasks a person's "My Dashboard" panels reflect:
-   employee → only their own; manager (admin) → their team (the people in
-   managesIds, plus themselves); founder / superadmin → the whole firm. */
+/* The "My Dashboard" (Commitment Dashboard) is strictly personal for
+   EVERYONE — plain employee, manager, founder, superadmin alike. It shows
+   the tasks assigned to you plus the tasks sitting in front of you for
+   review. Team- and firm-wide views live on the Manager Dashboard, the
+   Founder View and the Command Center, not here. */
 function dashboardScopeTasks(){
-  if(isSuperAdmin) return tasks;
-  if(session && session.accessRole === 'admin'){
-    const ids = new Set([...(session.managesIds || []), currentViewerId]);
-    return tasks.filter(t => ids.has(t.assignedTo));
-  }
-  return tasks.filter(t => t.assignedTo === currentViewerId);
+  const reviewIds = new Set(myReviewTasks().map(t => t.id));
+  return tasks.filter(t => t.assignedTo === currentViewerId || reviewIds.has(t.id));
 }
-function dashboardScopeLabelShort(){
-  if(isSuperAdmin) return 'whole firm';
-  if(session && session.accessRole === 'admin') return 'your team';
-  return 'your tasks';
-}
+function dashboardScopeLabelShort(){ return ''; }
 
 /* =========================================================================
    VIEW SWITCHING
@@ -2450,25 +2444,17 @@ async function removeTask(id){
 function renderTaskTable(){
   const q = (document.getElementById('taskSearch').value || '').toLowerCase();
   const status = document.getElementById('statusFilter').value;
+  // The Commitment Dashboard is personal for everyone — this table only
+  // ever shows the viewer's own work plus anything sent to them to review.
+  // Team- and firm-wide task lists live on the Manager Dashboard and the
+  // Command Center. The scope control is gone.
   const scopeSel = document.getElementById('scopeFilter');
-  // A plain employee only ever sees their own work here — lock the control.
-  if(scopeSel){
-    const canSeeWider = isSuperAdmin || (session && session.accessRole === 'admin');
-    scopeSel.disabled = !canSeeWider;
-    if(!canSeeWider) scopeSel.value = 'mine';
-    const allOpt = scopeSel.querySelector('option[value="all"]');
-    if(allOpt) allOpt.textContent = isSuperAdmin ? 'All Tasks (firm)' : (canSeeWider ? 'My Team' : 'All Tasks');
-  }
-  const scope = scopeSel ? scopeSel.value : 'mine';
-  // "all" for a manager means their team, not the whole firm.
-  const teamIds = new Set([...((session && session.managesIds) || []), currentViewerId]);
+  if(scopeSel) scopeSel.style.display = 'none';
   const body = document.getElementById('taskTableBody');
   const rows = tasks.filter(t => {
-    // "My Tasks" = work assigned to me, plus anything sitting in front of me
-    // for review (someone sent it to me to check).
-    if(scope === 'mine' && t.assignedTo !== currentViewerId && !(t.status === 'completed' && !t.reviewStatus && iCanReview(t))) return false;
-    if(scope === 'all' && !isSuperAdmin && session && session.accessRole === 'admin' && !teamIds.has(t.assignedTo)) return false;
-    if(scope === 'all' && !isSuperAdmin && !(session && session.accessRole === 'admin') && t.assignedTo !== currentViewerId) return false;
+    const mineOrToReview = t.assignedTo === currentViewerId ||
+      (t.status === 'completed' && !t.reviewStatus && iCanReview(t));
+    if(!mineOrToReview) return false;
     if(status && t.status !== status) return false;
     const hay = (t.name + ' ' + t.scope + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
     return hay.includes(q);
@@ -2606,7 +2592,10 @@ function renderEmployeeStats(){
   // Slack task marked done) and self-assignments still waiting on a manager.
   myTodaysWork = mine.filter(t =>
     t.status !== 'pending_approval' &&
-    !(t.status === 'completed' && (t.reviewStatus === 'clean' || t.reviewStatus === 'done')));
+    !(t.status === 'completed' && (t.reviewStatus === 'clean' || t.reviewStatus === 'done')))
+    // plus anything other people have sent you to review — that's on your
+    // plate today too.
+    .concat(myReviewTasks());
   // "Done today" = tasks this person completed today (used by the tile +
   // its date-range drill-down, which starts on today).
   myDoneToday = mine.filter(t => t.completedAt && t.completedAt.slice(0,10) === today);
@@ -2783,27 +2772,16 @@ function renderStatusDonut(){
       const legend = order.map(status => `<div class="donut-legend-item"><span class="dot" style="background:${colors[status]||'#6B7390'};"></span>${statusLabel(status)} <b>${counts[status]}</b></div>`).join('');
       wrap.innerHTML = `<div class="donut-ring" style="background:conic-gradient(${stops});"><div class="donut-ring-hole"><b>${total}</b><span>Total</span></div></div><div class="donut-legend">${legend}</div>`;
       const sc = document.getElementById('statusDonutScope');
-      if(sc) sc.textContent = '· ' + dashboardScopeLabelShort();
+      if(sc){ const lbl = dashboardScopeLabelShort(); sc.textContent = lbl ? '· ' + lbl : ''; }
     }
             function renderAssigneeBarChart(){
-                const wrap = document.getElementById('assigneeBarWrap');
-                if(!wrap) return;
-                // "By assignee" only means something across more than one person —
-                // hide it for a plain employee (that's just their own single bar).
+                // "Open tasks by assignee" is a team view — it lives on the
+                // Manager Dashboard now, not on anyone's personal Commitment
+                // Dashboard. Always hidden here.
                 const panel = document.getElementById('assigneeBarPanel');
-                const isManagerish = isSuperAdmin || (session && session.accessRole === 'admin');
-                if(panel) panel.style.display = isManagerish ? '' : 'none';
-                if(!isManagerish){ wrap.innerHTML = ''; return; }
-                const scopeEl = document.getElementById('assigneeBarScope');
-                if(scopeEl) scopeEl.textContent = '· ' + dashboardScopeLabelShort();
-                const open = dashboardScopeTasks().filter(t => t.status !== 'completed');
-                if(open.length === 0){ wrap.innerHTML = '<div class="chart-empty">No open tasks right now.</div>'; return; }
-                const counts = {};
-                open.forEach(t => { const name = empById(t.assignedTo)?.name || 'Unassigned'; counts[name] = (counts[name]||0) + 1; });
-                let entries = Object.keys(counts).map(name => ({ name, count: counts[name] })).sort((a,b) => b.count - a.count);
-                if(entries.length > 8) entries = entries.slice(0, 8);
-                const max = Math.max(...entries.map(e => e.count));
-                wrap.innerHTML = entries.map(e => `<div class="bar-row"><div class="bar-label" title="${esc(e.name)}">${esc(e.name)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max((e.count/max)*100,4)}%;"></div></div><div class="bar-val">${e.count}</div></div>`).join('');
+                if(panel) panel.style.display = 'none';
+                const wrap = document.getElementById('assigneeBarWrap');
+                if(wrap) wrap.innerHTML = '';
             }
 function renderWorkloadBlockers(){
   const wrap = document.getElementById('workloadBlockersWrap');
@@ -4016,9 +3994,9 @@ function openMyTodayList(){
   const me = currentViewer();
   taskListModal(
     "To do today",
-    (me ? me.name + ' · ' : '') + new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'2-digit', month:'short' }),
+    (me ? me.name + ' · ' : '') + new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'2-digit', month:'short' }) + ' · your tasks + anything to review',
     myTodaysWork,
-    { showOwner: false, empty: "Nothing on your plate right now — you're all clear." }
+    { showOwner: true, empty: "Nothing on your plate right now — you're all clear." }
   );
 }
 // Work other people sent the current viewer to check. Each row opens the
