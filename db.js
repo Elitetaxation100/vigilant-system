@@ -225,6 +225,11 @@ function runMigrations(state) {
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];
   if (typeof state.callSeq !== 'number') state.callSeq = 0;
+  // Soft-delete: removed tasks / clients move to these holding areas so a
+  // superadmin (or whoever removed it) can restore them. Nothing is ever
+  // hard-deleted through the app any more.
+  if (!Array.isArray(state.deletedTasks)) state.deletedTasks = [];
+  if (!Array.isArray(state.deletedClients)) state.deletedClients = [];
   if (!state.connectorDigest || typeof state.connectorDigest !== 'object') state.connectorDigest = { lastSlot: null };
   // Name-spelling fix: existing databases seeded before this correction still
   // have the old spelling — seedData()/ensureOrgChart() only add missing

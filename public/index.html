@@ -1025,6 +1025,14 @@
               <tbody id="ccRatingsBody"></tbody>
             </table>
           </div>
+
+          <div class="cc-panel" id="ccTrashWrap">
+            <div class="cc-panel-head">
+              <h3>🗑 Recently removed</h3>
+              <span class="cc-panel-sub">Deleted tasks &amp; clients — restore anything removed by mistake</span>
+            </div>
+            <div id="ccTrashBody" style="font-size:13.5px;color:var(--text-dim);">Loading…</div>
+          </div>
         </div>
       </section>
 
@@ -2433,12 +2441,12 @@ function iCanRemoveTask(t){
 }
 async function removeTask(id){
   const t = findTask(id);
-  if(!confirm(`Remove task "${(t&&t.name)||''}"? This deletes it for good.`)) return;
+  if(!confirm(`Remove task "${(t&&t.name)||''}"?\n\nIt moves to "Recently removed" — a superadmin (or you) can restore it.`)) return;
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}`, { method:'DELETE' });
     await refreshTasks(); await refreshActivity({ silent:true });
     if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
-    showToast('success', 'Task removed', (t&&t.name)||'');
+    showToast('success', 'Task removed', 'Recoverable from Recently removed.');
   } catch(e){ showToast('error', 'Could not remove task', e.message); }
 }
 function renderTaskTable(){
@@ -3614,6 +3622,49 @@ async function renderCommandCenter(){
   } else {
     rcWrap.style.display = 'none';
   }
+  renderTrash();
+}
+async function renderTrash(){
+  const wrap = document.getElementById('ccTrashBody');
+  if(!wrap) return;
+  let data;
+  try { data = await api('/api/admin/trash'); }
+  catch(e){ wrap.innerHTML = `<span style="color:var(--text-faint);">${esc(e.message)}</span>`; return; }
+  const { tasks = [], clients = [] } = data;
+  if(!tasks.length && !clients.length){
+    wrap.innerHTML = `<span style="color:var(--text-faint);">Nothing has been removed. Deleted tasks and clients show up here for recovery.</span>`;
+    return;
+  }
+  const row = (title, sub, when, who, restoreCall) => `
+    <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
+      <div><div style="font-weight:600;color:var(--text);">${esc(title)}</div>
+        <div style="font-size:12px;color:var(--text-faint);">${esc(sub)} · removed ${esc(when)}${who ? ' by ' + esc(who) : ''}</div></div>
+      <button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="${restoreCall}">↩ Restore</button>
+    </div>`;
+  let html = '';
+  if(tasks.length){
+    html += `<div class="label" style="margin:6px 0;">Tasks (${tasks.length})</div>`;
+    html += tasks.map(t => row(t.name, `${t.clientName || 'Internal'} · ${t.id}`,
+      fmtDate((t.deletedAt||'').slice(0,10)), t.deletedByName, `restoreTask('${t.id}')`)).join('');
+  }
+  if(clients.length){
+    html += `<div class="label" style="margin:14px 0 6px;">Clients (${clients.length})</div>`;
+    html += clients.map(c => row(c.name, c.type || 'Client',
+      fmtDate((c.deletedAt||'').slice(0,10)), c.deletedByName, `restoreClient('${c.id}')`)).join('');
+  }
+  wrap.innerHTML = html;
+}
+async function restoreTask(id){
+  try { await api(`/api/tasks/${encodeURIComponent(id)}/restore`, { method:'POST' });
+    await refreshTasks(); await refreshActivity({ silent:true }); renderTrash(); renderCommandCenter();
+    showToast('success', 'Task restored', ''); }
+  catch(e){ showToast('error', 'Could not restore', e.message); }
+}
+async function restoreClient(id){
+  try { await api(`/api/clients/${encodeURIComponent(id)}/restore`, { method:'POST' });
+    await refreshClients(); renderClientGrid(); renderTrash();
+    showToast('success', 'Client restored', ''); }
+  catch(e){ showToast('error', 'Could not restore', e.message); }
 }
 function downloadExcelReport(){
   if(typeof XLSX === 'undefined'){ showToast('error', 'Unavailable', 'The Excel export library failed to load — check your internet connection and try again.'); return; }
@@ -4873,12 +4924,12 @@ async function submitEditClient(id){
   } catch(e){ document.getElementById('ecError').textContent = e.message; document.getElementById('ecError').style.display = 'block'; }
 }
 async function removeClient(id, name){
-  if(!confirm(`Remove client "${name}"? This can't be undone.`)) return;
+  if(!confirm(`Remove client "${name}"?\n\nIt moves to "Recently removed" and can be restored. (A client with tasks attached can't be removed.)`)) return;
   try {
     await api(`/api/clients/${encodeURIComponent(id)}`, { method:'DELETE' });
     await refreshClients();
     renderClientGrid();
-    showToast('success', 'Client removed', name);
+    showToast('success', 'Client removed', 'Recoverable from Recently removed.');
   } catch(e){ showToast('error', 'Could not remove client', e.message); }
 }
 function openAssignClientOwner(id){

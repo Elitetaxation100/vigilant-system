@@ -437,8 +437,8 @@ app.patch('/api/clients/:id', requireAuth, (req, res) => {
   res.json({ client });
 });
 // Remove a client added by mistake. The person who added it, its owner, or
-// an admin can. Blocked while any task still points at it — delete or
-// reassign those first.
+// an admin can. Blocked while any task still points at it. SOFT delete —
+// the client moves to state.deletedClients and can be restored.
 app.delete('/api/clients/:id', requireAuth, (req, res) => {
   const state = db.get();
   const client = state.clients.find(c => c.id === req.params.id);
@@ -451,10 +451,39 @@ app.delete('/api/clients/:id', requireAuth, (req, res) => {
   if (attached > 0) {
     return res.status(409).json({ error: `${client.name} has ${attached} task${attached > 1 ? 's' : ''} attached — remove or reassign ${attached > 1 ? 'them' : 'it'} first.` });
   }
+  client.deletedAt = new Date().toISOString();
+  client.deletedBy = req.employee.id;
+  client.deletedByName = req.employee.name;
   state.clients = state.clients.filter(c => c.id !== client.id);
-  logEvent(state, req.employee.id, `Removed client <b>${escHtml(client.name)}</b>.`);
+  state.deletedClients.unshift(client);
+  if (state.deletedClients.length > 500) state.deletedClients.length = 500;
+  logEvent(state, req.employee.id, `Removed client <b>${escHtml(client.name)}</b> — recoverable from Recently removed.`);
   db.save();
   res.json({ ok: true });
+});
+app.post('/api/clients/:id/restore', requireAuth, (req, res) => {
+  const state = db.get();
+  const client = (state.deletedClients || []).find(c => c.id === req.params.id);
+  if (!client) return res.status(404).json({ error: 'Not in Recently removed.' });
+  const allowed = req.employee.accessRole === 'superadmin' || client.deletedBy === req.employee.id || isAdminRole(req.employee.accessRole);
+  if (!allowed) return res.status(403).json({ error: "You can't restore this client." });
+  if (state.clients.find(c => c.id === client.id)) return res.status(409).json({ error: 'A client with this id is already live.' });
+  delete client.deletedAt; delete client.deletedBy; delete client.deletedByName;
+  state.deletedClients = state.deletedClients.filter(c => c.id !== client.id);
+  state.clients.push(client);
+  logEvent(state, req.employee.id, `Client <b>${escHtml(client.name)}</b> was restored by <b>${escHtml(req.employee.name)}</b>.`);
+  db.save();
+  res.json({ client });
+});
+// Recently-removed tasks and clients, newest first. Any admin/superadmin.
+app.get('/api/admin/trash', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const canSeeTask = t => me.accessRole === 'superadmin' || t.deletedBy === me.id || canManageEmployee(state, me, t.assignedTo);
+  res.json({
+    tasks: (state.deletedTasks || []).filter(canSeeTask).slice(0, 100).map(taskForClient),
+    clients: (state.deletedClients || []).slice(0, 100),
+  });
 });
 
 // Which tasks is `me` allowed to see? A superadmin sees the firm. Everyone
@@ -783,9 +812,10 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
-// Delete a task added by mistake. The assignee, whoever assigned it, or an
-// admin over the assignee can. Gone for good — the activity trail keeps a
-// note that it was removed.
+// Remove a task added by mistake. The assignee, whoever assigned it, or an
+// admin over the assignee can. It's a SOFT delete — the task moves to
+// state.deletedTasks and a superadmin (or whoever removed it) can restore
+// it from the Command Center's "Recently removed" list.
 app.delete('/api/tasks/:id', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
@@ -796,10 +826,32 @@ app.delete('/api/tasks/:id', requireAuth, (req, res) => {
   if (!mine && !adminOver) {
     return res.status(403).json({ error: 'Only the assignee, whoever assigned it, or an admin can remove this task.' });
   }
+  t.deletedAt = new Date().toISOString();
+  t.deletedBy = req.employee.id;
+  t.deletedByName = req.employee.name;
   state.tasks = state.tasks.filter(x => x.id !== t.id);
-  logEvent(state, t.assignedTo || req.employee.id, `Task "${escHtml(t.name)}" was removed by <b>${escHtml(req.employee.name)}</b>.`);
+  state.deletedTasks.unshift(t);
+  if (state.deletedTasks.length > 500) state.deletedTasks.length = 500;
+  logEvent(state, t.assignedTo || req.employee.id, `Task "${escHtml(t.name)}" was removed by <b>${escHtml(req.employee.name)}</b> — recoverable from Recently removed.`);
   db.save();
   res.json({ ok: true });
+});
+// Restore a soft-deleted task. Superadmin, or the person who removed it, or
+// an admin over its (former) assignee.
+app.post('/api/tasks/:id/restore', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = (state.deletedTasks || []).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not in Recently removed.' });
+  const allowed = req.employee.accessRole === 'superadmin' || t.deletedBy === req.employee.id ||
+    (isAdminRole(req.employee.accessRole) && canManageEmployee(state, req.employee, t.assignedTo));
+  if (!allowed) return res.status(403).json({ error: "You can't restore this task." });
+  if (findTask(state, t.id)) return res.status(409).json({ error: 'A task with this id is already live.' });
+  delete t.deletedAt; delete t.deletedBy; delete t.deletedByName;
+  state.deletedTasks = state.deletedTasks.filter(x => x.id !== t.id);
+  state.tasks.unshift(t);
+  logEvent(state, t.assignedTo || req.employee.id, `Task "${escHtml(t.name)}" was restored by <b>${escHtml(req.employee.name)}</b>.`);
+  db.save();
+  res.json({ task: taskForClient(t) });
 });
 
 // Assign / reassign an integration task from the Admin space — a quick
