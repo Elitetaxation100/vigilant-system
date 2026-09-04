@@ -744,8 +744,8 @@
             <div class="mt-label">Done Today</div>
             <div class="mt-value teal" id="myDoneToday">0</div>
           </div>
-          <div class="metric-tile">
-            <div class="mt-label">Hours Committed</div>
+          <div class="metric-tile mg-tile" onclick="openMyDoneList()">
+            <div class="mt-label">Productive Hours</div>
             <div class="mt-value" id="myHoursCommitted">0.0<small>h</small></div>
           </div>
           <div class="metric-tile">
@@ -2044,6 +2044,7 @@ async function doMarkDoneNoReview(id){
     await api(`/api/tasks/${encodeURIComponent(id)}/done`, { method:'POST' });
     closeModal();
     await refreshTasks(); await refreshActivity({ silent:true });
+    if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
     showToast('success', 'Done', 'Closed without review.');
   } catch(e){ closeModal(); showToast('error', 'Could not mark done', e.message); }
 }
@@ -2246,11 +2247,7 @@ function renderDeadlineBanner(){
     banners.push(`<div class="banner warn"><span>⏰</span><span><b>Deadline today:</b> ${dueToday.map(t => esc(t.name) + ' — ' + esc(t.scope)).join(' · ')}</span></div>`);
   }
   if(isAdmin){
-    const busy = workload.filter(w => w.overloaded);
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
-    if(busy.length > 0){
-      banners.push(`<div class="banner warn"><span>🔴</span><span><b>Heavy day ahead for ${busy.length} team member${busy.length>1?'s':''}:</b> ${busy.map(w => esc(w.name) + ' — ' + w.peakHours + 'h of agreed work ' + fmtDate(w.peakDate)).join(' · ')}</span></div>`);
-    }
     if(proposedOrg.length > 0){
       banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed:</b> ${proposedOrg.map(t => esc(empById(t.assignedTo)?.name||'—') + ' — ' + esc(t.name)).join(' · ')} — <a href="#" onclick="showView('dashboard', document.querySelector('.nav-item[data-view=&quot;dashboard&quot;]')); document.getElementById('statusFilter').value='window_proposed'; document.getElementById('scopeFilter').value='all'; renderTaskTable(); return false;" style="color:#6D28D9; text-decoration:underline;">review</a></span></div>`);
     }
@@ -2270,9 +2267,6 @@ function openNotifications(){
   const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed'].includes(t.status));
   dueToday.forEach(t => items.push({icon:'⏰', text:`Deadline today — <b style="color:var(--text);">${esc(t.name)}</b> (${esc(t.scope)})`}));
   if(isAdmin){
-    workload.filter(w => w.busyUntil).forEach(w => {
-      items.push({icon:'🧱', text:`<b style="color:var(--text);">${esc(w.name)}</b> is fully booked until ${fmtDate(w.busyUntil)} — next available ${fmtDate(w.nextAvailable)}`});
-    });
     tasks.filter(t => t.status === 'window_proposed').forEach(t => {
       const emp = empById(t.assignedTo);
       items.push({icon:'🗓', text:`<b style="color:var(--text);">${emp ? esc(emp.name) : '—'}</b> proposed a new window for "${esc(t.name)}"`});
@@ -2346,22 +2340,24 @@ function actionCell(t){
   const isMine = t.assignedTo === currentViewerId;
   let html = '<div class="action-stack">';
   const flagged = isReworkFlagged(t);
-  // Call / Slack tasks: a follow-up, not a filed return — no review, no
-  // accept gate. Just "Mark done" (and Reassign for admins).
+  // Call / Slack tasks: same two closing options as any other task —
+  // "Mark Done" for the quick ones, "Send for Review" when it needs a check.
   if((t.source || 'manual') !== 'manual'){
     if(t.status !== 'completed'){
       if(t.status === 'on_hold'){
         html += holdControlsHtml(t);
       } else if(isMine || isAdmin){
-        html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="markIntegrationTaskDone('${t.id}')">✓ Done</button>`;
+        html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="markDoneNoReview('${t.id}')">✓ Mark Done</button>`;
+        if(t.assignedTo) html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')" title="Send it to someone to check first">Send for Review</button>`;
         html += holdControlsHtml(t);
       }
       if(isAdmin && t.status !== 'on_hold'){
         html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openSetOwnerModal('${t.id}')">${t.assignedTo ? 'Reassign' : 'Assign'}</button>`;
       }
     } else {
-      html += `<span class="badge completed dot">✓ Done</span>`;
+      html += statusBadge(t);
     }
+    if(iCanRemoveTask(t)) html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="removeTask('${t.id}')">Remove</button>`;
     html += '</div>';
     return html;
   }
@@ -2411,8 +2407,25 @@ function actionCell(t){
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
     html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>`;
   }
+  if(iCanRemoveTask(t)){
+    html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" title="Remove this task" onclick="removeTask('${t.id}')">Remove</button>`;
+  }
   html += '</div>';
   return html;
+}
+function iCanRemoveTask(t){
+  if(!t) return false;
+  return isAdmin || t.assignedTo === currentViewerId || t.assignedBy === currentViewerId;
+}
+async function removeTask(id){
+  const t = findTask(id);
+  if(!confirm(`Remove task "${(t&&t.name)||''}"? This deletes it for good.`)) return;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}`, { method:'DELETE' });
+    await refreshTasks(); await refreshActivity({ silent:true });
+    if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
+    showToast('success', 'Task removed', (t&&t.name)||'');
+  } catch(e){ showToast('error', 'Could not remove task', e.message); }
 }
 function renderTaskTable(){
   const q = (document.getElementById('taskSearch').value || '').toLowerCase();
@@ -2578,7 +2591,11 @@ function renderEmployeeStats(){
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
   setV('myTasksToday', myTodaysWork.length);
   setV('myDoneToday', myDoneToday.length);
-  setV('myHoursCommitted', doneP.reduce((s,t) => s + (t.logged || 0), 0).toFixed(1) + '<small>h</small>');
+  // Productive hours today = for each task finished today, its actual time
+  // if the clock caught it, otherwise the agreed estimate. Shown against an
+  // 8-hour shift for context — not a limit.
+  const prodHrsToday = myDoneToday.reduce((s,t) => s + taskHrs(t), 0);
+  setV('myHoursCommitted', `${prodHrsToday.toFixed(1)}<small>h · in 8h shift</small>`);
   const withDate = doneP.filter(t => t.clientDate);
   setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / withDate.length * 100) + '<small>%</small>' : '—');
   const reviewed = doneP.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
@@ -2761,23 +2778,25 @@ function renderWorkloadBlockers(){
   if(!wrap) return;
   const wl = mgWorkload();
   if(wl.length === 0){ wrap.innerHTML = 'Nobody in this scope has active work yet.'; return; }
-  const rows = [...wl].sort((a,b) => b.peakHours - a.peakHours);
+  const rows = [...wl].sort((a,b) => (b.peakHours||0) - (a.peakHours||0));
+  const maxPeak = Math.max(1, ...rows.map(w => w.peakHours || 0));
   wrap.innerHTML = rows.map(w => {
-    const pct = w.capacityHours ? Math.min(100, Math.round(w.peakHours / w.capacityHours * 100)) : 0;
+    const done = (w.hoursDoneToday ?? w.todayHours ?? 0);
+    const pct = Math.min(100, Math.round(((w.peakHours || 0) / maxPeak) * 100));
     const initials = (w.name || '?').split(' ').map(p => p[0]).slice(0,2).join('').toUpperCase();
     const tag = w.busyUntil
-      ? `<span class="cap-tag busy">Busy until ${fmtDate(w.busyUntil)}</span>`
-      : `<span class="cap-tag free">Free ${fmtDate(w.nextAvailable)}</span>`;
+      ? `<span class="cap-tag busy">Latest deadline ${fmtDate(w.busyUntil)}</span>`
+      : `<span class="cap-tag free">No open deadlines</span>`;
     return `<div class="cap-row">
       <div class="cap-avatar">${esc(initials)}</div>
       <div class="cap-main">
         <div class="cap-top">
           <span class="cap-name">${esc(w.name)}</span>
-          <span class="cap-hours">${w.peakHours}h of ${w.capacityHours}h</span>
+          <span class="cap-hours">${done}h done today${w.peakHours ? ' &middot; ' + w.peakHours + 'h peak day' : ''}</span>
         </div>
-        <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%; background:${w.overloaded ? 'var(--coral)' : 'var(--teal)'};"></div></div>
+        <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%; background:var(--teal);"></div></div>
         <div class="cap-sub">
-          <span>${w.activeCount} active task${w.activeCount === 1 ? '' : 's'}${w.peakDate ? ' &middot; peak ' + fmtDate(w.peakDate) : ''}</span>
+          <span>${w.activeCount} active task${w.activeCount === 1 ? '' : 's'}${w.peakDate ? ' &middot; busiest ' + fmtDate(w.peakDate) : ''}</span>
           ${tag}
         </div>
       </div>
@@ -3188,25 +3207,23 @@ function openAssignModal(mode){
       return;
     }
   }
-  if(clients.length === 0){
-    document.getElementById('modalBox').innerHTML = `
-      <h3>${isTeam ? 'Assign Task to Team' : 'Assign Task to Me'}</h3>
-      <div class="modal-sub">No clients on file yet — every task needs a client.</div>
-      <p style="font-size:14.5px; color:var(--text-dim); line-height:1.6;">Add the client first — it takes a second, and you'll come straight back here.</p>
-      <div class="modal-actions">
-        <button class="btn" onclick="closeModal()">Close</button>
-        <button class="btn primary" onclick="closeModal(); openAddClientModal();">+ Add a client</button>
-      </div>
-    `;
-    openModal();
-    return;
-  }
+  const noClients = clients.length === 0;
   document.getElementById('modalBox').innerHTML = `
     <h3>${isTeam ? 'Assign Task to Team' : 'Assign Task to Me'}</h3>
-    <div class="modal-sub">${isTeam ? 'Create a new commitment and hand it to a team member.' : 'Create a new commitment for yourself.'}</div>
-    <div class="field"><label>Task type</label><select id="atPreset" onchange="applyTaskPreset()">${taskPresetOptionsHtml()}</select></div>
-    <div class="field"><label>Task name</label><input type="text" id="atName" placeholder="e.g. GST Return"></div>
-    <div class="field"><label>Deliverable scope</label><input type="text" id="atScope" placeholder="e.g. Q3 filing"></div>
+    <div class="modal-sub">${isTeam ? 'Hand a piece of work to a team member.' : 'Create a task for yourself.'}</div>
+    <div class="field"><label>Kind of task</label>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn small atKindBtn primary" data-kind="client" onclick="setAssignKind('client')"${noClients ? ' disabled title="Add a client first"' : ''}>Client work</button>
+        <button type="button" class="btn small atKindBtn" data-kind="internal" onclick="setAssignKind('internal')">Internal task</button>
+      </div>
+    </div>
+    <div id="atClientOnly"${noClients ? ' style="display:none;"' : ''}>
+      <div class="field"><label>Task type</label><select id="atPreset" onchange="applyTaskPreset()">${taskPresetOptionsHtml()}</select></div>
+    </div>
+    <div class="field"><label>Task name</label><input type="text" id="atName" placeholder="e.g. GST Return / Train new hire on cashbook"></div>
+    <div id="atClientScope"${noClients ? ' style="display:none;"' : ''}>
+      <div class="field"><label>Deliverable scope</label><input type="text" id="atScope" placeholder="e.g. Q3 filing"></div>
+    </div>
     <div class="field"><label>Team / work category</label>
       <select id="atTeam" onchange="onAtTeamChange()">${teamCategoryOptionsHtml((currentViewer() || {}).team || '')}</select>
       <input type="text" id="atTeamCustom" placeholder="Type a team or work category" style="display:none; margin-top:8px;">
@@ -3217,15 +3234,17 @@ function openAssignModal(mode){
       const load = doneH > 0 ? ` — ${doneH}h done today` : '';
       return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${load}</option>`;
     }).join('')}</select></div>` : ''}
-    <div class="field"><label>Client</label><select id="atClientId">${clients.map(c=>{
-      if(!isTeam) return `<option value="${c.id}">${esc(c.name)}</option>`;
-      const owner = empById(c.ownerId);
-      return `<option value="${c.id}">${esc(c.name)}${owner ? ' — owner: ' + esc(owner.name) : ' — ⚠ no owner'}</option>`;
-    }).join('')}</select></div>
-    <div class="field"><label>Client commitment date</label><input type="date" id="atClientDate" value="${addDaysISO(3)}"></div>
-    <div class="field"><label>Agreed delivery date</label><input type="date" id="atDeadline" value="${addDaysISO(2)}"></div>
-    <div class="field"><label>Agreed hours (TAT)</label><input type="number" id="atTat" value="3" min="0.25" step="0.25"></div>
-    <div class="field"><label>Points</label><input type="number" id="atPoints" value="10" min="0"></div>
+    <div id="atClientBlock"${noClients ? ' style="display:none;"' : ''}>
+      <div class="field"><label>Client</label><select id="atClientId">${clients.map(c=>{
+        if(!isTeam) return `<option value="${c.id}">${esc(c.name)}</option>`;
+        const owner = empById(c.ownerId);
+        return `<option value="${c.id}">${esc(c.name)}${owner ? ' — owner: ' + esc(owner.name) : ' — ⚠ no owner'}</option>`;
+      }).join('')}</select></div>
+      <div class="field"><label>Client commitment date</label><input type="date" id="atClientDate" value="${addDaysISO(3)}"></div>
+    </div>
+    <div class="field"><label id="atDeadlineLabel">Agreed delivery date</label><input type="date" id="atDeadline" value="${addDaysISO(2)}"></div>
+    <div class="field"><label id="atTatLabel">Estimated time (hours)</label><input type="number" id="atTat" value="3" min="0.25" step="0.25"></div>
+    <div id="atPointsField"${noClients ? ' style="display:none;"' : ''}><div class="field"><label>Points</label><input type="number" id="atPoints" value="10" min="0"></div></div>
     <div class="modal-error" id="assignError">Please enter a task name.</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -3233,20 +3252,38 @@ function openAssignModal(mode){
     </div>
   `;
   openModal();
+  setAssignKind(noClients ? 'internal' : 'client');
+}
+let _assignKind = 'client';
+function setAssignKind(kind){
+  _assignKind = kind === 'internal' ? 'internal' : 'client';
+  const isInternal = _assignKind === 'internal';
+  document.querySelectorAll('.atKindBtn').forEach(b => b.classList.toggle('primary', b.dataset.kind === _assignKind));
+  ['atClientOnly','atClientScope','atClientBlock','atPointsField'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
+  });
+  const dl = document.getElementById('atDeadlineLabel'); if(dl) dl.textContent = isInternal ? 'Due date' : 'Agreed delivery date';
 }
 async function submitAssign(mode){
   const name = document.getElementById('atName').value.trim();
-  const scope = document.getElementById('atScope').value.trim();
   if(!name){ document.getElementById('assignError').style.display = 'block'; return; }
+  const isInternal = _assignKind === 'internal';
   const assignedTo = mode === 'team' ? document.getElementById('atAssignee').value : currentViewerId;
-  const clientId = document.getElementById('atClientId').value;
-  const clientDate = document.getElementById('atClientDate').value;
   const deadline = document.getElementById('atDeadline').value;
-  const tat = parseFloat(document.getElementById('atTat').value) || 3;
-  const points = parseInt(document.getElementById('atPoints').value) || 0;
+  const tat = parseFloat(document.getElementById('atTat').value) || (isInternal ? 1 : 3);
   let team = (document.getElementById('atTeam') || {}).value || '';
   if(team === '__custom__') team = ((document.getElementById('atTeamCustom') || {}).value || '').trim();
-  const payload = { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline: deadline, tat, points, team };
+  const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };
+  if(isInternal){
+    payload.kind = 'internal';
+    payload.points = 0;
+  } else {
+    payload.kind = 'client';
+    payload.scope = (document.getElementById('atScope')||{}).value.trim();
+    payload.clientId = (document.getElementById('atClientId')||{}).value;
+    payload.clientDate = (document.getElementById('atClientDate')||{}).value;
+    payload.points = parseInt((document.getElementById('atPoints')||{}).value) || 0;
+  }
   await submitTaskPayload(payload);
 }
   async function submitTaskPayload(payload){
@@ -4128,14 +4165,16 @@ async function renderFounderView(){
   // ---- team capacity (from the workload feed, scoped) ----
   const cap = document.getElementById('fvCapacity');
   const capRows = (workload || []).filter(w => peopleIds.has(w.id) || isPerson === false && dashScope.fv.view === 'firm').filter(w => peopleIds.size === 0 || peopleIds.has(w.id));
-  const capUse = (capRows.length ? capRows : (workload||[]).filter(w => peopleIds.has(w.id))).slice().sort((a,b) => b.peakHours - a.peakHours);
+  const capUse = (capRows.length ? capRows : (workload||[]).filter(w => peopleIds.has(w.id))).slice().sort((a,b) => (b.peakHours||0) - (a.peakHours||0));
+  const capMax = Math.max(1, ...capUse.map(w => w.peakHours || 0));
   cap.innerHTML = capUse.length ? capUse.map(w => {
-    const pct = w.capacityHours ? Math.min(100, Math.round(w.peakHours/w.capacityHours*100)) : 0;
-    const tag = w.busyUntil ? `<span class="cap-tag busy">Busy until ${fmtDate(w.busyUntil)}</span>` : `<span class="cap-tag free">Free ${fmtDate(w.nextAvailable)}</span>`;
+    const done = (w.hoursDoneToday ?? w.todayHours ?? 0);
+    const pct = Math.min(100, Math.round(((w.peakHours||0)/capMax)*100));
+    const tag = w.busyUntil ? `<span class="cap-tag busy">Latest deadline ${fmtDate(w.busyUntil)}</span>` : `<span class="cap-tag free">No open deadlines</span>`;
     return `<div class="cap-row"><div class="cap-avatar">${esc(dInitials(w.name))}</div><div class="cap-main">
-      <div class="cap-top"><span class="cap-name">${esc(w.name)}</span><span class="cap-hours">${w.peakHours}h of ${w.capacityHours}h</span></div>
-      <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%;background:${w.overloaded?'var(--coral)':'var(--teal)'};"></div></div>
-      <div class="cap-sub"><span>${w.activeCount} active${w.peakDate?' · peak '+fmtDate(w.peakDate):''}</span>${tag}</div></div></div>`;
+      <div class="cap-top"><span class="cap-name">${esc(w.name)}</span><span class="cap-hours">${done}h done today${w.peakHours ? ' · ' + w.peakHours + 'h peak' : ''}</span></div>
+      <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%;background:var(--teal);"></div></div>
+      <div class="cap-sub"><span>${w.activeCount} active${w.peakDate?' · busiest '+fmtDate(w.peakDate):''}</span>${tag}</div></div></div>`;
   }).join('') : '<div style="font-size:14px;color:var(--text-faint);padding:12px 0;">Nobody in scope has active work.</div>';
 
   // ---- recent activity ----
@@ -4583,6 +4622,7 @@ function renderClientGrid(){
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
           ${canEdit ? `<button class="verify-btn" onclick="openEditClientModal('${c.id}')">Edit</button>` : ''}
           ${isAdmin ? `<button class="verify-btn" onclick="openAssignClientOwner('${c.id}')">${owner ? 'Reassign owner' : 'Assign owner'}</button>` : ''}
+          ${canEdit ? `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="removeClient('${c.id}', '${esc(c.name).replace(/'/g, "\\'")}')">Remove</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -4667,6 +4707,15 @@ async function submitEditClient(id){
     renderClientGrid();
     showToast('success', 'Client updated', name);
   } catch(e){ document.getElementById('ecError').textContent = e.message; document.getElementById('ecError').style.display = 'block'; }
+}
+async function removeClient(id, name){
+  if(!confirm(`Remove client "${name}"? This can't be undone.`)) return;
+  try {
+    await api(`/api/clients/${encodeURIComponent(id)}`, { method:'DELETE' });
+    await refreshClients();
+    renderClientGrid();
+    showToast('success', 'Client removed', name);
+  } catch(e){ showToast('error', 'Could not remove client', e.message); }
 }
 function openAssignClientOwner(id){
   const c = clientById(id);

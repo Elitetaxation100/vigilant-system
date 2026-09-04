@@ -289,6 +289,10 @@ function runMigrations(state) {
       t.status = 'accepted';
       if (!t.acceptedAt) t.acceptedAt = new Date().toISOString();
     }
+    // client task vs internal (training / admin / meetings, no client).
+    // Everything that exists today was created under the client-required
+    // rule, so it's a client task.
+    if (t.kind === undefined) t.kind = 'client';
   });
   ensureOrgChart(state);
   ensureExtendedFields(state);

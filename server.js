@@ -442,6 +442,26 @@ app.patch('/api/clients/:id', requireAuth, (req, res) => {
   db.save();
   res.json({ client });
 });
+// Remove a client added by mistake. The person who added it, its owner, or
+// an admin can. Blocked while any task still points at it — delete or
+// reassign those first.
+app.delete('/api/clients/:id', requireAuth, (req, res) => {
+  const state = db.get();
+  const client = state.clients.find(c => c.id === req.params.id);
+  if (!client) return res.status(404).json({ error: 'Client not found.' });
+  const mine = client.ownerId === req.employee.id || client.addedBy === req.employee.id;
+  if (!mine && !isAdminRole(req.employee.accessRole)) {
+    return res.status(403).json({ error: 'You can only remove a client you added or own.' });
+  }
+  const attached = state.tasks.filter(t => t.clientId === client.id).length;
+  if (attached > 0) {
+    return res.status(409).json({ error: `${client.name} has ${attached} task${attached > 1 ? 's' : ''} attached — remove or reassign ${attached > 1 ? 'them' : 'it'} first.` });
+  }
+  state.clients = state.clients.filter(c => c.id !== client.id);
+  logEvent(state, req.employee.id, `Removed client <b>${escHtml(client.name)}</b>.`);
+  db.save();
+  res.json({ ok: true });
+});
 
 app.get('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
@@ -450,14 +470,20 @@ app.get('/api/tasks', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points, force, team } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points, force, team, kind } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
-  if (!clientId) return res.status(400).json({ error: 'A client is required — every task needs a clear client owner.' });
-  const client = state.clients.find(c => c.id === clientId);
-  if (!client) return res.status(400).json({ error: 'Client not found.' });
+  // Internal tasks (training, admin, meetings…) have no client. Everything
+  // else must name one.
+  const isInternal = kind === 'internal';
+  let client = null;
+  if (!isInternal) {
+    if (!clientId) return res.status(400).json({ error: 'A client is required — or switch to an internal task.' });
+    client = state.clients.find(c => c.id === clientId);
+    if (!client) return res.status(400).json({ error: 'Client not found.' });
+  }
   // Every task needs an agreed delivery date — the whole commitment model
   // is judged against it.
-  if (!internalDeadline) return res.status(400).json({ error: 'Agreed delivery date is required.' });
+  if (!internalDeadline) return res.status(400).json({ error: 'Due date is required.' });
 
   let assignee = req.employee.id;
   if (mode === 'team') {
@@ -471,9 +497,11 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   state.taskSeq += 1;
   const task = {
     id: '#' + (100000000000 + state.taskSeq),
-    name: String(name).trim(), scope: scope || '—',
+    name: String(name).trim(), scope: isInternal ? (scope ? String(scope).trim() : '—') : (scope || '—'),
+    kind: isInternal ? 'internal' : 'client',
     team: team ? String(team).trim() : (findEmployee(state, assignee) || {}).team || null,
-    clientId: client.id, clientName: client.name, clientDate: clientDate || null, internalDeadline: internalDeadline || null,
+    clientId: client ? client.id : null, clientName: client ? client.name : (isInternal ? 'Internal' : ''),
+    clientDate: isInternal ? null : (clientDate || null), internalDeadline: internalDeadline || null,
     points: parseInt(points, 10) || 0, assignedTo: assignee, assignedBy: req.employee.id,
     assignedAt: new Date().toISOString(), reassignHistory: [], status,
     // logged accumulates ACTUAL delivery time — the wall-clock gap between
@@ -739,6 +767,25 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (${kind}).`);
   db.save();
   res.json({ task: taskForClient(t) });
+});
+
+// Delete a task added by mistake. The assignee, whoever assigned it, or an
+// admin over the assignee can. Gone for good — the activity trail keeps a
+// note that it was removed.
+app.delete('/api/tasks/:id', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const mine = t.assignedTo === req.employee.id || t.assignedBy === req.employee.id;
+  const adminOver = isAdminRole(req.employee.accessRole) &&
+    (req.employee.accessRole === 'superadmin' || !t.assignedTo || canManageEmployee(state, req.employee, t.assignedTo));
+  if (!mine && !adminOver) {
+    return res.status(403).json({ error: 'Only the assignee, whoever assigned it, or an admin can remove this task.' });
+  }
+  state.tasks = state.tasks.filter(x => x.id !== t.id);
+  logEvent(state, t.assignedTo || req.employee.id, `Task "${escHtml(t.name)}" was removed by <b>${escHtml(req.employee.name)}</b>.`);
+  db.save();
+  res.json({ ok: true });
 });
 
 // Assign / reassign an integration task from the Admin space — a quick
@@ -1112,7 +1159,7 @@ app.get('/api/workload', requireAuth, (req, res) => {
   const rows = visible.map(e => {
     const busyUntil = employeeBusyUntil(state, e.id);
     const activeCount = state.tasks.filter(t => t.assignedTo === e.id && t.status !== 'completed').length;
-    return (()=>{ const active=state.tasks.filter(t=>t.assignedTo===e.id&&t.status!=='completed'&&t.status!=='pending_approval'&&t.status!=='on_hold'&&t.internalDeadline); const hrs={}; active.forEach(t=>{hrs[t.internalDeadline]=(hrs[t.internalDeadline]||0)+(Number(t.tat)||0);}); let peakDate=null,peakHours=0; Object.entries(hrs).forEach(([d,h])=>{ if(h>peakHours){ peakHours=h; peakDate=d; } }); const hoursDoneToday_=Math.round(hoursDoneToday(state,e.id)*100)/100; const REF_DAY=8; return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount, hoursDoneToday: hoursDoneToday_, todayHours: hoursDoneToday_, peakHours: Math.round(peakHours*100)/100, peakDate, capacityHours: REF_DAY, overloaded: peakHours > REF_DAY }; })();
+    return (()=>{ const active=state.tasks.filter(t=>t.assignedTo===e.id&&t.status!=='completed'&&t.status!=='pending_approval'&&t.status!=='on_hold'&&t.internalDeadline); const hrs={}; active.forEach(t=>{hrs[t.internalDeadline]=(hrs[t.internalDeadline]||0)+(Number(t.tat)||0);}); let peakDate=null,peakHours=0; Object.entries(hrs).forEach(([d,h])=>{ if(h>peakHours){ peakHours=h; peakDate=d; } }); const hoursDoneToday_=Math.round(hoursDoneToday(state,e.id)*100)/100; return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount, hoursDoneToday: hoursDoneToday_, todayHours: hoursDoneToday_, peakHours: Math.round(peakHours*100)/100, peakDate }; })();
   });
   res.json({ workload: rows });
 });
