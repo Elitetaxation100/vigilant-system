@@ -708,13 +708,18 @@
           <div class="dg"><label>Viewing</label><span id="empWhoChip" style="font-size:13px;font-weight:600;color:var(--text);padding:6px 4px;">👤 My work</span></div>
           <div class="dg">
             <label>Period</label>
-            <select id="empPeriod" onchange="renderEmployeeStats()">
+            <select id="empPeriod" onchange="onEmpPeriodChange()">
               <option value="this-week">This week</option>
               <option value="this-month" selected>This month</option>
               <option value="this-quarter">This quarter</option>
+              <option value="this-year">This year</option>
+              <option value="last-30">Last 30 days</option>
+              <option value="last-90">Last 90 days</option>
               <option value="all">All time</option>
+              <option value="custom">Custom range…</option>
             </select>
           </div>
+          <span class="drange"><input type="date" id="empCStart" onchange="renderEmployeeStats()"> → <input type="date" id="empCEnd" onchange="renderEmployeeStats()"></span>
           <span class="dcrumb" id="empCrumb"></span>
         </div>
 
@@ -1689,7 +1694,25 @@ function allTeamNames(){
   const s = new Set();
   (teams || []).forEach(t => t && t.name && s.add(t.name));
   (employees || []).forEach(e => { if(e.team) s.add(e.team); (e.memberships||[]).forEach(m => m && m.team && s.add(m.team)); });
+  (tasks || []).forEach(t => { if(t.team) s.add(t.team); }); // keep custom categories once used
   return [...s].sort();
+}
+// Options for the "Team / work category" picker: every team, plus a fixed
+// "Admin" work category, plus a "Custom — type your own" escape hatch.
+function teamCategoryOptionsHtml(selected){
+  const names = allTeamNames().filter(n => n.toLowerCase() !== 'admin');
+  if(selected && !names.includes(selected) && selected.toLowerCase() !== 'admin') names.unshift(selected);
+  const teamOpts = names.map(n => `<option value="${esc(n)}"${n === selected ? ' selected' : ''}>${esc(n)}</option>`).join('');
+  return teamOpts
+    + `<option value="Admin"${selected === 'Admin' ? ' selected' : ''}>Admin</option>`
+    + `<option value="__custom__">— Custom (type your own) —</option>`;
+}
+function onAtTeamChange(){
+  const sel = document.getElementById('atTeam'), cust = document.getElementById('atTeamCustom');
+  if(!sel || !cust) return;
+  const isCustom = sel.value === '__custom__';
+  cust.style.display = isCustom ? '' : 'none';
+  if(isCustom) cust.focus();
 }
 function eligibleReviewersFor(assigneeId){
   return employees.filter(e => empCanReviewWorkOf(e, assigneeId));
@@ -2430,20 +2453,41 @@ function actionButtonHtml(t){
    EMPLOYEE DASHBOARD — the personal stat window + report-card summary.
    Period-scoped; the Verification Matrix task table below is untouched.
    ========================================================================= */
+function onEmpPeriodChange(){
+  const p = (document.getElementById('empPeriod')||{}).value;
+  const scope = document.getElementById('empScope');
+  if(scope) scope.classList.toggle('is-custom', p === 'custom');
+  renderEmployeeStats();
+}
 function empPeriodBounds(){
   const now = new Date(), iso = d => d.toISOString().slice(0,10);
   const p = (document.getElementById('empPeriod')||{}).value || 'this-month';
-  let start, end = iso(new Date(now.getTime()+86400000));
-  if(p === 'this-week'){ const wd = (now.getDay()+6)%7; const s = new Date(now); s.setDate(now.getDate()-wd); start = iso(s); }
+  const addDays = (d,n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
+  let start, end = iso(addDays(now, 1));
+  if(p === 'this-week'){ const wd = (now.getDay()+6)%7; start = iso(addDays(now, -wd)); }
   else if(p === 'this-quarter'){ const q = Math.floor(now.getMonth()/3); start = iso(new Date(now.getFullYear(), q*3, 1)); }
-  else if(p === 'all'){ start = '2000-01-01'; }
+  else if(p === 'this-year'){ start = iso(new Date(now.getFullYear(), 0, 1)); }
+  else if(p === 'last-30'){ start = iso(addDays(now, -30)); }
+  else if(p === 'last-90'){ start = iso(addDays(now, -90)); }
+  else if(p === 'all'){ start = '2000-01-01'; end = iso(addDays(now, 2)); }
+  else if(p === 'custom'){
+    const cs = (document.getElementById('empCStart')||{}).value;
+    const ce = (document.getElementById('empCEnd')||{}).value;
+    start = cs || iso(new Date(now.getFullYear(), now.getMonth(), 1));
+    end = ce ? iso(addDays(new Date(ce + 'T00:00:00'), 1)) : end;
+  }
   else { start = iso(new Date(now.getFullYear(), now.getMonth(), 1)); }
-  const label = { 'this-week':'This week','this-month':'This month','this-quarter':'This quarter','all':'All time' }[p] || 'This month';
+  const labels = { 'this-week':'This week','this-month':'This month','this-quarter':'This quarter','this-year':'This year','last-30':'Last 30 days','last-90':'Last 90 days','all':'All time' };
+  const label = p === 'custom'
+    ? ((document.getElementById('empCStart')||{}).value || '?') + ' – ' + ((document.getElementById('empCEnd')||{}).value || '?')
+    : (labels[p] || 'This month');
   return { start, end, label };
 }
 function renderEmployeeStats(){
   const me = currentViewer();
   if(!me || !document.getElementById('empReportCard')) return;
+  const _es = document.getElementById('empScope');
+  if(_es) _es.classList.toggle('is-custom', (document.getElementById('empPeriod')||{}).value === 'custom');
   const { start, end, label } = empPeriodBounds();
   const today = todayISO();
   const mine = tasks.filter(t => t.assignedTo === currentViewerId);
@@ -2997,12 +3041,10 @@ function openAssignModal(mode){
     <div class="field"><label>Task type</label><select id="atPreset" onchange="applyTaskPreset()">${taskPresetOptionsHtml()}</select></div>
     <div class="field"><label>Task name</label><input type="text" id="atName" placeholder="e.g. GST Return"></div>
     <div class="field"><label>Deliverable scope</label><input type="text" id="atScope" placeholder="e.g. Q3 filing"></div>
-    <div class="field"><label>Team / work category</label><select id="atTeam">${(() => {
-      const mine = (currentViewer() || {}).team || '';
-      const names = allTeamNames();
-      if(mine && !names.includes(mine)) names.unshift(mine);
-      return names.map(n => `<option value="${esc(n)}"${n === mine ? ' selected' : ''}>${esc(n)}</option>`).join('') || '<option value="">— none —</option>';
-    })()}</select></div>
+    <div class="field"><label>Team / work category</label>
+      <select id="atTeam" onchange="onAtTeamChange()">${teamCategoryOptionsHtml((currentViewer() || {}).team || '')}</select>
+      <input type="text" id="atTeamCustom" placeholder="Type a team or work category" style="display:none; margin-top:8px;">
+    </div>
     ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee">${assignableEmployees().map(e=>{
       const w = workload.find(x => x.id === e.id);
       let load = '';
@@ -3039,7 +3081,8 @@ async function submitAssign(mode){
   const deadline = document.getElementById('atDeadline').value;
   const tat = parseFloat(document.getElementById('atTat').value) || 3;
   const points = parseInt(document.getElementById('atPoints').value) || 0;
-  const team = (document.getElementById('atTeam') || {}).value || '';
+  let team = (document.getElementById('atTeam') || {}).value || '';
+  if(team === '__custom__') team = ((document.getElementById('atTeamCustom') || {}).value || '').trim();
   const payload = { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline: deadline, tat, points, team };
   await submitTaskPayload(payload);
 }
