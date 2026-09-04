@@ -744,6 +744,10 @@
             <div class="mt-label">Done Today</div>
             <div class="mt-value teal" id="myDoneToday">0</div>
           </div>
+          <div class="metric-tile mg-tile" onclick="openMyReviewQueue()">
+            <div class="mt-label">To Review</div>
+            <div class="mt-value purple" id="myToReview">0</div>
+          </div>
           <div class="metric-tile mg-tile" onclick="openMyDoneList()">
             <div class="mt-label">Productive Hours</div>
             <div class="mt-value" id="myHoursCommitted">0.0<small>h</small></div>
@@ -1716,6 +1720,11 @@ function iCanReview(t){
   if(!t || t.assignedTo === currentViewerId) return false;
   return t.reviewerId === currentViewerId || empManagesWork(currentViewer(), t.assignedTo);
 }
+// Tasks sitting in front of the current viewer for review right now —
+// completed, not yet signed off, and it's theirs to check.
+function myReviewTasks(){
+  return tasks.filter(t => t.status === 'completed' && !t.reviewStatus && iCanReview(t));
+}
 // Approving a self-assigned task stays manager-only.
 function iCanApproveAssignment(t){ return t && empManagesWork(currentViewer(), t.assignedTo); }
 // Every team name in use (org chart + registry) — for the assign-task team picker.
@@ -2444,7 +2453,9 @@ function renderTaskTable(){
   const teamIds = new Set([...((session && session.managesIds) || []), currentViewerId]);
   const body = document.getElementById('taskTableBody');
   const rows = tasks.filter(t => {
-    if(scope === 'mine' && t.assignedTo !== currentViewerId) return false;
+    // "My Tasks" = work assigned to me, plus anything sitting in front of me
+    // for review (someone sent it to me to check).
+    if(scope === 'mine' && t.assignedTo !== currentViewerId && !(t.status === 'completed' && !t.reviewStatus && iCanReview(t))) return false;
     if(scope === 'all' && !isSuperAdmin && session && session.accessRole === 'admin' && !teamIds.has(t.assignedTo)) return false;
     if(scope === 'all' && !isSuperAdmin && !(session && session.accessRole === 'admin') && t.assignedTo !== currentViewerId) return false;
     if(status && t.status !== status) return false;
@@ -2591,6 +2602,7 @@ function renderEmployeeStats(){
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
   setV('myTasksToday', myTodaysWork.length);
   setV('myDoneToday', myDoneToday.length);
+  setV('myToReview', myReviewTasks().length);
   // Productive hours today = for each task finished today, its actual time
   // if the clock caught it, otherwise the agreed estimate. Shown against an
   // 8-hour shift for context — not a limit.
@@ -2696,6 +2708,15 @@ function renderMyDay(){
   }
 
   let html = '';
+  const toReview = myReviewTasks();
+  if(toReview.length){
+    html += `<div class="banner" style="margin-bottom:12px;background:var(--purple-dim,#EEE9FF);border-color:#7C6CF64a;">
+      <span>📝</span>
+      <span><b>${toReview.length} task${toReview.length>1?'s':''} waiting for your review.</b>
+      ${toReview.slice(0,4).map(t => `<a href="#" onclick="openReviewFormModal('${t.id}');return false;" style="color:#6D28D9;text-decoration:underline;margin-left:6px;">${esc(t.name)}</a>`).join(' · ')}
+      ${toReview.length>4 ? ` <a href="#" onclick="openMyReviewQueue();return false;" style="color:#6D28D9;">+${toReview.length-4} more</a>` : ''}</span>
+    </div>`;
+  }
   if(pendingApproval.length){
     html += `<div class="banner" style="margin-bottom:12px;"><span>⏳</span><span><b>${pendingApproval.length} self-assigned task${pendingApproval.length>1?'s':''} awaiting your manager's approval:</b> ${pendingApproval.map(t=>esc(t.name)).join(', ')}. You can't start ${pendingApproval.length>1?'them':'it'} until approved.</span></div>`;
   }
@@ -3957,6 +3978,31 @@ function openMyTodayList(){
     myTodaysWork,
     { showOwner: false, empty: "Nothing on your plate right now — you're all clear." }
   );
+}
+// Work other people sent the current viewer to check. Each row opens the
+// review form directly.
+function openMyReviewQueue(){
+  const list = myReviewTasks().slice().sort((a,b) => (a.completedAt||'').localeCompare(b.completedAt||''));
+  const rows = list.map(t => {
+    const o = empById(t.assignedTo);
+    return `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</div></td>
+      <td>${o ? esc(o.name) : '—'}</td>
+      <td class="tl-sub">${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</td>
+      <td><button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="closeModal();openReviewFormModal('${t.id}')">📝 Review</button></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('modalBox').innerHTML = `
+    <div class="tasklist-modal">
+      <h3>Waiting for your review <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
+      <div class="modal-sub">Work other people sent you to check before it's signed off.</div>
+      ${list.length ? `<div class="tl-scroll"><table>
+        <thead><tr><th>Task</th><th>Submitted by</th><th>Completed</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`
+        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting for your review right now.</p>`}
+      <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+    </div>`;
+  openModal();
 }
 // Tasks the current viewer completed within [startISO, endISO] (defaults to
 // today). The date pickers in the modal re-call this with a new range.
