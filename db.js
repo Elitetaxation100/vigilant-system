@@ -166,17 +166,6 @@ function ensureExtendedFields(state) {
     'disha@elitetaxation.co.nz': '1937711',
   };
   const FOUNDER_EMAILS = ['shubham@elitetaxation.co.nz'];
-  // Starting team memberships from the current org chart. Everyone not listed
-  // gets a 'member' membership mirroring the team they're already in, so
-  // their placement is unchanged — just also recorded in the new shape.
-  // All of it is editable afterwards and never rewritten once set.
-  const SEED_MEMBERSHIPS = {
-    'shubham@elitetaxation.co.nz': [{ team: 'Leads', level: 'admin' }],
-    'parvinder@elitetaxation.co.nz': [{ team: 'Companies', level: 'admin' }],
-    'disha@elitetaxation.co.nz': [{ team: 'Rideshare', level: 'admin' }, { team: 'Rental', level: 'admin' }],
-    'anjana@elitetaxation.co.nz': [{ team: 'Rideshare', level: 'admin' }],
-    'vishal@elitetaxation.co.nz': [{ team: 'Marketing', level: 'admin' }],
-  };
 
   (state.employees || []).forEach(e => {
     const email = String(e.email || '').toLowerCase();
@@ -186,29 +175,58 @@ function ensureExtendedFields(state) {
     if (e.notifyPrefs === undefined) {
       e.notifyPrefs = { channel: 'slack', quietHoursStart: null, quietHoursEnd: null, digestHour: null };
     }
+    // A new person starts as a plain member of the team they're placed on.
+    // The one-time cleanup below (rebuildOrgChart) then derives lead roles
+    // from managesIds. Legacy phantom-team seed data is gone.
     if (e.memberships === undefined) {
-      e.memberships = SEED_MEMBERSHIPS[email]
-        ? SEED_MEMBERSHIPS[email].map(m => ({ ...m }))
-        : (e.team && e.team !== 'Unassigned' ? [{ team: e.team, level: 'member' }] : []);
+      e.memberships = e.team && e.team !== 'Unassigned' ? [{ team: e.team, level: 'member' }] : [];
     }
   });
 
-  // Team registry — the union of every team currently in use plus the
-  // org-chart teams, so both name-sets work side by side. Additive only:
-  // teams are added, never removed, even empty ones.
   if (!Array.isArray(state.teams)) state.teams = [];
-  const ORG_CHART_TEAMS = ['Leads', 'Companies', 'Rideshare', 'Rental', 'Marketing'];
-  const names = new Set();
+}
+
+// ONE-TIME org-chart cleanup. ensureExtendedFields used to seed phantom team
+// names ("Leads", "Companies", "Rideshare" instead of "Rideshare Team", …)
+// into memberships and the team registry, and derived nothing from the real
+// reporting lines. Rebuild both from the source of truth: each employee's
+// `team` field and their `managesIds`. Runs once (guarded by a state flag)
+// so a superadmin's later edits from "Manage access" are never overwritten.
+function rebuildOrgChart(state) {
+  if (state._orgChartRebuiltV1) return;
+  const byId = Object.fromEntries((state.employees || []).map(e => [e.id, e]));
+  const realTeams = [...new Set((state.employees || []).map(e => e.team).filter(Boolean))]
+    .filter(t => t !== 'Unassigned').sort();
+
   (state.employees || []).forEach(e => {
-    if (e.team) names.add(e.team);
-    (e.memberships || []).forEach(m => { if (m && m.team) names.add(m.team); });
+    const m = [];
+    if (e.team && e.team !== 'Unassigned') m.push({ team: e.team, level: 'member' });
+    // A person leads every real team their direct reports sit on. A founder
+    // leads every team.
+    const leads = new Set();
+    (e.managesIds || []).forEach(id => {
+      const r = byId[id];
+      if (r && r.team && r.team !== 'Unassigned') leads.add(r.team);
+    });
+    if (e.isFounder) realTeams.forEach(t => leads.add(t));
+    leads.forEach(t => {
+      const cur = m.find(x => x.team === t);
+      if (cur) cur.level = 'admin';
+      else m.push({ team: t, level: 'admin' });
+    });
+    e.memberships = m;
   });
-  ORG_CHART_TEAMS.forEach(t => names.add(t));
-  names.forEach(name => {
+
+  // Team registry: drop the auto-injected phantoms, keep anything a
+  // superadmin added deliberately, and make sure every real team is listed.
+  const PHANTOMS = new Set(['Leads', 'Companies', 'Rideshare', 'Rental', 'Marketing']);
+  state.teams = (state.teams || []).filter(t => t && t.name && !PHANTOMS.has(t.name));
+  realTeams.forEach(name => {
     if (!state.teams.some(t => t.name === name)) {
-      state.teams.push({ id: 't-' + String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), name, createdAt: Date.now() });
+      state.teams.push({ id: 't-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), name, createdAt: Date.now() });
     }
   });
+  state._orgChartRebuiltV1 = true;
 }
 
 // Backfills that used to run inline at module load — now a function so both
@@ -314,6 +332,7 @@ function runMigrations(state) {
   }
   ensureOrgChart(state);
   ensureExtendedFields(state);
+  rebuildOrgChart(state);
 }
 
 // ---------------------------------------------------------------------------
