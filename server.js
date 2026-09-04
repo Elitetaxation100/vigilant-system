@@ -1122,7 +1122,20 @@ app.get('/api/workload', requireAuth, (req, res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/activity', requireAuth, (req, res) => {
   const state = db.get();
-  res.json({ activity: state.activityLog.slice(-60).reverse() });
+  const me = req.employee;
+  // Everyone sees their own activity. A manager also sees their team's; a
+  // superadmin sees the whole firm. Nobody gets pinged about a colleague's
+  // task updates.
+  let visible;
+  if (me.accessRole === 'superadmin') {
+    visible = state.activityLog;
+  } else if (me.accessRole === 'admin') {
+    const ids = new Set([me.id, ...(me.managesIds || [])]);
+    visible = state.activityLog.filter(a => !a.empId || ids.has(a.empId));
+  } else {
+    visible = state.activityLog.filter(a => a.empId === me.id);
+  }
+  res.json({ activity: visible.slice(-60).reverse() });
 });
 
 // ---------------------------------------------------------------------------

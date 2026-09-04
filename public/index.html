@@ -2896,15 +2896,16 @@ let lastSeenActivityId = null;
 async function refreshActivity(opts){
   opts = opts || {};
   try {
-    const { activity } = await api('/api/activity'); // newest first
-    if(!opts.silent && lastSeenActivityId !== null && activity.length && session){
+    const { activity } = await api('/api/activity'); // newest first, already role-scoped by the server
+    // Only the background poll pings (opts.notify), and only for events
+    // addressed to this person — a new task for them, a review sent their
+    // way, their own work sent back. Never a colleague's task updates.
+    if(opts.notify && lastSeenActivityId !== null && activity.length && session){
       const idx = activity.findIndex(a => a.id === lastSeenActivityId);
       const freshOnes = idx === -1 ? activity.slice(0, 1) : activity.slice(0, idx);
-      const fromOthers = freshOnes.filter(a => a.empId !== session.id);
-      if(fromOthers.length > 0){
-        const latest = fromOthers[0];
-        const emp = empById(latest.empId);
-        showToast('info', emp ? emp.name : 'Team update', stripHtml(latest.text));
+      const forMe = freshOnes.filter(a => a.empId === session.id);
+      if(forMe.length > 0){
+        showToast('info', 'Update on your work', stripHtml(forMe[0].text));
       }
     }
     if(activity.length) lastSeenActivityId = activity[0].id;
@@ -5071,7 +5072,7 @@ function startPolling(){
   pollHandle = setInterval(async () => {
     if(!session) return;
     await refreshTasks();
-    await refreshActivity();
+    await refreshActivity({ notify: true });
     await refreshEmployees();
     await refreshClients();
   }, 8000);
