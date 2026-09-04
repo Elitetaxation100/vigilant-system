@@ -212,7 +212,9 @@
   .greeting-block h1{ font-family:var(--font-display); font-size:24px; font-weight:700; letter-spacing:-.3px; }
   .greeting-block .greeting-sub{ margin-top:6px; font-size:13.5px; color:var(--text-faint); }
   .greeting-block .greeting-sub b{ color:var(--text-dim); font-weight:600; }
-  .top-grid{ display:grid; grid-template-columns:repeat(4,1fr) 1.6fr; gap:14px; margin-bottom:24px; }
+  .top-grid{ display:grid; grid-template-columns:repeat(5,1fr) 1.7fr; gap:14px; margin-bottom:24px; }
+  @media(max-width:1180px){ .top-grid{ grid-template-columns:repeat(3,1fr); } }
+  @media(max-width:640px){ .top-grid{ grid-template-columns:repeat(2,1fr); } }
   .metric-tile{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:18px 18px 16px; }
   .metric-tile .mt-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-faint); font-weight:600; margin-bottom:10px; }
   .metric-tile .mt-value{ font-family:var(--font-display); font-size:26px; font-weight:700; letter-spacing:-.3px; }
@@ -735,6 +737,10 @@
             <div class="mt-label">To Do Today</div>
             <div class="mt-value" id="myTasksToday">0</div>
           </div>
+          <div class="metric-tile mg-tile" onclick="openMyDoneList()">
+            <div class="mt-label">Done Today</div>
+            <div class="mt-value teal" id="myDoneToday">0</div>
+          </div>
           <div class="metric-tile">
             <div class="mt-label">Hours Committed</div>
             <div class="mt-value" id="myHoursCommitted">0.0<small>h</small></div>
@@ -919,6 +925,7 @@
             <div class="cc-header-right">
               <div class="cc-clock" id="ccClock">00:00:00</div>
               <div class="cc-date" id="ccDate">—</div>
+              <button class="btn small" style="margin-top:8px;border-color:#F0603E;color:#F0603E;" onclick="confirmClearTasks()">Clear all tasks…</button>
             </div>
           </div>
 
@@ -1410,6 +1417,7 @@ let activityLog = [];
 let workload = []; // per-employee occupancy from /api/workload — who's booked until when
 let teams = []; // named team registry from /api/teams (calls-into-tasks, Phase 1b)
 let myTodaysWork = []; // the current viewer's "to-do today" list, for the dashboard tile drill-down
+let myDoneToday = [];  // the current viewer's tasks completed today
 let loginTab = 'employee';
 let seenAwaitingIds = null; // null = not initialized yet (first load shouldn't pop every existing task)
 
@@ -1677,18 +1685,22 @@ function assignableEmployees(){
 function canAssignTo(empId){ return assignableEmployees().some(e => e.id === empId); }
 function displayedLogged(t){ return t.displayedLogged !== undefined ? t.displayedLogged : t.logged; }
 
-/* Separation of duties — mirrors the server's canReviewWorkOf(). A person's
-   work can only be reviewed by a manager/admin responsible for them (or a
-   superadmin); never themselves, never a peer. */
-function empCanReviewWorkOf(emp, assigneeId){
+/* Is `emp` a manager/admin responsible for `assigneeId` (or a superadmin)?
+   Used for self-assignment approval and as one of the two ways to review. */
+function empManagesWork(emp, assigneeId){
   if(!emp || !assigneeId || emp.id === assigneeId) return false;
   if(emp.accessRole === 'superadmin') return true;
   if(emp.accessRole === 'admin') return (emp.managesIds || []).includes(assigneeId);
   return false;
 }
-function iCanReview(t){ return t && empCanReviewWorkOf(currentViewer(), t.assignedTo); }
-// Approving a self-assigned task uses the same "manager over this person" rule.
-function iCanApproveAssignment(t){ return t && empCanReviewWorkOf(currentViewer(), t.assignedTo); }
+// Review: the person the assignee sent it to, OR a manager over them —
+// never the assignee themselves.
+function iCanReview(t){
+  if(!t || t.assignedTo === currentViewerId) return false;
+  return t.reviewerId === currentViewerId || empManagesWork(currentViewer(), t.assignedTo);
+}
+// Approving a self-assigned task stays manager-only.
+function iCanApproveAssignment(t){ return t && empManagesWork(currentViewer(), t.assignedTo); }
 // Every team name in use (org chart + registry) — for the assign-task team picker.
 function allTeamNames(){
   const s = new Set();
@@ -1714,8 +1726,9 @@ function onAtTeamChange(){
   cust.style.display = isCustom ? '' : 'none';
   if(isCustom) cust.focus();
 }
+// A task can be sent to anyone for review except the person who did it.
 function eligibleReviewersFor(assigneeId){
-  return employees.filter(e => empCanReviewWorkOf(e, assigneeId));
+  return employees.filter(e => e.id !== assigneeId);
 }
 
 /* Which tasks a person's "My Dashboard" panels reflect:
@@ -2266,7 +2279,7 @@ function statusBadge(t){
     case 'pending': return `<span class="badge pending dot">Pending</span>`;
     case 'rework': return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
         case 'completed':
-      if(t.reviewStatus === 'clean') return `<span class="badge completed dot">✓ Reviewed Clean</span>`;
+      if(t.reviewStatus === 'clean') return `<span class="badge completed dot" title="Reviewed clean">✓ Done</span>`;
       if(t.reviewStatus === 'error') return `<span class="badge overdue dot">⚠ Error Found</span>`;
       return `<span class="badge pending dot">Sent for Review</span>`;
 
@@ -2344,7 +2357,7 @@ function actionCell(t){
       html += `<span style="font-size:13px;color:var(--text-faint);" title="${esc(t.reviewNote||'')}">Sent back for rework</span>`;
     }
   } else if(t.status === 'completed'){
-    if(t.reviewStatus === 'clean') html += `<span class="badge completed dot" style="cursor:pointer;" onclick="openReviewViewModal('${t.id}')">✓ Reviewed Clean</span>`;
+    if(t.reviewStatus === 'clean') html += `<span class="badge completed dot" style="cursor:pointer;" title="Reviewed clean — click for details" onclick="openReviewViewModal('${t.id}')">✓ Done</span>`;
     else if(t.reviewStatus === 'error') html += `<span class="badge overdue dot" style="cursor:pointer;" title="${esc(t.reviewNote||'')}" onclick="openReviewViewModal('${t.id}')">⚠ Error Found</span>`;
     else if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else html += `<button class="verify-btn" disabled>Awaiting Review</button>`;
@@ -2498,19 +2511,19 @@ function renderEmployeeStats(){
   const crumb = document.getElementById('empCrumb');
   if(crumb) crumb.innerHTML = `<b>You:</b> ${esc(me.name)}${me.team ? ' · ' + esc(me.team) : ''} · ${esc(label)}`;
 
-  // "To-do today" = everything on the person's plate that needs action now,
-  // so they know what to work on even with no manager around: anything due
-  // today or already overdue, anything waiting for them to accept or fix,
-  // and whatever they're actively timing. (Not tasks due later this week,
-  // completed work, or self-assignments still pending a manager's approval.)
+  // "To do today" = every task on the person's plate that isn't finished —
+  // to accept, in progress, in rework, or sent for review and not yet
+  // signed off. Excludes work already reviewed clean and self-assignments
+  // still waiting on a manager. Overdue items sort to the top.
   myTodaysWork = mine.filter(t =>
-    t.status !== 'completed' && t.status !== 'pending_approval' && (
-      (t.internalDeadline && t.internalDeadline <= today) ||  // due today or overdue (any status)
-      t.status === 'rework' ||                                 // sent back — fix it
-      !!t.timerStartedAt                                       // actively being worked
-    ));
+    t.status !== 'pending_approval' &&
+    !(t.status === 'completed' && t.reviewStatus === 'clean'));
+  // "Done today" = tasks this person completed today (used by the tile +
+  // its date-range drill-down, which starts on today).
+  myDoneToday = mine.filter(t => t.completedAt && t.completedAt.slice(0,10) === today);
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
   setV('myTasksToday', myTodaysWork.length);
+  setV('myDoneToday', myDoneToday.length);
   setV('myHoursCommitted', doneP.reduce((s,t) => s + (t.logged || 0), 0).toFixed(1) + '<small>h</small>');
   const withDate = doneP.filter(t => t.clientDate);
   setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / withDate.length * 100) + '<small>%</small>' : '—');
@@ -2879,14 +2892,13 @@ async function resumeTask(id){
 function openCompleteModal(id){
   const t = findTask(id);
   if(!t) return;
-  // Only a manager/admin responsible for the assignee (or a superadmin) may
-  // review — same rule the server enforces. No peer or self review.
-  const reviewers = eligibleReviewersFor(t.assignedTo);
+  // Send it to anyone for review — just not yourself.
+  const reviewers = eligibleReviewersFor(t.assignedTo).slice().sort((a,b) => a.name.localeCompare(b.name));
   const options = reviewers
   .map(e => `<option value="${e.id}">${esc(e.name)} — ${esc(e.jobTitle||'')}</option>`).join('');
   const picker = reviewers.length
     ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
-    : `<div class="modal-error" style="display:block;">No manager or admin is set up to review your work yet — ask a superadmin to assign you a manager, then mark this complete.</div>`;
+    : `<div class="modal-error" style="display:block;">There's no one else to review this yet.</div>`;
   document.getElementById('modalBox').innerHTML = `
   <h3>Mark Complete — ${esc(t.name)}</h3>
   <div class="modal-sub">${esc(t.clientName)||'—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
@@ -3713,14 +3725,70 @@ function openMgTileList(key){
   const meta = MG_TILE_META[key]; if(!meta) return;
   taskListModal(meta.title, `${dashScopeLabel('mg')} · ${dashPeriodLabel('mg')}`, mgTileData[key] || [], { empty: meta.empty });
 }
+// Superadmin: wipe every task for a clean demo. Employees, clients, teams
+// and the org chart are untouched. Two-step confirm.
+function confirmClearTasks(){
+  document.getElementById('modalBox').innerHTML = `
+    <h3 style="color:#C2410C;">Clear all tasks?</h3>
+    <div class="modal-sub">This permanently deletes <b>every task</b> (${tasks.length}) and the task activity feed. Employees, clients, teams and reporting lines stay exactly as they are. A snapshot is kept in the connector log.</div>
+    <div class="field"><label>Type <b>DELETE ALL TASKS</b> to confirm</label><input type="text" id="clrConfirm" placeholder="DELETE ALL TASKS" autocomplete="off"></div>
+    <div class="modal-error" id="clrErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" style="background:#F0603E;" onclick="doClearTasks()">Clear tasks</button>
+    </div>`;
+  openModal();
+}
+async function doClearTasks(){
+  const confirm = (document.getElementById('clrConfirm')||{}).value || '';
+  const errEl = document.getElementById('clrErr');
+  if(confirm !== 'DELETE ALL TASKS'){ if(errEl){ errEl.textContent = 'Type it exactly: DELETE ALL TASKS'; errEl.style.display = 'block'; } return; }
+  try {
+    const r = await api('/api/admin/clear-tasks', { method:'POST', body: JSON.stringify({ confirm }) });
+    closeModal();
+    await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Tasks cleared', `${r.removed} task${r.removed === 1 ? '' : 's'} removed — clean slate.`);
+  } catch(e){
+    if(errEl){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+  }
+}
 function openMyTodayList(){
   const me = currentViewer();
   taskListModal(
     "To do today",
     (me ? me.name + ' · ' : '') + new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'2-digit', month:'short' }),
     myTodaysWork,
-    { showOwner: false, empty: "Nothing needs doing today — you're clear. Anything due later this week is in the Verification Matrix below." }
+    { showOwner: false, empty: "Nothing on your plate right now — you're all clear." }
   );
+}
+// Tasks the current viewer completed within [startISO, endISO] (defaults to
+// today). The date pickers in the modal re-call this with a new range.
+function openMyDoneList(startISO, endISO){
+  const t0 = todayISO();
+  const s = startISO || t0, e = endISO || t0;
+  const list = tasks
+    .filter(t => t.assignedTo === currentViewerId && t.completedAt && t.completedAt.slice(0,10) >= s && t.completedAt.slice(0,10) <= e)
+    .sort((a,b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  const rows = list.map(t => `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
+      <td>${fmtDate(t.completedAt.slice(0,10))}</td>
+      <td>${t.reviewStatus === 'clean' ? '<span class="badge completed dot" title="Reviewed clean">✓ Done</span>' : t.reviewStatus === 'error' ? '<span class="badge overdue dot">⚠ Error found</span>' : '<span class="badge pending dot">Sent for review</span>'}</td>
+    </tr>`).join('');
+  const same = s === e;
+  document.getElementById('modalBox').innerHTML = `
+    <div class="tasklist-modal">
+      <h3>Done ${same ? (s === t0 ? 'today' : fmtDate(s)) : fmtDate(s) + ' – ' + fmtDate(e)} <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
+      <div class="modal-sub">Tasks you completed in this range</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 4px;font-size:12.5px;color:var(--text-faint);">
+        <input type="date" id="dtStart" value="${s}"> → <input type="date" id="dtEnd" value="${e}">
+        <button class="btn small" onclick="openMyDoneList(document.getElementById('dtStart').value||undefined, document.getElementById('dtEnd').value||undefined)">Apply</button>
+        <button class="btn small" onclick="openMyDoneList()">Today</button>
+      </div>
+      ${list.length ? `<div class="tl-scroll"><table><thead><tr><th>Task</th><th>Completed</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing completed in this range.</p>`}
+      <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+    </div>`;
+  openModal();
 }
 /* =========================================================================
    FOUNDER VIEW — superadmin-only, last-30-days snapshot of the whole firm:

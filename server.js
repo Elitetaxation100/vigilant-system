@@ -96,14 +96,15 @@ function canManageEmployee(state, actor, employeeId) {
   return false;
 }
 /**
- * Can `actor` REVIEW work done by `assigneeId`? Separation of duties:
- * a manager/admin responsible for that person (or a superadmin) — and
- * never the person themselves, and never a peer. This is the single rule
- * behind /complete's reviewer picker, /review, and /send-to-client.
+ * Can `actor` ACT on the review of task `t` (mark clean / error, decide
+ * send-to-client)? The reviewer the assignee nominated on completion, OR a
+ * manager/admin responsible for that person — but never the assignee
+ * themselves. Peers are fine as long as they were the one picked.
  */
-function canReviewWorkOf(state, actor, assigneeId) {
+function canReviewWorkOf(state, actor, assigneeId, t) {
   if (!actor || actor.id === assigneeId) return false;
-  return isAdminRole(actor.accessRole) && canManageEmployee(state, actor, assigneeId);
+  if (t && t.reviewerId && t.reviewerId === actor.id) return true;
+  return canManageEmployee(state, actor, assigneeId);
 }
 
 // ---------------------------------------------------------------------------
@@ -629,10 +630,8 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   if (!reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
   const reviewer = findEmployee(state, reviewerId);
   if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
-  if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't review your own work." });
-  if (!canReviewWorkOf(state, reviewer, t.assignedTo)) {
-    return res.status(400).json({ error: 'That person can\'t review this work — pick a manager or admin responsible for you.' });
-  }
+  // You can send your work to anyone for review — just not yourself.
+  if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send your own work to yourself for review — pick someone else." });
     const elapsed = t.timerStartedAt ? (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000 : 0;
   t.logged += elapsed;
     t.timerStartedAt = null;
@@ -711,12 +710,10 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  // Separation of duties: only a manager/admin OVER the assignee (or a
-  // superadmin) can review — never the assignee themselves, and never a
-  // peer. Being named as `reviewerId` on completion does NOT grant review
-  // rights on its own; it only routes the notification.
-  if (!canReviewWorkOf(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: 'Only a manager or admin responsible for this person can review their work.' });
+  // The nominated reviewer, or a manager/admin over the assignee — never
+  // the assignee themselves.
+  if (!canReviewWorkOf(state, req.employee, t.assignedTo, t)) {
+    return res.status(403).json({ error: "You can't review this task — it wasn't sent to you, and it isn't your report's work." });
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
   const { status, note, faultType } = req.body || {};
@@ -752,9 +749,9 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  // Same gate as /review — a manager/admin over the assignee, or a superadmin.
-  if (!canReviewWorkOf(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: 'Only a manager or admin responsible for this person can decide this.' });
+  // Same gate as /review — the nominated reviewer or a manager over them.
+  if (!canReviewWorkOf(state, req.employee, t.assignedTo, t)) {
+    return res.status(403).json({ error: "You can't make this decision on someone else's review." });
   }
   if (t.reviewStatus !== 'clean' || !t.awaitingClientDecision) {
     return res.status(400).json({ error: 'This task has no pending client-send decision.' });
@@ -1299,6 +1296,29 @@ app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, (req, res) 
     clients: (state.clients || []).length,
     teams: (state.teams || []).length,
   });
+});
+
+// Clear out test tasks for a clean demo. Superadmin only, and the body must
+// carry { confirm: "DELETE ALL TASKS" } so it can't fire by accident. Keeps
+// employees, clients, teams and the org chart exactly as they are — only the
+// task list, the task activity feed and the task counter are reset. A
+// snapshot is written to the connector log first so it's recoverable via
+// /api/admin/state-import if this was a mistake.
+app.post('/api/admin/clear-tasks', requireAuth, requireSuperAdmin, (req, res) => {
+  if ((req.body || {}).confirm !== 'DELETE ALL TASKS') {
+    return res.status(400).json({ error: 'Send { "confirm": "DELETE ALL TASKS" } to proceed.' });
+  }
+  const state = db.get();
+  const removed = (state.tasks || []).length;
+  const backup = JSON.stringify({ at: new Date().toISOString(), tasks: state.tasks || [], taskSeq: state.taskSeq });
+  state.tasks = [];
+  state.activityLog = [];
+  state.taskSeq = 100;
+  if (!Array.isArray(state.connectorLog)) state.connectorLog = [];
+  state.connectorLog.push({ at: new Date().toISOString(), level: 'warn', msg: 'clear-tasks: removed ' + removed + ' tasks', meta: { by: req.employee.name, backupBytes: backup.length } });
+  logEvent(state, req.employee.id, `Cleared ${removed} task${removed === 1 ? '' : 's'} for a fresh start.`);
+  db.save();
+  res.json({ ok: true, removed, tasks: 0, employees: (state.employees || []).length, clients: (state.clients || []).length });
 });
 
 // Full state snapshot — download it before any risky change, or to seed
