@@ -667,9 +667,12 @@
     <div class="nav-section" id="attendanceNavSection" style="display:none;">
       <div class="nav-item" data-view="attendance" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
     </div>
+    <div class="nav-section" id="clientsNavSection">
+      <div class="nav-title">Directory</div>
+      <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
+    </div>
     <div class="nav-section" id="employeesNavSection" style="display:none;">
       <div class="nav-title">Admin</div>
-      <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
       <div class="nav-item" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
     </div>
 
@@ -1315,7 +1318,7 @@
             <h2>Client Directory</h2>
             <button class="btn primary small" onclick="openAddClientModal()">+ Add Client</button>
           </div>
-          <p style="font-size:14px; color:var(--text-faint); margin-bottom:14px;">Every client needs an owner — the employee accountable for that relationship. Clients without an owner are flagged.</p>
+          <p style="font-size:14px; color:var(--text-faint); margin-bottom:14px;">Anyone can add a client and their contact email. Whoever adds it owns it and can edit its details; an admin can hand a client to someone else. Clients without an owner are flagged.</p>
           <div class="emp-grid" id="clientGrid"></div>
         </div>
       </section>
@@ -1772,7 +1775,7 @@ const titles = {
   analytics: ['Analytics', 'Build a chart from any breakdown and any metric'],
   report: ['My Report Card', 'Auto-generated monthly, shareable as a PDF'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
-  clients: ['Client Directory', 'Admin-only — every client needs a clear owner'],
+  clients: ['Client Directory', 'Add your own clients — every client has an owner'],
   command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
   attendance: ['Attendance Log', 'Superadmin-only — daily login/logout history for the whole team'],
   founder: ['Founder Dashboard', 'The whole firm — sliced by team, person, or any date range'],
@@ -3156,13 +3159,11 @@ function openAssignModal(mode){
   if(clients.length === 0){
     document.getElementById('modalBox').innerHTML = `
       <h3>${isTeam ? 'Assign Task to Team' : 'Assign Task to Me'}</h3>
-      <div class="modal-sub">No clients on file yet — every task needs a client with a clear owner.</div>
-      <p style="font-size:14.5px; color:var(--text-dim); line-height:1.6;">
-        ${isAdmin ? 'Add a client from the Clients directory first, then come back to assign this task.' : 'Ask an Admin or Superadmin to add the client first.'}
-      </p>
+      <div class="modal-sub">No clients on file yet — every task needs a client.</div>
+      <p style="font-size:14.5px; color:var(--text-dim); line-height:1.6;">Add the client first — it takes a second, and you'll come straight back here.</p>
       <div class="modal-actions">
         <button class="btn" onclick="closeModal()">Close</button>
-        ${isAdmin ? `<button class="btn primary" onclick="closeModal(); showView('clients', document.querySelector('.nav-item[data-view=\\'clients\\']'));">Go to Clients</button>` : ''}
+        <button class="btn primary" onclick="closeModal(); openAddClientModal();">+ Add a client</button>
       </div>
     `;
     openModal();
@@ -4538,14 +4539,19 @@ function renderClientGrid(){
   }
   grid.innerHTML = clients.map(c => {
     const owner = empById(c.ownerId);
+    const canEdit = isAdmin || c.ownerId === currentViewerId || c.addedBy === currentViewerId;
     return `
     <div class="emp-card">
       <span class="mini-avatar">${esc(c.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
       <div style="flex:1;">
         <div class="en">${esc(c.name)}</div>
         ${c.type ? `<div class="et" style="color:#5B4FCF;">${esc(c.type)}</div>` : ''}
+        ${c.email ? `<div class="et"><a href="mailto:${esc(c.email)}" style="color:var(--teal,#0D9488);">${esc(c.email)}</a></div>` : ''}
         <div class="et">${owner ? 'Owner: ' + esc(owner.name) : '<span style="color:#C2410C;">⚠ No owner assigned</span>'}</div>
-        ${isSuperAdmin || isAdmin ? `<button class="verify-btn" style="margin-top:8px;" onclick="openAssignClientOwner('${c.id}')">${owner ? 'Reassign owner' : 'Assign owner'}</button>` : ''}
+        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+          ${canEdit ? `<button class="verify-btn" onclick="openEditClientModal('${c.id}')">Edit</button>` : ''}
+          ${isAdmin ? `<button class="verify-btn" onclick="openAssignClientOwner('${c.id}')">${owner ? 'Reassign owner' : 'Assign owner'}</button>` : ''}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -4561,17 +4567,22 @@ function selectClientType(type, btn){
 }
 function openAddClientModal(){
   selectedClientType = 'Rideshare';
+  const me = currentViewer();
+  const ownerField = isAdmin
+    ? `<div class="field"><label>Owner</label><select id="ncOwner"><option value="${currentViewerId}">Me — ${esc((me&&me.name)||'')}</option>${employees.filter(e=>e.id!==currentViewerId).map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>`
+    : `<div class="field"><label>Owner</label><input type="text" value="You (${esc((me&&me.name)||'')})" disabled><input type="hidden" id="ncOwner" value="${currentViewerId}"></div>`;
   document.getElementById('modalBox').innerHTML = `
     <h3>Add Client</h3>
-    <div class="modal-sub">Every client should be assigned an owner right away.</div>
+    <div class="modal-sub">The person who adds a client owns it. An admin can hand it to someone else.</div>
     <div class="field"><label>Client name</label><input type="text" id="ncName" placeholder="e.g. City Cabs Ltd"></div>
+    <div class="field"><label>Client email <span style="color:var(--text-faint);">(optional)</span></label><input type="email" id="ncEmail" placeholder="e.g. accounts@citycabs.co.nz"></div>
     <div class="field"><label>Client type</label>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         ${CLIENT_TYPES.map((type,i) => `<button type="button" class="btn small ncTypeBtn${i===0?' primary':''}" onclick="selectClientType('${type}', this)">${type}</button>`).join('')}
       </div>
     </div>
     <div class="field" id="ncTypeCustomField" style="display:none;"><label>Custom type</label><input type="text" id="ncTypeCustom" placeholder="e.g. Property Management"></div>
-    <div class="field"><label>Owner</label><select id="ncOwner"><option value="">— No owner yet —</option>${employees.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    ${ownerField}
     <div class="modal-error" id="ncError">Please enter a client name.</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -4582,18 +4593,48 @@ function openAddClientModal(){
 }
 async function submitAddClient(){
   const name = document.getElementById('ncName').value.trim();
-  const ownerId = document.getElementById('ncOwner').value || null;
+  const email = document.getElementById('ncEmail').value.trim();
+  const ownerId = (document.getElementById('ncOwner') || {}).value || null;
   const type = selectedClientType === 'Custom' ? (document.getElementById('ncTypeCustom').value.trim() || 'Custom') : selectedClientType;
-  if(!name){ document.getElementById('ncError').style.display = 'block'; return; }
+  if(!name){ document.getElementById('ncError').textContent = 'Please enter a client name.'; document.getElementById('ncError').style.display = 'block'; return; }
   try {
-    await api('/api/clients', { method:'POST', body: JSON.stringify({ name, ownerId, type }) });
+    await api('/api/clients', { method:'POST', body: JSON.stringify({ name, email, ownerId, type }) });
     closeModal();
     await refreshClients();
     renderClientGrid();
+    showToast('success', 'Client added', name);
   } catch(e){
     document.getElementById('ncError').textContent = e.message;
     document.getElementById('ncError').style.display = 'block';
   }
+}
+function openEditClientModal(id){
+  const c = clientById(id);
+  if(!c) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Edit client — ${esc(c.name)}</h3>
+    <div class="field"><label>Client name</label><input type="text" id="ecName" value="${esc(c.name)}"></div>
+    <div class="field"><label>Client email</label><input type="email" id="ecEmail" value="${esc(c.email||'')}" placeholder="e.g. accounts@client.co.nz"></div>
+    <div class="field"><label>Client type</label><input type="text" id="ecType" value="${esc(c.type||'')}" placeholder="e.g. Rideshare"></div>
+    <div class="modal-error" id="ecError"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitEditClient('${id}')">Save</button>
+    </div>`;
+  openModal();
+}
+async function submitEditClient(id){
+  const name = document.getElementById('ecName').value.trim();
+  const email = document.getElementById('ecEmail').value.trim();
+  const type = document.getElementById('ecType').value.trim();
+  if(!name){ document.getElementById('ecError').textContent = 'Client name is required.'; document.getElementById('ecError').style.display = 'block'; return; }
+  try {
+    await api(`/api/clients/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({ name, email, type }) });
+    closeModal();
+    await refreshClients();
+    renderClientGrid();
+    showToast('success', 'Client updated', name);
+  } catch(e){ document.getElementById('ecError').textContent = e.message; document.getElementById('ecError').style.display = 'block'; }
 }
 function openAssignClientOwner(id){
   const c = clientById(id);

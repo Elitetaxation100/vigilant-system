@@ -215,6 +215,11 @@ function ensureExtendedFields(state) {
 // stores share exactly one migration path.
 function runMigrations(state) {
   if (!state.clients) state.clients = [];
+  // Clients can carry a contact email now, and remember who added them.
+  (state.clients || []).forEach(c => {
+    if (c.email === undefined) c.email = null;
+    if (c.addedBy === undefined) c.addedBy = c.ownerId || null;
+  });
   if (!state.attendance) state.attendance = {};
   // calls-into-tasks Phase 5: the connector's call log moves off the Google
   // Sheet into here. Each row mirrors what the "Call Log" tab held.

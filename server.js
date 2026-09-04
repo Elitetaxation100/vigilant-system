@@ -386,27 +386,59 @@ app.get('/api/clients', requireAuth, (req, res) => {
   const state = db.get();
   res.json({ clients: state.clients });
 });
-app.post('/api/clients', requireAuth, requireAdmin, (req, res) => {
+// Anyone can add a client — an employee adding their own contact defaults to
+// owning it. Only an admin can hand ownership to someone else.
+app.post('/api/clients', requireAuth, (req, res) => {
   const state = db.get();
-  const { name, ownerId, type } = req.body || {};
+  const { name, ownerId, type, email } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Client name is required.' });
-  if (ownerId && !findEmployee(state, ownerId)) return res.status(400).json({ error: 'Owner not found.' });
-  const client = { id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000), name: String(name).trim(), ownerId: ownerId || null, type: type ? String(type).trim() : null };
+  const cleanEmail = email ? String(email).trim() : '';
+  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return res.status(400).json({ error: "That doesn't look like a valid email address." });
+  }
+  let owner = ownerId || null;
+  if (owner && owner !== req.employee.id && !isAdminRole(req.employee.accessRole)) {
+    owner = req.employee.id; // an employee can only put a client under their own name
+  }
+  if (owner && !findEmployee(state, owner)) return res.status(400).json({ error: 'Owner not found.' });
+  if (!owner) owner = req.employee.id; // default: the person adding it owns it
+  const client = {
+    id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
+    name: String(name).trim(), ownerId: owner,
+    type: type ? String(type).trim() : null,
+    email: cleanEmail || null,
+    addedBy: req.employee.id,
+  };
   state.clients.push(client);
+  logEvent(state, req.employee.id, `Added client <b>${escHtml(client.name)}</b>${cleanEmail ? ' (' + escHtml(cleanEmail) + ')' : ''}.`);
   db.save();
   res.status(201).json({ client });
 });
-app.patch('/api/clients/:id', requireAuth, requireAdmin, (req, res) => {
+app.patch('/api/clients/:id', requireAuth, (req, res) => {
   const state = db.get();
   const client = state.clients.find(c => c.id === req.params.id);
   if (!client) return res.status(404).json({ error: 'Client not found.' });
-  const { name, ownerId, type } = req.body || {};
+  // The owner can edit their own client's details; reassigning ownership or
+  // touching someone else's client is admin-only.
+  const mine = client.ownerId === req.employee.id || client.addedBy === req.employee.id;
+  if (!mine && !isAdminRole(req.employee.accessRole)) {
+    return res.status(403).json({ error: "You can only edit clients you own." });
+  }
+  const { name, ownerId, type, email } = req.body || {};
   if (name && String(name).trim()) client.name = String(name).trim();
   if (ownerId !== undefined) {
+    if (!isAdminRole(req.employee.accessRole)) return res.status(403).json({ error: 'Only an admin can change who owns a client.' });
     if (ownerId && !findEmployee(state, ownerId)) return res.status(400).json({ error: 'Owner not found.' });
     client.ownerId = ownerId || null;
   }
   if (type !== undefined) client.type = type ? String(type).trim() : null;
+  if (email !== undefined) {
+    const cleanEmail = email ? String(email).trim() : '';
+    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({ error: "That doesn't look like a valid email address." });
+    }
+    client.email = cleanEmail || null;
+  }
   db.save();
   res.json({ client });
 });
