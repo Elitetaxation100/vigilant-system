@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb', verify: rawBodySaver 
 // few times, but stops fast automated guessing.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 20,
+  limit: Number(process.env.LOGIN_RATE_LIMIT) || 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many sign-in attempts. Please wait a few minutes and try again.' },
@@ -140,24 +140,22 @@ function reworkElapsedHours(t) {
   return (Date.now() - new Date(t.reworkStartedAt).getTime()) / 3600000;
 }
 function taskForClient(t) {
-  return { ...t, displayedLogged: liveElapsedHours(t), reworkElapsedHours: reworkElapsedHours(t) };
+  // The hold screenshot can be a megabyte of base64 — never ship it in the
+  // task list (fetched every few seconds by every open tab). It's pulled on
+  // demand via /api/tasks/:id/hold-screenshot when someone opens the detail.
+  const { holdScreenshot, ...rest } = t;
+  return { ...rest, hasHoldScreenshot: !!holdScreenshot, displayedLogged: liveElapsedHours(t), reworkElapsedHours: reworkElapsedHours(t) };
 }
 
 // ---------------------------------------------------------------------------
-// WORKLOAD / AVAILABILITY — capacity-based. An employee has a fixed daily
-// capacity (DAILY_CAPACITY_HOURS); a new task is only blocked if handing
-// it to them would push their ALREADY-COMMITTED hours on that specific
-// agreed date over that capacity. Simply already having one other task
-// due the same day is not by itself a conflict — only the actual hours
-// total is. Completed tasks don't count (they're excluded here), and
-// excludeTaskId lets a task check against an employee's OTHER work
-// without tripping over itself (reassignment, window approval).
+// WORKLOAD / AVAILABILITY — informational only. There is no capacity gate:
+// work can always be assigned, whatever the day already holds. These helpers
+// feed the Workload Blockers panel and the assign picker's "hours done today"
+// heads-up, not any blocking check.
 //
-// employeeBusyUntil() stays as a lighter-weight, informational "latest
-// agreed date among active work" signal — it feeds the Workload Blockers
-// panel's "occupied until" display, which is just a heads-up, not a gate.
+// employeeBusyUntil() is the "latest agreed date among active work" signal
+// behind the panel's "occupied until" display — a heads-up, not a gate.
 // ---------------------------------------------------------------------------
-const DAILY_CAPACITY_HOURS = 8;
 function employeeBusyUntil(state, employeeId, excludeTaskId) {
   const active = state.tasks.filter(t => t.assignedTo === employeeId && t.status !== 'completed' && t.internalDeadline && t.id !== excludeTaskId);
   if (active.length === 0) return null;
@@ -193,10 +191,6 @@ function hoursDoneOnDate(state, employeeId, date) {
 function hoursDoneToday(state, employeeId) {
   return hoursDoneOnDate(state, employeeId, todayISO());
 }
-// The daily-capacity blocker was removed — work can always be assigned. This
-// stays as a no-op so callers that still reference it don't need surgery.
-function workloadConflict() { return null; }
-
 // Escapes user-controlled text (names, task titles, notes) before it's
 // embedded in an activity-log entry that already carries deliberate HTML
 // (the <b> tags below) — the log text itself is a mix of trusted markup
@@ -467,10 +461,21 @@ app.get('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
   res.json({ tasks: state.tasks.map(taskForClient) });
 });
+// The hold screenshot for one task — pulled only when the detail is opened.
+// Visible to the assignee, whoever put it on hold, or a manager over them.
+app.get('/api/tasks/:id/hold-screenshot', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t || !t.holdScreenshot) return res.status(404).json({ error: 'No screenshot.' });
+  const allowed = t.assignedTo === req.employee.id ||
+    isAdminRole(req.employee.accessRole) && (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo));
+  if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
+  res.json({ screenshot: t.holdScreenshot });
+});
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points, force, team, kind } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points, team, kind } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
   // Internal tasks (training, admin, meetings…) have no client. Everything
   // else must name one.
@@ -641,13 +646,9 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
-  // Accept only applies to work that's actually been handed to you. A task
-  // you assigned to yourself and is still 'pending_approval' can't be
-  // self-accepted — a manager has to approve it first.
+  // Accept only applies to work that's actually been handed to you.
   if (t.status !== 'awaiting_acceptance') {
-    return res.status(400).json({ error: t.status === 'pending_approval'
-      ? 'This task is waiting for a manager to approve it.'
-      : 'This task is not awaiting your acceptance.' });
+    return res.status(400).json({ error: 'This task is not awaiting your acceptance.' });
   }
   // A task flagged with an error (reviewStatus === 'error') routes through
   // this exact same Accept step as a brand-new or reassigned task — see
@@ -669,50 +670,6 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
-// Approve / decline a task an employee assigned to themselves. Only a
-// manager/admin responsible for that person (or a superadmin). Approving
-// runs the same workload check a fresh assignment gets, then starts the
-// clock. Declining removes the task.
-app.post('/api/tasks/:id/approve-assignment', requireAuth, requireAdmin, (req, res) => {
-  const state = db.get();
-  const t = findTask(state, req.params.id);
-  if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (t.status !== 'pending_approval') return res.status(400).json({ error: 'This task is not waiting for approval.' });
-  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: "You're not authorized to approve this person's self-assigned work." });
-  }
-  const { force } = req.body || {};
-  const conflict = workloadConflict(state, t.assignedTo, t.internalDeadline, t.id, t.tat);
-  if (conflict && !force) {
-    const who = (findEmployee(state, t.assignedTo) || {}).name || 'This employee';
-    return res.status(409).json({
-      error: `${who} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — approving this ${t.tat || 0}hr task would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity.`,
-      code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
-    });
-  }
-  if (conflict && force) logEvent(state, req.employee.id, `Emergency override — approved a self-assigned task despite a workload conflict (${conflict.projectedHours}h vs ${conflict.capacityHours}h) for <b>${escHtml((findEmployee(state, t.assignedTo) || {}).name || '—')}</b>.`);
-  t.status = 'accepted';
-  t.acceptedAt = new Date().toISOString();
-  t.timerStartedAt = new Date().toISOString();
-  pauseOtherActiveTasks(state, t.assignedTo, t.id);
-  logEvent(state, t.assignedTo, `Your self-assigned task "${escHtml(t.name)}" was approved by <b>${escHtml(req.employee.name)}</b> — the clock is running.`);
-  db.save();
-  res.json({ task: taskForClient(t) });
-});
-app.post('/api/tasks/:id/reject-assignment', requireAuth, requireAdmin, (req, res) => {
-  const state = db.get();
-  const t = findTask(state, req.params.id);
-  if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (t.status !== 'pending_approval') return res.status(400).json({ error: 'This task is not waiting for approval.' });
-  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: "You're not authorized to decline this person's self-assigned work." });
-  }
-  const reason = (req.body || {}).reason;
-  state.tasks = state.tasks.filter(x => x.id !== t.id);
-  logEvent(state, t.assignedTo, `Your self-assigned task "${escHtml(t.name)}" was declined by <b>${escHtml(req.employee.name)}</b>${reason ? ' — ' + escHtml(String(reason)) : ''}.`);
-  db.save();
-  res.json({ ok: true });
-});
 
 app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   const state = db.get();
@@ -938,24 +895,10 @@ app.post('/api/tasks/:id/propose-window', requireAuth, (req, res) => {
 app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
-  const { force } = req.body || {};
   if (!taskActionGuard(req, res, t, { mustBeAdmin: true })) return;
   if (!canManageEmployee(state, req.employee, t.assignedTo)) {
     return res.status(403).json({ error: "You're not authorized to approve a window for this employee's task." });
   }
-  // The new date still has to clear the same workload-blocker check a
-  // brand-new assignment does — approving a proposal is still handing
-  // this employee an agreed deadline, and it shouldn't be able to land
-  // inside a window they're already occupied for on other work.
-  const conflict = workloadConflict(state, t.assignedTo, t.proposedDate, t.id, t.tat);
-  if (conflict && !force) {
-    const who = (findEmployee(state, t.assignedTo) || {}).name || 'This employee';
-    return res.status(409).json({
-      error: `${who} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — this would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
-      code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
-    });
-  }
-  if (conflict && force) { logEvent(state, req.employee.id, `Emergency override used — approved window for "${escHtml(t.name)}" despite workload conflict (${conflict.projectedHours}h projected vs ${conflict.capacityHours}h capacity) by <b>${escHtml(req.employee.name)}</b>.`); }
   t.internalDeadline = t.proposedDate;
   // A proposed window on a rework-flagged task (reviewStatus === 'error')
   // goes back into active 'rework' when approved, not 'accepted' — same
@@ -1025,23 +968,12 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   if (!canManageEmployee(state, req.employee, t.assignedTo)) {
     return res.status(403).json({ error: "You're not authorized to reassign this employee's task." });
   }
-  const { newAssigneeId, reason, force } = req.body || {};
+  const { newAssigneeId, reason } = req.body || {};
   const newEmp = findEmployee(state, newAssigneeId);
   if (!newEmp) return res.status(400).json({ error: 'Employee not found.' });
   if (newAssigneeId === t.assignedTo) return res.status(400).json({ error: 'Task is already assigned to this person.' });
   const allowed = assignableEmployees(state, req.employee).some(e => e.id === newAssigneeId);
   if (!allowed) return res.status(403).json({ error: "You're not authorized to reassign to this person." });
-  // The new assignee has to clear the same workload-blocker check a
-  // brand-new assignment would — moving a task to someone shouldn't be
-  // able to double-book them either.
-  const conflict = workloadConflict(state, newAssigneeId, t.internalDeadline, t.id, t.tat);
-  if (conflict && !force) {
-    return res.status(409).json({
-      error: `${newEmp.name} already has ${conflict.committedHours} hrs of agreed work due ${conflict.busyUntil} — this would push them to ${conflict.projectedHours} hrs, over the ${conflict.capacityHours}hr daily capacity. Next available date: ${conflict.nextAvailable}.`,
-      code: 'WORKLOAD_CONFLICT', busyUntil: conflict.busyUntil, nextAvailable: conflict.nextAvailable,
-    });
-  }
-  if (conflict && force) { logEvent(state, req.employee.id, `Emergency override used — reassigned "${escHtml(t.name)}" despite workload conflict (${conflict.projectedHours}h projected vs ${conflict.capacityHours}h capacity) by <b>${escHtml(req.employee.name)}</b>.`); }
   const fromEmp = findEmployee(state, t.assignedTo);
   // Any actual delivery time already run up under the PREVIOUS assignee
   // is flushed into t.logged before handing the task off, same idea as
@@ -1149,11 +1081,10 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// WORKLOAD — who's occupied until when, so an assigner can see actual
-// availability before they try to hand out a task (the server still
-// enforces the block for real at /api/tasks and /api/tasks/:id/reassign —
-// this just lets the UI show it up front). Scoped to whoever the caller
-// is allowed to assign to, same boundary as assignableEmployees().
+// WORKLOAD — who's occupied until when and how much they've cleared today,
+// so an assigner has context before handing out a task. Informational only.
+// Scoped to whoever the caller is allowed to assign to, same boundary as
+// assignableEmployees().
 // ---------------------------------------------------------------------------
 app.get('/api/workload', requireAuth, (req, res) => {
   const state = db.get();
