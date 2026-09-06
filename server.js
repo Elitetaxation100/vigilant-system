@@ -157,12 +157,60 @@ function reworkElapsedHours(t) {
   if (t.status !== 'rework' || !t.reworkStartedAt) return null;
   return (Date.now() - new Date(t.reworkStartedAt).getTime()) / 3600000;
 }
+// ---------------------------------------------------------------------------
+// QUERY-AWARE COMMITMENT (Phase 2). A client query freezes the commitment
+// clock: the client date moves forward by the working days the file waited
+// for the reply, minus any working days the processor then sat on it before
+// restarting (one working day of grace). This is the ONLY thing that moves
+// the client date after creation, other than a manager editing it.
+// ---------------------------------------------------------------------------
+function taskShiftDays(t) {
+  const today = todayISO();
+  let shift = 0;
+  for (const q of (t.queries || [])) {
+    if (!EXEMPTING_REASONS.has(q.reasonCode)) continue;
+    shift += cal.queryShift(q, today).shift;
+  }
+  return shift;
+}
+function effectiveClientDate(t) {
+  if (!t.clientDate) return null;
+  const s = taskShiftDays(t);
+  return s > 0 ? cal.addWorkingDays(t.clientDate, s) : t.clientDate;
+}
+function anyQueryOpen(t) {
+  return (t.queries || []).some(q => EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
+}
+// met / missed / exempt / at-risk / on-track / rework / null(internal)
+function commitmentOutcome(t) {
+  if (!t.clientDate) return null;
+  const eff = effectiveClientDate(t);
+  if (t.status === 'completed' && t.completedAt) {
+    return t.completedAt.slice(0, 10) <= eff ? 'met' : 'missed';
+  }
+  if (t.reviewStatus === 'error') return 'rework';
+  if (anyQueryOpen(t)) return 'exempt';
+  const today = todayISO();
+  if (today <= eff) return 'on-track';
+  if (today <= cal.addWorkingDays(eff, 1)) return 'at-risk';
+  return 'missed';
+}
+
 function taskForClient(t) {
   // The hold screenshot can be a megabyte of base64 — never ship it in the
   // task list (fetched every few seconds by every open tab). It's pulled on
   // demand via /api/tasks/:id/hold-screenshot when someone opens the detail.
   const { holdScreenshot, ...rest } = t;
-  return { ...rest, hasHoldScreenshot: !!holdScreenshot, displayedLogged: liveElapsedHours(t), reworkElapsedHours: reworkElapsedHours(t) };
+  return {
+    ...rest,
+    hasHoldScreenshot: !!holdScreenshot,
+    displayedLogged: liveElapsedHours(t),
+    reworkElapsedHours: reworkElapsedHours(t),
+    // query-aware commitment, computed server-side so the UI never re-derives it
+    queryShiftDays: taskShiftDays(t),
+    effectiveClientDate: effectiveClientDate(t),
+    commitmentOutcome: commitmentOutcome(t),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -595,7 +643,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
-    holdReasonCode: null, dateHistory: [],
+    holdReasonCode: null, dateHistory: [], queries: [],
     // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
     // app are 'manual'; the Slack connector will send 'call' / 'slack' later.
     source: 'manual', sourceRef: null,
@@ -669,8 +717,24 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     t.holdScreenshot = shot;
     t.holdCount = (t.holdCount || 0) + 1;
     t.holdHistory = t.holdHistory || [];
-    t.holdHistory.push({ heldAt: t.heldAt, reasonCode, reason: t.holdReason, hasShot: !!shot, resumedAt: null, by: req.employee.name });
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}`, { hold: true });
+    const hh = { heldAt: t.heldAt, reasonCode, reason: t.holdReason, hasShot: !!shot, resumedAt: null, by: req.employee.name, queryId: null };
+    // An exempting reason opens a query record — this is what freezes the
+    // client commitment clock (Phase 2). Only for tasks that HAVE a client date.
+    if (EXEMPTING_REASONS.has(reasonCode) && t.clientDate) {
+      const src = ['email', 'phone', 'whatsapp', 'in_person', 'manual'].includes(body.querySource) ? body.querySource : 'manual';
+      const sentAt = (typeof body.querySentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.querySentAt) && body.querySentAt.slice(0, 10) <= todayISO())
+        ? body.querySentAt.slice(0, 10) : todayISO();
+      const q = {
+        id: crypto.randomUUID(), taskId: t.id, reasonCode, source: src,
+        raisedBy: req.employee.id, sentAt, replyAt: null, resumedAt: null,
+        emailThreadId: null, chaseLog: [], note: detail || null,
+      };
+      t.queries = t.queries || [];
+      t.queries.push(q);
+      hh.queryId = q.id;
+    }
+    t.holdHistory.push(hh);
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}${hh.queryId ? ' · client clock paused' : ''}`, { hold: true });
     db.save();
     res.json({ task: taskForClient(t) });
   });
@@ -688,10 +752,68 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     if (t.status !== 'on_hold') return res.status(400).json({ error: 'This task is not on hold.' });
     t.status = ['accepted', 'rework', 'awaiting_acceptance'].includes(t.preHoldStatus) ? t.preHoldStatus : 'accepted';
     t.preHoldStatus = null;
+    const now = new Date().toISOString();
     const last = (t.holdHistory || [])[t.holdHistory.length - 1];
-    if (last && !last.resumedAt) last.resumedAt = new Date().toISOString();
+    if (last && !last.resumedAt) last.resumedAt = now;
+    // Mark the query for this hold as resumed — this starts the resume-lag
+    // clock that can forfeit part of the freeze (calendar.queryShift).
+    if (last && last.queryId) {
+      const q = (t.queries || []).find(x => x.id === last.queryId);
+      if (q && !q.resumedAt) q.resumedAt = now;
+    }
     t.heldAt = null;
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by ' + '<b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // Log the client's reply to an open query (manual tick-box — phone /
+  // WhatsApp / in person / email). Ends the freeze. The processor still has
+  // to Resume the task; the gap between reply and resume is the "resume lag"
+  // that forfeits part of the extension if it runs past one working day.
+  app.post('/api/tasks/:id/query/:qid/reply', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (t.assignedTo !== req.employee.id && !canManageEmployee(state, req.employee, t.assignedTo)) {
+      return res.status(403).json({ error: 'Only the assignee or a manager over them can log a reply.' });
+    }
+    const q = (t.queries || []).find(x => x.id === req.params.qid);
+    if (!q) return res.status(404).json({ error: 'Query not found.' });
+    if (q.replyAt) return res.status(400).json({ error: 'A reply is already logged for this query.' });
+    const body = req.body || {};
+    const replyAt = (typeof body.replyAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.replyAt) && body.replyAt.slice(0, 10) <= todayISO())
+      ? body.replyAt.slice(0, 10) : todayISO();
+    if (replyAt < q.sentAt.slice(0, 10)) return res.status(400).json({ error: "The reply can't be dated before the query was sent." });
+    q.replyAt = replyAt;
+    if (['email', 'phone', 'whatsapp', 'in_person'].includes(body.replySource)) q.replySource = body.replySource;
+    const sh = cal.queryShift(q, todayISO());
+    logEvent(state, t.assignedTo, `Client replied to the query on "${escHtml(t.name)}" (${escHtml(replyAt)}) — commitment date moves +${sh.shift} working day${sh.shift === 1 ? '' : 's'}. Resume the task to keep the full extension.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // Correct / remove a query raised by mistake (assignee or manager).
+  app.post('/api/tasks/:id/query/:qid/update', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (t.assignedTo !== req.employee.id && !canManageEmployee(state, req.employee, t.assignedTo)) {
+      return res.status(403).json({ error: 'Not allowed.' });
+    }
+    const q = (t.queries || []).find(x => x.id === req.params.qid);
+    if (!q) return res.status(404).json({ error: 'Query not found.' });
+    const body = req.body || {};
+    if (body.remove === true) {
+      t.queries = t.queries.filter(x => x.id !== q.id);
+      (t.holdHistory || []).forEach(h => { if (h.queryId === q.id) h.queryId = null; });
+      logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was removed by <b>${escHtml(req.employee.name)}</b> — its commitment-clock pause no longer applies.`);
+    } else {
+      if (typeof body.sentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.sentAt) && body.sentAt.slice(0, 10) <= todayISO()) q.sentAt = body.sentAt.slice(0, 10);
+      if (body.replyAt === null) { q.replyAt = null; q.resumedAt = null; }
+      else if (typeof body.replyAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.replyAt) && body.replyAt >= q.sentAt.slice(0, 10) && body.replyAt.slice(0, 10) <= todayISO()) q.replyAt = body.replyAt.slice(0, 10);
+      logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was corrected by <b>${escHtml(req.employee.name)}</b>.`);
+    }
     db.save();
     res.json({ task: taskForClient(t) });
   });
@@ -1217,7 +1339,9 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
     const reviewedCount = cleanDelivered.length + errorDelivered.length;
     // On-time is judged only against delivered work that HAD a client date.
     const deliveredWithDate = delivered.filter(t => t.clientDate && t.completedAt);
-    const onTime = deliveredWithDate.filter(t => t.completedAt.slice(0, 10) <= t.clientDate);
+    // On-time is judged against the QUERY-SHIFTED commitment date — a
+    // client-caused wait moved the line, it isn't the processor's miss.
+    const onTime = deliveredWithDate.filter(t => commitmentOutcome(t) === 'met');
     const reassignedAway = state.tasks.reduce((n, t) => n + (t.reassignHistory || []).filter(h => h.from === emp.id).length, 0);
     const reassignedIn = state.tasks.reduce((n, t) => n + (t.reassignHistory || []).filter(h => h.to === emp.id).length, 0);
     const reworkCount = assignedToMe.reduce((s, t) => s + (t.reworkCount || 0), 0);
@@ -1290,7 +1414,13 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
       from: nameOf(h.from) || '—', to: nameOf(h.to) || '—', by: nameOf(h.by), at: h.at || null, reason: h.reason || null,
     })),
     delivered: t.status === 'completed', completedAt: t.completedAt, acceptedAt: t.acceptedAt || null,
-    clientDate: t.clientDate, assignedAt: t.assignedAt,
+    clientDate: t.clientDate, effectiveClientDate: effectiveClientDate(t), assignedAt: t.assignedAt,
+    holdReasonCode: t.holdReasonCode || null,
+    queryShiftDays: taskShiftDays(t), commitmentOutcome: commitmentOutcome(t),
+    queries: (t.queries || []).map(q => ({
+      reasonCode: q.reasonCode, source: q.source, sentAt: q.sentAt, replyAt: q.replyAt, resumedAt: q.resumedAt,
+      ...cal.queryShift(q, todayISO()),
+    })),
     loggedHours: Math.round(liveElapsedHours(t) * 100) / 100, tatHours: t.tat || 0,
   }));
   res.json({ rows, assignments });

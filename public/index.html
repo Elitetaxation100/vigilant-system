@@ -2371,15 +2371,20 @@ function statusBadge(t){
    fixed and resubmitted — commitment is judged against the redelivery
    date, not the first flawed attempt.
    ========================================================================= */
+// The server computes the query-aware outcome (met / missed / exempt /
+// at-risk / on-track / rework) and ships it on every task. Never re-derive it.
 function commitmentStatus(t){
-  if(t.status !== 'completed' || !t.clientDate || !t.completedAt) return null;
-  return t.completedAt.slice(0,10) <= t.clientDate ? 'met' : 'missed';
+  return t.commitmentOutcome || null;
 }
 function commitmentBadge(t){
-  const s = commitmentStatus(t);
-  if(s === 'met') return `<span class="badge completed dot" title="Delivered on or before ${t.clientDate ? fmtDate(t.clientDate) : 'the client date'}">✓ Commitment Met</span>`;
-  if(s === 'missed') return `<span class="badge overdue dot" title="Client committed date was ${t.clientDate ? fmtDate(t.clientDate) : '—'}">✗ Commitment Missed</span>`;
-  if(isReworkFlagged(t)) return `<span class="badge overdue dot" title="Not counted toward commitment until fixed and resubmitted">⏳ Pending Rework</span>`;
+  const s = t.commitmentOutcome;
+  const eff = t.effectiveClientDate ? fmtDate(t.effectiveClientDate) : (t.clientDate ? fmtDate(t.clientDate) : '—');
+  const shifted = (t.queryShiftDays||0) > 0 ? ` (moved +${t.queryShiftDays} wd by a client query)` : '';
+  if(s === 'met')     return `<span class="badge completed dot" title="Delivered on or before ${eff}${shifted}">✓ Commitment Met</span>`;
+  if(s === 'missed')  return `<span class="badge overdue dot" title="Effective commitment date ${eff}${shifted}">✗ Commitment Missed</span>`;
+  if(s === 'exempt')  return `<span class="badge awaiting dot" title="Clock frozen while waiting on the client">⏸ Clock Paused — client query</span>`;
+  if(s === 'at-risk') return `<span class="badge overdue dot" title="Due ${eff}${shifted}">⚠ At Risk</span>`;
+  if(s === 'rework')  return `<span class="badge overdue dot" title="Not counted toward commitment until fixed and resubmitted">⏳ Pending Rework</span>`;
   return '';
 }
 function actionCell(t){
@@ -2647,7 +2652,7 @@ function renderEmployeeStats(){
   const prodHrsToday = myDoneToday.reduce((s,t) => s + taskHrs(t), 0);
   setV('myHoursCommitted', `${prodHrsToday.toFixed(1)}<small>h · in 8h shift</small>`);
   const withDate = doneP.filter(t => t.clientDate);
-  setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / withDate.length * 100) + '<small>%</small>' : '—');
+  setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.commitmentOutcome === 'met').length / withDate.length * 100) + '<small>%</small>' : '—');
   const reviewed = doneP.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
   setV('myAccuracy', reviewed.length ? Math.round(reviewed.filter(t => t.reviewStatus === 'clean').length / reviewed.length * 100) + '<small>%</small>' : '—');
 
@@ -2663,7 +2668,7 @@ function renderEmployeeStats(){
   const totalPtsAll = completedAll.reduce((s,t)=>s+(t.points||0),0);
   const rank = totalPtsAll > 0 ? allPts.findIndex(e => e.id === currentViewerId) + 1 : null;
   const cwd = doneP.filter(t => t.clientDate);
-  const commitPct = cwd.length ? Math.round(cwd.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / cwd.length * 100) : null;
+  const commitPct = cwd.length ? Math.round(cwd.filter(t => t.commitmentOutcome === 'met').length / cwd.length * 100) : null;
   const C = 402, off = doneP.length ? C - (C * adherence / 100) : C;
   document.getElementById('empRcTitle').textContent = 'My Report Card · ' + label;
   document.getElementById('empReportCard').innerHTML = `
@@ -2992,13 +2997,75 @@ async function acceptTask(id){
 function iCanHold(t){
   return t && (t.assignedTo === currentViewerId || empManagesWork(currentViewer(), t.assignedTo));
 }
+function openQuery(t){ return (t.queries||[]).find(q => ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode) && !q.replyAt); }
+// A summary of every query on a task: sent → reply → resume, and the shift it earned.
+function queryDetailHtml(t){
+  const qs = (t.queries||[]).filter(q => ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode));
+  if(!qs.length) return '';
+  const rows = qs.map(q => {
+    const reply = q.replyAt ? fmtDate(q.replyAt) : '<span style="color:var(--amber,#B45309);">awaiting</span>';
+    const resume = q.resumedAt ? fmtDate(q.resumedAt.slice(0,10)) : '—';
+    return `<tr>
+      <td>${esc((HOLD_REASONS[q.reasonCode]||{}).label||q.reasonCode)}<div style="font-size:11px;color:var(--text-faint);">${esc(q.source)}</div></td>
+      <td class="mono">${fmtDate(q.sentAt.slice(0,10))}</td>
+      <td class="mono">${reply}</td>
+      <td class="mono">${resume}</td>
+    </tr>`;
+  }).join('');
+  const shift = t.queryShiftDays || 0;
+  return `<div class="label" style="margin:14px 0 6px;">Client query — commitment clock</div>
+    <div style="overflow-x:auto;border:1px solid var(--panel-border);border-radius:8px;">
+      <table style="width:100%;font-size:12.5px;border-collapse:collapse;">
+        <thead><tr style="background:var(--panel-2);">
+          <th style="text-align:left;padding:8px 10px;">Query</th><th style="text-align:left;padding:8px 10px;">Sent</th>
+          <th style="text-align:left;padding:8px 10px;">Reply</th><th style="text-align:left;padding:8px 10px;">Resumed</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div style="font-size:12.5px;color:var(--text-dim);margin-top:8px;">
+      ${shift > 0
+        ? `Commitment date moved <b>+${shift} working day${shift===1?'':'s'}</b> → <b>${t.effectiveClientDate ? fmtDate(t.effectiveClientDate) : '—'}</b> (was ${t.clientDate ? fmtDate(t.clientDate) : '—'}).`
+        : `No shift applied yet — the client date is still <b>${t.clientDate ? fmtDate(t.clientDate) : '—'}</b>.`}
+    </div>`;
+}
 function holdControlsHtml(t){
   if(!iCanHold(t)) return '';
   if(t.status === 'on_hold'){
-    return `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="unholdTask('${t.id}')">Resume</button>`
-         + `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
+    let h = `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="unholdTask('${t.id}')">Resume</button>`;
+    const q = openQuery(t);
+    if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log client reply</button>`;
+    h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
+    return h;
   }
   return `<button class="verify-btn" style="border-color:#F0B93E;color:#B45309;" onclick="openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+}
+function openLogReplyModal(taskId, qid){
+  const t = findTask(taskId); if(!t) return;
+  const q = (t.queries||[]).find(x=>x.id===qid); if(!q) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Log the client's reply</h3>
+    <div class="modal-sub">${esc(t.name)} · query sent ${fmtDate(q.sentAt)} by ${esc(q.source)}</div>
+    <div class="field"><label>Reply received on</label>
+      <input type="date" id="lrDate" value="${esc(todayISO())}" min="${esc(q.sentAt.slice(0,10))}" max="${esc(todayISO())}"></div>
+    <div class="field"><label>How did the answer come back?</label>
+      <select id="lrSource"><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
+    <p style="font-size:12.5px;color:var(--text-dim);line-height:1.6;">This ends the pause. The commitment date moves forward by the working days spent waiting. <b>Resume the task the next working day</b> to keep the full extension — each day later costs one day of it.</p>
+    <div class="modal-error" id="lrErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitLogReply('${taskId}','${qid}')">Log reply</button>
+    </div>`;
+  openModal();
+}
+async function submitLogReply(taskId, qid){
+  const replyAt = document.getElementById('lrDate').value;
+  const replySource = document.getElementById('lrSource').value;
+  const errEl = document.getElementById('lrErr');
+  try {
+    await api(`/api/tasks/${encodeURIComponent(taskId)}/query/${encodeURIComponent(qid)}/reply`, { method:'POST', body: JSON.stringify({ replyAt, replySource }) });
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Reply logged', 'Resume the task to keep the full commitment-date extension.');
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 function openHoldModal(id){
   const t = findTask(id);
@@ -3014,7 +3081,15 @@ function openHoldModal(id){
       <select id="holdReasonCode" onchange="_holdReasonChanged()">${opts}</select></div>
     <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
       <textarea id="holdReason" rows="2" placeholder="e.g. asked which entity owns the vehicle for GST"></textarea></div>
-    <div id="holdExemptNote" style="display:none;font-size:12.5px;color:#0D9488;margin:-4px 0 12px;">✓ The client commitment date pauses while this is on hold, and moves forward by the working days spent waiting.</div>
+    <div id="holdExemptBox" style="display:none;">
+      <div style="font-size:12.5px;color:#0D9488;margin:-4px 0 10px;">✓ The client commitment date pauses now, and moves forward by the working days spent waiting for the reply.</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div class="field" style="flex:1;min-width:150px;"><label>How was it raised?</label>
+          <select id="qSource"><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
+        <div class="field" style="flex:1;min-width:150px;"><label>Query sent on</label>
+          <input type="date" id="qSentAt" value="${esc(todayISO())}" max="${esc(todayISO())}"></div>
+      </div>
+    </div>
     <div class="field"><label>Screenshot (optional)</label>
       <input type="file" id="holdShot" accept="image/*">
       <div id="holdShotPreview" style="margin-top:8px;"></div></div>
@@ -3034,7 +3109,7 @@ function _holdReasonChanged(){
   lbl.innerHTML = m.needsDetail
     ? 'Detail <span style="color:var(--flag,#C2410C);">(required)</span>'
     : 'Detail <span style="color:var(--text-faint);">(optional)</span>';
-  document.getElementById('holdExemptNote').style.display = m.exempting ? 'block' : 'none';
+  document.getElementById('holdExemptBox').style.display = m.exempting ? 'block' : 'none';
 }
 let _holdShotData = null;
 async function previewHoldShot(fileEl){
@@ -3071,8 +3146,13 @@ async function submitHold(id){
   if((HOLD_REASONS[reasonCode]||{}).needsDetail && !detail){
     errEl.textContent = 'This reason needs a short note.'; errEl.style.display = 'block'; return;
   }
+  const body = { reasonCode, detail, screenshot: _holdShotData || undefined };
+  if((HOLD_REASONS[reasonCode]||{}).exempting){
+    body.querySource = (document.getElementById('qSource')||{}).value || 'manual';
+    body.querySentAt = (document.getElementById('qSentAt')||{}).value || undefined;
+  }
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify({ reasonCode, detail, screenshot: _holdShotData || undefined }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify(body) });
     _holdShotData = null;
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
     showToast('success', 'On hold', (HOLD_REASONS[reasonCode]||{}).exempting ? 'Client commitment clock paused.' : 'Stays on the list as pending until resumed.');
@@ -3097,6 +3177,7 @@ function openHoldDetailModal(id){
       ${t.holdReason && t.holdReason !== (HOLD_REASONS[t.holdReasonCode]||{}).label ? `<div style="margin-top:4px;color:var(--text-dim);">${esc(t.holdReason)}</div>` : ''}
       <div id="holdShotHolder" style="margin-top:10px;">${t.hasHoldScreenshot ? '<span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span>' : ''}</div>
     </div>
+    ${queryDetailHtml(t)}
     ${hist.length > 1 ? `<div class="label" style="margin-bottom:6px;">History</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${fmtDate((h.heldAt||'').slice(0,10))} — ${esc((HOLD_REASONS[h.reasonCode]||{}).label || h.reason || '')}${h.resumedAt ? ' <span style="color:var(--text-faint);">(resumed)</span>' : ''}</li>`).join('')}</ul>` : ''}
     <div class="modal-actions">
       ${iCanHold(t) ? `<button class="btn primary" onclick="unholdTask('${t.id}'); closeModal();">Resume</button>` : ''}
@@ -3567,7 +3648,7 @@ function renderManagerStatics(){
   // ---- KPI strip: extra 4 (existing 4 come from renderManagerTeamStats) ----
   const compIn = scopedTasks.filter(t => t.status === 'completed' && dashInRange(t.completedAt, r));
   const otwd = compIn.filter(t => t.clientDate);
-  const commitPct = otwd.length ? Math.round(otwd.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / otwd.length * 100) : null;
+  const commitPct = otwd.length ? Math.round(otwd.filter(t => t.commitmentOutcome === 'met').length / otwd.length * 100) : null;
   const worked = compIn.reduce((s,t)=>s+t.logged,0), planned = compIn.reduce((s,t)=>s+t.tat,0);
   const prodPct = planned > 0 ? Math.round(worked/planned*100) : null;
   const rev = scopedTasks.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
@@ -3651,9 +3732,10 @@ async function renderCommandCenter(){
   document.getElementById('ccStatReassigned').textContent = reassigned;
   const totalHours = source.reduce((s,t) => s + displayedLogged(t), 0);
   document.getElementById('ccStatHours').textContent = totalHours.toFixed(1);
-  // Compliance is on-time delivery against work that had a client date.
+  // Compliance = on-time delivery against work that had a client date,
+  // judged on the query-shifted commitment date (server-computed).
   const deliveredDated = delivered.filter(t => t.clientDate && t.completedAt);
-  const onTime = deliveredDated.filter(t => t.completedAt.slice(0,10) <= t.clientDate);
+  const onTime = deliveredDated.filter(t => t.commitmentOutcome === 'met');
   document.getElementById('ccStatCompliance').textContent = (deliveredDated.length ? Math.round((onTime.length/deliveredDated.length)*100) : 0) + '%';
 
   const teams = [...new Set(employees.map(e => e.team))];
@@ -3662,7 +3744,7 @@ async function renderCommandCenter(){
     const teamTasks = source.filter(t => ids.includes(t.assignedTo));
     if(teamTasks.length === 0) return '';
     const teamDelivered = teamTasks.filter(t => t.status === 'completed');
-    const teamOnTime = teamDelivered.filter(t => t.clientDate && t.completedAt && t.completedAt.slice(0,10) <= t.clientDate);
+    const teamOnTime = teamDelivered.filter(t => t.clientDate && t.completedAt && t.commitmentOutcome === 'met');
     const pct = teamDelivered.length ? Math.round((teamOnTime.length/teamDelivered.length)*100) : 0;
     return ccDonut(pct, esc(team), `${teamOnTime.length}/${teamDelivered.length} on-time`);
   }).filter(Boolean).join('');
@@ -4246,9 +4328,9 @@ async function renderFounderView(){
   // tasks and anything with no agreed client date can't be early or late.
   const cInDated = cIn.filter(t => t.clientDate);
   const cPrevDated = cPrev.filter(t => t.clientDate);
-  const otIn = cInDated.filter(t => t.completedAt.slice(0,10) <= t.clientDate);
+  const otIn = cInDated.filter(t => t.commitmentOutcome === 'met');
   const otPct = cInDated.length ? Math.round(otIn.length/cInDated.length*100) : null;
-  const otPrev = cPrevDated.filter(t => t.completedAt.slice(0,10) <= t.clientDate);
+  const otPrev = cPrevDated.filter(t => t.commitmentOutcome === 'met');
   const otPctPrev = cPrevDated.length ? Math.round(otPrev.length/cPrevDated.length*100) : null;
   setT('fvOnTimePct', otPct === null ? '—' : otPct + '%');
   setD('fvOnTimeSub', cInDated.length ? `${otIn.length} of ${cInDated.length} with a client date` + (dashScope.fv.cmp && otPctPrev != null ? ` · <span class="${otPct>=otPctPrev?'dn':'up'}">${otPct>=otPctPrev?'▲':'▼'}</span> vs ${otPctPrev}%` : '') : 'No client-dated work');
@@ -4317,7 +4399,7 @@ async function renderFounderView(){
   const commitFor = (id) => {
     const done = scoped.filter(t => t.assignedTo === id && t.status === 'completed' && t.clientDate && t.completedAt && dashInRange(t.completedAt, r));
     if(!done.length) return null;
-    return Math.round(done.filter(t => t.completedAt.slice(0,10) <= t.clientDate).length / done.length * 100);
+    return Math.round(done.filter(t => t.commitmentOutcome === 'met').length / done.length * 100);
   };
   const perfRows = scopedRows.filter(x => x.delivered > 0).sort((a,b) => (b.onTimeRate ?? -1) - (a.onTimeRate ?? -1));
   const perfWrap = document.getElementById('fvOwnerPerfWrap');
@@ -4537,7 +4619,7 @@ function renderCommitment(){
     wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No completed tasks with a client date yet.</p>`;
     return;
   }
-  const onCommit = t => t.completedAt.slice(0,10) <= t.clientDate;
+  const onCommit = t => t.commitmentOutcome === 'met';
   const overallMet = completedWithDate.filter(onCommit).length;
   const overallPct = Math.round((overallMet / completedWithDate.length) * 100);
   const perEmp = mgEmps().map(e => {
@@ -4776,6 +4858,11 @@ function openTaskTrailModal(id){
     if(h.from && h.to && h.from.internal !== h.to.internal) bits.push(`internal ${fmtDate(h.from.internal)} → ${fmtDate(h.to.internal)}`);
     if(h.from && h.to && h.from.client !== h.to.client) bits.push(`client ${h.from.client?fmtDate(h.from.client):'—'} → ${h.to.client?fmtDate(h.to.client):'—'}`);
     push(h.at, '📅', `<b>${esc(h.by||'—')}</b> changed the dates${bits.length ? ' — ' + bits.join(', ') : ''}${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
+  });
+  (t.queries||[]).forEach(q => {
+    push(q.sentAt, '❓', `Query to the client raised (${esc(q.source)})${q.note ? ': “'+esc(q.note)+'”' : ''} — commitment clock frozen.`);
+    if(q.replyAt) push(q.replyAt, '📨', `Client replied${q.replySource ? ' by ' + esc(q.replySource) : ''} — freeze ends.`);
+    if(q.resumedAt) push(q.resumedAt.slice(0,10), '▶', `Work resumed after the query.`);
   });
 
   (t.reworkHistory||[]).forEach(h => {

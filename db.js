@@ -308,6 +308,8 @@ function runMigrations(state) {
     (t.holdHistory || []).forEach(h => { if (h && h.reasonCode === undefined) h.reasonCode = null; });
     if (t.clientDateOverride === undefined) t.clientDateOverride = false;
     if (t.dateHistory === undefined) t.dateHistory = []; // [{ at, by, from:{internal,client}, to:{internal,client}, note }]
+    // Phase 2: query records freeze the client commitment clock.
+    if (t.queries === undefined) t.queries = []; // [{ id, reasonCode, source, raisedBy, sentAt, replyAt, resumedAt, note }]
     // Who closed the task without a formal review ("Mark Done"). Older
     // done-without-review tasks predate the field — leave it null.
     if (t.closedBy === undefined) t.closedBy = null;
