@@ -7,6 +7,24 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const db = require('./db');
+const cal = require('./calendar');
+
+// ---------------------------------------------------------------------------
+// HOLD REASON TAXONOMY (Query-Aware Delivery, Phase 1). Every hold picks one.
+// `exempting` codes freeze the client commitment clock (Phase 2); the rest
+// are internal and keep it running. `needsDetail` requires free text.
+// ---------------------------------------------------------------------------
+const HOLD_REASONS = {
+  CLIENT_QUERY:    { label: 'Awaiting client answer to a query',        exempting: true,  needsDetail: false },
+  CLIENT_DOCS:     { label: 'Awaiting documents / records from client', exempting: true,  needsDetail: false },
+  THIRD_PARTY:     { label: 'Awaiting IRD / bank / third party',        exempting: true,  needsDetail: true  },
+  INTERNAL_REVIEW: { label: 'Blocked on a reviewer or partner sign-off', exempting: false, needsDetail: false },
+  CAPACITY:        { label: 'Re-prioritised — parked by manager',        exempting: false, needsDetail: false, managerOnly: true },
+  BLOCKED_OTHER:   { label: 'Other',                                     exempting: false, needsDetail: true  },
+};
+const EXEMPTING_REASONS = new Set(Object.keys(HOLD_REASONS).filter(k => HOLD_REASONS[k].exempting));
+// Working days between the internal due date and what the client is told.
+const DISPATCH_BUFFER_WD = 3;
 
 const app = express();
 // By default CORS is wide open (any origin) so the app works out of the box
@@ -555,7 +573,12 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     kind: isInternal ? 'internal' : 'client',
     team: team ? String(team).trim() : (findEmployee(state, assignee) || {}).team || null,
     clientId: client ? client.id : null, clientName: client ? client.name : (isInternal ? 'Internal' : ''),
-    clientDate: isInternal ? null : (clientDate || null), internalDeadline: internalDeadline || null,
+    // Client tasks get a commitment date: whatever was passed, or the internal
+    // due date + the firm's 3-working-day dispatch buffer.
+    clientDate: isInternal ? null
+      : (clientDate || (internalDeadline ? cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD) : null)),
+    clientDateOverride: !isInternal && !!clientDate,
+    internalDeadline: internalDeadline || null,
     points: parseInt(points, 10) || 0, assignedTo: assignee, assignedBy: req.employee.id,
     assignedAt: new Date().toISOString(), reassignHistory: [], status,
     // logged accumulates ACTUAL delivery time — the wall-clock gap between
@@ -572,6 +595,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
+    holdReasonCode: null, dateHistory: [],
     // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
     // app are 'manual'; the Slack connector will send 'call' / 'slack' later.
     source: 'manual', sourceRef: null,
@@ -619,9 +643,20 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     if (!['accepted', 'rework', 'awaiting_acceptance'].includes(t.status)) {
       return res.status(400).json({ error: 'Only active work can be put on hold.' });
     }
-    const reason = String((req.body || {}).reason || '').trim();
-    if (!reason) return res.status(400).json({ error: 'A reason is required to put a task on hold.' });
-    let shot = (req.body || {}).screenshot || null;
+    const body = req.body || {};
+    // reasonCode is the new taxonomy pick; `detail` is the free text (was `reason`).
+    let reasonCode = String(body.reasonCode || '').trim().toUpperCase();
+    const detail = String(body.detail != null ? body.detail : (body.reason || '')).trim();
+    if (!reasonCode) reasonCode = 'BLOCKED_OTHER'; // tolerate old clients that only send `reason`
+    const meta = HOLD_REASONS[reasonCode];
+    if (!meta) return res.status(400).json({ error: 'Pick a valid hold reason.' });
+    if (meta.managerOnly && isMine && !canManageEmployee(state, req.employee, t.assignedTo)) {
+      return res.status(403).json({ error: 'Only a manager can park a task for capacity reasons.' });
+    }
+    if (meta.needsDetail && !detail) {
+      return res.status(400).json({ error: 'This reason needs a short note — what exactly are you waiting on?' });
+    }
+    let shot = body.screenshot || null;
     if (shot && (typeof shot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(shot) || shot.length > 6_000_000)) {
       shot = null; // ignore anything that isn't a reasonably-sized inline image
     }
@@ -629,12 +664,13 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     t.preHoldStatus = t.status;
     t.status = 'on_hold';
     t.heldAt = new Date().toISOString();
-    t.holdReason = reason;
+    t.holdReasonCode = reasonCode;
+    t.holdReason = detail || meta.label;      // human-readable, always populated
     t.holdScreenshot = shot;
     t.holdCount = (t.holdCount || 0) + 1;
     t.holdHistory = t.holdHistory || [];
-    t.holdHistory.push({ heldAt: t.heldAt, reason, hasShot: !!shot, resumedAt: null, by: req.employee.name });
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by ' + '<b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(reason)}`, { hold: true });
+    t.holdHistory.push({ heldAt: t.heldAt, reasonCode, reason: t.holdReason, hasShot: !!shot, resumedAt: null, by: req.employee.name });
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}`, { hold: true });
     db.save();
     res.json({ task: taskForClient(t) });
   });
@@ -1047,6 +1083,52 @@ app.post('/api/tasks/:id/reject-window', requireAuth, (req, res) => {
       pauseOtherActiveTasks(state, t.assignedTo, t.id);
 
   logEvent(state, req.employee.id, `Rejected the proposed window for "${escHtml(t.name)}" — original deadline stands.`);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
+// Manager edits the dates directly — no propose/approve round trip (Phase 1).
+// Sets the internal due date; the client commitment date recalculates as
+// internal + 3 working days unless the manager passes an explicit clientDate
+// (a date already promised), which is stored with an override flag so the
+// buffer isn't silently re-applied later.
+app.post('/api/tasks/:id/set-dates', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
+    return res.status(403).json({ error: "You're not authorized to change this employee's dates." });
+  }
+  const body = req.body || {};
+  const iso = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
+  const newInternal = iso(body.internalDeadline);
+  if (!newInternal) return res.status(400).json({ error: 'Give a valid internal due date (YYYY-MM-DD).' });
+  if (newInternal < todayISO() && newInternal !== t.internalDeadline) {
+    return res.status(400).json({ error: "You can't set the due date in the past." });
+  }
+  const note = String(body.note || '').trim();
+  const wasEarlier = t.internalDeadline && newInternal < t.internalDeadline;
+  if (wasEarlier && !note) {
+    return res.status(400).json({ error: 'Pulling a deadline in needs a one-line reason.' });
+  }
+  const before = { internal: t.internalDeadline, client: t.clientDate };
+  t.internalDeadline = newInternal;
+
+  const overrideClient = iso(body.clientDate);
+  if (overrideClient) {
+    t.clientDate = overrideClient;
+    t.clientDateOverride = true;
+  } else if (t.clientDate != null || body.recalcClient) {
+    // recalc from the buffer (only when the task actually has a client date)
+    t.clientDate = cal.addWorkingDays(newInternal, DISPATCH_BUFFER_WD);
+    t.clientDateOverride = false;
+  }
+  t.dateHistory = t.dateHistory || [];
+  t.dateHistory.push({
+    at: new Date().toISOString(), by: req.employee.name,
+    from: before, to: { internal: t.internalDeadline, client: t.clientDate }, note: note || null,
+  });
+  logEvent(state, t.assignedTo, `Dates on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b> — internal ${escHtml(t.internalDeadline)}${t.clientDate ? ', client ' + escHtml(t.clientDate) : ''}${note ? ' (' + escHtml(note) + ')' : ''}.`);
   db.save();
   res.json({ task: taskForClient(t) });
 });

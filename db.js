@@ -299,8 +299,15 @@ function runMigrations(state) {
     if (t.holdReason === undefined) t.holdReason = null;
     if (t.holdScreenshot === undefined) t.holdScreenshot = null;
     if (t.holdCount === undefined) t.holdCount = 0;
-    if (t.holdHistory === undefined) t.holdHistory = []; // [{ heldAt, reason, hasShot, resumedAt }]
+    if (t.holdHistory === undefined) t.holdHistory = []; // [{ heldAt, reasonCode, reason, hasShot, resumedAt, by }]
     if (t.preHoldStatus === undefined) t.preHoldStatus = null;
+    // Query-Aware Delivery Phase 1: hold reason codes + manager-set dates.
+    if (t.holdReasonCode === undefined) {
+      t.holdReasonCode = t.status === 'on_hold' ? 'BLOCKED_OTHER' : null; // legacy holds → Other, flagged for a manager
+    }
+    (t.holdHistory || []).forEach(h => { if (h && h.reasonCode === undefined) h.reasonCode = null; });
+    if (t.clientDateOverride === undefined) t.clientDateOverride = false;
+    if (t.dateHistory === undefined) t.dateHistory = []; // [{ at, by, from:{internal,client}, to:{internal,client}, note }]
     // Who closed the task without a formal review ("Mark Done"). Older
     // done-without-review tasks predate the field — leave it null.
     if (t.closedBy === undefined) t.closedBy = null;

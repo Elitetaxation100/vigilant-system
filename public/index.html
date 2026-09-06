@@ -1437,6 +1437,31 @@ let myDoneToday = [];  // the current viewer's tasks completed today
 let loginTab = 'employee';
 let seenAwaitingIds = null; // null = not initialized yet (first load shouldn't pop every existing task)
 
+// Hold reason taxonomy — mirrors HOLD_REASONS on the server (which validates).
+const HOLD_REASONS = {
+  CLIENT_QUERY:    { label: 'Awaiting client answer to a query',         exempting: true,  needsDetail: false },
+  CLIENT_DOCS:     { label: 'Awaiting documents / records from client',  exempting: true,  needsDetail: false },
+  THIRD_PARTY:     { label: 'Awaiting IRD / bank / third party',         exempting: true,  needsDetail: true  },
+  INTERNAL_REVIEW: { label: 'Blocked on a reviewer / partner sign-off',  exempting: false, needsDetail: false },
+  CAPACITY:        { label: 'Re-prioritised — parked by a manager',      exempting: false, needsDetail: false, managerOnly: true },
+  BLOCKED_OTHER:   { label: 'Other',                                     exempting: false, needsDetail: true  },
+};
+const DISPATCH_BUFFER_WD = 3;
+function holdReasonLabel(t){
+  const m = HOLD_REASONS[t && t.holdReasonCode];
+  return m ? m.label : (t && t.holdReason) || 'On hold';
+}
+// Lightweight working-day math for UI previews only — Sunday is the one
+// non-working day here (the server's calendar also knows public holidays and
+// is the authority; this is just for a live "client date will be…" hint).
+function addWorkingDaysLite(iso, n){
+  if(!iso) return iso;
+  const d = new Date(iso.slice(0,10) + 'T00:00:00Z');
+  let left = Math.abs(n|0), step = n < 0 ? -1 : 1;
+  while(left > 0){ d.setUTCDate(d.getUTCDate() + step); if(d.getUTCDay() !== 0) left--; }
+  return d.toISOString().slice(0,10);
+}
+
 /* =========================================================================
    NOTIFICATION SOUND — a short synthesized chime (Web Audio, no asset file
    needed) plays for toasts and for real-time updates from other people.
@@ -2321,7 +2346,11 @@ function statusBadge(t){
       ? `<span class="badge overdue dot">⚠ Rework — Window Proposed</span>`
       : `<span class="badge awaiting dot">Window Proposed</span>`;
     case 'accepted': return `<span class="badge pending dot">In Progress</span>`;
-    case 'on_hold': return `<span class="badge awaiting dot" title="${esc(t.holdReason||'')}">⏸ On Hold</span>`;
+    case 'on_hold': {
+      const m = HOLD_REASONS[t.holdReasonCode] || {};
+      const ex = m.exempting ? ' <span style="font-weight:400;opacity:.85;">· clock paused</span>' : '';
+      return `<span class="badge awaiting dot" style="cursor:pointer;" title="${esc(holdReasonLabel(t))}${t.holdReason && t.holdReason !== m.label ? ' — ' + esc(t.holdReason) : ''}" onclick="openHoldDetailModal('${t.id}')">⏸ On Hold — ${esc(holdReasonLabel(t))}${ex}</span>`;
+    }
     case 'pending_approval': return `<span class="badge awaiting dot">Awaiting Manager Approval</span>`;
     case 'pending': return `<span class="badge pending dot">Pending</span>`;
     case 'rework': return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
@@ -2428,6 +2457,9 @@ function actionCell(t){
   }
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
     html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>`;
+    if(t.internalDeadline && empManagesWork(currentViewer(), t.assignedTo)){
+      html += `<button class="verify-btn" style="border-color:#2D5B8E;color:#2D5B8E;" onclick="openSetDatesModal('${t.id}')">Edit dates</button>`;
+    }
   }
   if(iCanRemoveTask(t)){
     html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" title="Remove this task" onclick="removeTask('${t.id}')">Remove</button>`;
@@ -2474,7 +2506,7 @@ function renderTaskTable(){
       return `<tr>
         <td class="task-id">${t.id}</td>
         <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${esc(t.scope)}</div>${(t.source && t.source !== 'manual') ? `<div class="admin-src-cell">${srcTag(t.source)}</div>` : ''}</td>
-        <td class="clientcell">${esc(t.clientName) || '—'}<div class="cdate ${isToday?'deadline-today':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}</div><div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Agreed delivery: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
+        <td class="clientcell">${esc(t.clientName) || '—'}<div class="cdate ${isToday?'deadline-today':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}${t.clientDateOverride ? ' <span class="pill neutral" style="font-size:9px;">PROMISED</span>' : ''}</div><div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Internal due: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${(t.dateHistory||[]).length ? ' · <span title="edited by a manager">edited ' + (t.dateHistory.length) + '×</span>' : ''}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
         <td class="pts">★ ${t.points} pts</td>
         <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
         <td class="logged">${t.tat} hrs</td>
@@ -2971,11 +3003,18 @@ function holdControlsHtml(t){
 function openHoldModal(id){
   const t = findTask(id);
   if(!t) return;
+  const iAmManager = empManagesWork(currentViewer(), t.assignedTo);
+  const opts = Object.entries(HOLD_REASONS)
+    .filter(([, m]) => !m.managerOnly || iAmManager)
+    .map(([code, m]) => `<option value="${code}">${esc(m.label)}${m.exempting ? '  ·  pauses the client clock' : ''}</option>`).join('');
   document.getElementById('modalBox').innerHTML = `
     <h3>Put on hold — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(t.clientName)||'—'} · It stays on your list as pending. Time already logged is kept; when you resume, the new time adds on top — the agreed hours don't change.</div>
-    <div class="field"><label>Why is it on hold? <span style="color:var(--flag,#C2410C);">(required)</span></label>
-      <textarea id="holdReason" rows="3" placeholder="e.g. Waiting on the client's bank statements / query raised with IRD / missing signed authority"></textarea></div>
+    <div class="modal-sub">${esc(t.clientName)||'Internal'} · It stays on the list as pending. Time already logged is kept; when it resumes, new time adds on top — the agreed hours don't change.</div>
+    <div class="field"><label>Reason</label>
+      <select id="holdReasonCode" onchange="_holdReasonChanged()">${opts}</select></div>
+    <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
+      <textarea id="holdReason" rows="2" placeholder="e.g. asked which entity owns the vehicle for GST"></textarea></div>
+    <div id="holdExemptNote" style="display:none;font-size:12.5px;color:#0D9488;margin:-4px 0 12px;">✓ The client commitment date pauses while this is on hold, and moves forward by the working days spent waiting.</div>
     <div class="field"><label>Screenshot (optional)</label>
       <input type="file" id="holdShot" accept="image/*">
       <div id="holdShotPreview" style="margin-top:8px;"></div></div>
@@ -2985,8 +3024,17 @@ function openHoldModal(id){
       <button class="btn primary" onclick="submitHold('${id}')">Put on Hold</button>
     </div>`;
   openModal();
-  const fileEl = document.getElementById('holdShot');
-  fileEl.addEventListener('change', () => previewHoldShot(fileEl));
+  document.getElementById('holdShot').addEventListener('change', e => previewHoldShot(e.target));
+  _holdReasonChanged();
+}
+function _holdReasonChanged(){
+  const code = document.getElementById('holdReasonCode').value;
+  const m = HOLD_REASONS[code] || {};
+  const lbl = document.getElementById('holdDetailLabel');
+  lbl.innerHTML = m.needsDetail
+    ? 'Detail <span style="color:var(--flag,#C2410C);">(required)</span>'
+    : 'Detail <span style="color:var(--text-faint);">(optional)</span>';
+  document.getElementById('holdExemptNote').style.display = m.exempting ? 'block' : 'none';
 }
 let _holdShotData = null;
 async function previewHoldShot(fileEl){
@@ -3017,14 +3065,17 @@ function downscaleImage(file, maxDim, quality){
   });
 }
 async function submitHold(id){
-  const reason = (document.getElementById('holdReason').value || '').trim();
+  const reasonCode = document.getElementById('holdReasonCode').value;
+  const detail = (document.getElementById('holdReason').value || '').trim();
   const errEl = document.getElementById('holdErr');
-  if(!reason){ errEl.textContent = 'A reason is required.'; errEl.style.display = 'block'; return; }
+  if((HOLD_REASONS[reasonCode]||{}).needsDetail && !detail){
+    errEl.textContent = 'This reason needs a short note.'; errEl.style.display = 'block'; return;
+  }
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify({ reason, screenshot: _holdShotData || undefined }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify({ reasonCode, detail, screenshot: _holdShotData || undefined }) });
     _holdShotData = null;
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
-    showToast('success', 'On hold', 'The task stays on your list as pending until you resume it.');
+    showToast('success', 'On hold', (HOLD_REASONS[reasonCode]||{}).exempting ? 'Client commitment clock paused.' : 'Stays on the list as pending until resumed.');
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 async function unholdTask(id){
@@ -3042,10 +3093,11 @@ function openHoldDetailModal(id){
     <h3>On hold — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName)||'—'} · Held ${t.holdCount || 1} time${(t.holdCount||1) > 1 ? 's' : ''} · Agreed ${t.tat} hrs, ${displayedLogged(t).toFixed(1)} hrs logged so far</div>
     <div style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;margin:12px 0;font-size:13.5px;line-height:1.6;">
-      <b style="color:var(--text);">Current reason:</b> ${esc(t.holdReason) || '—'}
+      <b style="color:var(--text);">${esc(holdReasonLabel(t))}</b>${(HOLD_REASONS[t.holdReasonCode]||{}).exempting ? ' <span style="color:#0D9488;font-size:12px;">· client commitment clock paused</span>' : ''}
+      ${t.holdReason && t.holdReason !== (HOLD_REASONS[t.holdReasonCode]||{}).label ? `<div style="margin-top:4px;color:var(--text-dim);">${esc(t.holdReason)}</div>` : ''}
       <div id="holdShotHolder" style="margin-top:10px;">${t.hasHoldScreenshot ? '<span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span>' : ''}</div>
     </div>
-    ${hist.length > 1 ? `<div class="label" style="margin-bottom:6px;">History</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${fmtDate((h.heldAt||'').slice(0,10))} — ${esc(h.reason||'')}${h.resumedAt ? ' <span style="color:var(--text-faint);">(resumed)</span>' : ''}</li>`).join('')}</ul>` : ''}
+    ${hist.length > 1 ? `<div class="label" style="margin-bottom:6px;">History</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${fmtDate((h.heldAt||'').slice(0,10))} — ${esc((HOLD_REASONS[h.reasonCode]||{}).label || h.reason || '')}${h.resumedAt ? ' <span style="color:var(--text-faint);">(resumed)</span>' : ''}</li>`).join('')}</ul>` : ''}
     <div class="modal-actions">
       ${iCanHold(t) ? `<button class="btn primary" onclick="unholdTask('${t.id}'); closeModal();">Resume</button>` : ''}
       <button class="btn" onclick="closeModal()">Close</button>
@@ -3185,6 +3237,60 @@ async function approveProposal(id){
 async function rejectProposal(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/reject-window`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
   catch(e){ showToast('error', 'Could not reject window', e.message); }
+}
+// Manager changes the dates directly (Phase 1). Internal due date drives the
+// client commitment date = internal + 3 working days, unless overridden.
+function openSetDatesModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  const isInternalTask = t.kind === 'internal' || !t.clientDate;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Edit dates — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName)||'Internal'} · ${esc(empById(t.assignedTo)?.name || '—')}</div>
+    <div class="field"><label>Internal due date <span style="color:var(--text-faint);">— what you hold ${esc((empById(t.assignedTo)?.name||'the assignee').split(' ')[0])} to</span></label>
+      <input type="date" id="sdInternal" value="${esc(t.internalDeadline || todayISO())}" onchange="_sdRecalc()"></div>
+    ${isInternalTask ? '' : `
+    <div class="field"><label>Client commitment date</label>
+      <input type="date" id="sdClient" value="${esc(t.clientDate || '')}" onchange="_sdClientTouched=true">
+      <div id="sdClientHint" style="font-size:12px;color:var(--text-faint);margin-top:4px;"></div></div>`}
+    <div class="field"><label>Reason for the change <span id="sdNoteReq" style="color:var(--text-faint);">(optional)</span></label>
+      <input type="text" id="sdNote" placeholder="e.g. client sent records late / re-prioritised to fit the GST batch"></div>
+    <div class="modal-error" id="sdErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitSetDates('${id}')">Save dates</button>
+    </div>`;
+  window._sdClientTouched = false;
+  window._sdOriginalInternal = t.internalDeadline;
+  openModal();
+  _sdRecalc();
+}
+function _sdRecalc(){
+  const internal = document.getElementById('sdInternal').value;
+  const clientEl = document.getElementById('sdClient');
+  const noteReq = document.getElementById('sdNoteReq');
+  if(noteReq) noteReq.innerHTML = (window._sdOriginalInternal && internal < window._sdOriginalInternal)
+    ? '<span style="color:var(--flag,#C2410C);">(required — pulling it in)</span>' : '(optional)';
+  if(clientEl && !window._sdClientTouched && internal){
+    const computed = addWorkingDaysLite(internal, DISPATCH_BUFFER_WD);
+    clientEl.value = computed;
+    document.getElementById('sdClientHint').textContent = `= internal + ${DISPATCH_BUFFER_WD} working days (Sundays skipped). Edit to override with a date you've already promised.`;
+  }
+}
+async function submitSetDates(id){
+  const internalDeadline = document.getElementById('sdInternal').value;
+  const clientEl = document.getElementById('sdClient');
+  const note = (document.getElementById('sdNote').value || '').trim();
+  const errEl = document.getElementById('sdErr');
+  if(!internalDeadline){ errEl.textContent = 'Give an internal due date.'; errEl.style.display = 'block'; return; }
+  const body = { internalDeadline, note };
+  if(clientEl && window._sdClientTouched && clientEl.value) body.clientDate = clientEl.value;
+  else if(clientEl) body.recalcClient = true;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/set-dates`, { method:'POST', body: JSON.stringify(body) });
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Dates updated', '');
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* =========================================================================
    ASSIGN TASK MODAL
@@ -4660,8 +4766,16 @@ function openTaskTrailModal(id){
   if(t.acceptedAt) push(t.acceptedAt, '✅', `<b>${esc(assignedToName||'—')}</b> accepted it.`);
 
   (t.holdHistory||[]).forEach(h => {
-    push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold — “${esc(h.reason||'')}”${h.hasShot ? ' (screenshot attached)' : ''}.`);
+    const lbl = (HOLD_REASONS[h.reasonCode]||{}).label;
+    const ex = (HOLD_REASONS[h.reasonCode]||{}).exempting ? ' — client clock paused' : '';
+    push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold${lbl ? ': ' + esc(lbl) : ''}${ex}${h.reason && h.reason !== lbl ? ' — “'+esc(h.reason)+'”' : ''}${h.hasShot ? ' (screenshot)' : ''}.`);
     if(h.resumedAt) push(h.resumedAt, '▶', `Taken off hold.`);
+  });
+  (t.dateHistory||[]).forEach(h => {
+    const bits = [];
+    if(h.from && h.to && h.from.internal !== h.to.internal) bits.push(`internal ${fmtDate(h.from.internal)} → ${fmtDate(h.to.internal)}`);
+    if(h.from && h.to && h.from.client !== h.to.client) bits.push(`client ${h.from.client?fmtDate(h.from.client):'—'} → ${h.to.client?fmtDate(h.to.client):'—'}`);
+    push(h.at, '📅', `<b>${esc(h.by||'—')}</b> changed the dates${bits.length ? ' — ' + bits.join(', ') : ''}${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
   });
 
   (t.reworkHistory||[]).forEach(h => {
