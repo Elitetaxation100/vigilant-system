@@ -2869,19 +2869,23 @@ function renderWorkloadBlockers(){
     const done = (w.hoursDoneToday ?? w.todayHours ?? 0);
     const pct = Math.min(100, Math.round(((w.peakHours || 0) / maxPeak) * 100));
     const initials = (w.name || '?').split(' ').map(p => p[0]).slice(0,2).join('').toUpperCase();
-    const tag = w.busyUntil
-      ? `<span class="cap-tag busy">Latest deadline ${fmtDate(w.busyUntil)}</span>`
-      : `<span class="cap-tag free">No open deadlines</span>`;
+    const committed = w.committedThrough && w.committedThrough > todayISO();
+    const tag = committed
+      ? `<span class="cap-tag busy">Committed through ${fmtDate(w.committedThrough)}</span>`
+      : `<span class="cap-tag free">Queue clear</span>`;
+    const capLine = w.effectiveCapacity
+      ? `${w.effectiveCapacity}h/day${w.capacityAuto ? ' measured' : ''} · ${w.freeCapacityNext5wd ?? '—'}h free next 5 working days`
+      : '';
     return `<div class="cap-row">
       <div class="cap-avatar">${esc(initials)}</div>
       <div class="cap-main">
         <div class="cap-top">
           <span class="cap-name">${esc(w.name)}</span>
-          <span class="cap-hours">${done}h done today${w.peakHours ? ' &middot; ' + w.peakHours + 'h peak day' : ''}</span>
+          <span class="cap-hours">${done}h done today${w.backlogHours ? ' &middot; ' + w.backlogHours + 'h in queue' : ''}</span>
         </div>
         <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%; background:var(--teal);"></div></div>
         <div class="cap-sub">
-          <span>${w.activeCount} active task${w.activeCount === 1 ? '' : 's'}${w.peakDate ? ' &middot; busiest ' + fmtDate(w.peakDate) : ''}</span>
+          <span>${w.activeCount} active task${w.activeCount === 1 ? '' : 's'}${capLine ? ' &middot; ' + capLine : ''}</span>
           ${tag}
         </div>
       </div>
@@ -3500,12 +3504,13 @@ function openAssignModal(mode){
       <select id="atTeam" onchange="onAtTeamChange()">${teamCategoryOptionsHtml((currentViewer() || {}).team || '')}</select>
       <input type="text" id="atTeamCustom" placeholder="Type a team or work category" style="display:none; margin-top:8px;">
     </div>
-    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee">${assignableEmployees().map(e=>{
+    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee" onchange="atPlanPreview()">${assignableEmployees().map(e=>{
       const w = workload.find(x => x.id === e.id);
-      const doneH = w && (w.hoursDoneToday ?? w.todayHours);
-      const load = doneH > 0 ? ` — ${doneH}h done today` : '';
+      const ct = w && w.committedThrough;
+      const load = ct && ct > todayISO() ? ` — free from ${fmtDate(ct)}` : (w && w.freeCapacityNext5wd != null ? ` — ${w.freeCapacityNext5wd}h free this week` : '');
       return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${load}</option>`;
-    }).join('')}</select></div>` : ''}
+    }).join('')}</select>
+    <div id="atPlanHint" style="font-size:12.5px;color:var(--text-dim);margin-top:6px;line-height:1.5;"></div></div>` : ''}
     <div id="atClientBlock"${noClients ? ' style="display:none;"' : ''}>
       <div class="field"><label>Client</label><select id="atClientId">${clients.map(c=>{
         if(!isTeam) return `<option value="${c.id}">${esc(c.name)}</option>`;
@@ -3514,8 +3519,8 @@ function openAssignModal(mode){
       }).join('')}</select></div>
       <div class="field"><label>Client commitment date</label><input type="date" id="atClientDate" value="${addDaysISO(3)}"></div>
     </div>
+    <div class="field"><label id="atTatLabel">Estimated time (hours)</label><input type="number" id="atTat" value="3" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
     <div class="field"><label id="atDeadlineLabel">Agreed delivery date</label><input type="date" id="atDeadline" value="${addDaysISO(2)}"></div>
-    <div class="field"><label id="atTatLabel">Estimated time (hours)</label><input type="number" id="atTat" value="3" min="0.25" step="0.25"></div>
     <div id="atPointsField"${noClients ? ' style="display:none;"' : ''}><div class="field"><label>Points</label><input type="number" id="atPoints" value="10" min="0"></div></div>
     <div class="modal-error" id="assignError">Please enter a task name.</div>
     <div class="modal-actions">
@@ -3525,6 +3530,31 @@ function openAssignModal(mode){
   `;
   openModal();
   setAssignKind(noClients ? 'internal' : 'client');
+  if(isTeam) atPlanPreview();
+}
+// Live "when will this land?" preview for a team assignment, from the
+// assignee's real capacity + queue (Phase 5).
+let _atPlanTimer = null;
+function atPlanPreview(){
+  clearTimeout(_atPlanTimer);
+  _atPlanTimer = setTimeout(async () => {
+    const hint = document.getElementById('atPlanHint');
+    const sel = document.getElementById('atAssignee');
+    if(!hint || !sel || !sel.value) return;
+    const hours = parseFloat((document.getElementById('atTat')||{}).value) || 3;
+    let p;
+    try { p = await api(`/api/tasks/plan?assignee=${encodeURIComponent(sel.value)}&hours=${hours}`); }
+    catch(e){ hint.textContent = ''; return; }
+    const cap = `${p.effectiveCapacity}h/day${p.capacityAuto ? ' (measured)' : ''}`;
+    const busy = p.committedThrough > todayISO() ? `committed through <b>${fmtDate(p.committedThrough)}</b>` : 'queue is clear';
+    hint.innerHTML = `${esc(p.assignee.split(' ')[0])}: ${busy} · ${cap}. A ${hours}h task lands internally <b>${fmtDate(p.internalDeadline)}</b>, client <b>${fmtDate(p.clientDate)}</b>.
+      <a href="#" onclick="atUseComputedDates('${p.internalDeadline}','${p.clientDate}');return false;" style="color:var(--blue,#2D5B8E);">Use these dates</a>`;
+  }, 250);
+}
+function atUseComputedDates(internal, client){
+  const d = document.getElementById('atDeadline'); if(d) d.value = internal;
+  const c = document.getElementById('atClientDate'); if(c) c.value = client;
+  showToast('info', 'Dates set from capacity', '');
 }
 let _assignKind = 'client';
 function setAssignKind(kind){

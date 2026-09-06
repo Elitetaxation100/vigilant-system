@@ -214,6 +214,83 @@ function taskForClient(t) {
 }
 
 // ---------------------------------------------------------------------------
+// CAPACITY & COMMITMENT DATES (Phase 5). A person has an effective capacity
+// — productive hours per working day. It's measured from their delivery
+// history (median productive day over the last 8 weeks), never assumed, so
+// the system never has to ask "do they work in parts or full days". A task
+// consumes that capacity across as many working days as it needs, and the
+// commitment date follows: internal due date, then + 3 working days for the
+// firm's do-review-send buffer.
+// ---------------------------------------------------------------------------
+const CAP_MIN = 3, CAP_MAX = 10, CAP_SEED = 6.0;
+
+function estimateCapacity(state, empId) {
+  // productive hours per working day over the last 8 weeks (56 days).
+  const since = cal.addWorkingDays(todayISO(), 0); // today
+  const from = new Date(Date.now() - 56 * 86400000).toISOString().slice(0, 10);
+  const byDay = {};
+  state.tasks.filter(t => t.assignedTo === empId && t.status === 'completed'
+      && (t.completedAt || '').slice(0, 10) >= from && (t.completedAt || '').slice(0, 10) <= since)
+    .forEach(t => { const d = t.completedAt.slice(0, 10); byDay[d] = (byDay[d] || 0) + taskHours(t); });
+  const days = Object.values(byDay).filter(h => h > 0).sort((a, b) => a - b);
+  if (days.length < 8) return null; // not enough history — keep the seed / manual value
+  const mid = Math.floor(days.length / 2);
+  const median = days.length % 2 ? days[mid] : (days[mid - 1] + days[mid]) / 2;
+  return Math.round(Math.min(CAP_MAX, Math.max(CAP_MIN, median)) * 10) / 10;
+}
+// Lazily refresh a person's capacity — at most once a day.
+function refreshCapacity(state, emp) {
+  const today = todayISO();
+  if (emp.capacityEstimatedAt === today) return;
+  const est = estimateCapacity(state, emp.id);
+  if (est != null) { emp.effectiveCapacity = est; emp.capacityAuto = true; }
+  emp.capacityEstimatedAt = today;
+}
+function capacityOf(emp) {
+  return Number(emp && emp.effectiveCapacity) > 0 ? Number(emp.effectiveCapacity) : CAP_SEED;
+}
+// Hours of work still ahead of a person: their active (non-completed,
+// non-query-frozen) tasks' remaining effort. A task's remaining effort is
+// its agreed hours minus what's already been logged, floored at 0.25h.
+function remainingHours(t) {
+  if (t.status === 'completed') return 0;
+  if (t.status === 'on_hold' && anyQueryOpen(t)) return 0; // frozen — not consuming capacity
+  const agreed = Number(t.tat) > 0 ? Number(t.tat) : 1;
+  return Math.max(0.25, agreed - Math.max(0, Number(t.logged) || 0));
+}
+function queueHours(state, empId) {
+  return state.tasks.filter(t => t.assignedTo === empId && !['completed'].includes(t.status))
+    .reduce((s, t) => s + remainingHours(t), 0);
+}
+// When does this person's current queue clear, and how much slack do they
+// have in the next 5 working days?
+function availabilityOf(state, emp) {
+  const cap = capacityOf(emp);
+  const backlog = queueHours(state, emp.id);
+  const daysToClear = cap > 0 ? Math.ceil(backlog / cap) : 0;
+  const committedThrough = daysToClear > 0 ? cal.addWorkingDays(todayISO(), daysToClear) : todayISO();
+  const freeNext5wd = Math.max(0, cap * 5 - backlog);
+  return {
+    effectiveCapacity: cap, capacityAuto: !!emp.capacityAuto,
+    backlogHours: Math.round(backlog * 100) / 100,
+    committedThrough,
+    freeCapacityNext5wd: Math.round(freeNext5wd * 100) / 100,
+  };
+}
+// The internal due date and client commitment date for a task of
+// `allocatedHours` handed to `emp`, factoring their real queue + capacity.
+function computeCommitmentDates(state, emp, allocatedHours, requestedStartISO) {
+  const cap = capacityOf(emp);
+  const backlog = queueHours(state, emp.id);
+  const start = requestedStartISO && requestedStartISO > todayISO() ? requestedStartISO : todayISO();
+  const startDay = cal.addWorkingDays(start, Math.ceil(backlog / cap)); // after the queue clears
+  const taskDays = Math.max(1, Math.ceil((Number(allocatedHours) || 1) / cap));
+  const internalDeadline = cal.addWorkingDays(startDay, taskDays);
+  const clientDate = cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD);
+  return { startDay, internalDeadline, clientDate, taskDays, backlogHours: Math.round(backlog * 100) / 100, effectiveCapacity: cap };
+}
+
+// ---------------------------------------------------------------------------
 // WORKLOAD / AVAILABILITY — informational only. There is no capacity gate:
 // work can always be assigned, whatever the day already holds. These helpers
 // feed the Workload Blockers panel and the assign picker's "hours done today"
@@ -576,6 +653,21 @@ app.get('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
   res.json({ tasks: visibleTasks(state, req.employee).map(taskForClient) });
 });
+// Plan preview (Phase 5): what dates would a task of `hours` land on if
+// handed to `assignee` now, given their real queue + measured capacity?
+// Powers the "when will this land?" hint in the assign form.
+app.get('/api/tasks/plan', requireAuth, (req, res) => {
+  const state = db.get();
+  const emp = findEmployee(state, req.query.assignee);
+  if (!emp) return res.status(400).json({ error: 'Unknown assignee.' });
+  if (!assignableEmployees(state, req.employee).some(e => e.id === emp.id) && emp.id !== req.employee.id) {
+    return res.status(403).json({ error: "You can't plan work for this person." });
+  }
+  refreshCapacity(state, emp);
+  const hours = Math.max(0.25, parseFloat(req.query.hours) || 3);
+  const start = (typeof req.query.start === 'string' && /^\d{4}-\d{2}-\d{2}/.test(req.query.start)) ? req.query.start.slice(0, 10) : null;
+  res.json({ assignee: emp.name, ...computeCommitmentDates(state, emp, hours, start), ...availabilityOf(state, emp) });
+});
 // The hold screenshot for one task — pulled only when the detail is opened.
 // Visible to the assignee, whoever put it on hold, or a manager over them.
 app.get('/api/tasks/:id/hold-screenshot', requireAuth, (req, res) => {
@@ -590,7 +682,8 @@ app.get('/api/tasks/:id/hold-screenshot', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, internalDeadline, tat, points, team, kind } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind } = req.body || {};
+  let { internalDeadline } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
   // Internal tasks (training, admin, meetings…) have no client. Everything
   // else must name one.
@@ -601,16 +694,21 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     client = state.clients.find(c => c.id === clientId);
     if (!client) return res.status(400).json({ error: 'Client not found.' });
   }
-  // Every task needs an agreed delivery date — the whole commitment model
-  // is judged against it.
-  if (!internalDeadline) return res.status(400).json({ error: 'Due date is required.' });
-
   let assignee = req.employee.id;
   if (mode === 'team') {
     assignee = assignedTo;
     const allowed = assignableEmployees(state, req.employee).some(e => e.id === assignee);
     if (!allowed) return res.status(403).json({ error: "You're not authorized to assign work to this person." });
   }
+  // The internal due date is either given, or computed from the assignee's
+  // real capacity + queue (Phase 5). Either way the task must end up with one.
+  let computedDates = null;
+  if (!internalDeadline) {
+    const emp = findEmployee(state, assignee);
+    if (emp) { refreshCapacity(state, emp); computedDates = computeCommitmentDates(state, emp, parseFloat(tat) || 3, null); internalDeadline = computedDates.internalDeadline; }
+  }
+  if (!internalDeadline) return res.status(400).json({ error: 'Give a due date, or an assignee we can plan around.' });
+
   // No daily-hours cap and no self-assignment approval — anyone can hand
   // themselves (or someone they manage) work, whatever the day already holds.
   const status = mode === 'team' ? 'awaiting_acceptance' : 'accepted';
@@ -1447,7 +1545,8 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const met = dated.filter(t => commitmentOutcome(t) === 'met').length;
     const missed = dated.filter(t => commitmentOutcome(t) === 'missed').length;
     const reworkRounds = done.reduce((s, t) => s + (t.reworkCount || 0), 0);
-    const cap = Number(emp.effectiveCapacity) > 0 ? Number(emp.effectiveCapacity) : 6.0;
+    if (emp.id) refreshCapacity(state, emp);
+    const cap = capacityOf(emp);
     const capacityHours = cap * workingDays;
     // shift hours actually logged in the range (from the punch clock)
     const shiftSeconds = Object.entries(state.attendance[id] || {})
@@ -1472,7 +1571,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
       tasks: done.length,
       allocatedHours: r2(allocated), workedHours: r2(worked),
-      capacityHours: r2(capacityHours), effectiveCapacity: cap, workingDays,
+      capacityHours: r2(capacityHours), effectiveCapacity: cap, capacityAuto: !!emp.capacityAuto, workingDays,
       shiftHours,
       utilisationPct: capacityHours > 0 ? Math.round((worked / capacityHours) * 100) : null,
       efficiency: worked > 0 ? r2(allocated / worked) : null,
@@ -1528,10 +1627,25 @@ app.get('/api/workload', requireAuth, (req, res) => {
   const state = db.get();
   const visible = assignableEmployees(state, req.employee);
   const rows = visible.map(e => {
+    refreshCapacity(state, e);
     const busyUntil = employeeBusyUntil(state, e.id);
     const activeCount = state.tasks.filter(t => t.assignedTo === e.id && t.status !== 'completed').length;
-    return (()=>{ const active=state.tasks.filter(t=>t.assignedTo===e.id&&t.status!=='completed'&&t.status!=='pending_approval'&&t.status!=='on_hold'&&t.internalDeadline); const hrs={}; active.forEach(t=>{hrs[t.internalDeadline]=(hrs[t.internalDeadline]||0)+(Number(t.tat)||0);}); let peakDate=null,peakHours=0; Object.entries(hrs).forEach(([d,h])=>{ if(h>peakHours){ peakHours=h; peakDate=d; } }); const hoursDoneToday_=Math.round(hoursDoneToday(state,e.id)*100)/100; return { id: e.id, name: e.name, team: e.team, busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount, hoursDoneToday: hoursDoneToday_, todayHours: hoursDoneToday_, peakHours: Math.round(peakHours*100)/100, peakDate }; })();
+    const avail = availabilityOf(state, e);
+    const hoursDoneToday_ = Math.round(hoursDoneToday(state, e.id) * 100) / 100;
+    const active = state.tasks.filter(t => t.assignedTo === e.id && !['completed', 'pending_approval', 'on_hold'].includes(t.status) && t.internalDeadline);
+    const hrs = {};
+    active.forEach(t => { hrs[t.internalDeadline] = (hrs[t.internalDeadline] || 0) + (Number(t.tat) || 0); });
+    let peakDate = null, peakHours = 0;
+    Object.entries(hrs).forEach(([d, h]) => { if (h > peakHours) { peakHours = h; peakDate = d; } });
+    return {
+      id: e.id, name: e.name, team: e.team,
+      busyUntil, nextAvailable: nextAvailableDate(busyUntil), activeCount,
+      hoursDoneToday: hoursDoneToday_, todayHours: hoursDoneToday_,
+      peakHours: Math.round(peakHours * 100) / 100, peakDate,
+      ...avail, // effectiveCapacity, capacityAuto, backlogHours, committedThrough, freeCapacityNext5wd
+    };
   });
+  db.save(); // persist any capacity re-estimates
   res.json({ workload: rows });
 });
 

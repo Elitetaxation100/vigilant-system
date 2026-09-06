@@ -183,8 +183,11 @@ function ensureExtendedFields(state) {
     }
     // Productivity Phase 4/5: the productive hours a person sustains per
     // working day. Seeded at 6 (not 8 — accounts for breaks, admin,
-    // context-switching). Phase 5 re-estimates it from delivery history.
+    // context-switching). Phase 5 re-estimates it from delivery history
+    // (median productive day, last 8 weeks) at most once a day.
     if (e.effectiveCapacity === undefined) e.effectiveCapacity = 6.0;
+    if (e.capacityAuto === undefined) e.capacityAuto = false;
+    if (e.capacityEstimatedAt === undefined) e.capacityEstimatedAt = null;
   });
 
   if (!Array.isArray(state.teams)) state.teams = [];
