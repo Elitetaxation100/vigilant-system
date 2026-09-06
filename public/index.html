@@ -647,6 +647,7 @@
       <div class="nav-title">Engines & Analytics</div>
       <div class="nav-item" data-view="taskengine" onclick="showView('taskengine', this)"><span class="nav-icon">⚙</span> Task Engine</div>
       <div class="nav-item" data-view="manager" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
+      <div class="nav-item" data-view="productivity" onclick="showView('productivity', this)"><span class="nav-icon">▤</span> Productivity</div>
       <div class="nav-item" data-view="analytics" onclick="showView('analytics', this)"><span class="nav-icon">📊</span> Analytics</div>
     </div>
     <div class="nav-section">
@@ -1323,6 +1324,35 @@
         </div>
       </section>
 
+      <section class="view" id="view-productivity">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Productivity — allocated vs worked</h2>
+            <div class="panel-head-actions">
+              <select id="prodPeriod" onchange="renderProductivityView()">
+                <option value="week">This week</option>
+                <option value="month" selected>This month</option>
+                <option value="quarter">This quarter</option>
+                <option value="year">This year</option>
+                <option value="custom">Custom range…</option>
+              </select>
+              <span id="prodCustom" style="display:none;">
+                <input type="date" id="prodFrom" onchange="renderProductivityView()">
+                <input type="date" id="prodTo" onchange="renderProductivityView()">
+              </span>
+            </div>
+          </div>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Allocated = the agreed turnaround (TAT) on delivered work. Worked = what delivery actually took. No timers — derived from the task itself. Capacity = each person's productive hours per working day.</p>
+          <div class="top-grid" id="prodTiles"></div>
+          <div class="cc-panel" style="margin-top:18px;">
+            <table class="cc-table">
+              <thead><tr><th>Person</th><th>Tasks</th><th>Allocated h</th><th>Worked h</th><th>Capacity h</th><th>Utilisation</th><th>Efficiency</th><th>Throughput</th><th>On-time</th><th>Rework</th><th>YTD worked</th></tr></thead>
+              <tbody id="prodBody"></tbody>
+            </table>
+          </div>
+          <div id="prodTrend" style="margin-top:18px;"></div>
+        </div>
+      </section>
 
       <section class="view" id="view-clients">
         <div class="panel">
@@ -1820,6 +1850,7 @@ const titles = {
   dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
   taskengine: ['Task Engine', 'Measuring what gets done'],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
+  productivity: ['Productivity', 'Allocated vs worked hours — weekly, monthly, quarterly, year to date'],
   analytics: ['Analytics', 'Build a chart from any breakdown and any metric'],
   report: ['My Report Card', 'Auto-generated monthly, shareable as a PDF'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
@@ -1843,6 +1874,7 @@ function showView(id, el){
   if(id === 'manager') renderManagerStatics();
   if(id === 'taskengine') renderTaskEngineVisuals();
   if(id === 'analytics') renderChartBuilder();
+  if(id === 'productivity') renderProductivityView();
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
@@ -3961,6 +3993,76 @@ function computeChartData(groupBy, metric){
   const isHours = metric === 'hours';
   return { entries, isPercent, isHours };
 }
+/* =========================================================================
+   PRODUCTIVITY TRACKER (Phase 4) — allocated vs worked hours over a range.
+   ========================================================================= */
+function _prodRange(){
+  const p = (document.getElementById('prodPeriod')||{}).value || 'month';
+  const now = new Date(); const iso = d => d.toISOString().slice(0,10);
+  document.getElementById('prodCustom').style.display = p === 'custom' ? '' : 'none';
+  if(p === 'custom'){
+    return { from: (document.getElementById('prodFrom')||{}).value || iso(new Date(now-30*864e5)),
+             to: (document.getElementById('prodTo')||{}).value || iso(now) };
+  }
+  let from;
+  if(p === 'week'){ const wd=(now.getDay()+6)%7; from=new Date(now); from.setDate(now.getDate()-wd); }
+  else if(p === 'month'){ from=new Date(now.getFullYear(), now.getMonth(), 1); }
+  else if(p === 'quarter'){ from=new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1); }
+  else { from=new Date(now.getFullYear(), 0, 1); }
+  return { from: iso(from), to: iso(now) };
+}
+async function renderProductivityView(){
+  const body = document.getElementById('prodBody');
+  if(!body) return;
+  const { from, to } = _prodRange();
+  let data;
+  try { data = await api(`/api/productivity?from=${from}&to=${to}`); }
+  catch(e){ body.innerHTML = `<tr><td colspan="11" style="color:var(--text-faint);padding:20px;text-align:center;">${esc(e.message)}</td></tr>`; return; }
+  const T = data.totals;
+  const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}</div>`;
+  document.getElementById('prodTiles').innerHTML =
+    tile('Worked hours', T.workedHours.toFixed(1), `of ${T.allocatedHours.toFixed(1)} allocated`) +
+    tile('Utilisation', T.utilisationPct==null?'—':T.utilisationPct+'%', `vs ${T.capacityHours.toFixed(0)}h capacity`) +
+    tile('Efficiency', T.efficiency==null?'—':T.efficiency.toFixed(2)+'×', T.efficiency>=1?'under budget':'over budget') +
+    tile('Tasks delivered', T.tasks, `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}`) +
+    tile('Cumulative YTD', T.cumulativeYtdWorked.toFixed(0)+'h', 'worked, this year');
+
+  const rows = data.people.slice().sort((a,b)=>b.workedHours-a.workedHours);
+  body.innerHTML = rows.length ? rows.map(p => `<tr>
+      <td>${esc(p.name)}<div style="font-size:11px;color:var(--text-faint);">${esc(p.team)}</div></td>
+      <td>${p.tasks}</td>
+      <td style="font-family:var(--font-mono);">${p.allocatedHours.toFixed(1)}</td>
+      <td style="font-family:var(--font-mono);">${p.workedHours.toFixed(1)}</td>
+      <td style="font-family:var(--font-mono);">${p.capacityHours.toFixed(0)} <span style="color:var(--text-faint);">@${p.effectiveCapacity}h/d</span></td>
+      <td><b style="color:${p.utilisationPct==null?'#6B7390':p.utilisationPct>110?'#F0603E':p.utilisationPct>=75?'#2FBE93':'#F0B93E'};">${p.utilisationPct==null?'—':p.utilisationPct+'%'}</b></td>
+      <td style="font-family:var(--font-mono);">${p.efficiency==null?'—':p.efficiency.toFixed(2)}</td>
+      <td style="font-family:var(--font-mono);">${p.throughput==null?'—':p.throughput.toFixed(1)+'/d'}</td>
+      <td>${p.onTimeRate==null?'—':p.onTimeRate+'%'}</td>
+      <td>${p.reworkRounds||''}</td>
+      <td style="font-family:var(--font-mono);">${p.cumulativeYtdWorked.toFixed(0)}h</td>
+    </tr>`).join('') : `<tr><td colspan="11" style="text-align:center;color:var(--text-faint);padding:22px;">No completed work in this range.</td></tr>`;
+
+  // weekly trend — worked vs allocated, per week, summed across the scope
+  const wk = {};
+  data.people.forEach(p => (p.weekly||[]).forEach(w => {
+    (wk[w.weekStart] = wk[w.weekStart] || { weekStart:w.weekStart, worked:0, allocated:0, tasks:0 });
+    wk[w.weekStart].worked += w.worked; wk[w.weekStart].allocated += w.allocated; wk[w.weekStart].tasks += w.tasks;
+  }));
+  const series = Object.values(wk).sort((a,b)=>a.weekStart.localeCompare(b.weekStart));
+  const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
+  document.getElementById('prodTrend').innerHTML = series.length ? `
+    <div class="label" style="margin-bottom:8px;">Weekly — <span style="color:var(--teal,#0D9488);">worked</span> vs <span style="color:var(--text-faint);">allocated</span></div>
+    <div style="display:flex;gap:10px;align-items:flex-end;height:120px;overflow-x:auto;padding-bottom:4px;">
+      ${series.map(s => `<div style="flex:0 0 44px;text-align:center;">
+        <div style="height:100px;display:flex;gap:3px;align-items:flex-end;justify-content:center;">
+          <div style="width:14px;background:var(--teal,#0D9488);height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
+          <div style="width:14px;background:var(--panel-border);height:${Math.round(s.allocated/max*100)}%;border-radius:2px 2px 0 0;" title="${s.allocated.toFixed(1)}h allocated"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${fmtDate(s.weekStart).slice(0,6)}</div>
+      </div>`).join('')}
+    </div>` : '';
+}
+
 function renderChartBuilder(){
   const groupByEl = document.getElementById('chartGroupBy');
   const metricEl = document.getElementById('chartMetric');

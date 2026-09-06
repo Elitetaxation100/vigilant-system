@@ -181,6 +181,10 @@ function ensureExtendedFields(state) {
     if (e.memberships === undefined) {
       e.memberships = e.team && e.team !== 'Unassigned' ? [{ team: e.team, level: 'member' }] : [];
     }
+    // Productivity Phase 4/5: the productive hours a person sustains per
+    // working day. Seeded at 6 (not 8 — accounts for breaks, admin,
+    // context-switching). Phase 5 re-estimates it from delivery history.
+    if (e.effectiveCapacity === undefined) e.effectiveCapacity = 6.0;
   });
 
   if (!Array.isArray(state.teams)) state.teams = [];

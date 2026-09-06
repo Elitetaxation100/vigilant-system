@@ -1427,6 +1427,98 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// PRODUCTIVITY TRACKER (Phase 4). Allocated hours (agreed TAT) vs worked
+// hours (what the delivery actually took), rolled up over any date range,
+// with cumulative year-to-date. Not a timesheet — nothing is clocked; the
+// worked figure is derived from the task itself (taskHours).
+// ---------------------------------------------------------------------------
+function productivityFor(state, empIds, fromISO, toISO) {
+  const from = fromISO, to = toISO;
+  const inRange = d => d && d.slice(0, 10) >= from && d.slice(0, 10) <= to;
+  const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
+  const yearStart = to.slice(0, 4) + '-01-01';
+
+  return empIds.map(id => {
+    const emp = findEmployee(state, id) || { id, name: '—' };
+    const done = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed' && inRange(t.completedAt));
+    const allocated = done.reduce((s, t) => s + (Number(t.tat) || 0), 0);
+    const worked = done.reduce((s, t) => s + taskHours(t), 0);
+    const dated = done.filter(t => t.clientDate);
+    const met = dated.filter(t => commitmentOutcome(t) === 'met').length;
+    const missed = dated.filter(t => commitmentOutcome(t) === 'missed').length;
+    const reworkRounds = done.reduce((s, t) => s + (t.reworkCount || 0), 0);
+    const cap = Number(emp.effectiveCapacity) > 0 ? Number(emp.effectiveCapacity) : 6.0;
+    const capacityHours = cap * workingDays;
+    // shift hours actually logged in the range (from the punch clock)
+    const shiftSeconds = Object.entries(state.attendance[id] || {})
+      .filter(([d]) => d >= from && d <= to).reduce((s, [, v]) => s + (v.secondsWorked || 0), 0);
+    const shiftHours = Math.round((shiftSeconds / 3600) * 100) / 100;
+    // year-to-date cumulative worked hours
+    const ytdWorked = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed'
+      && (t.completedAt || '').slice(0, 10) >= yearStart && (t.completedAt || '').slice(0, 10) <= to)
+      .reduce((s, t) => s + taskHours(t), 0);
+    // weekly trend (Mon-anchored) across the range
+    const weeks = {};
+    done.forEach(t => {
+      const d = new Date(t.completedAt.slice(0, 10) + 'T00:00:00Z');
+      const dow = (d.getUTCDay() + 6) % 7;               // 0 = Monday
+      d.setUTCDate(d.getUTCDate() - dow);
+      const wk = d.toISOString().slice(0, 10);
+      (weeks[wk] = weeks[wk] || { weekStart: wk, tasks: 0, worked: 0, allocated: 0 });
+      weeks[wk].tasks += 1; weeks[wk].worked += taskHours(t); weeks[wk].allocated += Number(t.tat) || 0;
+    });
+    const r2 = n => Math.round(n * 100) / 100;
+    return {
+      id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
+      tasks: done.length,
+      allocatedHours: r2(allocated), workedHours: r2(worked),
+      capacityHours: r2(capacityHours), effectiveCapacity: cap, workingDays,
+      shiftHours,
+      utilisationPct: capacityHours > 0 ? Math.round((worked / capacityHours) * 100) : null,
+      efficiency: worked > 0 ? r2(allocated / worked) : null,
+      throughput: workingDays > 0 ? r2(done.length / workingDays) : null,
+      onTimeRate: (met + missed) > 0 ? Math.round((met / (met + missed)) * 100) : null,
+      met, missed, reworkRounds,
+      cumulativeYtdWorked: r2(ytdWorked),
+      weekly: Object.values(weeks).sort((a, b) => a.weekStart.localeCompare(b.weekStart))
+        .map(w => ({ ...w, worked: r2(w.worked), allocated: r2(w.allocated) })),
+    };
+  });
+}
+app.get('/api/productivity', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const clamp = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
+  const to = clamp(req.query.to) || todayISO();
+  const from = clamp(req.query.from) || new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  if (from > to) return res.status(400).json({ error: 'from must be on or before to.' });
+
+  // scope: an employee sees only themselves; an admin their reports + self;
+  // a superadmin the whole firm (or ?scope=me to narrow).
+  let ids;
+  if (req.query.scope === 'me' || me.accessRole === 'employee') ids = [me.id];
+  else if (me.accessRole === 'admin') ids = [me.id, ...(me.managesIds || [])];
+  else ids = state.employees.map(e => e.id);
+
+  const people = productivityFor(state, ids, from, to);
+  const sum = (k) => people.reduce((s, p) => s + (p[k] || 0), 0);
+  const totalAlloc = sum('allocatedHours'), totalWorked = sum('workedHours'), totalCap = sum('capacityHours');
+  res.json({
+    from, to, scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
+    people: people.filter(p => p.tasks > 0 || ids.length === 1),
+    totals: {
+      tasks: sum('tasks'),
+      allocatedHours: Math.round(totalAlloc * 100) / 100,
+      workedHours: Math.round(totalWorked * 100) / 100,
+      capacityHours: Math.round(totalCap * 100) / 100,
+      utilisationPct: totalCap > 0 ? Math.round((totalWorked / totalCap) * 100) : null,
+      efficiency: totalWorked > 0 ? Math.round((totalAlloc / totalWorked) * 100) / 100 : null,
+      cumulativeYtdWorked: Math.round(sum('cumulativeYtdWorked') * 100) / 100,
+    },
+  });
+});
+
+// ---------------------------------------------------------------------------
 // WORKLOAD — who's occupied until when and how much they've cleared today,
 // so an assigner has context before handing out a task. Informational only.
 // Scoped to whoever the caller is allowed to assign to, same boundary as
