@@ -807,15 +807,9 @@
           </div>
         </div>
 
-        <div class="dgrid-2e">
-          <div class="panel">
-            <div class="panel-head"><h2>Working on now</h2><span style="font-size:12px;color:var(--text-faint);">your open tasks, most urgent first</span></div>
-            <div id="myDayWrap"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2 id="empRcTitle">My Report Card</h2><div class="panel-head-actions"><button class="btn small" onclick="showView('report', document.querySelector('.nav-item[data-view=\'report\']'))">Full card →</button></div></div>
-            <div id="empReportCard"></div>
-          </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Working on now</h2><span style="font-size:12px;color:var(--text-faint);">your open tasks, most urgent first</span></div>
+          <div id="myDayWrap"></div>
         </div>
 
         <div class="chart-panel" style="margin-bottom:24px;" id="assigneeBarPanel">
@@ -2723,7 +2717,7 @@ function empPeriodBounds(){
 }
 function renderEmployeeStats(){
   const me = currentViewer();
-  if(!me || !document.getElementById('empReportCard')) return;
+  if(!me || !document.getElementById('myTasksToday')) return;
   const _es = document.getElementById('empScope');
   if(_es) _es.classList.toggle('is-custom', (document.getElementById('empPeriod')||{}).value === 'custom');
   const { start, end, label } = empPeriodBounds();
@@ -2760,43 +2754,8 @@ function renderEmployeeStats(){
   setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.commitmentOutcome === 'met').length / withDate.length * 100) + '<small>%</small>' : '—');
   const reviewed = doneP.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
   setV('myAccuracy', reviewed.length ? Math.round(reviewed.filter(t => t.reviewStatus === 'clean').length / reviewed.length * 100) + '<small>%</small>' : '—');
-
-  // report-card summary (mirrors renderReportCard's numbers, period-scoped where it makes sense)
-  const completedAll = mine.filter(t => t.status === 'completed');
-  const onTimeAdh = doneP.filter(t => withinAgreedHours(t));
-  const adherence = doneP.length ? Math.round(onTimeAdh.length / doneP.length * 100) : 0;
-  const gapPct = doneP.length ? Math.round((doneP.length - onTimeAdh.length) / doneP.length * 1000) / 10 : null;
-  const points = doneP.reduce((s,t) => s + (t.points||0), 0);
-  let streak = 0, best = 0;
-  for(const t of mine){ if(t.status === 'completed'){ streak++; best = Math.max(best, streak); } else streak = 0; }
-  const allPts = employees.map(e => ({ id:e.id, pts: tasks.filter(t => t.assignedTo === e.id && t.status === 'completed').reduce((s,t)=>s+(t.points||0),0) })).sort((a,b)=>b.pts-a.pts);
-  const totalPtsAll = completedAll.reduce((s,t)=>s+(t.points||0),0);
-  const rank = totalPtsAll > 0 ? allPts.findIndex(e => e.id === currentViewerId) + 1 : null;
-  const cwd = doneP.filter(t => t.clientDate);
-  const commitPct = cwd.length ? Math.round(cwd.filter(t => t.commitmentOutcome === 'met').length / cwd.length * 100) : null;
-  const C = 402, off = doneP.length ? C - (C * adherence / 100) : C;
-  document.getElementById('empRcTitle').textContent = 'My Report Card · ' + label;
-  document.getElementById('empReportCard').innerHTML = `
-    <div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap;">
-      <div style="position:relative;width:118px;height:118px;flex:none;">
-        <svg width="118" height="118" viewBox="0 0 150 150" style="transform:rotate(-90deg);">
-          <circle cx="75" cy="75" r="64" fill="none" stroke="var(--line)" stroke-width="11"/>
-          <circle cx="75" cy="75" r="64" fill="none" stroke="var(--teal)" stroke-width="11" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}"/>
-        </svg>
-        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
-          <div style="font-family:var(--font-display);font-size:24px;font-weight:700;">${doneP.length ? adherence + '%' : '—'}</div>
-          <div style="font-size:10px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px;">adherence</div>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px 22px;font-size:13px;flex:1;min-width:180px;">
-        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Points</div><b style="font-family:var(--font-mono);font-size:16px;color:#5B4FCF;">${points}</b></div>
-        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Rank</div><b style="font-family:var(--font-mono);font-size:16px;">${rank ? '#' + rank : '—'}</b></div>
-        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Gap %</div><b style="font-family:var(--font-mono);font-size:16px;">${gapPct === null ? '—' : gapPct + '%'}</b></div>
-        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Best streak</div><b style="font-family:var(--font-mono);font-size:16px;">${best > 0 ? '🔥 ' + best : '—'}</b></div>
-        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Commitment</div><b style="font-family:var(--font-mono);font-size:16px;color:#0D9488;">${commitPct === null ? '—' : commitPct + '%'}</b></div>
-        <div><div style="color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;">Badges</div><b style="font-size:15px;">${points > 0 ? '🎯 🔥 ⭐' : '—'}</b></div>
-      </div>
-    </div>`;
+  // The full report card lives on its own page (My Report Card in the
+  // sidebar) — it's no longer duplicated on this dashboard.
 }
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
@@ -3579,11 +3538,11 @@ function openAssignModal(mode){
     }).join('')}</select>
     <div id="atPlanHint" style="font-size:12.5px;color:var(--text-dim);margin-top:6px;line-height:1.5;"></div></div>` : ''}
     <div id="atClientBlock"${noClients ? ' style="display:none;"' : ''}>
-      <div class="field"><label>Client</label><select id="atClientId">${clients.map(c=>{
-        if(!isTeam) return `<option value="${c.id}">${esc(c.name)}</option>`;
-        const owner = empById(c.ownerId);
-        return `<option value="${c.id}">${esc(c.name)}${owner ? ' — owner: ' + esc(owner.name) : ' — ⚠ no owner'}</option>`;
-      }).join('')}</select></div>
+      <div class="field"><label>Client</label>
+        <input type="text" id="atClientId" list="atClientList" placeholder="Start typing a client name…" autocomplete="off" spellcheck="false">
+        <datalist id="atClientList">${clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>`<option value="${esc(c.name)}"></option>`).join('')}</datalist>
+        <div id="atClientErr" style="font-size:12px;color:#C2410C;margin-top:4px;display:none;">Pick a client from the list (or add it first in Clients).</div>
+      </div>
       <div class="field"><label>Client commitment date</label><input type="date" id="atClientDate" value="${addDaysISO(3)}"></div>
     </div>
     <div class="field"><label id="atTatLabel">Estimated time (hours)</label><input type="number" id="atTat" value="3" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
@@ -3649,12 +3608,27 @@ async function submitAssign(mode){
   } else {
     payload.kind = 'client';
     payload.scope = (document.getElementById('atScope')||{}).value.trim();
-    payload.clientId = (document.getElementById('atClientId')||{}).value;
+    const cid = resolveClientId((document.getElementById('atClientId')||{}).value);
+    const cerr = document.getElementById('atClientErr');
+    if(!cid){ if(cerr) cerr.style.display = 'block'; return; }
+    if(cerr) cerr.style.display = 'none';
+    payload.clientId = cid;
     payload.clientDate = (document.getElementById('atClientDate')||{}).value;
     payload.points = parseInt((document.getElementById('atPoints')||{}).value) || 0;
   }
   await submitTaskPayload(payload);
 }
+  // Turn what the manager typed in the client box into a client id: an
+  // exact name match, or a unique partial match. Anything ambiguous or
+  // unknown returns null and the form asks them to pick from the list.
+  function resolveClientId(typed){
+    const s = String(typed || '').trim().toLowerCase();
+    if(!s) return null;
+    const exact = clients.find(c => c.name.toLowerCase() === s);
+    if(exact) return exact.id;
+    const hits = clients.filter(c => c.name.toLowerCase().includes(s));
+    return hits.length === 1 ? hits[0].id : null;
+  }
   async function submitTaskPayload(payload){
     try {
       await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) });
