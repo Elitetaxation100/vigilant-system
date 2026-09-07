@@ -589,9 +589,22 @@
   .mg-side .panel{ margin-bottom:0; }
   @media(max-width:1120px){ .mg-body{ grid-template-columns:1fr; } }
 
-  .d-inout{ display:flex; align-items:flex-end; gap:10px; height:150px; padding-top:6px; }
+  .d-inout{ display:flex; align-items:flex-end; gap:10px; height:150px; padding-top:16px; }
   .d-inout .col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; }
+  .d-inout .io-nums{ display:flex; gap:5px; font-family:var(--font-mono); font-size:10.5px; line-height:1; height:12px; }
+  .d-inout .io-nums .a{ color:var(--purple); } .d-inout .io-nums .b{ color:var(--teal); }
   .d-inout .bb{ flex:1; display:flex; align-items:flex-end; gap:4px; width:100%; justify-content:center; }
+  /* founder search + clickable tiles */
+  .fv-search-row{ display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:6px 12px; margin-bottom:16px; }
+  .fv-search-ico{ font-size:14px; opacity:.7; }
+  .fv-search-row input{ flex:1; background:transparent; border:none; color:var(--text); font-size:14px; padding:6px 0; outline:none; }
+  .fv-tile{ cursor:pointer; transition:border-color .12s; }
+  .fv-tile:hover{ border-color:var(--purple); }
+  .fv-hit-group{ margin-bottom:16px; }
+  .fv-hit-group h4{ font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); margin:0 0 8px; }
+  .fv-hit{ display:flex; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--panel-border); border-radius:8px; margin-bottom:6px; font-size:13px; flex-wrap:wrap; }
+  .fv-hit .g{ flex:1; min-width:0; } .fv-hit .g b{ font-weight:600; }
+  .fv-hit .m{ font-size:11.5px; color:var(--text-faint); }
   .d-inout .bar{ width:14px; border-radius:3px 3px 0 0; }
   .d-inout .bar.a{ background:var(--purple); } .d-inout .bar.b{ background:var(--teal); }
   .d-inout .cl{ font-size:10.5px; color:var(--text-faint); font-family:var(--font-mono); }
@@ -1101,15 +1114,22 @@
           <span class="dcrumb" id="fvCrumb"><b>Scope:</b> Whole firm · This month</span>
         </div>
 
+        <div class="fv-search-row">
+          <span class="fv-search-ico">🔎</span>
+          <input type="text" id="fvSearch" placeholder="Search a client, task or person across the whole firm…" oninput="renderFvSearch()" autocomplete="off" spellcheck="false">
+          <button class="btn small" id="fvSearchClear" style="display:none;" onclick="document.getElementById('fvSearch').value='';renderFvSearch();">Clear</button>
+        </div>
+        <div id="fvSearchPanel" class="panel" style="display:none;"></div>
+
         <div class="stat-grid g8" id="fvKpis">
-          <div class="stat-card"><div class="label">Tasks Completed</div><div class="value" id="fvTasksCompleted">0</div><div class="delta" id="fvTasksCompletedSub">—</div></div>
-          <div class="stat-card"><div class="label">Delivered On Time</div><div class="value teal" id="fvOnTimePct">—</div><div class="delta" id="fvOnTimeSub">—</div></div>
-          <div class="stat-card"><div class="label">First-Time Quality</div><div class="value" id="fvQualityPct">—</div><div class="delta" id="fvQualitySub">—</div></div>
-          <div class="stat-card"><div class="label">Team Productivity</div><div class="value" id="fvProductivityPct">—</div><div class="delta" id="fvProductivitySub">—</div></div>
-          <div class="stat-card"><div class="label">Open Tasks</div><div class="value" id="fvOpen">0</div><div class="delta" id="fvOpenSub">—</div></div>
-          <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="fvOverdue">0</div><div class="delta" id="fvOverdueSub">—</div></div>
-          <div class="stat-card"><div class="label">Unassigned</div><div class="value amber" id="fvUnassigned">0</div><div class="delta" id="fvUnassignedSub">—</div></div>
-          <div class="stat-card"><div class="label">Avg Turnaround</div><div class="value" id="fvTurnaround">—</div><div class="delta" id="fvTurnaroundSub">—</div></div>
+          <div class="stat-card fv-tile" onclick="openFvTileList('completed')"><div class="label">Tasks Completed</div><div class="value" id="fvTasksCompleted">0</div><div class="delta" id="fvTasksCompletedSub">—</div></div>
+          <div class="stat-card fv-tile" onclick="openFvTileList('ontime')"><div class="label">Delivered On Time</div><div class="value teal" id="fvOnTimePct">—</div><div class="delta" id="fvOnTimeSub">—</div></div>
+          <div class="stat-card fv-tile" onclick="openFvTileList('quality')"><div class="label">First-Time Quality</div><div class="value" id="fvQualityPct">—</div><div class="delta" id="fvQualitySub">—</div></div>
+          <div class="stat-card fv-tile" onclick="openFvTileList('productivity')"><div class="label">Team Productivity</div><div class="value" id="fvProductivityPct">—</div><div class="delta" id="fvProductivitySub">—</div></div>
+          <div class="stat-card fv-tile" onclick="openFvTileList('open')"><div class="label">Open Tasks</div><div class="value" id="fvOpen">0</div><div class="delta" id="fvOpenSub">—</div></div>
+          <div class="stat-card fv-tile" onclick="openFvTileList('overdue')"><div class="label">Overdue</div><div class="value coral" id="fvOverdue">0</div><div class="delta" id="fvOverdueSub">—</div></div>
+          <div class="stat-card fv-tile" onclick="openFvTileList('unassigned')"><div class="label">Unassigned</div><div class="value amber" id="fvUnassigned">0</div><div class="delta" id="fvUnassignedSub">—</div></div>
+          <div class="stat-card fv-tile" onclick="openFvTileList('turnaround')"><div class="label">Avg Turnaround</div><div class="value" id="fvTurnaround">—</div><div class="delta" id="fvTurnaroundSub">—</div></div>
         </div>
 
         <div class="dgrid-2">
@@ -1121,7 +1141,7 @@
             <div class="panel-head"><h2>Work coming in vs getting done</h2><span style="font-size:12px;color:var(--text-faint);" id="fvInOutNote">by week</span></div>
             <p style="font-size:13px;color:var(--text-dim);margin:-6px 0 14px;">The backlog grows whenever purple (created) keeps beating teal (completed).</p>
             <div class="d-inout" id="fvInOut"></div>
-            <div class="d-legend"><span class="a"><i></i>Created</span><span class="b"><i></i>Completed</span></div>
+            <div class="d-legend" id="fvInOutLegend"><span class="a"><i></i>Created</span><span class="b"><i></i>Completed</span></div>
           </div>
         </div>
 
@@ -1700,12 +1720,15 @@ function populateScopeSelect(selId, key, mineOnly){
     }
     if(members.length) html += `<optgroup label="By person">${members.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
   } else {
-    // Founder Dashboard — whole firm, sliced by team or person.
-    const people = employees.slice().sort((a,b)=>a.name.localeCompare(b.name));
+    // Founder Dashboard — whole firm, sliced by team or person. When a team
+    // is selected, the "by person" list narrows to that team's members.
+    const activeTeam = cur && cur.startsWith('t:') ? cur.slice(2) : null;
+    const people = (activeTeam ? employees.filter(e => (e.team||'').trim() === activeTeam) : employees.slice())
+      .sort((a,b)=>a.name.localeCompare(b.name));
     const teamOpts = teamListForScope();
     html += `<option value="firm">◈ Whole firm</option>`;
     if(teamOpts.length) html += `<optgroup label="By team">${teamOpts.map(t=>`<option value="t:${esc(t)}">${esc(t)}</option>`).join('')}</optgroup>`;
-    if(people.length) html += `<optgroup label="By person">${people.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
+    if(people.length) html += `<optgroup label="By person${activeTeam ? ' — ' + esc(activeTeam) : ''}">${people.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
     fallback = 'firm';
   }
   sel.innerHTML = html;
@@ -4585,6 +4608,66 @@ function openMyDoneList(startISO, endISO){
    (superadmin-only, same endpoint the Command Center's ratings use).
    ========================================================================= */
 let _fvReportRows = { key:null, rows:[] };
+let fvTileData = {};
+// Click any Founder KPI tile to see the tasks behind it (same scope + period).
+function openFvTileList(key){
+  const d = fvTileData[key];
+  if(!d) return;
+  taskListModal(d.title, `${dashScopeLabel('fv')} · ${dashPeriodLabel('fv')}`, d.list || [], { empty: 'Nothing here for this scope and period.' });
+}
+/* Global firm search on the Founder Dashboard: type a client, task or
+   person and see where it lives — the client's owner and open count, and
+   every matching task with its assignee, status and due date. */
+function renderFvSearch(){
+  const inp = document.getElementById('fvSearch');
+  const panel = document.getElementById('fvSearchPanel');
+  const clr = document.getElementById('fvSearchClear');
+  if(!inp || !panel) return;
+  const q = (inp.value || '').trim().toLowerCase();
+  clr.style.display = q ? '' : 'none';
+  if(q.length < 2){ panel.style.display = 'none'; panel.innerHTML = ''; return; }
+
+  const clientHits = clients.filter(c => c.name.toLowerCase().includes(q)).slice(0, 20);
+  const personHits = employees.filter(e => e.name.toLowerCase().includes(q) || (e.email||'').toLowerCase().includes(q)).slice(0, 10);
+  const taskHits = tasks.filter(t =>
+    (t.name||'').toLowerCase().includes(q) ||
+    (t.clientName||'').toLowerCase().includes(q) ||
+    (t.scope||'').toLowerCase().includes(q) ||
+    (empById(t.assignedTo)?.name||'').toLowerCase().includes(q) ||
+    (t.id||'').toLowerCase().includes(q)
+  ).sort((a,b)=>(a.internalDeadline||'9999').localeCompare(b.internalDeadline||'9999')).slice(0, 40);
+
+  let html = '';
+  if(clientHits.length){
+    html += `<div class="fv-hit-group"><h4>Clients · ${clientHits.length}</h4>` + clientHits.map(c => {
+      const owner = empById(c.ownerId);
+      const open = tasks.filter(t => t.clientId === c.id && t.status !== 'completed').length;
+      const done = tasks.filter(t => t.clientId === c.id && t.status === 'completed').length;
+      return `<div class="fv-hit"><span>${owner ? '●' : '⚠'}</span>
+        <span class="g"><b>${esc(c.name)}</b><div class="m">Owner: ${owner ? esc(owner.name) : 'no owner'} · ${open} open · ${done} completed</div></span>
+        <button class="btn small" onclick="document.getElementById('fvSearch').value=${JSON.stringify(c.name)};renderFvSearch();">Tasks →</button></div>`;
+    }).join('') + `</div>`;
+  }
+  if(personHits.length){
+    html += `<div class="fv-hit-group"><h4>People · ${personHits.length}</h4>` + personHits.map(e => {
+      const open = tasks.filter(t => t.assignedTo === e.id && t.status !== 'completed').length;
+      return `<div class="fv-hit"><span class="mini-avatar">${esc((e.name||'?').split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
+        <span class="g"><b>${esc(e.name)}</b><div class="m">${esc(e.jobTitle||'')} · ${esc((e.team||'').trim()||'Unassigned')} · ${open} open task${open===1?'':'s'}</div></span>
+        <button class="btn small" onclick="openWorkLog('${e.id}')">Work log</button></div>`;
+    }).join('') + `</div>`;
+  }
+  if(taskHits.length){
+    html += `<div class="fv-hit-group"><h4>Tasks · ${taskHits.length}${taskHits.length===40?'+':''}</h4>` + taskHits.map(t => {
+      const a = empById(t.assignedTo);
+      const overdue = t.internalDeadline && t.internalDeadline < todayISO() && t.status !== 'completed';
+      return `<div class="fv-hit" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
+        <span class="g"><b>${esc(t.name)}</b><div class="m">${esc(t.clientName||'Internal')} · ${a ? esc(a.name) : 'Unassigned'} · due ${fmtDate(t.internalDeadline)}${overdue ? ' · <span style="color:#C2410C;font-weight:700;">overdue</span>' : ''}</div></span>
+        ${statusBadge(t)}</div>`;
+    }).join('') + `</div>`;
+  }
+  panel.innerHTML = html || `<div style="font-size:13.5px;color:var(--text-faint);padding:6px 4px;">No client, person or task matches “${esc(inp.value)}”.</div>`;
+  panel.style.display = '';
+}
 async function renderFounderView(){
   if(!isSuperAdmin || !document.getElementById('fvOwnerPerfWrap')) return;
   populateScopeSelect('fvView', 'fv', false);
@@ -4647,10 +4730,23 @@ async function renderFounderView(){
   const unassigned = (dashScope.fv.view === 'firm') ? tasks.filter(t => !t.assignedTo && t.status !== 'completed') : [];
   setT('fvUnassigned', unassigned.length);
   setD('fvUnassignedSub', unassigned.length ? 'need an owner' : (dashScope.fv.view === 'firm' ? 'all assigned' : 'n/a in this scope'));
-  const turns = cIn.filter(t => t.assignedAt && t.completedAt).map(t => (new Date(t.completedAt) - new Date(t.assignedAt)) / 86400000).filter(d => d >= 0);
+  const turnList = cIn.filter(t => t.assignedAt && t.completedAt);
+  const turns = turnList.map(t => (new Date(t.completedAt) - new Date(t.assignedAt)) / 86400000).filter(d => d >= 0);
   const avgTurn = turns.length ? (turns.reduce((a,b)=>a+b,0)/turns.length) : null;
   setT('fvTurnaround', avgTurn === null ? '—' : avgTurn.toFixed(1) + ' d');
   setD('fvTurnaroundSub', turns.length ? `over ${turns.length} completed` : 'no completed work');
+
+  // Everything the KPI tiles drill into — same scope, same period.
+  fvTileData = {
+    completed:  { title: 'Tasks completed',      list: cIn },
+    ontime:     { title: 'Delivered on time',    list: cInDated.filter(t => t.commitmentOutcome === 'met') },
+    quality:    { title: 'Needed rework',        list: cIn.filter(t => (t.reworkCount||0) > 0) },
+    productivity:{ title:'Completed work (hours vs shift)', list: cIn },
+    open:       { title: 'Open tasks',           list: openScoped },
+    overdue:    { title: 'Overdue',              list: overdue },
+    unassigned: { title: 'Unassigned',           list: unassigned },
+    turnaround: { title: 'Completed — turnaround', list: turnList },
+  };
 
   // ---- work in vs out (8 buckets across the period) ----
   const inout = document.getElementById('fvInOut');
@@ -4662,7 +4758,13 @@ async function renderFounderView(){
     if(t.status === 'completed' && t.completedAt){ const b = Math.floor((new Date(t.completedAt) - startMs) / step); if(b >= 0 && b < buckets) io[b].done++; }
   });
   const ioMax = Math.max(1, ...io.flatMap(x => [x.created, x.done]));
-  inout.innerHTML = io.map((x,i) => `<div class="col"><div class="bb"><div class="bar a" style="height:${x.created/ioMax*100}%" title="${x.created} created"></div><div class="bar b" style="height:${x.done/ioMax*100}%" title="${x.done} completed"></div></div><div class="cl">${i+1}</div></div>`).join('');
+  inout.innerHTML = io.map((x,i) => `<div class="col">
+      <div class="io-nums"><span class="a">${x.created || ''}</span><span class="b">${x.done || ''}</span></div>
+      <div class="bb"><div class="bar a" style="height:${x.created/ioMax*100}%" title="${x.created} created"></div><div class="bar b" style="height:${x.done/ioMax*100}%" title="${x.done} completed"></div></div>
+      <div class="cl">${i+1}</div>
+    </div>`).join('');
+  const ioTotCreated = io.reduce((s,x)=>s+x.created,0), ioTotDone = io.reduce((s,x)=>s+x.done,0);
+  setD('fvInOutLegend', `<span class="a"><i></i>Created <b>${ioTotCreated}</b></span><span class="b"><i></i>Completed <b>${ioTotDone}</b></span><span style="color:var(--text-faint);">Backlog moved ${ioTotCreated-ioTotDone>=0?'+':''}${ioTotCreated-ioTotDone}</span>`);
 
   // ---- needs attention ----
   const stalled = openScoped.filter(t => t.status === 'accepted' && !t.timerStartedAt && !(t.logged > 0) && t.acceptedAt && (Date.now() - new Date(t.acceptedAt)) > 3*86400000);
@@ -4730,16 +4832,18 @@ async function renderFounderView(){
   // ---- by team ----
   const teamNames = isPerson ? [] : (isTeam ? [dashScope.fv.view.slice(2)] : teamListForScope());
   const byTeamRows = teamNames.map(tn => {
-    const mem = employees.filter(e => empInTeam(e, tn)).map(e => e.id);
-    const memSet = new Set(mem);
-    const open = tasks.filter(t => memSet.has(t.assignedTo) && t.status !== 'completed');
+    const memSet = new Set(employees.filter(e => empInTeam(e, tn)).map(e => e.id));
+    const teamTasks = tasks.filter(t => memSet.has(t.assignedTo));
+    const open = teamTasks.filter(t => t.status !== 'completed');
+    const done = teamTasks.filter(t => t.status === 'completed' && dashInRange(t.completedAt, r));
+    const created = teamTasks.filter(t => dashInRange(t.assignedAt, r));
     const od = open.filter(t => t.internalDeadline && t.internalDeadline < today).length;
-    return { tn, open: open.length, od };
-  }).filter(x => x.open > 0).sort((a,b) => b.open - a.open);
+    return { tn, open: open.length, od, done: done.length, created: created.length };
+  }).filter(x => x.open > 0 || x.done > 0 || x.created > 0).sort((a,b) => b.open - a.open);
   const btMax = Math.max(1, ...byTeamRows.map(x => x.open));
   setD('fvByTeam', byTeamRows.length ? byTeamRows.map(x =>
-    `<div class="d-hb"><span class="nm">${esc(x.tn)}</span><span class="tk"><span class="f od" style="width:${x.od/btMax*100}%"></span><span class="f" style="width:${(x.open-x.od)/btMax*100}%"></span></span><span class="vl">${x.open}</span></div>`
-  ).join('') : '<div style="font-size:13px;color:var(--text-faint);padding:10px 0;">No open work by team in this scope.</div>');
+    `<div class="d-hb"><span class="nm">${esc(x.tn)}</span><span class="tk"><span class="f od" style="width:${x.od/btMax*100}%"></span><span class="f" style="width:${(x.open-x.od)/btMax*100}%"></span></span><span class="vl">${x.open} open${x.od?` · ${x.od} overdue`:''} · ${x.created} in / ${x.done} done</span></div>`
+  ).join('') : '<div style="font-size:13px;color:var(--text-faint);padding:10px 0;">No work by team in this scope.</div>');
 
   // ---- client ownership ----
   const co = document.getElementById('fvClientOwn');
@@ -4793,6 +4897,8 @@ async function renderFounderView(){
     const hm = ts ? ts.toLocaleTimeString('en-NZ', { hour:'2-digit', minute:'2-digit' }) : '';
     return `<div class="fi"><span class="ft">${hm}</span><span>${a.text}</span></div>`;
   }).join('') : '<div style="font-size:13px;color:var(--text-faint);padding:10px 0;">No recent activity.</div>';
+
+  renderFvSearch(); // keep any active search fresh against the latest data
 }
 function renderRiskFlags(){
   const wrap = document.getElementById('riskFlagsWrap');
