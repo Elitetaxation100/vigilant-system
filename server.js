@@ -1750,16 +1750,61 @@ app.post('/api/punch/toggle', requireAuth, (req, res) => {
   res.json({ punch: { ...st, liveSeconds, punching: !!st.punchedInAt } });
 });
 
-// Superadmin-only view of everyone's login/logout history — this is what
-// makes attendance visible instead of just enforced. Also flags absence:
-// any working day with no attendance record at all for an employee is a
-// day they never logged in, which is exactly the signal productivity
-// figures need to account for (see the shiftHours calc in
-// /api/reports/summary) rather than silently assuming a full shift.
-app.get('/api/attendance/all', requireAuth, requireSuperAdmin, (req, res) => {
+// Undo an accidental punch-out. A punch-out locks someone for the rest of
+// the day (see the toggle above); this reopens today's record so they can
+// carry on. A superadmin can do it for anyone; a manager only for their
+// own reports (canManageEmployee — the same boundary as everywhere else).
+// resumeClock:true restarts their clock from where it stopped (the common
+// case — punched out mid-day by mistake); otherwise they're simply
+// unlocked and can Punch In again themselves. Banked seconds are kept
+// either way, and the correction is written to the activity log.
+app.post('/api/punch/reopen', requireAuth, (req, res) => {
+  const state = db.get();
+  const { employeeId, resumeClock } = req.body || {};
+  if (!employeeId) return res.status(400).json({ error: 'Which person?' });
+  const emp = findEmployee(state, employeeId);
+  if (!emp) return res.status(404).json({ error: 'Employee not found.' });
+  if (!canManageEmployee(state, req.employee, employeeId)) {
+    return res.status(403).json({ error: "You can only reopen a punch-out for someone you manage." });
+  }
+  const st = getPunchState(state, employeeId);
+  if (!st.punchedOut) {
+    return res.status(400).json({ error: `${emp.name} isn't punched out today — nothing to reopen.` });
+  }
+  const day = getAttendanceDay(state, employeeId, todayISO());
+  st.punchedOut = false;
+  day.logoutAt = null;
+  if (resumeClock) {
+    st.punchedInAt = Date.now();
+    if (!day.loginAt) day.loginAt = new Date().toISOString();
+  } else {
+    st.punchedInAt = null;
+  }
+  logEvent(state, employeeId,
+    `Punch-out reopened by <b>${escHtml(req.employee.name)}</b> — ${resumeClock ? 'clock resumed' : 'can punch in again'}.`);
+  if (req.employee.id !== employeeId) {
+    logEvent(state, req.employee.id, `Reopened <b>${escHtml(emp.name)}</b>'s punch-out for today.`);
+  }
+  db.save();
+  const liveSeconds = st.punchedInAt ? st.seconds + Math.floor((Date.now() - st.punchedInAt) / 1000) : st.seconds;
+  res.json({ punch: { ...st, liveSeconds, punching: !!st.punchedInAt } });
+});
+
+// Login/logout history. A superadmin sees the whole firm; a manager sees
+// themselves plus their own reports. This is what makes attendance visible
+// instead of just enforced, and flags absence: any working day with no
+// attendance record at all is a day that person never logged in — the
+// signal the shiftHours calc in /api/reports/summary needs rather than
+// silently assuming a full shift. `canReopen` per row drives the
+// undo-an-accidental-punch-out control (POST /api/punch/reopen).
+app.get('/api/attendance/all', requireAuth, requireAdmin, (req, res) => {
   const state = db.get();
   const today = todayISO();
-  const rows = state.employees.map(emp => {
+  const me = req.employee;
+  const scope = me.accessRole === 'superadmin'
+    ? state.employees
+    : state.employees.filter(e => e.id === me.id || (me.managesIds || []).includes(e.id));
+  const rows = scope.map(emp => {
     const hist = state.attendance[emp.id] || {};
     const live = getPunchState(state, emp.id);
     const dates = Object.keys(hist).sort().reverse().slice(0, 14);
@@ -1767,6 +1812,7 @@ app.get('/api/attendance/all', requireAuth, requireSuperAdmin, (req, res) => {
       id: emp.id, name: emp.name, team: emp.team,
       loggedInNow: !!live.punchedInAt,
       loggedOutToday: !!live.punchedOut,
+      canReopen: canManageEmployee(state, me, emp.id),
       todayLoginAt: hist[today] ? hist[today].loginAt : null,
       todayLogoutAt: hist[today] ? hist[today].logoutAt : null,
       history: dates.map(d => ({

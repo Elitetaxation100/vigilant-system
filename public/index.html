@@ -1037,15 +1037,15 @@
         </div>
       </section>
 
-      <!-- ===================== ATTENDANCE LOG VIEW (Superadmin only) ===================== -->
+      <!-- ===================== ATTENDANCE LOG VIEW (Manager / Superadmin) ===================== -->
       <section class="view" id="view-attendance">
         <div class="panel">
           <div class="panel-head">
             <h2>Daily Login / Logout Log</h2>
           </div>
-          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every employee logs in (Punch In) and out (Punch Out) once per working day. A day with no record means they never logged in — used to flag absence and to adjust productivity against actual shift hours.</p>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every employee logs in (Punch In) and out (Punch Out) once per working day. A day with no record means they never logged in — used to flag absence and to adjust productivity against actual shift hours. If someone punches out by mistake, use <b>Reopen</b> to unlock their day.</p>
           <table>
-            <thead><tr><th>Employee</th><th>Today's Status</th><th>Today Login</th><th>Today Logout</th><th>Last 14 Days</th></tr></thead>
+            <thead><tr><th>Employee</th><th>Today's Status</th><th>Today Login</th><th>Today Logout</th><th>Last 14 Days</th><th></th></tr></thead>
             <tbody id="attendanceTableBody"></tbody>
           </table>
         </div>
@@ -1856,7 +1856,7 @@ const titles = {
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
   command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
-  attendance: ['Attendance Log', 'Superadmin-only — daily login/logout history for the whole team'],
+  attendance: ['Attendance Log', 'Daily login/logout history — your reports, or the whole firm'],
   founder: ['Founder Dashboard', 'The whole firm — sliced by team, person, or any date range'],
   admin: ['Admin', 'Every task that came in from a call or a Slack message'],
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
@@ -2158,15 +2158,16 @@ async function submitSetOwner(id){
 async function renderAttendance(){
   const body = document.getElementById('attendanceTableBody');
   if(!body) return;
-  if(!isSuperAdmin){ body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-faint); padding:22px;">Superadmin access required.</td></tr>`; return; }
+  if(!isAdmin){ body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:22px;">Manager or superadmin access required.</td></tr>`; return; }
   let rows = [];
   try {
     const data = await api('/api/attendance/all');
     rows = data.rows;
   } catch(e){
-    body.innerHTML = `<tr><td colspan="5" style="text-align:center; color:var(--text-faint); padding:22px;">Could not load attendance.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:22px;">Could not load attendance.</td></tr>`;
     return;
   }
+  _attendanceRows = rows;
   const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString('en-NZ', {hour:'2-digit', minute:'2-digit'}) : '—';
   body.innerHTML = rows.map(r => {
     const statusBadgeHtml = r.loggedInNow
@@ -2175,14 +2176,35 @@ async function renderAttendance(){
     const history = r.history.length
       ? `<div style="max-height:90px; overflow-y:auto; font-size:12px; color:var(--text-faint); line-height:1.7;">${r.history.map(h => `${fmtDate(h.date)}: ${fmtTime(h.loginAt)} → ${fmtTime(h.logoutAt)} (${h.hours}h)`).join('<br>')}</div>`
       : `<span style="font-size:12.5px; color:var(--text-faint);">No history yet</span>`;
+    const action = (r.loggedOutToday && r.canReopen)
+      ? `<button class="btn-ghost btn-sm" onclick="reopenPunch('${r.id}')">Reopen</button>`
+      : '';
     return `<tr>
       <td>${esc(r.name)}<div style="font-size:12px;color:var(--text-faint);">${esc(r.team)}</div></td>
       <td>${statusBadgeHtml}</td>
       <td style="font-family:var(--font-mono);">${fmtTime(r.todayLoginAt)}</td>
       <td style="font-family:var(--font-mono);">${fmtTime(r.todayLogoutAt)}</td>
       <td>${history}</td>
+      <td style="text-align:right;">${action}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="5" style="text-align:center; color:var(--text-faint); padding:22px;">No employees on file.</td></tr>`;
+  }).join('') || `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:22px;">No employees on file.</td></tr>`;
+}
+/* Undo an accidental punch-out. resumeClock:true (the default here) restarts
+   their clock where it stopped — the usual "punched out by mistake mid-day"
+   case. The server enforces the real permission (superadmin, or a manager
+   over that person). */
+let _attendanceRows = [];
+async function reopenPunch(empId){
+  const name = (_attendanceRows.find(r => r.id === empId) || {}).name || 'this person';
+  if(!confirm(`Reopen ${name}'s day?\n\nTheir punch-out will be undone and the clock will resume from where it stopped. This is logged.`)) return;
+  try {
+    await api('/api/punch/reopen', { method: 'POST', body: JSON.stringify({ employeeId: empId, resumeClock: true }) });
+    showToast('success', 'Punch-out reopened', `${name} can carry on — clock resumed.`);
+    renderAttendance();
+    if(empId === currentViewerId) loadPunchState();
+  } catch(e){
+    showToast('error', 'Could not reopen', e.message || 'Try again.');
+  }
 }
 
 /* =========================================================================
@@ -5571,7 +5593,7 @@ async function onLoginComplete(){
   document.getElementById('adminNavItem').style.display = isAdmin ? '' : 'none';
   document.getElementById('employeesNavSection').style.display = isAdmin ? '' : 'none';
   document.getElementById('commandCenterNavSection').style.display = isAdmin ? '' : 'none';
-  document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('attendanceNavSection').style.display = isAdmin ? '' : 'none';
   document.getElementById('founderNavSection').style.display = isSuperAdmin ? '' : 'none';
   // Task Engine / Manager Dashboard / Analytics show cross-team performance —
   // managers and above only. A plain employee sees their own work and their
