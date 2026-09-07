@@ -280,6 +280,15 @@
   .badge.paused{ background:var(--coral-dim); color:#C2410C; }
   .badge.awaiting{ background:var(--purple-dim); color:#6D28D9; }
   .badge.dot::before{ content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  /* On-hold reason — collapsed under the status badge, click to see why. */
+  .hold-reason{ margin-top:5px; font-size:11.5px; }
+  .hold-reason > summary{ cursor:pointer; color:var(--text-faint); list-style:none; display:inline-flex; align-items:center; gap:3px; }
+  .hold-reason > summary::-webkit-details-marker{ display:none; }
+  .hold-reason > summary::after{ content:' ▸'; }
+  .hold-reason[open] > summary::after{ content:' ▾'; }
+  .hold-reason > div{ margin-top:4px; color:var(--text-dim); line-height:1.5; }
+  .hold-reason:not([open]) > div{ display:none; }
+  .hold-reason a{ color:var(--purple); }
 
   .action-stack{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .verify-btn{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; padding:6px 10px; border-radius:7px; transition:.15s; }
@@ -821,14 +830,14 @@
             <input type="text" id="taskSearch" placeholder="Search commitments or tasks…" oninput="renderTaskTable()">
             <select id="statusFilter" onchange="renderTaskTable()">
               <option value="">All Statuses</option>
-              <option value="pending_approval">Awaiting Manager Approval</option>
               <option value="awaiting_acceptance">Awaiting Acceptance</option>
-              <option value="window_proposed">Window Proposed</option>
-              <option value="accepted">In Progress</option>
+              <option value="_yettostart">Yet to Start</option>
+              <option value="_inprogress">In Progress</option>
+              <option value="_paused">Paused</option>
               <option value="on_hold">On Hold</option>
               <option value="rework">Needs Rework</option>
-                            <option value="completed">Sent for Review</option>
-              <option value="pending">Pending</option>
+              <option value="window_proposed">Window Proposed</option>
+              <option value="completed">Sent for Review</option>
             </select>
           </div>
 
@@ -1588,7 +1597,9 @@ function addDaysISO(days){ const d = new Date(); d.setDate(d.getDate()+days); re
    ========================================================================= */
 const dashScope = {
   fv: { view:'firm', period:'this-month', cStart:null, cEnd:null, cmp:true },
-  mg: { view:'firm', period:'this-month', cStart:null, cEnd:null, cmp:true },
+  // mg.view starts null so the first render picks the right default per role
+  // (a manager → "My reports"; a non-managing superadmin → "Whole firm").
+  mg: { view:null, period:'this-month', cStart:null, cEnd:null, cmp:true },
 };
 function _iso(d){ return d.toISOString().slice(0,10); }
 // The real team list — just the distinct team names people are actually on.
@@ -1612,6 +1623,7 @@ function myScopedPeople(){
 }
 function dashPeople(key, mineTeamsOnly){
   const s = dashScope[key];
+  if(s.view === 'reports') return myScopedPeople();
   const pool = mineTeamsOnly ? myScopedPeople() : employees;
   if(s.view === 'firm') return pool.slice();
   if(s.view.startsWith('t:')){ const team = s.view.slice(2); return pool.filter(e => e.team === team); }
@@ -1643,6 +1655,7 @@ function dashPeriodLabel(key){
 }
 function dashScopeLabel(key, mineOnly){
   const v = dashScope[key].view;
+  if(v === 'reports') return 'My reports';
   if(v === 'firm') return mineOnly ? 'My reports' : 'Whole firm';
   if(v.startsWith('t:')) return v.slice(2);
   if(v.startsWith('p:')){ const e = employees.find(x=>x.id===v.slice(2)); return e ? e.name : 'Person'; }
@@ -1661,6 +1674,7 @@ function populateScopeSelect(selId, key, mineOnly){
   const sel = document.getElementById(selId);
   if(!sel) return;
   const cur = sel.value || dashScope[key].view;
+  const iManage = ((empById(currentViewerId) || {}).managesIds || []).length > 0;
   let people, teamOpts;
   if(mineOnly){
     // A manager: just their own reports, and per-person options for them.
@@ -1672,11 +1686,19 @@ function populateScopeSelect(selId, key, mineOnly){
     teamOpts = teamListForScope();
   }
   people.sort((a,b)=>a.name.localeCompare(b.name));
-  let html = `<option value="firm">◈ ${mineOnly ? 'My reports' : 'Whole firm'}</option>`;
+  // The Manager Dashboard opens on the viewer's own team, even for a
+  // superadmin who manages people. (The Founder Dashboard stays firm-wide.)
+  const reportsFirst = key === 'mg' && iManage;
+  let html = '';
+  if(reportsFirst) html += `<option value="reports">◈ My reports</option>`;
+  if(!mineOnly) html += `<option value="firm">◈ Whole firm</option>`;
+  else if(!reportsFirst) html += `<option value="firm">◈ My reports</option>`;
   if(teamOpts.length) html += `<optgroup label="By team">${teamOpts.map(t=>`<option value="t:${esc(t)}">${esc(t)}</option>`).join('')}</optgroup>`;
   if(people.length) html += `<optgroup label="By person">${people.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
   sel.innerHTML = html;
-  sel.value = [...sel.options].some(o=>o.value===cur) ? cur : 'firm';
+  const fallback = reportsFirst ? 'reports' : 'firm';
+  sel.value = [...sel.options].some(o=>o.value===cur) ? cur : fallback;
+  dashScope[key].view = sel.value;
 }
 function onDashScope(key){
   const s = dashScope[key];
@@ -2391,15 +2413,24 @@ function statusBadge(t){
     case 'window_proposed': return flagged
       ? `<span class="badge overdue dot">⚠ Rework — Window Proposed</span>`
       : `<span class="badge awaiting dot">Window Proposed</span>`;
-    case 'accepted': return `<span class="badge pending dot">In Progress</span>`;
+    case 'accepted':
+      if(t.timerStartedAt) return `<span class="badge pending dot">● In Progress</span>`;
+      if(t.startedAt) return `<span class="badge paused dot">⏸ Paused</span>`;
+      return `<span class="badge awaiting dot">Yet to Start</span>`;
     case 'on_hold': {
       const m = HOLD_REASONS[t.holdReasonCode] || {};
-      const ex = m.exempting ? ' <span style="font-weight:400;opacity:.85;">· clock paused</span>' : '';
-      return `<span class="badge awaiting dot" style="cursor:pointer;" title="${esc(holdReasonLabel(t))}${t.holdReason && t.holdReason !== m.label ? ' — ' + esc(t.holdReason) : ''}" onclick="openHoldDetailModal('${t.id}')">⏸ On Hold — ${esc(holdReasonLabel(t))}${ex}</span>`;
+      const ex = m.exempting ? ' · clock paused' : '';
+      const extra = t.holdReason && t.holdReason !== m.label ? ' — ' + esc(t.holdReason) : '';
+      return `<span class="badge awaiting dot">⏸ On Hold</span>` +
+        `<details class="hold-reason"><summary>reason</summary>` +
+        `<div>${esc(holdReasonLabel(t))}${ex}${extra} · ` +
+        `<a href="#" onclick="openHoldDetailModal('${t.id}');return false;">full detail ›</a></div></details>`;
     }
     case 'pending_approval': return `<span class="badge awaiting dot">Awaiting Manager Approval</span>`;
     case 'pending': return `<span class="badge pending dot">Pending</span>`;
-    case 'rework': return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
+    case 'rework':
+      if(!t.timerStartedAt && !t.startedAt) return `<span class="badge awaiting dot">⚠ Rework — Not Started${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
+      return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
         case 'completed':
       if(t.reviewStatus === 'clean') return `<span class="badge completed dot" title="Reviewed clean">✓ Done</span>`;
       if(t.reviewStatus === 'done') return `<span class="badge completed dot" title="Closed — no review needed">✓ Done</span>`;
@@ -2487,8 +2518,16 @@ function actionCell(t){
     html += holdControlsHtml(t);
   } else if(t.status === 'accepted' || t.status === 'pending'){
     if(t.status === 'accepted' && isMine){
-      html += `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="markDoneNoReview('${t.id}')" title="Close it now — no reviewer needed">✓ Mark Done</button>`;
-      html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')" title="Send it to someone to check first">Mark Complete &amp; Review</button>`;
+      const started = t.timerStartedAt || t.startedAt;
+      if(!started){
+        html += `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="resumeTask('${t.id}')" title="Begin working — starts the clock">▶ Start Work</button>`;
+      } else {
+        html += t.timerStartedAt
+          ? `<button class="verify-btn" onclick="pauseTask('${t.id}')" title="Pause the clock">⏸ Pause</button>`
+          : `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="resumeTask('${t.id}')" title="Resume the clock">▶ Resume</button>`;
+        html += `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="markDoneNoReview('${t.id}')" title="Close it now — no reviewer needed">✓ Mark Done</button>`;
+        html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')" title="Send it to someone to check first">Mark Complete &amp; Review</button>`;
+      }
       html += holdControlsHtml(t);
     }
   } else if(t.status === 'rework'){
@@ -2532,6 +2571,15 @@ async function removeTask(id){
     showToast('success', 'Task removed', 'Recoverable from Recently removed.');
   } catch(e){ showToast('error', 'Could not remove task', e.message); }
 }
+// "accepted" splits three ways in the UI — yet to start / in progress /
+// paused — so the status filter needs to look past t.status for those.
+function matchesStatusFilter(t, f){
+  if(!f) return true;
+  if(f === '_yettostart') return t.status === 'accepted' && !t.timerStartedAt && !t.startedAt;
+  if(f === '_inprogress') return (t.status === 'accepted' || t.status === 'rework') && !!t.timerStartedAt;
+  if(f === '_paused') return (t.status === 'accepted' || t.status === 'rework') && !t.timerStartedAt && !!t.startedAt;
+  return t.status === f;
+}
 function renderTaskTable(){
   const q = (document.getElementById('taskSearch').value || '').toLowerCase();
   const status = document.getElementById('statusFilter').value;
@@ -2544,7 +2592,7 @@ function renderTaskTable(){
     const mineOrToReview = t.assignedTo === currentViewerId ||
       (t.status === 'completed' && !t.reviewStatus && iCanReview(t));
     if(!mineOrToReview) return false;
-    if(status && t.status !== status) return false;
+    if(!matchesStatusFilter(t, status)) return false;
     const hay = (t.name + ' ' + t.scope + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
     return hay.includes(q);
   });
@@ -2592,19 +2640,21 @@ function renderTaskTable(){
     return null;
   }
   if(t.status === 'awaiting_acceptance') return { label:'Accept task', icon:'&#9654;', fn:`acceptTask('${t.id}')` };
+  // A task that's accepted but never started: the first thing to do is Start it.
+  if(t.status === 'accepted' && !t.timerStartedAt && !t.startedAt) return { label:'Start work', icon:'&#9654;', fn:`resumeTask('${t.id}')` };
   if(t.status === 'accepted') return { label:'Mark complete', icon:'&#10003;', fn:`openCompleteModal('${t.id}')` };
   if(t.status === 'rework') return { label:'View error & resubmit', icon:'&#9888;', fn:`openReworkDetailModal('${t.id}')` };
   return null;
 }
-// A second, independent action: Pause the running clock, or Resume (which
-// auto-pauses whatever else is running) — lets an employee freely switch
-// which of their open tasks the timer is on.
+// A second, independent action: Start / Resume the running clock, or Pause
+// it. Starting one task auto-pauses whatever else was running, so only one
+// task is ever "In progress".
 function timerAction(t){
   const isMine = t.assignedTo === currentViewerId;
   if(!isMine) return null;
   if(t.status !== 'accepted' && t.status !== 'rework') return null;
   if(t.timerStartedAt) return { label:'Pause task', icon:'&#10074;&#10074;', fn:`pauseTask('${t.id}')` };
-  return { label:'Resume task', icon:'&#9654;', fn:`resumeTask('${t.id}')` };
+  return { label: t.startedAt ? 'Resume task' : 'Start work', icon:'&#9654;', fn:`resumeTask('${t.id}')` };
 }
 
 function actionButtonHtml(t){
@@ -2613,14 +2663,16 @@ function actionButtonHtml(t){
   const isMine = t.assignedTo === currentViewerId;
   let out = '';
   if(ta) out += `<button class="circle-btn" style="background:${t.timerStartedAt ? 'var(--amber)' : 'var(--teal)'};" title="${esc(ta.label)}" aria-label="${esc(ta.label)}" onclick="${ta.fn}">${ta.icon}</button>`;
-  // A manual task in progress gets both: quick "done, no review" and the
-  // review path.
-  if(isMine && t.status === 'accepted' && (t.source || 'manual') === 'manual'){
+  // A manual task that's actually been started gets both quick closers:
+  // "done, no review" and the review path. A not-yet-started task just
+  // shows Start (the timer button above) — nothing to close yet.
+  const started = t.timerStartedAt || t.startedAt;
+  if(isMine && t.status === 'accepted' && started && (t.source || 'manual') === 'manual'){
     out += `<button class="circle-btn" style="background:var(--teal);" title="Mark done — no review" aria-label="Mark done, no review" onclick="markDoneNoReview('${t.id}')">&#10003;</button>`;
     out += `<button class="circle-btn" title="Mark complete &amp; send for review" aria-label="Mark complete and send for review" onclick="openCompleteModal('${t.id}')">&#128221;</button>`;
     return out;
   }
-  if(a) out += `<button class="circle-btn" title="${esc(a.label)}" aria-label="${esc(a.label)}" onclick="${a.fn}">${a.icon}</button>`;
+  if(a && !(ta && a.fn === ta.fn)) out += `<button class="circle-btn" title="${esc(a.label)}" aria-label="${esc(a.label)}" onclick="${a.fn}">${a.icon}</button>`;
   if(out) return out;
   return statusBadge(t);
 }
@@ -3686,8 +3738,7 @@ function renderManagerStatics(){
   // ---- scope bar ----
   const sel = document.getElementById('mgView');
   if(sel){
-    populateScopeSelect('mgView', 'mg', mineOnly);
-    if(![...sel.options].some(o => o.value === dashScope.mg.view)) dashScope.mg.view = 'firm';
+    populateScopeSelect('mgView', 'mg', mineOnly); // also normalises dashScope.mg.view
     sel.value = dashScope.mg.view;
     document.getElementById('mgScope').classList.toggle('is-custom', dashScope.mg.period === 'custom');
     const cr = document.getElementById('mgCrumb');
@@ -3951,7 +4002,7 @@ function statusLabel(status){
   switch(status){
     case 'awaiting_acceptance': return 'Awaiting Acceptance';
     case 'window_proposed': return 'Window Proposed';
-    case 'accepted': return 'In Progress';
+    case 'accepted': return 'Active';
     case 'on_hold': return 'On Hold';
     case 'pending_approval': return 'Awaiting Manager Approval';
     case 'pending': return 'Pending';

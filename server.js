@@ -646,7 +646,10 @@ function visibleTasks(state, me) {
     t.reviewerId === me.id ||
     t.reviewedBy === me.id ||
     (t.reassignHistory || []).some(h => h.from === me.id || h.to === me.id || h.by === me.id) ||
-    (isAdmin && (!t.assignedTo || (t.team && me.team && t.team === me.team)))
+    // An admin also sees unassigned work (theirs to hand out) — but NOT every
+    // task that merely shares their team name. A manager's scope is the people
+    // they manage, nothing wider.
+    (isAdmin && !t.assignedTo)
   );
 }
 app.get('/api/tasks', requireAuth, (req, res) => {
@@ -733,11 +736,13 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     // implicit in acceptedAt/reworkStartedAt. tat is the AGREED hours for
     // this task, set by whoever assigns it.
     logged: 0, tat: parseFloat(tat) || 3,
-    // Even a self-assigned task ("Assign to Me") lands straight in
-    // 'accepted' with no separate acceptance step, so its clock starts
-    // immediately too.
+    // A self-assigned task ("Assign to Me") lands straight in 'accepted' —
+    // no separate acceptance step — but it does NOT start running. It sits
+    // as "Yet to start" until the person clicks Start (/resume), same as an
+    // accepted team task. startedAt records the first time it was started.
     acceptedAt: status === 'accepted' ? new Date().toISOString() : null,
-            timerStartedAt: status === 'accepted' ? new Date().toISOString() : null,
+    timerStartedAt: null,
+    startedAt: null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
@@ -747,7 +752,6 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     source: 'manual', sourceRef: null,
   };
   state.tasks.unshift(task);
-        if (task.status === 'accepted') pauseOtherActiveTasks(state, task.assignedTo, task.id);
   if (mode === 'team') {
     const assigneeEmp = findEmployee(state, assignee);
     logEvent(state, assignee, `New task assigned — <b>${assigneeEmp ? escHtml(assigneeEmp.name) : '—'}</b>, awaiting acceptance.`, {
@@ -920,15 +924,22 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   // has running (see pauseOtherActiveTasks) — this is how "choose to pause
   // the current task and start working on another one" is implemented:
   // switching is just Resume on the new task.
+  // Start / Resume — begins the running clock on this task and pauses
+  // whatever else the person had running (only one task is ever "In
+  // progress" at a time). First time it's called on a task, it also stamps
+  // startedAt, which is what flips the badge from "Yet to start" to "In
+  // progress" and, once paused, to "Paused" rather than back to "Yet to start".
   app.post('/api/tasks/:id/resume', requireAuth, (req, res) => {
     const state = db.get();
     const t = findTask(state, req.params.id);
     if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
-    if (!['accepted', 'rework'].includes(t.status)) return res.status(400).json({ error: 'Only an active task can be resumed.' });
+    if (!['accepted', 'rework'].includes(t.status)) return res.status(400).json({ error: 'Only an accepted task can be started.' });
     if (t.timerStartedAt) return res.status(400).json({ error: 'This task is already running.' });
+    const first = !t.startedAt;
     t.timerStartedAt = new Date().toISOString();
+    if (first) t.startedAt = t.timerStartedAt;
     pauseOtherActiveTasks(state, t.assignedTo, t.id);
-    logEvent(state, t.assignedTo, `Resumed "${escHtml(t.name)}".`);
+    logEvent(state, t.assignedTo, `${first ? 'Started' : 'Resumed'} "${escHtml(t.name)}".`);
     db.save();
     res.json({ task: taskForClient(t) });
   });
@@ -944,9 +955,11 @@ function taskActionGuard(req, res, t, { mustBeAssignee = false, mustBeAdmin = fa
 
 // Accept — the ONLY acknowledgement step. There's no separate Start/Pause
 // clock anymore: accepting a task both confirms the employee has taken it
-// on AND starts the agreed-time-vs-actual-delivery clock (acceptedAt /
-// reworkStartedAt), which /complete and /resubmit read back later to work
-// out actual delivery time. Nothing else for the employee to click.
+// on AND opens the agreed-time-vs-actual-delivery window (acceptedAt /
+// reworkStartedAt), which /complete and /resubmit read back later. It does
+// NOT start the running clock — the task sits as "Yet to start" until the
+// person clicks Start (/resume). So someone can accept ten days of work in
+// one go and only one task is ever actively "In progress".
 app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
@@ -957,8 +970,7 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
   }
   // A task flagged with an error (reviewStatus === 'error') routes through
   // this exact same Accept step as a brand-new or reassigned task — see
-  // the comment on /review below. Accepting it puts the rework clock in
-  // motion (reworkStartedAt) and hands ownership to the assignee.
+  // the comment on /review below.
   if (t.reviewStatus === 'error') {
     t.status = 'rework';
     t.reworkStartedAt = new Date().toISOString();
@@ -968,8 +980,7 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
     t.acceptedAt = new Date().toISOString();
     logEvent(state, t.assignedTo, `Accepted "${escHtml(t.name)}" — now due ${t.internalDeadline || 'as agreed'}.`);
   }
-        t.timerStartedAt = new Date().toISOString();
-      pauseOtherActiveTasks(state, t.assignedTo, t.id);
+  t.timerStartedAt = null; // not running — Start begins the clock
 
   db.save();
   res.json({ task: taskForClient(t) });
@@ -1275,8 +1286,7 @@ app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
     t.status = 'accepted';
     t.acceptedAt = new Date().toISOString();
   }
-        t.timerStartedAt = new Date().toISOString();
-      pauseOtherActiveTasks(state, t.assignedTo, t.id);
+  t.timerStartedAt = null; // not running — Start begins the clock
 
   logEvent(state, req.employee.id, `Approved the proposed window for "${escHtml(t.name)}" — now due ${t.internalDeadline}.`);
   db.save();
@@ -1299,8 +1309,7 @@ app.post('/api/tasks/:id/reject-window', requireAuth, (req, res) => {
     t.status = 'accepted';
     t.acceptedAt = new Date().toISOString();
   }
-        t.timerStartedAt = new Date().toISOString();
-      pauseOtherActiveTasks(state, t.assignedTo, t.id);
+  t.timerStartedAt = null; // not running — Start begins the clock
 
   logEvent(state, req.employee.id, `Rejected the proposed window for "${escHtml(t.name)}" — original deadline stands.`);
   db.save();

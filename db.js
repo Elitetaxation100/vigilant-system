@@ -317,6 +317,15 @@ function runMigrations(state) {
     if (t.dateHistory === undefined) t.dateHistory = []; // [{ at, by, from:{internal,client}, to:{internal,client}, note }]
     // Phase 2: query records freeze the client commitment clock.
     if (t.queries === undefined) t.queries = []; // [{ id, reasonCode, source, raisedBy, sentAt, replyAt, resumedAt, note }]
+    // "Yet to start" vs "In progress": accepting no longer auto-starts the
+    // clock. startedAt records the first Start. Backfill: anything that's
+    // been worked on (running, has logged time, or already delivered) counts
+    // as started; a freshly-accepted task that never ran does not.
+    if (t.startedAt === undefined) {
+      t.startedAt = (t.timerStartedAt || Number(t.logged) > 0 || t.status === 'completed' || t.status === 'on_hold' || t.status === 'rework')
+        ? (t.acceptedAt || t.assignedAt || null)
+        : null;
+    }
     // Who closed the task without a formal review ("Mark Done"). Older
     // done-without-review tasks predate the field — leave it null.
     if (t.closedBy === undefined) t.closedBy = null;
