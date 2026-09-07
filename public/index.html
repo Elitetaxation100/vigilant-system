@@ -202,6 +202,8 @@
     .tbudget-fill{ height:100%; background:linear-gradient(90deg, var(--purple), #A79BFF); }
     .myday-empty{ font-size:13.5px; color:var(--text-faint); padding:6px 0 20px; }
     .today-list{ display:flex; flex-direction:column; gap:10px; margin-bottom:24px; }
+    .today-list.muted{ opacity:.62; }
+    .today-list.muted .today-row{ padding:10px 16px; background:var(--panel-2); }
     .today-row{ display:flex; align-items:center; justify-content:space-between; gap:14px; background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:13px 16px; flex-wrap:wrap; }
     .today-row-title{ font-size:14px; font-weight:600; color:var(--text); }
     .today-row-sub{ font-size:12px; color:var(--text-faint); margin-top:3px; }
@@ -2741,14 +2743,11 @@ function renderEmployeeStats(){
   const crumb = document.getElementById('empCrumb');
   if(crumb) crumb.innerHTML = `<b>You:</b> ${esc(me.name)}${me.team ? ' · ' + esc(me.team) : ''} · ${esc(label)}`;
 
-  // "To do today" = every one of the person's OWN tasks that isn't finished
-  // — to accept, yet to start, in progress, on hold, in rework, or sent for
-  // review and not yet signed off. Excludes fully-closed work and
-  // self-assignments still waiting on a manager. Review work (checking
-  // other people's tasks) is its own "To Review" tile, not counted here.
-  myTodaysWork = mine.filter(t =>
-    t.status !== 'pending_approval' &&
-    !(t.status === 'completed' && (t.reviewStatus === 'clean' || t.reviewStatus === 'done')));
+  // "To do today" = only what's actually on your plate TODAY (see
+  // isTodaysWork): running now, needs a decision now, or its internal
+  // deadline is today/past. A task you accepted for three days out is not
+  // counted — it shows under "Coming up", not here.
+  myTodaysWork = mine.filter(isTodaysWork);
   // "Done today" = tasks this person completed today (used by the tile +
   // its date-range drill-down, which starts on today).
   myDoneToday = mine.filter(t => t.completedAt && t.completedAt.slice(0,10) === today);
@@ -2793,27 +2792,29 @@ function renderGreeting(){
   </div>`;
 }
 
+// "On my plate today" — actively running, needs a decision now, or its
+// internal deadline is today or past. A task accepted for a few days out
+// is NOT today's work — it sits under "Coming up".
+function isTodaysWork(t){
+  if(!t || t.assignedTo !== currentViewerId) return false;
+  if(t.status === 'completed' || t.status === 'pending_approval') return false;
+  if(t.timerStartedAt) return true;
+  if(['awaiting_acceptance','rework','window_proposed'].includes(t.status)) return true;
+  if(t.status === 'on_hold') return false;
+  return !!t.internalDeadline && t.internalDeadline <= todayISO();
+}
 function renderMyDay(){
   const wrap = document.getElementById('myDayWrap');
   if(!wrap) return;
   const today = todayISO();
-  // Tasks I assigned to myself that a manager hasn't approved yet aren't
-  // active work — surface them separately, not in "Working on now".
   const pendingApproval = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'pending_approval');
   const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval')
     .slice()
     .sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
-  const dueToday = mineOpen.filter(t => t.internalDeadline === today);
-  // Primary = whichever open task is actively being worked (accepted), else the
-  // most time-sensitive open commitment. Everything else assigned & still open
-  // (regardless of its exact due date) shows under "Also on today" so newly
-  // assigned tasks are never silently dropped.
-      const running = mineOpen.find(t => t.timerStartedAt);
-    const primary = running || mineOpen.find(t => t.status === 'accepted' || t.status === 'rework') || mineOpen[0] || null;
-  const rest = mineOpen.filter(t => t !== primary);
-  // The four stat tiles (Due Today / Hours / Productivity / Accuracy) are
-  // owned by renderEmployeeStats() — period-scoped and the single source of
-  // truth. renderMyDay() only draws the "Working on now" list below.
+  const running  = mineOpen.find(t => t.timerStartedAt);
+  const held     = mineOpen.filter(t => t.status === 'on_hold');
+  const todays   = mineOpen.filter(t => t !== running && t.status !== 'on_hold' && isTodaysWork(t));
+  const upcoming = mineOpen.filter(t => t !== running && t.status !== 'on_hold' && !isTodaysWork(t));
 
   function metaBlock(t){
     const isInternal = t.kind === 'internal';
@@ -2824,42 +2825,62 @@ function renderMyDay(){
       ${isInternal ? '' : `<div><div class="wm-label">Points</div><div class="wm-value">${t.points} pts</div></div>`}
     </div>`;
   }
+  function miniState(t){
+    if(t.timerStartedAt) return `<b style="color:#0D9488;">● In progress</b>`;
+    if(t.status === 'accepted' && t.startedAt) return `<b style="color:#C2410C;">⏸ Paused</b>`;
+    if(t.status === 'accepted') return `<b style="color:#6D28D9;">Yet to start</b>`;
+    if(t.status === 'awaiting_acceptance') return `<b style="color:#B45309;">Awaiting acceptance</b>`;
+    if(t.status === 'rework') return `<b style="color:#C2410C;">⚠ In rework</b>`;
+    if(t.status === 'window_proposed') return `<b style="color:#B45309;">Window proposed</b>`;
+    if(t.status === 'on_hold') return `<b style="color:#B45309;">⏸ On hold${t.holdReason ? ' — ' + esc(t.holdReason) : ''}</b>`;
+    return '';
+  }
+  function row(t){
+    const od = t.internalDeadline && t.internalDeadline < today && !t.timerStartedAt && t.status !== 'on_hold';
+    return `<div class="today-row">
+      <div>
+        <span class="pill pill-teal">${esc(t.kind === 'internal' ? 'Internal' : (t.scope || 'Task'))}</span>
+        <span class="today-row-title">${esc(t.clientName ? t.clientName + ': ' : '')}${esc(t.name || '')}</span>
+        <div class="today-row-sub">${miniState(t)} &middot; est. ${t.tat} hr${t.tat === 1 ? '' : 's'} &middot; due ${fmtDate(t.internalDeadline)}${od ? ' <span style="color:#C2410C;font-weight:700;">&middot; overdue</span>' : ''}</div>
+      </div>
+      <div class="today-row-right">${actionButtonHtml(t)}</div>
+    </div>`;
+  }
 
   let html = '';
-  // Review work isn't shown here — it has its own "To Review" tile (which
-  // opens the review queue) and the Manager Dashboard's Awaiting Review
-  // section. This view is the person's own commitments only.
   if(pendingApproval.length){
     html += `<div class="banner" style="margin-bottom:12px;"><span>⏳</span><span><b>${pendingApproval.length} self-assigned task${pendingApproval.length>1?'s':''} awaiting your manager's approval:</b> ${pendingApproval.map(t=>esc(t.name)).join(', ')}. You can't start ${pendingApproval.length>1?'them':'it'} until approved.</span></div>`;
   }
-  if(primary){
+
+  // Working on now — only the task actually running.
+  if(running){
     html += `<div class="working-card">
       <div class="working-top">
         <div>
-          <span class="pill pill-purple">${esc(primary.scope || 'Task')}</span>
-          <span class="working-client">${esc(primary.clientName || '')}</span>
-          <div class="working-title">${esc(primary.name || '')}</div>
+          <span class="pill pill-purple">${esc(running.scope || 'Task')}</span>
+          <span class="working-client">${esc(running.clientName || '')}</span>
+          <div class="working-title">${esc(running.name || '')}</div>
         </div>
-        ${actionButtonHtml(primary)}
+        ${actionButtonHtml(running)}
       </div>
-      ${metaBlock(primary)}
+      ${metaBlock(running)}
     </div>`;
   } else {
-    html += `<div class="myday-empty">Nothing in progress or due today &mdash; nice and clear.</div>`;
+    html += `<div class="myday-empty">Nothing running right now &mdash; pick a task below and hit &#9654; Start.</div>`;
   }
 
-  html += `<div class="section-label">Also on today</div>`;
-  if(rest.length === 0){
-    html += `<div class="myday-empty">No other open commitments right now.</div>`;
-  } else {
-    html += `<div class="today-list">` + rest.map(t => `<div class="today-row">
-        <div>
-          <span class="pill pill-teal">${esc(t.kind === 'internal' ? 'Internal' : (t.scope || 'Task'))}</span>
-          <span class="today-row-title">${esc(t.clientName || '')}: ${esc(t.name || '')}</span>
-          <div class="today-row-sub">est. ${t.tat} hr${t.tat === 1 ? '' : 's'} &middot; due ${fmtDate(t.internalDeadline)}</div>
-        </div>
-                  <div class="today-row-right">${actionButtonHtml(t)}</div>
-      </div>`).join('') + `</div>`;
+  html += `<div class="section-label">Due today &amp; overdue</div>`;
+  html += todays.length
+    ? `<div class="today-list">${todays.map(row).join('')}</div>`
+    : `<div class="myday-empty">Nothing due today. 🎉</div>`;
+
+  if(upcoming.length){
+    html += `<div class="section-label">Coming up <span style="color:var(--text-faint);font-weight:400;font-size:11.5px;">&middot; not due yet</span></div>`;
+    html += `<div class="today-list muted">${upcoming.map(row).join('')}</div>`;
+  }
+  if(held.length){
+    html += `<div class="section-label">On hold</div>`;
+    html += `<div class="today-list">${held.map(row).join('')}</div>`;
   }
   wrap.innerHTML = html;
 }
@@ -4441,9 +4462,9 @@ function openMyTodayList(){
   const me = currentViewer();
   taskListModal(
     "To do today",
-    (me ? me.name + ' · ' : '') + new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'2-digit', month:'short' }) + ' · your tasks + anything to review',
+    (me ? me.name + ' · ' : '') + new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'2-digit', month:'short' }) + ' · due today, overdue, or needs a decision now',
     myTodaysWork,
-    { showOwner: true, empty: "Nothing on your plate right now — you're all clear." }
+    { showOwner: true, empty: "Nothing due today — you're all clear." }
   );
 }
 // Work other people sent the current viewer to check. Each row opens the
