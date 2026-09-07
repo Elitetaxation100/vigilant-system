@@ -154,6 +154,7 @@
   .tasklist-modal .tl-name{ font-weight:600; color:var(--text); }
   .tasklist-modal .tl-sub{ font-size:11.5px; color:var(--text-faint); }
   .tasklist-modal .tl-scroll{ max-height:52vh; overflow:auto; margin:6px -4px 4px; }
+  .tasklist-modal .wl-datehdr td{ background:var(--panel-2); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-dim); position:sticky; top:0; }
   .stat-card .label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); margin-bottom:8px; }
   .stat-card .value{ font-family:var(--font-display); font-size:27px; font-weight:700; }
   .stat-card .value.purple{ color:#5B4FCF; }
@@ -2869,7 +2870,10 @@ function renderMyDay(){
     html += `<div class="myday-empty">Nothing running right now &mdash; pick a task below and hit &#9654; Start.</div>`;
   }
 
-  html += `<div class="section-label">Due today &amp; overdue</div>`;
+  html += `<div class="section-label" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+    <span>Due today &amp; overdue</span>
+    <button class="btn primary small" onclick="openAssignModal('me')">+ Add a task</button>
+  </div>`;
   html += todays.length
     ? `<div class="today-list">${todays.map(row).join('')}</div>`
     : `<div class="myday-empty">Nothing due today. 🎉</div>`;
@@ -3773,6 +3777,7 @@ function renderMyTeamPanel(){
         <div style="font-weight:600;font-size:14px;">${esc(e.name)}</div>
         <div style="font-size:12px;color:var(--text-faint);">${esc(e.jobTitle||'')}${e.accessRole && e.accessRole!=='employee' ? ' · ' + esc(accessLabel(e.accessRole)) : ''}</div>
       </div>
+      <button class="verify-btn" onclick="openWorkLog('${e.id}')" title="What they've completed, by date">Work log</button>
       <button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="teamRemove('${e.id}')">Remove</button>
     </div>`).join('') : `<div style="font-size:13.5px;color:var(--text-faint);padding:8px 0;">No members yet — add someone below.</div>`;
   wrap.innerHTML = `
@@ -4156,7 +4161,7 @@ async function renderProductivityView(){
 
   const rows = data.people.slice().sort((a,b)=>b.workedHours-a.workedHours);
   body.innerHTML = rows.length ? rows.map(p => `<tr>
-      <td>${esc(p.name)}<div style="font-size:11px;color:var(--text-faint);">${esc(p.team)}</div></td>
+      <td><a href="#" onclick="openWorkLog('${p.id}');return false;" style="color:var(--text);font-weight:600;">${esc(p.name)}</a> <span style="font-size:11px;color:var(--text-faint);">↗ log</span><div style="font-size:11px;color:var(--text-faint);">${esc(p.team)}</div></td>
       <td>${p.tasks}</td>
       <td style="font-family:var(--font-mono);">${p.allocatedHours.toFixed(1)}</td>
       <td style="font-family:var(--font-mono);">${p.workedHours.toFixed(1)}</td>
@@ -4494,6 +4499,56 @@ function openMyReviewQueue(){
 }
 // Tasks the current viewer completed within [startISO, endISO] (defaults to
 // today). The date pickers in the modal re-call this with a new range.
+/* Work log — an employee's completed work, grouped by the date it was
+   finished, with the client and hours. You can open your own; a manager
+   can open anyone on their team; a superadmin anyone. Data comes from the
+   tasks already loaded (which the server has already scoped). */
+function openWorkLog(empId, startISO, endISO){
+  const emp = empById(empId);
+  if(!emp) return;
+  if(!(isSuperAdmin || empId === currentViewerId || empManagesWork(currentViewer(), empId))){
+    showToast('error', 'Not allowed', "You can only see your own team's work log."); return;
+  }
+  const t0 = todayISO();
+  const d30 = new Date(); d30.setDate(d30.getDate() - 30);
+  const s = startISO || d30.toISOString().slice(0,10);
+  const e = endISO || t0;
+  const list = tasks
+    .filter(t => t.assignedTo === empId && t.completedAt && t.completedAt.slice(0,10) >= s && t.completedAt.slice(0,10) <= e)
+    .sort((a,b) => (b.completedAt||'').localeCompare(a.completedAt||''));
+  const byDate = {};
+  list.forEach(t => { const d = t.completedAt.slice(0,10); (byDate[d] = byDate[d] || []).push(t); });
+  const dates = Object.keys(byDate).sort().reverse();
+  const resultLabel = t => t.reviewStatus === 'clean' ? '<span class="badge completed dot">✓ Clean</span>'
+    : t.reviewStatus === 'error' ? '<span class="badge overdue dot">⚠ Error</span>'
+    : t.reviewStatus === 'done' ? '<span class="badge completed dot">✓ Done</span>'
+    : '<span class="badge pending dot">In review</span>';
+  const bodyHtml = dates.map(d => {
+    const items = byDate[d];
+    const hrs = items.reduce((n,t) => n + taskHrs(t), 0);
+    return `<tr class="wl-datehdr"><td colspan="4">${fmtDate(d)} &middot; ${items.length} task${items.length === 1 ? '' : 's'} &middot; ${hrs.toFixed(1)}h</td></tr>` +
+      items.map(t => `<tr>
+        <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${t.id}</div></td>
+        <td>${esc(t.clientName || (t.kind === 'internal' ? 'Internal' : '—'))}</td>
+        <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
+        <td>${resultLabel(t)}</td>
+      </tr>`).join('');
+  }).join('');
+  const totalHrs = list.reduce((n,t) => n + taskHrs(t), 0);
+  document.getElementById('modalBox').innerHTML = `
+    <div class="tasklist-modal">
+      <h3>${esc(emp.name)} — work log <span style="font-weight:500;color:var(--text-faint);font-size:14px;">&middot; ${list.length} task${list.length === 1 ? '' : 's'} &middot; ${totalHrs.toFixed(1)}h</span></h3>
+      <div class="modal-sub">Completed work by date${emp.team ? ' &middot; ' + esc(emp.team) : ''}</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 4px;font-size:12.5px;color:var(--text-faint);">
+        <input type="date" id="wlStart" value="${s}"> → <input type="date" id="wlEnd" value="${e}">
+        <button class="btn small" onclick="openWorkLog('${empId}', document.getElementById('wlStart').value||undefined, document.getElementById('wlEnd').value||undefined)">Apply</button>
+      </div>
+      ${list.length ? `<div class="tl-scroll"><table><thead><tr><th>Task</th><th>Client</th><th>Hours</th><th>Result</th></tr></thead><tbody>${bodyHtml}</tbody></table></div>`
+        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing completed in this range.</p>`}
+      <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+    </div>`;
+  openModal();
+}
 function openMyDoneList(startISO, endISO){
   const t0 = todayISO();
   const s = startISO || t0, e = endISO || t0;
