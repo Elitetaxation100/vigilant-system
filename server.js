@@ -1845,15 +1845,21 @@ function productivityFor(state, empIds, fromISO, toISO) {
       if (t.reviewStatus === 'error' && t.faultType === 'processor') return s + (t.reworkCount || 1);
       return s;
     }, 0);
-    const openNow = state.tasks.filter(t => t.assignedTo === id && !['completed', 'pending_approval'].includes(t.status)).length;
-    const openTasks = done.length + openNow;
+    const openMine = state.tasks.filter(t => t.assignedTo === id && !['completed', 'pending_approval'].includes(t.status));
+    const openTasks = done.length + openMine.length;
+    // P4 — coverage is judged against fairTarget = min(assigned load, capacity):
+    // hours the person could actually have delivered, never raw capacity, and
+    // never the impossible slice of an over-allocated plate.
+    const openDueInRange = openMine.reduce((s, t) => s + (t.internalDeadline && inRange(t.internalDeadline) ? (Number(t.tat) || 0) : 0), 0);
+    const assignedLoad = allocated + openDueInRange;
+    const fairTarget = Math.min(assignedLoad, capacityHours > 0 ? capacityHours : assignedLoad);
     const clampPct = n => Math.max(0, Math.min(100, Math.round(n)));
     const factors = {
       E: worked > 0 ? clampPct(100 * allocated / worked) : null,
       T: (met + missed) > 0 ? clampPct(100 * met / (met + missed)) : null,
       R: reviewedDone.length > 0 ? clampPct(100 - Math.min(40, 40 * processorReworkRounds / reviewedDone.length)) : null,
       N: openTasks > 0 ? clampPct(100 - Math.min(30, 15 * chaseEvents / openTasks)) : null,
-      C: allocated > 0 ? clampPct(100 * worked / allocated) : null,
+      C: assignedLoad > 0 ? clampPct(100 * worked / Math.max(fairTarget, 0.01)) : null,
     };
     const rawScore = compositeScore(factors, weights);
     const minTasks = Number(weights.minTasksForScore) > 0 ? Number(weights.minTasksForScore) : 5;
@@ -1875,6 +1881,8 @@ function productivityFor(state, empIds, fromISO, toISO) {
       // P3
       factors, productivityScore: rawScore, scoreStatus, reviewedTasks: reviewedDone.length,
       processorReworkRounds, openTasksInRange: openTasks,
+      // P4 — the fairness denominator the score is measured against
+      assignedLoad: r2(assignedLoad), fairTarget: r2(fairTarget),
       weightsApplied: { E: weights.E, T: weights.T, R: weights.R, N: weights.N, C: weights.C },
       cumulativeYtdWorked: r2(ytdWorked),
       weekly: Object.values(weeks).sort((a, b) => a.weekStart.localeCompare(b.weekStart))
@@ -1882,6 +1890,107 @@ function productivityFor(state, empIds, fromISO, toISO) {
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// P4 — RESPONSIBILITY SPLIT. The manager owns filling each person's week to
+// capacity; an under-filled week is theirs to explain (a tagged reason) or it
+// counts against their allocation accuracy. The employee owns delivering the
+// fill — measured against fairTarget = min(assigned load, capacity), so idle
+// time the manager created never lands on the person doing the work. SOP /
+// brief-unclear rework is the manager's; only processor-fault rework touches
+// the employee's score (see the R factor above).
+// ---------------------------------------------------------------------------
+const UNDER_ALLOC_REASONS = {
+  CLIENT_DELAY:      "Waiting on the client before work can be allocated",
+  AWAITING_INPUT:    "Blocked on another team, a partner, or a third party",
+  SCHEDULING_GAP:    "Didn't line up enough work for the week",
+  DELIBERATE_BUFFER: "Capacity held back on purpose (crunch / training ahead)",
+  LOW_SEASON:        "Genuine low workload across the team",
+  ONBOARDING:        "New joiner still ramping up",
+};
+function isoWeekStart(dateISO) {
+  const d = new Date(dateISO.slice(0, 10) + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); // back to Monday
+  return d.toISOString().slice(0, 10);
+}
+function weeksInRange(fromISO, toISO) {
+  const weeks = [];
+  let w = isoWeekStart(fromISO);
+  const end = isoWeekStart(toISO);
+  while (w <= end) {
+    weeks.push(w);
+    w = new Date(new Date(w + 'T00:00:00Z').getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  }
+  return weeks;
+}
+// Σ tat of a person's work that was theirs to land in [fromISO, toISO] —
+// anything they completed in it, plus anything still open whose internal
+// deadline falls inside it.
+function allocatedInWindow(state, empId, fromISO, toISO) {
+  return state.tasks.filter(t => {
+    if (t.assignedTo !== empId) return false;
+    const dueIn = t.status !== 'completed' && t.internalDeadline && t.internalDeadline >= fromISO && t.internalDeadline <= toISO;
+    const doneIn = t.status === 'completed' && (t.completedAt || '').slice(0, 10) >= fromISO && (t.completedAt || '').slice(0, 10) <= toISO;
+    return dueIn || doneIn;
+  }).reduce((s, t) => s + (Number(t.tat) || 0), 0);
+}
+function allocationScorecard(state, teamName, fromISO, toISO) {
+  const r2 = n => Math.round(n * 100) / 100;
+  const roster = state.employees.filter(e => (e.team || '').trim() === teamName);
+  const reports = roster.filter(e => !isAdminRole(e.accessRole));
+  const people = reports.length ? reports : roster;
+  const slack = (Number(weightsForTeam(state, teamName).slackTolerancePct) || 10) / 100;
+  const weeks = weeksInRange(fromISO, toISO);
+  const notes = state.allocationNotes || [];
+  let sumAbsGap = 0, sumCap = 0, underWeeks = 0, untaggedWeeks = 0, overWeeks = 0;
+
+  const rows = people.map(e => {
+    let rAlloc = 0, rCap = 0;
+    const weekDetail = weeks.map(w => {
+      const wEnd = new Date(new Date(w + 'T00:00:00Z').getTime() + 6 * 86400000).toISOString().slice(0, 10);
+      const wf = w < fromISO ? fromISO : w;
+      const wt = wEnd > toISO ? toISO : wEnd;
+      const alloc = allocatedInWindow(state, e.id, wf, wt);
+      const capH = capacityHoursBetween(state, e, wf, wt);
+      rAlloc += alloc; rCap += capH;
+      if (capH > 0) { sumAbsGap += Math.abs(alloc - capH); sumCap += capH; }
+      const under = capH > 0 && alloc < capH * (1 - slack);
+      const over = capH > 0 && alloc > capH;
+      const note = notes.find(n => n.employeeId === e.id && n.weekStart === w) || null;
+      if (under) { underWeeks += 1; if (!note) untaggedWeeks += 1; }
+      if (over) overWeeks += 1;
+      return {
+        weekStart: w, allocated: r2(alloc), capacity: r2(capH),
+        under, over, reasonCode: note ? note.reasonCode : null, note: note ? note.note : null,
+      };
+    });
+    const sopReworkRounds = state.tasks.filter(t => t.assignedTo === e.id && t.status === 'completed'
+      && (t.completedAt || '').slice(0, 10) >= fromISO && (t.completedAt || '').slice(0, 10) <= toISO)
+      .reduce((s, t) => s + (t.reworkHistory || []).filter(h => h && h.faultType === 'sop').length, 0);
+    return {
+      id: e.id, name: e.name,
+      allocatedHours: r2(rAlloc), capacityHours: r2(rCap),
+      loadPct: rCap > 0 ? Math.round((rAlloc / rCap) * 100) : null,
+      status: rCap === 0 ? 'na' : rAlloc > rCap ? 'over' : rAlloc < rCap * (1 - slack) ? 'light' : 'balanced',
+      untaggedWeeks: weekDetail.filter(wd => wd.under && !wd.reasonCode).map(wd => wd.weekStart),
+      weeks: weekDetail,
+      sopReworkRounds,
+    };
+  });
+
+  return {
+    team: teamName,
+    slackTolerancePct: Math.round(slack * 100),
+    allocationAccuracy: sumCap > 0 ? Math.max(0, Math.round(100 - Math.min(100, (100 * sumAbsGap) / sumCap))) : null,
+    underAllocatedWeeks: underWeeks,
+    untaggedUnderAllocatedWeeks: untaggedWeeks,
+    overAllocatedWeeks: overWeeks,
+    sopReworkRounds: rows.reduce((s, r) => s + r.sopReworkRounds, 0),
+    reasons: UNDER_ALLOC_REASONS,
+    rows,
+  };
+}
+
 app.get('/api/productivity', requireAuth, (req, res) => {
   const state = db.get();
   const me = req.employee;
@@ -1908,19 +2017,26 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const rollWeights = teamsInScope.length === 1 ? weightsForTeam(state, teamsInScope[0]) : weightsForTeam(state, null);
   const tMet = sum('met'), tMissed = sum('missed'), tReviewed = sum('reviewedTasks');
   const tProcRework = sum('processorReworkRounds'), tChase = sum('chaseEvents'), tOpen = sum('openTasksInRange');
+  const tFairTarget = sum('fairTarget');
   const clampPct = n => Math.max(0, Math.min(100, Math.round(n)));
   const rollFactors = {
     E: totalWorked > 0 ? clampPct(100 * totalAlloc / totalWorked) : null,
     T: (tMet + tMissed) > 0 ? clampPct(100 * tMet / (tMet + tMissed)) : null,
     R: tReviewed > 0 ? clampPct(100 - Math.min(40, 40 * tProcRework / tReviewed)) : null,
     N: tOpen > 0 ? clampPct(100 - Math.min(30, 15 * tChase / tOpen)) : null,
-    C: totalAlloc > 0 ? clampPct(100 * totalWorked / totalAlloc) : null,
+    C: tFairTarget > 0 ? clampPct(100 * totalWorked / tFairTarget) : null,
   };
+
+  // P4 — the manager's allocation scorecard for their own team, shown when
+  // the caller manages a team and isn't narrowed to a single person.
+  const managesTeam = isAdminRole(me.accessRole) && me.team && me.team.trim() && me.team !== 'Unassigned';
+  const allocation = (managesTeam && ids.length > 1) ? allocationScorecard(state, me.team.trim(), from, to) : null;
 
   res.json({
     from, to, scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
     people: people.filter(p => p.tasks > 0 || ids.length === 1),
     weights: rollWeights,
+    allocation,
     totals: {
       tasks: sum('tasks'),
       allocatedHours: Math.round(totalAlloc * 100) / 100,
@@ -1977,6 +2093,62 @@ app.put('/api/productivity/weights', requireAuth, requireSuperAdmin, (req, res) 
   logEvent(state, req.employee.id, `Updated productivity weights for <b>${escHtml(team === '_default' ? 'the firm default' : team)}</b>.`);
   db.save();
   res.json({ ok: true, team, weights: nums });
+});
+
+// P4 — allocation notes. When a person's week comes in under capacity, the
+// manager tags why: an honest reason (SCHEDULING_GAP) keeps the flag on
+// their scorecard; a neutral one (CLIENT_DELAY, LOW_SEASON) clears it. One
+// note per person per ISO week; a manager over that person, or a superadmin.
+app.get('/api/allocation-notes', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const all = state.allocationNotes || [];
+  const rows = me.accessRole === 'superadmin'
+    ? all
+    : all.filter(n => canManageEmployee(state, me, n.employeeId) || n.byId === me.id);
+  res.json({ notes: rows, reasons: UNDER_ALLOC_REASONS });
+});
+app.post('/api/allocation-notes', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const b = req.body || {};
+  if (!b.employeeId || !findEmployee(state, b.employeeId)) return res.status(400).json({ error: 'Which person?' });
+  if (!canManageEmployee(state, me, b.employeeId)) return res.status(403).json({ error: 'Not your report.' });
+  if (!UNDER_ALLOC_REASONS[b.reasonCode]) return res.status(400).json({ error: 'Pick a valid reason.' });
+  if (typeof b.weekStart !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.weekStart)) return res.status(400).json({ error: 'Which week?' });
+  const weekStart = isoWeekStart(b.weekStart);
+  if (!Array.isArray(state.allocationNotes)) state.allocationNotes = [];
+  if (typeof state.allocationNoteSeq !== 'number') state.allocationNoteSeq = 0;
+  const now = new Date().toISOString();
+  let note = state.allocationNotes.find(n => n.employeeId === b.employeeId && n.weekStart === weekStart);
+  if (note) {
+    note.reasonCode = b.reasonCode;
+    note.note = (b.note == null ? '' : String(b.note)).slice(0, 300);
+    note.byId = me.id; note.at = now;
+  } else {
+    note = {
+      id: 'an-' + (++state.allocationNoteSeq),
+      employeeId: b.employeeId, weekStart, reasonCode: b.reasonCode,
+      note: (b.note == null ? '' : String(b.note)).slice(0, 300),
+      byId: me.id, at: now,
+    };
+    state.allocationNotes.push(note);
+  }
+  db.save();
+  res.json({ note });
+});
+app.delete('/api/allocation-notes/:id', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const i = (state.allocationNotes || []).findIndex(n => n.id === req.params.id);
+  if (i < 0) return res.status(404).json({ error: 'Note not found.' });
+  const n = state.allocationNotes[i];
+  if (me.accessRole !== 'superadmin' && n.byId !== me.id && !canManageEmployee(state, me, n.employeeId)) {
+    return res.status(403).json({ error: 'Not yours to remove.' });
+  }
+  state.allocationNotes.splice(i, 1);
+  db.save();
+  res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------

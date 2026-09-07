@@ -1353,6 +1353,11 @@
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Share of completed tasks delivered on or before the client's agreed date.</p>
             <div id="commitmentWrap"></div>
           </details>
+          <details class="panel panel-fold">
+            <summary><h2>Allocation</h2><span class="fold-hint">did you fill the team's capacity?</span></summary>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Your job is to fill each person's week to capacity. An under-filled week is yours to explain — tag a reason, or it counts against your allocation accuracy.</p>
+            <div id="allocationWrap">Loading…</div>
+          </details>
         </div>
         <aside class="mg-side">
           <div class="panel">
@@ -4098,7 +4103,94 @@ async function refreshMgScore(){
     if(el && s != null){ el.textContent = s; el.style.color = scoreColor(s); }
     else if(el){ el.textContent = '—'; }
     if(sub) sub.textContent = 'composite score / 100';
+    renderAllocationPanel(d.allocation);
   } catch(e){ /* keep the raw ratio */ }
+}
+/* P4 — the manager's allocation scorecard. Their job is to fill each
+   person's week to capacity; an under-filled week must carry a reason or it
+   counts against their allocation accuracy. */
+let _allocData = null;
+function renderAllocationPanel(a){
+  const wrap = document.getElementById('allocationWrap');
+  if(!wrap) return;
+  _allocData = a;
+  if(!a){ wrap.innerHTML = `<div style="font-size:13.5px;color:var(--text-faint);">Allocation tracking shows once you're managing a team.</div>`; return; }
+  const acc = a.allocationAccuracy;
+  const pill = s => ({
+    balanced:'<span class="badge completed dot">balanced</span>',
+    light:'<span class="badge awaiting dot">under-filled</span>',
+    over:'<span class="badge overdue dot">over capacity</span>',
+    na:'<span class="badge dot" style="opacity:.5;">no capacity</span>',
+  }[s] || s);
+  const head = `<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;margin-bottom:12px;">
+    <div><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);">Allocation accuracy</div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--font-mono);color:${acc==null?'#6B7390':acc>=85?'#2FBE93':acc>=65?'#F0B93E':'#F0603E'};">${acc==null?'—':acc+'%'}</div></div>
+    <div style="font-size:13px;color:var(--text-dim);">
+      ${a.underAllocatedWeeks} under-allocated person-week${a.underAllocatedWeeks===1?'':'s'}
+      ${a.untaggedUnderAllocatedWeeks>0?` · <b style="color:#C2410C;">${a.untaggedUnderAllocatedWeeks} untagged</b>`:' · all tagged'}
+      ${a.overAllocatedWeeks?` · ${a.overAllocatedWeeks} over capacity`:''}
+      ${a.sopReworkRounds?` · ${a.sopReworkRounds} SOP-fault rework round${a.sopReworkRounds===1?'':'s'} (yours, not the processor's)`:''}
+    </div>
+  </div>`;
+  const rows = a.rows.map(r => {
+    const load = r.loadPct==null?0:Math.min(140, r.loadPct);
+    const barCol = r.status==='over' ? '#F0603E' : r.status==='light' ? '#E8A33D' : '#2FBE93';
+    const untag = (r.untaggedWeeks||[]).length;
+    const tagBtn = untag>0 ? `<button class="btn-ghost btn-sm" onclick="openAllocTag('${r.id}')">Tag ${untag} week${untag===1?'':'s'}</button>` : '';
+    const tagged = r.weeks.filter(w=>w.reasonCode);
+    const byReason = {};
+    tagged.forEach(w=>{ byReason[w.reasonCode] = (byReason[w.reasonCode]||0)+1; });
+    const taggedLine = tagged.length
+      ? `<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">${Object.entries(byReason).map(([code,n])=>`${n} wk${n===1?'':'s'} · ${esc(a.reasons[code]||code)}`).join('  ·  ')}</div>`
+      : '';
+    return `<div class="to-row">
+      <div class="to-main">
+        <b>${esc(r.name)}</b> — ${r.allocatedHours}h of ${r.capacityHours}h ${pill(r.status)}
+        <div class="cap-bar-track" style="margin-top:5px;max-width:240px;"><div class="cap-bar-fill" style="width:${Math.round(load/140*100)}%;background:${barCol};"></div></div>
+        ${taggedLine}
+      </div>
+      ${tagBtn}
+    </div>`;
+  }).join('');
+  wrap.innerHTML = head + (rows || '<div style="font-size:13px;color:var(--text-faint);">No reports on your team yet.</div>');
+}
+function openAllocTag(empId){
+  const a = _allocData; if(!a) return;
+  const row = a.rows.find(r=>r.id===empId); if(!row) return;
+  const weeks = row.untaggedWeeks || [];
+  const reasonOpts = Object.entries(a.reasons).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
+  document.getElementById('modalBox').innerHTML = `
+    <div class="tasklist-modal">
+      <h3>Tag under-allocation — ${esc(row.name)}</h3>
+      <div class="modal-sub">An honest reason (didn't line up work) stays on your scorecard; a neutral one (client delay, low season) clears it.</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
+        <label style="font-size:12px;color:var(--text-faint);">Week${weeks.length>1?'s':''}
+          <select id="atWeek" ${weeks.length<=1?'disabled':''}>
+            ${weeks.length>1?`<option value="__all">All ${weeks.length} untagged weeks</option>`:''}
+            ${weeks.map(w=>`<option value="${w}">${fmtDate(w)}</option>`).join('')}
+          </select>
+        </label>
+        <label style="font-size:12px;color:var(--text-faint);">Reason <select id="atReason">${reasonOpts}</select></label>
+        <label style="font-size:12px;color:var(--text-faint);">Note (optional) <input type="text" id="atNote" maxlength="300" placeholder="context for the record"></label>
+      </div>
+      <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitAllocTag('${empId}')">Save</button></div>
+    </div>`;
+  openModal();
+}
+async function submitAllocTag(empId){
+  const a = _allocData; const row = a.rows.find(r=>r.id===empId);
+  const wsel = document.getElementById('atWeek').value;
+  const weeks = wsel === '__all' ? (row.untaggedWeeks||[]) : [wsel];
+  const reasonCode = document.getElementById('atReason').value;
+  const note = document.getElementById('atNote').value || undefined;
+  try {
+    for(const weekStart of weeks){
+      await api('/api/allocation-notes', { method:'POST', body: JSON.stringify({ employeeId: empId, weekStart, reasonCode, note }) });
+    }
+    closeModal();
+    showToast('success', 'Tagged', `${weeks.length} week${weeks.length===1?'':'s'} recorded.`);
+    renderManagerStatics();
+  } catch(e){ showToast('error', 'Could not save', e.message); }
 }
 async function renderCommandCenter(){
   if(!document.getElementById('ccStatTotal')) return;

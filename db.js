@@ -270,6 +270,10 @@ function runMigrations(state) {
   if (!state.productivityWeights || typeof state.productivityWeights !== 'object' || Array.isArray(state.productivityWeights)) {
     state.productivityWeights = {};
   }
+  // P4 — manager's reason for an under-allocated person-week.
+  // { id, employeeId, weekStart, reasonCode, note, byId, at }
+  if (!Array.isArray(state.allocationNotes)) state.allocationNotes = [];
+  if (typeof state.allocationNoteSeq !== 'number') state.allocationNoteSeq = 0;
   // calls-into-tasks Phase 5: the connector's call log moves off the Google
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];
