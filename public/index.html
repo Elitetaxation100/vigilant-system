@@ -991,14 +991,6 @@
 
           <div class="cc-panel">
             <div class="cc-panel-head">
-              <h3>By Team</h3>
-              <span class="cc-panel-sub">On-time delivery rate, current window</span>
-            </div>
-            <div class="cc-donut-row" id="ccByTeam"></div>
-          </div>
-
-          <div class="cc-panel">
-            <div class="cc-panel-head">
               <h3>By Responsible Person</h3>
               <span class="cc-panel-sub">Delivered / assigned, current window</span>
             </div>
@@ -3821,18 +3813,6 @@ async function renderCommandCenter(){
   const deliveredDated = delivered.filter(t => t.clientDate && t.completedAt);
   const onTime = deliveredDated.filter(t => t.commitmentOutcome === 'met');
   document.getElementById('ccStatCompliance').textContent = (deliveredDated.length ? Math.round((onTime.length/deliveredDated.length)*100) : 0) + '%';
-
-  const teams = [...new Set(employees.map(e => e.team))];
-  const teamHtml = teams.map(team => {
-    const ids = employees.filter(e => e.team === team).map(e => e.id);
-    const teamTasks = source.filter(t => ids.includes(t.assignedTo));
-    if(teamTasks.length === 0) return '';
-    const teamDelivered = teamTasks.filter(t => t.status === 'completed');
-    const teamOnTime = teamDelivered.filter(t => t.clientDate && t.completedAt && t.commitmentOutcome === 'met');
-    const pct = teamDelivered.length ? Math.round((teamOnTime.length/teamDelivered.length)*100) : 0;
-    return ccDonut(pct, esc(team), `${teamOnTime.length}/${teamDelivered.length} on-time`);
-  }).filter(Boolean).join('');
-  document.getElementById('ccByTeam').innerHTML = teamHtml || `<div style="color:#6B7390; font-size:13.5px;">No activity in this window yet.</div>`;
 
   const personHtml = employees.map(e => {
     const et = source.filter(t => t.assignedTo === e.id);
