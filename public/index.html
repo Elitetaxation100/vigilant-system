@@ -549,6 +549,14 @@
   .dgrid-2e{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; align-items:start; }
   .dgrid-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-bottom:20px; align-items:start; }
   .dgrid-2 .panel, .dgrid-2e .panel, .dgrid-3 .panel{ margin-bottom:0; }
+  /* Collapsible panel — folded by default, click the header to expand. */
+  details.panel-fold > summary{ cursor:pointer; list-style:none; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  details.panel-fold > summary::-webkit-details-marker{ display:none; }
+  details.panel-fold > summary::after{ content:'⌄'; margin-left:auto; color:var(--text-faint); font-size:15px; font-weight:700; line-height:1; }
+  details.panel-fold[open] > summary::after{ content:'⌃'; }
+  details.panel-fold[open] > summary{ margin-bottom:16px; }
+  details.panel-fold > summary h2{ margin:0; }
+  details.panel-fold > summary .fold-hint{ font-size:12px; color:var(--text-faint); font-weight:400; }
 
   .d-inout{ display:flex; align-items:flex-end; gap:10px; height:170px; padding-top:6px; }
   .d-inout .col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; }
@@ -1221,39 +1229,31 @@
             <div class="bars" id="barsWrap"></div>
           </div>
           <div class="panel">
-            <div class="panel-head"><h2 id="mgLeaderTitle">Leaderboard</h2><span style="font-size:12px;color:var(--text-faint);">points earned</span></div>
-            <ul class="leaderboard" id="leaderboardWrap"></ul>
-            <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px;">AI-Flagged Risks</h2></div>
-            <div id="riskFlagsWrap"></div>
-          </div>
-        </div>
-
-        <div class="dgrid-2e">
-          <div class="panel">
-            <div class="panel-head"><h2>Gap Heatmap</h2><span style="font-size:12px;color:var(--text-faint);">task type × weekday</span></div>
-            <div id="heatmapWrap"></div>
-          </div>
-          <div class="panel">
             <div class="panel-head"><h2>Needs Attention</h2><span style="font-size:12px;color:var(--text-faint);">overdue in your scope</span></div>
             <div id="needsAttentionWrap" class="attn-list">Nothing overdue right now.</div>
           </div>
         </div>
 
         <div class="dgrid-2e">
-          <div class="panel">
-            <div class="panel-head"><h2>Team Capacity by Employee</h2></div>
+          <details class="panel panel-fold">
+            <summary><h2>Team Capacity by Employee</h2><span class="fold-hint">peak agreed hrs vs capacity</span></summary>
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Peak agreed hours on any single day vs each person's daily capacity — new work is blocked once it would push them over.</p>
             <div id="workloadBlockersWrap" class="cap-list">Nobody has any active work yet.</div>
-          </div>
-          <div class="panel">
-            <div class="panel-head">
-              <h2>Client Ownership</h2>
-              <div class="panel-head-actions"><button class="btn small" onclick="showView('clients', document.querySelector('.nav-item[data-view=\'clients\']'))">Manage →</button></div>
-            </div>
+          </details>
+          <details class="panel panel-fold">
+            <summary><h2>Client Ownership</h2><span class="fold-hint">who owns which client</span></summary>
+            <div class="panel-head-actions" style="margin-bottom:12px;"><button class="btn small" onclick="event.stopPropagation(); showView('clients', document.querySelector('.nav-item[data-view=\'clients\']'))">Manage →</button></div>
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every client needs a clear owner — no task sits unassigned, no client falls through the cracks.</p>
             <div id="clientOwnershipWrap"></div>
-          </div>
+          </details>
         </div>
+
+        <details class="panel panel-fold">
+          <summary><h2 id="mgLeaderTitle">Leaderboard</h2><span class="fold-hint">points earned · AI-flagged risks</span></summary>
+          <ul class="leaderboard" id="leaderboardWrap"></ul>
+          <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px;">AI-Flagged Risks</h2></div>
+          <div id="riskFlagsWrap"></div>
+        </details>
 
         <div class="dgrid-2e">
           <div class="panel">
@@ -3713,8 +3713,6 @@ function renderManagerStatics(){
         <div class="bl">${esc(e.name)}</div>
       </div>`).join('');
   }
-  document.getElementById('heatmapWrap').innerHTML = '';
-  renderTaskHeatmap('heatmapWrap');
   const lbWrap = document.getElementById('leaderboardWrap');
   const ranked = [...stats].sort((a,b) => b.pts - a.pts);
   lbWrap.innerHTML = anyCompleted
