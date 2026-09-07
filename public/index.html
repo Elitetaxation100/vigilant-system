@@ -373,12 +373,16 @@
   .badges-row{ display:flex; gap:8px; margin-top:16px; }
   .badge-emoji{ width:34px; height:34px; border-radius:9px; background:var(--panel-2); border:1px solid var(--panel-border); display:flex; align-items:center; justify-content:center; font-size:17.5px; }
 
-  /* employees directory */
+  /* employees directory — grouped by team */
   .emp-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
+  .emp-directory{ display:flex; flex-direction:column; gap:22px; }
+  .emp-team-head{ font-family:var(--font-display); font-size:13px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--text-dim); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+  .emp-team-head span{ font-family:var(--font-mono); font-size:12px; color:var(--text-faint); background:var(--panel-2); border:1px solid var(--panel-border); border-radius:20px; padding:1px 8px; }
+  .emp-grid-inner{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
   .emp-card{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px; display:flex; gap:12px; align-items:center; }
   .emp-card .mini-avatar{ width:38px; height:38px; font-size:15px; }
   .emp-card .en{ font-weight:600; font-size:15.5px; }
-  .emp-card .ee{ font-size:13px; color:var(--text-faint); margin-top:1px; }
+  .emp-card .ee{ font-size:13px; color:var(--text-faint); margin-top:1px; word-break:break-all; }
   .emp-card .et{ font-size:12.5px; color:#5B4FCF; margin-top:4px; }
   /* Teams & Access — membership chips (calls-into-tasks, Phase 1b) */
   .mchip{ display:inline-flex; align-items:center; gap:6px; font-size:12px; background:var(--panel-2); border:1px solid var(--panel-border); border-radius:20px; padding:3px 5px 3px 11px; color:var(--text-dim); }
@@ -1384,7 +1388,7 @@
             <button class="btn primary small" onclick="openAddEmployeeModal()">+ Add Employee</button>
           </div>
           <p style="font-size:14px; color:var(--text-faint); margin-bottom:14px;">Visible to Admin and Superadmin only. Only a Superadmin can grant Admin/Superadmin access.</p>
-          <div class="emp-grid" id="employeeGrid"></div>
+          <div class="emp-directory" id="employeeGrid"></div>
         </div>
       </section>
 
@@ -5280,27 +5284,35 @@ async function refreshEmployees(){
 }
 function renderEmployeeGrid(){
   const grid = document.getElementById('employeeGrid');
-  grid.innerHTML = employees.map(e => {
+  const card = e => {
     let managesLine = '';
     if(e.accessRole === 'admin'){
       const names = (e.managesIds||[]).map(id => empById(id)?.name).filter(Boolean);
-      managesLine = `<div style="font-size:13px; color:var(--text-faint); margin-top:3px;">Can assign to: ${names.length ? esc(names.join(', ')) : 'nobody yet'}</div>`;
+      managesLine = `<div style="font-size:12.5px; color:var(--text-faint); margin-top:3px;">Manages: ${names.length ? esc(names.join(', ')) : '—'}</div>`;
     } else if(e.accessRole === 'superadmin'){
-      managesLine = `<div style="font-size:13px; color:var(--text-faint); margin-top:3px;">Can assign to: everyone</div>`;
+      managesLine = `<div style="font-size:12.5px; color:var(--text-faint); margin-top:3px;">Manages: everyone</div>`;
     }
     return `
     <div class="emp-card">
       <span class="mini-avatar">${esc(e.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
-      <div style="flex:1;">
-        <div class="en">${esc(e.name)}</div>
+      <div style="flex:1; min-width:0;">
+        <div class="en">${esc(e.name)}${e.isFounder ? ' <span class="founder-chip">FOUNDER</span>' : ''}</div>
         <div class="ee">${esc(e.email)}</div>
-        <div class="et">${esc(e.jobTitle)} · ${esc(e.team)} <span style="color:var(--text-faint);">· ${accessLabel(e.accessRole)}</span></div>
+        <div class="et">${esc(e.jobTitle)} <span style="color:var(--text-faint);">· ${accessLabel(e.accessRole)}</span></div>
         ${managesLine}
-        ${(e.isFounder || (e.memberships && e.memberships.length)) ? `<div class="emp-memberships">${e.isFounder ? '<span class="founder-chip">FOUNDER</span>' : ''}${(e.memberships||[]).map(m => `<span class="mchip ${m.level==='admin'?'admin':''}" style="padding:2px 9px;">${esc(m.team)} · ${esc(m.level)}</span>`).join('')}</div>` : ''}
         ${isSuperAdmin ? `<button class="verify-btn" style="margin-top:8px;" onclick="openManageEmployee('${e.id}')">Manage access</button>` : ''}
       </div>
     </div>`;
-  }).join('');
+  };
+  // Group by the authoritative team field — biggest teams first.
+  const byTeam = {};
+  employees.forEach(e => { const t = (e.team || 'Unassigned').trim() || 'Unassigned'; (byTeam[t] = byTeam[t] || []).push(e); });
+  const order = Object.keys(byTeam).sort((a,b) => byTeam[b].length - byTeam[a].length || a.localeCompare(b));
+  grid.innerHTML = order.map(team => `
+    <div class="emp-team-group">
+      <div class="emp-team-head">${esc(team)} <span>${byTeam[team].length}</span></div>
+      <div class="emp-grid-inner">${byTeam[team].map(card).join('')}</div>
+    </div>`).join('');
 }
 // Teams & Access — membership editor state + helpers (calls-into-tasks, 1b).
 let meMembershipsDraft = [];
