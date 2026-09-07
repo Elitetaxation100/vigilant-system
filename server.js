@@ -240,7 +240,8 @@ function taskForClient(t) {
 // commitment date follows: internal due date, then + 3 working days for the
 // firm's do-review-send buffer.
 // ---------------------------------------------------------------------------
-const CAP_MIN = 3, CAP_MAX = 10, CAP_SEED = 6.0;
+// The firm's working day is 9h with a 1h break = 8h of productive time.
+const CAP_MIN = 3, CAP_MAX = 10, CAP_SEED = 8.0;
 
 function estimateCapacity(state, empId) {
   // productive hours per working day over the last 8 weeks (56 days).

@@ -187,13 +187,17 @@ function ensureExtendedFields(state) {
       e.memberships = e.team && e.team !== 'Unassigned' ? [{ team: e.team, level: 'member' }] : [];
     }
     // Productivity Phase 4/5: the productive hours a person sustains per
-    // working day. Seeded at 6 (not 8 — accounts for breaks, admin,
-    // context-switching). Phase 5 re-estimates it from delivery history
+    // working day. The firm's day is 9h with a 1h break = 8h of work, so
+    // that's the seed. Phase 5 re-estimates it from delivery history
     // (median productive day, last 8 weeks) at most once a day.
-    if (e.effectiveCapacity === undefined) e.effectiveCapacity = 6.0;
+    if (e.effectiveCapacity === undefined) e.effectiveCapacity = 8.0;
     if (e.capacityAuto === undefined) e.capacityAuto = false;
     if (e.capacityEstimatedAt === undefined) e.capacityEstimatedAt = null;
+    // One-time: bump the old 6h seed to the 8h working day (only for people
+    // still on the seed, never a measured value).
+    if (!state._capacitySeed8h && !e.capacityAuto && e.effectiveCapacity === 6.0) e.effectiveCapacity = 8.0;
   });
+  state._capacitySeed8h = true;
 
   if (!Array.isArray(state.teams)) state.teams = [];
 }
@@ -323,13 +327,14 @@ function runMigrations(state) {
     // Phase 2: query records freeze the client commitment clock.
     if (t.queries === undefined) t.queries = []; // [{ id, reasonCode, source, raisedBy, sentAt, replyAt, resumedAt, note }]
     // "Yet to start" vs "In progress": accepting no longer auto-starts the
-    // clock. startedAt records the first Start. Backfill: anything that's
-    // been worked on (running, has logged time, or already delivered) counts
-    // as started; a freshly-accepted task that never ran does not.
-    if (t.startedAt === undefined) {
-      t.startedAt = (t.timerStartedAt || Number(t.logged) > 0 || t.status === 'completed' || t.status === 'on_hold' || t.status === 'rework')
-        ? (t.acceptedAt || t.assignedAt || null)
-        : null;
+    // clock. startedAt records the first Start.
+    if (t.startedAt === undefined) t.startedAt = null;
+    // One-time correction: the old model auto-started every accepted task,
+    // so `logged` and an early backfill made piles of never-touched tasks
+    // read as "Paused". Any accepted task that isn't running right now is
+    // "Yet to start" — reset it. (Completed / on-hold / rework keep theirs.)
+    if (!state._startedAtResetV1 && t.status === 'accepted' && !t.timerStartedAt) {
+      t.startedAt = null;
     }
     // Who closed the task without a formal review ("Mark Done"). Older
     // done-without-review tasks predate the field — leave it null.
@@ -346,6 +351,7 @@ function runMigrations(state) {
     // rule, so it's a client task.
     if (t.kind === undefined) t.kind = 'client';
   });
+  state._startedAtResetV1 = true;
   // ONE-TIME historical backfill: call / Slack tasks that were already
   // completed before the review flow existed should read as 'done', not
   // "awaiting review". This must NOT re-run — after the flow shipped, a
