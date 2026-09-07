@@ -237,6 +237,11 @@ function taskForClient(t) {
     queryShiftDays: taskShiftDays(t),
     effectiveClientDate: effectiveClientDate(t),
     commitmentOutcome: commitmentOutcome(t),
+    // P2 — how many times this task has been chased (manual nudge or auto).
+    ...(() => {
+      const r = db.remindersForTask(db.get(), t.id);
+      return { reminderCount: r.length, lastRemindedAt: r.length ? r[r.length - 1].at : null };
+    })(),
   };
 }
 
@@ -470,6 +475,49 @@ function logEvent(state, empId, text, meta) {
 }
 
 function todayISO() { return new Date().toISOString().slice(0, 10); }
+
+// ---------------------------------------------------------------------------
+// P2 — REMINDER LEDGER. Every chase — a manual manager nudge or a system
+// auto-reminder — is appended to state.taskEvents as a 'reminded' event
+// (db.logTaskEvent). The productivity score reads the count as "reminder
+// discipline". The in-app auto-reminder here is separate from, and does not
+// touch, the opt-in Slack escalation ladder in connector.js.
+// ---------------------------------------------------------------------------
+function remindersFor(state, taskId) { return db.remindersForTask(state, taskId); }
+function taskIsOpen(t) { return !!t && !['completed', 'pending_approval'].includes(t.status); }
+// The 3rd chase on a still-open task tells the assignee's manager they may be stuck.
+function maybeEscalateChase(state, t) {
+  if (remindersFor(state, t.id).length !== 3 || !taskIsOpen(t)) return;
+  const who = (findEmployee(state, t.assignedTo) || {}).name || 'the assignee';
+  for (const mgr of managersOfEmployee(state, t.assignedTo)) {
+    logEvent(state, mgr.id, `"${escHtml(t.name)}" has needed chasing 3 times and still isn't done — ${escHtml(who)} may be stuck.`);
+  }
+}
+// Once a day: any open, not-yet-started task within one working day of its
+// internal deadline gets one auto-reminder — a ledger entry plus a line in
+// the assignee's activity feed. Guarded by a date stamp so it runs once.
+function sweepAutoReminders(state) {
+  const today = todayISO();
+  if (state._autoRemindDay === today) return 0;
+  state._autoRemindDay = today;
+  const soon = cal.addWorkingDays(today, 1);
+  let n = 0;
+  for (const t of state.tasks) {
+    if (!taskIsOpen(t) || !t.assignedTo) continue;
+    if (t.startedAt || t.timerStartedAt || t.status === 'on_hold') continue;
+    if (!t.internalDeadline || t.internalDeadline > soon) continue;
+    const alreadyToday = remindersFor(state, t.id)
+      .some(e => e.channel === 'auto' && (e.at || '').slice(0, 10) === today);
+    if (alreadyToday) continue;
+    const why = t.internalDeadline < today ? 'overdue and not started' : 'due soon and not started';
+    db.logTaskEvent(state, t.id, 'reminded', null, { channel: 'auto', note: why });
+    logEvent(state, t.assignedTo, `Reminder — "${escHtml(t.name)}" is ${why}.`);
+    maybeEscalateChase(state, t);
+    n += 1;
+  }
+  if (n) db.save();
+  return n;
+}
 
 // ---------------------------------------------------------------------------
 // Auth middleware
@@ -807,7 +855,31 @@ function visibleTasks(state, me) {
 }
 app.get('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
+  sweepAutoReminders(state); // once a day, chase due-soon tasks that never started
   res.json({ tasks: visibleTasks(state, req.employee).map(taskForClient) });
+});
+// P2 — a manual "Nudge": whoever oversees a task records that they've chased
+// the assignee. Appends to the reminder ledger and the assignee's activity
+// feed; the 3rd chase on a still-open task pings the assignee's manager.
+app.post('/api/tasks/:id/nudge', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (!t.assignedTo) return res.status(400).json({ error: "That task isn't assigned to anyone." });
+  if (t.assignedTo === me.id) return res.status(400).json({ error: "You can't nudge your own task." });
+  if (!taskIsOpen(t)) return res.status(400).json({ error: 'That task is already done.' });
+  const canChase = me.accessRole === 'superadmin'
+    || canManageEmployee(state, me, t.assignedTo)
+    || t.assignedBy === me.id || t.reviewerId === me.id || t.reviewedBy === me.id;
+  if (!canChase) return res.status(403).json({ error: "You can only nudge work you assigned or oversee." });
+  const note = (req.body && req.body.note ? String(req.body.note) : '').slice(0, 300);
+  db.logTaskEvent(state, t.id, 'reminded', me.id, { channel: 'manual', note: note || null });
+  logEvent(state, t.assignedTo, `${escHtml(me.name)} nudged you about "${escHtml(t.name)}"${note ? ' — ' + escHtml(note) : ''}.`);
+  logEvent(state, me.id, `Nudged ${escHtml((findEmployee(state, t.assignedTo) || {}).name || 'the assignee')} about "${escHtml(t.name)}".`);
+  maybeEscalateChase(state, t);
+  db.save();
+  res.json({ task: taskForClient(t), reminderCount: remindersFor(state, t.id).length });
 });
 // Plan preview (Phase 5): what dates would a task of `hours` land on if
 // handed to `assignee` now, given their real queue + measured capacity?
@@ -1707,6 +1779,11 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const met = dated.filter(t => commitmentOutcome(t) === 'met').length;
     const missed = dated.filter(t => commitmentOutcome(t) === 'missed').length;
     const reworkRounds = done.reduce((s, t) => s + (t.reworkCount || 0), 0);
+    // P2: how many times this person's tasks were chased in the range —
+    // the raw input to the "reminder discipline" factor (scored in P3).
+    const myTaskIds = new Set(state.tasks.filter(t => t.assignedTo === id).map(t => t.id));
+    const chaseEvents = (state.taskEvents || [])
+      .filter(e => e.type === 'reminded' && myTaskIds.has(e.taskId) && inRange(e.at)).length;
     if (emp.id) refreshCapacity(state, emp);
     const cap = capacityOf(emp);
     // P1: capacity is the sum of each working day's real availability
@@ -1743,7 +1820,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
       efficiency: worked > 0 ? r2(allocated / worked) : null,
       throughput: workingDays > 0 ? r2(done.length / workingDays) : null,
       onTimeRate: (met + missed) > 0 ? Math.round((met / (met + missed)) * 100) : null,
-      met, missed, reworkRounds,
+      met, missed, reworkRounds, chaseEvents,
       cumulativeYtdWorked: r2(ytdWorked),
       weekly: Object.values(weeks).sort((a, b) => a.weekStart.localeCompare(b.weekStart))
         .map(w => ({ ...w, worked: r2(w.worked), allocated: r2(w.allocated) })),
@@ -1778,6 +1855,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
       capacityHours: Math.round(totalCap * 100) / 100,
       utilisationPct: totalCap > 0 ? Math.round((totalWorked / totalCap) * 100) : null,
       efficiency: totalWorked > 0 ? Math.round((totalAlloc / totalWorked) * 100) / 100 : null,
+      chaseEvents: sum('chaseEvents'),
       cumulativeYtdWorked: Math.round(sum('cumulativeYtdWorked') * 100) / 100,
     },
   });

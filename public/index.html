@@ -1410,7 +1410,7 @@
           <div class="top-grid" id="prodTiles"></div>
           <div class="cc-panel" style="margin-top:18px;">
             <table class="cc-table">
-              <thead><tr><th>Person</th><th>Tasks</th><th>Allocated h</th><th>Worked h</th><th>Capacity h</th><th>Utilisation</th><th>Efficiency</th><th>Throughput</th><th>On-time</th><th>Rework</th><th>YTD worked</th></tr></thead>
+              <thead><tr><th>Person</th><th>Tasks</th><th>Allocated h</th><th>Worked h</th><th>Capacity h</th><th>Utilisation</th><th>Efficiency</th><th>Throughput</th><th>On-time</th><th>Rework</th><th>Chased</th><th>YTD worked</th></tr></thead>
               <tbody id="prodBody"></tbody>
             </table>
           </div>
@@ -3129,14 +3129,30 @@ function renderNeedsAttention(){
   wrap.innerHTML = overdue.map(t => {
     const emp = empById(t.assignedTo);
     const days = Math.max(1, Math.round((new Date(today) - new Date(t.internalDeadline)) / 86400000));
+    const chased = t.reminderCount ? ` &middot; <span title="times chased">&#8623; ${t.reminderCount}</span>` : '';
+    const nudge = (emp && emp.id !== currentViewerId)
+      ? `<button class="btn-ghost btn-sm" style="align-self:center;" onclick="nudgeTask('${t.id}')">Nudge</button>` : '';
     return `<div class="attn-item">
       <div class="attn-icon">&#9888;</div>
-      <div>
+      <div style="flex:1; min-width:0;">
         <div class="attn-title">${esc(t.name)}${t.clientName ? ' &mdash; ' + esc(t.clientName) : ''}</div>
-        <div class="attn-sub">${emp ? esc(emp.name) : 'Unassigned'} &middot; ${days} day${days === 1 ? '' : 's'} overdue &middot; due ${fmtDate(t.internalDeadline)}</div>
+        <div class="attn-sub">${emp ? esc(emp.name) : 'Unassigned'} &middot; ${days} day${days === 1 ? '' : 's'} overdue &middot; due ${fmtDate(t.internalDeadline)}${chased}</div>
       </div>
+      ${nudge}
     </div>`;
   }).join('');
+}
+/* P2 — record a manual chase against a task. The server appends it to the
+   reminder ledger and pings the assignee; the 3rd chase on an open task
+   also pings their manager. */
+async function nudgeTask(id){
+  const note = prompt('Add a short note for the assignee (optional):', '') ;
+  if(note === null) return;
+  try {
+    const r = await api(`/api/tasks/${id}/nudge`, { method: 'POST', body: JSON.stringify({ note: note || undefined }) });
+    showToast('success', 'Nudged', `Chased ${r.reminderCount} time${r.reminderCount === 1 ? '' : 's'} so far.`);
+    refreshTasks();
+  } catch(e){ showToast('error', 'Could not nudge', e.message); }
 }
 
 
@@ -4313,7 +4329,7 @@ async function renderProductivityView(){
   const { from, to } = _prodRange();
   let data;
   try { data = await api(`/api/productivity?from=${from}&to=${to}`); }
-  catch(e){ body.innerHTML = `<tr><td colspan="11" style="color:var(--text-faint);padding:20px;text-align:center;">${esc(e.message)}</td></tr>`; return; }
+  catch(e){ body.innerHTML = `<tr><td colspan="12" style="color:var(--text-faint);padding:20px;text-align:center;">${esc(e.message)}</td></tr>`; return; }
   const T = data.totals;
   const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}</div>`;
   document.getElementById('prodTiles').innerHTML =
@@ -4335,8 +4351,9 @@ async function renderProductivityView(){
       <td style="font-family:var(--font-mono);">${p.throughput==null?'—':p.throughput.toFixed(1)+'/d'}</td>
       <td>${p.onTimeRate==null?'—':p.onTimeRate+'%'}</td>
       <td>${p.reworkRounds||''}</td>
+      <td title="times chased in this range">${p.chaseEvents||''}</td>
       <td style="font-family:var(--font-mono);">${p.cumulativeYtdWorked.toFixed(0)}h</td>
-    </tr>`).join('') : `<tr><td colspan="11" style="text-align:center;color:var(--text-faint);padding:22px;">No completed work in this range.</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="12" style="text-align:center;color:var(--text-faint);padding:22px;">No completed work in this range.</td></tr>`;
 
   // weekly trend — worked vs allocated, per week, summed across the scope
   const wk = {};

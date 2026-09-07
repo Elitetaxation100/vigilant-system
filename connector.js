@@ -1091,6 +1091,9 @@ async function runReminders(reason) {
 
     if (rs.escLevel === 0) {
       rs.escLevel = 1; rs.escAt = new Date().toISOString();
+      // P2: the escalation ladder's first assignee chase is also a ledger
+      // entry, so the productivity "reminder discipline" factor sees it.
+      if (typeof db.logTaskEvent === 'function') db.logTaskEvent(state, t.id, 'reminded', null, { channel: 'slack_escalation', note: `overdue ${od}d` });
       await dm(emp.slackUserId, `⚠️ Overdue: ${t.name}`,
         [{ type: 'section', text: { type: 'mrkdwn', text: `⚠️ *This task is overdue* (${od}d)\n${taskLine(state, t, today)}` } }, reminderButtons(t.id)]);
       clog('info', 'reminder L1 (assignee)', { task: t.id, od }); sent++;

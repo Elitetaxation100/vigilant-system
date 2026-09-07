@@ -263,6 +263,9 @@ function runMigrations(state) {
   // halfDay, reason, status, createdBy, createdAt, decidedBy, decidedAt }
   if (!Array.isArray(state.leaveRequests)) state.leaveRequests = [];
   if (typeof state.leaveSeq !== 'number') state.leaveSeq = 0;
+  // P2 — reminder / chase ledger (see logTaskEvent below).
+  if (!Array.isArray(state.taskEvents)) state.taskEvents = [];
+  if (typeof state.taskEventSeq !== 'number') state.taskEventSeq = 0;
   // calls-into-tasks Phase 5: the connector's call log moves off the Google
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];
@@ -560,12 +563,35 @@ function replace(newState) {
   return state;
 }
 
+// P2 — append-only task-event ledger. Today it only carries 'reminded' (a
+// manual manager nudge or a system auto-reminder); the productivity score
+// reads it as "how often did this person need chasing". Kept module-side so
+// both server.js and connector.js record chases the same way. Caller saves.
+function logTaskEvent(state, taskId, type, byId, extra) {
+  if (!Array.isArray(state.taskEvents)) state.taskEvents = [];
+  if (typeof state.taskEventSeq !== 'number') state.taskEventSeq = 0;
+  const ev = {
+    id: 'te-' + (++state.taskEventSeq),
+    taskId, type, byId: byId || null,
+    at: new Date().toISOString(),
+    ...(extra || {}),
+  };
+  state.taskEvents.push(ev);
+  if (state.taskEvents.length > 5000) state.taskEvents.splice(0, state.taskEvents.length - 5000);
+  return ev;
+}
+function remindersForTask(state, taskId) {
+  return (state.taskEvents || []).filter(e => e.taskId === taskId && e.type === 'reminded');
+}
+
 module.exports = {
   init,
   get,
   save,
   reload,
   replace,
+  logTaskEvent,
+  remindersForTask,
   _mode: () => (pgActive ? 'postgres' : 'file'),
   _rev: () => rev,
 };
