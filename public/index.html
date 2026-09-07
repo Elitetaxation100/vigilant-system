@@ -373,13 +373,11 @@
   .badges-row{ display:flex; gap:8px; margin-top:16px; }
   .badge-emoji{ width:34px; height:34px; border-radius:9px; background:var(--panel-2); border:1px solid var(--panel-border); display:flex; align-items:center; justify-content:center; font-size:17.5px; }
 
-  /* employees directory — grouped by team */
+  /* employees directory — one collapsible box per team, open by default */
   .emp-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
-  .emp-directory{ display:flex; flex-direction:column; gap:22px; }
-  .emp-team-head{ font-family:var(--font-display); font-size:13px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--text-dim); margin-bottom:10px; display:flex; align-items:center; gap:8px; }
-  .emp-team-head span{ font-family:var(--font-mono); font-size:12px; color:var(--text-faint); background:var(--panel-2); border:1px solid var(--panel-border); border-radius:20px; padding:1px 8px; }
+  .emp-directory{ display:flex; flex-direction:column; gap:14px; }
   .emp-grid-inner{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:14px; }
-  .emp-card{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px; display:flex; gap:12px; align-items:center; }
+  .emp-card{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px; display:flex; gap:12px; align-items:flex-start; }
   .emp-card .mini-avatar{ width:38px; height:38px; font-size:15px; }
   .emp-card .en{ font-weight:600; font-size:15.5px; }
   .emp-card .ee{ font-size:13px; color:var(--text-faint); margin-top:1px; word-break:break-all; }
@@ -568,6 +566,11 @@
   .fold-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; margin-bottom:20px; align-items:start; }
   .fold-grid > details.panel-fold{ margin-bottom:0; }
   .fold-grid > details.panel-fold[open]{ grid-column:1 / -1; }
+  /* Manager dashboard body — fold boxes on the left, an attention rail on the right. */
+  .mg-body{ display:grid; grid-template-columns:minmax(0,1fr) 336px; gap:20px; align-items:start; margin-bottom:20px; }
+  .mg-body > .fold-grid{ margin-bottom:0; }
+  .mg-side .panel{ margin-bottom:0; }
+  @media(max-width:1120px){ .mg-body{ grid-template-columns:1fr; } }
 
   .d-inout{ display:flex; align-items:flex-end; gap:10px; height:170px; padding-top:6px; }
   .d-inout .col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; }
@@ -1229,11 +1232,7 @@
           <div class="stat-card mg-tile" onclick="openMgTileList('pending')"><div class="label">Awaiting Review</div><div class="value amber" id="mgKpiPending">0</div><div class="delta" id="mgPendingSub">—</div></div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head"><h2>Needs Attention</h2><span style="font-size:12px;color:var(--text-faint);">overdue in your scope</span></div>
-          <div id="needsAttentionWrap" class="attn-list">Nothing overdue right now.</div>
-        </div>
-
+        <div class="mg-body">
         <div class="fold-grid">
           <details class="panel panel-fold">
             <summary><h2>Team Capacity</h2><span class="fold-hint">agreed hrs vs capacity</span></summary>
@@ -1266,6 +1265,13 @@
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Share of completed tasks delivered on or before the client's agreed date.</p>
             <div id="commitmentWrap"></div>
           </details>
+        </div>
+        <aside class="mg-side">
+          <div class="panel">
+            <div class="panel-head"><h2>Needs Attention</h2><span style="font-size:12px;color:var(--text-faint);">overdue in your scope</span></div>
+            <div id="needsAttentionWrap" class="attn-list">Nothing overdue right now.</div>
+          </div>
+        </aside>
         </div>
 
         <div class="panel">
@@ -5310,11 +5316,13 @@ function renderEmployeeGrid(){
   const byTeam = {};
   employees.forEach(e => { const t = (e.team || 'Unassigned').trim() || 'Unassigned'; (byTeam[t] = byTeam[t] || []).push(e); });
   const order = Object.keys(byTeam).sort((a,b) => byTeam[b].length - byTeam[a].length || a.localeCompare(b));
-  grid.innerHTML = order.map(team => `
-    <div class="emp-team-group">
-      <div class="emp-team-head">${esc(team)} <span>${byTeam[team].length}</span></div>
+  grid.innerHTML = order.map(team => {
+    const n = byTeam[team].length;
+    return `<details class="panel panel-fold" open>
+      <summary><h2>${esc(team)}</h2><span class="fold-hint">${n} ${n === 1 ? 'person' : 'people'}</span></summary>
       <div class="emp-grid-inner">${byTeam[team].map(card).join('')}</div>
-    </div>`).join('');
+    </details>`;
+  }).join('');
 }
 // Teams & Access — membership editor state + helpers (calls-into-tasks, 1b).
 let meMembershipsDraft = [];
