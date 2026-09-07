@@ -1112,14 +1112,10 @@
           </div>
         </div>
 
-        <div class="dgrid-3">
+        <div class="dgrid-2e">
           <div class="panel">
             <div class="panel-head"><h2>By team</h2><span style="font-size:12px;color:var(--text-faint);">open · coral = overdue</span></div>
             <div id="fvByTeam"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Client Ownership</h2></div>
-            <div id="fvClientOwn"></div>
           </div>
           <div class="panel">
             <div class="panel-head"><h2>Where it came from</h2><span style="font-size:12px;color:var(--text-faint);" id="fvSrcNote">—</span></div>
@@ -1128,15 +1124,14 @@
         </div>
 
         <div class="dgrid-2e">
-          <div class="panel">
-            <div class="panel-head"><h2>Gap heatmap</h2><span style="font-size:12px;color:var(--text-faint);">TAT overrun · type × weekday</span></div>
-            <p style="font-size:13px;color:var(--text-dim);margin:-6px 0 14px;">Darker = more completed tasks that ran over their agreed hours.</p>
-            <div class="d-heat" id="fvHeat"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Team capacity</h2><span style="font-size:12px;color:var(--text-faint);">peak committed hrs vs capacity</span></div>
+          <details class="panel panel-fold">
+            <summary><h2>Client Ownership</h2><span class="fold-hint">who owns which client</span></summary>
+            <div id="fvClientOwn"></div>
+          </details>
+          <details class="panel panel-fold">
+            <summary><h2>Team capacity</h2><span class="fold-hint">peak committed hrs vs capacity</span></summary>
             <div id="fvCapacity" class="cap-list">Nobody has active work yet.</div>
-          </div>
+          </details>
         </div>
 
         <div class="panel">
@@ -4617,9 +4612,6 @@ async function renderFounderView(){
       <div class="donut-legend-item"><span class="dot" style="background:var(--teal);"></span>Slack <b>${bySrc.slack_message}</b></div>
       <div class="donut-legend-item"><span class="dot" style="background:var(--amber);"></span>Manual <b>${bySrc.manual}</b></div>
     </div>`;
-
-  // ---- gap heatmap (reuses the shared completed-task heatmap) ----
-  renderTaskHeatmap('fvHeat');
 
   // ---- team capacity (from the workload feed, scoped) ----
   const cap = document.getElementById('fvCapacity');
