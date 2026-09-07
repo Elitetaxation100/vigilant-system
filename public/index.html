@@ -822,6 +822,7 @@
           <div class="metric-tile mg-tile" onclick="openMyTodayList()">
             <div class="mt-label">To Do Today</div>
             <div class="mt-value" id="myTasksToday">0</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myPendingHoursSub"></div>
           </div>
           <div class="metric-tile mg-tile" onclick="openMyDoneList()">
             <div class="mt-label">Done Today</div>
@@ -850,7 +851,8 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Working on now</h2><span style="font-size:12px;color:var(--text-faint);">your open tasks, most urgent first</span></div>
+          <div class="panel-head"><h2>To-Do Today</h2><span style="font-size:12px;color:var(--text-faint);">your open tasks, most urgent first</span></div>
+          <div id="todayGauge"></div>
           <div id="myDayWrap"></div>
         </div>
 
@@ -1321,6 +1323,11 @@
             <summary><h2>My Team</h2><span class="fold-hint">who's on your team</span></summary>
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 12px;">Everyone on your team. Add someone and they move onto it; the dashboard, capacity and directory all follow.</p>
             <div id="myTeamWrap"></div>
+          </details>
+          <details class="panel panel-fold" open>
+            <summary><h2>Today across the team</h2><span class="fold-hint">pending hours vs today's capacity</span></summary>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 12px;">What's on each person's plate right now — running work plus anything due today or overdue — against the hours they have today.</p>
+            <div id="todayTeamWrap">Loading…</div>
           </details>
           <details class="panel panel-fold">
             <summary><h2>Team Capacity</h2><span class="fold-hint">agreed hrs vs capacity</span></summary>
@@ -1988,6 +1995,7 @@ function showView(id, el){
   document.getElementById('pageSub').textContent = titles[id][1];
   if(id === 'report') renderReportCard();
   if(id === 'timeoff') renderTimeOff();
+  if(id === 'dashboard' || id === 'manager') refreshToday();
   if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
   if(id === 'clients') renderClientGrid();
   if(id === 'manager') renderManagerStatics();
@@ -3075,6 +3083,61 @@ function renderMyDay(){
   }
   wrap.innerHTML = html;
 }
+/* P5 — "To-Do Today". /api/today gives the caller their pending hours vs
+   today's capacity, and (for a manager) the same for every report. */
+let _todayData = null;
+async function refreshToday(){
+  try { _todayData = await api('/api/today'); }
+  catch(e){ _todayData = null; return; }
+  renderTodayGauge();
+  renderTodayTeam();
+}
+function todayStatusColor(s){ return s==='over' ? '#F0603E' : s==='light' ? '#E8A33D' : s==='off' ? '#6B7390' : '#2FBE93'; }
+function tgBar(pending, capacity){
+  const cap = capacity > 0 ? capacity : Math.max(pending, 1);
+  const pct = Math.min(100, Math.round(pending / cap * 100));
+  const over = pending > capacity && capacity > 0;
+  return `<div style="height:8px;border-radius:999px;background:var(--panel-border);overflow:hidden;">
+    <div style="height:100%;width:${pct}%;border-radius:999px;background:${over?'#F0603E':'#2FBE93'};"></div>
+  </div>`;
+}
+function renderTodayGauge(){
+  const el = document.getElementById('todayGauge');
+  if(!el) return;
+  const m = _todayData && _todayData.me;
+  if(!m){ el.innerHTML = ''; return; }
+  const sub = document.getElementById('myPendingHoursSub');
+  if(sub) sub.textContent = m.pendingHours ? `${m.pendingHours}h to clear` : '';
+  if(m.onLeaveToday){ el.innerHTML = `<div style="font-size:13px;color:var(--text-faint);padding:6px 0 12px;">You're on approved leave today.</div>`; return; }
+  const over = m.pendingHours > m.capacityToday && m.capacityToday > 0;
+  el.innerHTML = `<div style="margin:2px 0 14px;">
+    <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);margin-bottom:5px;">
+      <span><b style="color:${over?'#C2410C':'var(--text)'};">${m.pendingHours}h</b> pending today</span>
+      <span>${m.capacityToday}h capacity${m.doneToday?` · ${m.doneToday}h done`:''}</span>
+    </div>
+    ${tgBar(m.pendingHours, m.capacityToday)}
+    ${over?`<div style="font-size:11.5px;color:#C2410C;margin-top:5px;">More on your plate today than hours to do it — some of this will slip unless a date moves.</div>`:''}
+  </div>`;
+}
+function renderTodayTeam(){
+  const wrap = document.getElementById('todayTeamWrap');
+  if(!wrap) return;
+  const d = _todayData;
+  if(!d || !d.team){ wrap.innerHTML = `<div style="font-size:13.5px;color:var(--text-faint);">Shows once you're managing a team.</div>`; return; }
+  if(!d.team.length){ wrap.innerHTML = `<div style="font-size:13.5px;color:var(--text-faint);">No reports on your team yet.</div>`; return; }
+  const pill = s => ({ over:'over', light:'light', balanced:'on track', off:'off today' }[s] || s);
+  const head = `<div style="font-size:13px;color:var(--text-dim);margin-bottom:10px;">
+    Team has <b>${d.teamPendingHours}h</b> pending against <b>${d.teamCapacityToday}h</b> of capacity today.</div>`;
+  wrap.innerHTML = head + d.team.map(r => `<div class="to-row">
+    <div class="to-main">
+      <b>${esc(r.name)}</b>
+      <span class="badge ${r.status==='over'?'overdue':r.status==='light'?'awaiting':'completed'} dot" style="font-size:10px;">${pill(r.status)}</span>
+      <div style="font-size:12px;color:var(--text-faint);">${r.onLeaveToday?'on leave today':`${r.pendingHours}h pending · ${r.capacityToday}h capacity${r.doneToday?` · ${r.doneToday}h done`:''}`}</div>
+      <div style="max-width:240px;margin-top:5px;">${r.onLeaveToday?'':tgBar(r.pendingHours, r.capacityToday)}</div>
+    </div>
+    ${r.status==='over'?`<button class="btn-ghost btn-sm" onclick="openAssignModal('team')">Reassign</button>`:''}
+  </div>`).join('');
+}
 function renderStatusDonut(){
       const wrap = document.getElementById('statusDonutWrap');
       if(!wrap) return;
@@ -3192,6 +3255,7 @@ async function refreshTasks(){
     renderTaskTable();
   } catch(e){ console.error('Failed to refresh tasks', e); }
   await refreshWorkload();
+  refreshToday();
 }
 /* Who's occupied until when — powers the workload-blocker banner/panel and
    lets the Assign Task modal show availability before submitting, instead

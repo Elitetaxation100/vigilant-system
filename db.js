@@ -194,6 +194,9 @@ function ensureExtendedFields(state) {
     // P1: an explicit base productive day for part-timers / non-standard
     // schedules. null → use the firm default / measured value (capacityOf).
     if (e.baseHoursPerDay === undefined) e.baseHoursPerDay = null;
+    // P5 — maps a badge / HR-system employee reference to this record for
+    // POST /api/attendance/ingest.
+    if (e.biometricId === undefined) e.biometricId = null;
     if (e.capacityAuto === undefined) e.capacityAuto = false;
     if (e.capacityEstimatedAt === undefined) e.capacityEstimatedAt = null;
     // One-time: bump the old 6h seed to the 8h working day (only for people

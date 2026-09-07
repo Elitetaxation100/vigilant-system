@@ -2184,6 +2184,70 @@ app.get('/api/workload', requireAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// P5 — "TO-DO TODAY". The caller's pending hours (remaining effort on work
+// that's running or due today/overdue) against today's real capacity, and —
+// for a manager — the same one line per report so they can see who's
+// underwater before the day gets away. `?all=1` drops the due-today filter.
+// ---------------------------------------------------------------------------
+app.get('/api/today', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const today = todayISO();
+  const showAll = req.query.all === '1' || req.query.all === 'true';
+  const r2 = n => Math.round(n * 100) / 100;
+
+  const pendingFor = (empId) => {
+    const open = state.tasks.filter(t => t.assignedTo === empId
+      && !['completed', 'pending_approval'].includes(t.status));
+    const onPlate = open.filter(t => showAll
+      || t.timerStartedAt
+      || (t.internalDeadline && t.internalDeadline <= today)
+      || ['awaiting_acceptance', 'rework', 'window_proposed'].includes(t.status));
+    const active = onPlate.filter(t => t.status !== 'on_hold');
+    const coming = open.filter(t => !onPlate.includes(t) && t.internalDeadline && t.internalDeadline > today);
+    return {
+      pendingHours: r2(active.reduce((s, t) => s + remainingHours(t), 0)),
+      pendingCount: active.length,
+      heldCount: onPlate.length - active.length,
+      comingUpCount: coming.length,
+      comingUpHours: r2(coming.reduce((s, t) => s + remainingHours(t), 0)),
+    };
+  };
+  const statusOf = (pending, cap) => cap === 0 ? 'off' : pending > cap ? 'over' : pending < cap * 0.5 ? 'light' : 'balanced';
+
+  const emp = findEmployee(state, me.id) || me;
+  const capToday = dayCapacity(state, emp, today);
+  const mine = pendingFor(me.id);
+  const out = {
+    date: today, showAll,
+    me: {
+      ...mine,
+      capacityToday: capToday,
+      doneToday: r2(hoursDoneOnDate(state, me.id, today)),
+      onLeaveToday: !!approvedLeaveOn(state, me.id, today),
+      status: statusOf(mine.pendingHours, capToday),
+    },
+  };
+
+  if (isAdminRole(me.accessRole) && emp.team && String(emp.team).trim() && emp.team !== 'Unassigned') {
+    out.team = teamRoster(state, emp).filter(e => e.id !== me.id).map(e => {
+      const p = pendingFor(e.id);
+      const cap = dayCapacity(state, e, today);
+      return {
+        id: e.id, name: e.name,
+        pendingHours: p.pendingHours, pendingCount: p.pendingCount,
+        capacityToday: cap, doneToday: r2(hoursDoneOnDate(state, e.id, today)),
+        onLeaveToday: !!approvedLeaveOn(state, e.id, today),
+        status: statusOf(p.pendingHours, cap),
+      };
+    }).sort((a, b) => b.pendingHours - a.pendingHours);
+    out.teamPendingHours = r2(out.team.reduce((s, x) => s + x.pendingHours, 0));
+    out.teamCapacityToday = r2(out.team.reduce((s, x) => s + x.capacityToday, 0));
+  }
+  res.json(out);
+});
+
+// ---------------------------------------------------------------------------
 // ACTIVITY FEED
 // ---------------------------------------------------------------------------
 app.get('/api/activity', requireAuth, (req, res) => {
@@ -2357,6 +2421,64 @@ app.get('/api/attendance/all', requireAuth, requireAdmin, (req, res) => {
   });
   db.save(); // getPunchState may have created today's record for someone who's never punched
   res.json({ rows, today });
+});
+
+// ---------------------------------------------------------------------------
+// P5 — BIOMETRIC / ATTENDANCE-API INGESTION. Shared-secret, not a user
+// session — a device or an HR system pushes one person-day at a time.
+// Idempotent upsert keyed on (resolved employee, date). An approved leave
+// day wins: the reading is kept as a note for the manager, not applied.
+// Set ATTENDANCE_INGEST_TOKEN to enable; unset → the endpoint is closed.
+// ---------------------------------------------------------------------------
+app.post('/api/attendance/ingest', (req, res) => {
+  const secret = process.env.ATTENDANCE_INGEST_TOKEN || '';
+  if (!secret) return res.status(503).json({ error: 'Attendance ingestion is not configured.' });
+  const got = String((req.body && req.body.token) || req.headers['x-ingest-token'] || '');
+  let match = false;
+  try { match = got.length === secret.length && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(secret)); } catch (e) { match = false; }
+  if (!match) return res.status(401).json({ error: 'Bad ingest token.' });
+
+  const state = db.get();
+  const b = req.body || {};
+  const ref = String(b.employeeRef || '').trim();
+  const date = (typeof b.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.date)) ? b.date.slice(0, 10) : null;
+  if (!ref || !date) return res.status(400).json({ error: 'employeeRef and date (YYYY-MM-DD) are required.' });
+  const emp = state.employees.find(e => e.biometricId === ref || e.id === ref
+    || String(e.email || '').toLowerCase() === ref.toLowerCase());
+  if (!emp) return res.status(404).json({ error: `No employee matches "${ref}".` });
+
+  const toIso = (hhmm) => {
+    if (typeof hhmm !== 'string' || !/^\d{1,2}:\d{2}$/.test(hhmm)) return null;
+    return new Date(date + 'T' + hhmm.padStart(5, '0') + ':00Z').toISOString();
+  };
+  let seconds = Number(b.secondsOnPremises);
+  if (!(seconds >= 0)) {
+    const a = toIso(b.firstIn), z = toIso(b.lastOut);
+    seconds = (a && z) ? Math.max(0, (new Date(z) - new Date(a)) / 1000) : 0;
+  }
+  seconds = Math.min(seconds, 16 * 3600);
+
+  state.attendance[emp.id] = state.attendance[emp.id] || {};
+  const rec = state.attendance[emp.id][date] || { loginAt: null, logoutAt: null, secondsWorked: 0 };
+  rec.deviceReading = {
+    firstIn: b.firstIn || null, lastOut: b.lastOut || null,
+    seconds: Math.round(seconds), source: b.source || 'device', at: new Date().toISOString(),
+  };
+  const leave = approvedLeaveOn(state, emp.id, date);
+  if (leave) {
+    rec.note = `Badge reading on an approved ${String(leave.type || 'leave').toLowerCase()} day — not applied to capacity.`;
+    state.attendance[emp.id][date] = rec;
+    logEvent(state, emp.id, `Attendance device recorded a shift on an approved leave day (${date}) — kept for review, not applied.`);
+    db.save();
+    return res.json({ applied: false, reason: 'approved-leave', employeeId: emp.id, name: emp.name, date });
+  }
+  rec.loginAt = toIso(b.firstIn) || rec.loginAt;
+  rec.logoutAt = toIso(b.lastOut) || rec.logoutAt;
+  rec.secondsWorked = Math.round(seconds);
+  rec.source = b.source || 'device';
+  state.attendance[emp.id][date] = rec;
+  db.save();
+  res.json({ applied: true, employeeId: emp.id, name: emp.name, date, hours: Math.round((seconds / 3600) * 100) / 100 });
 });
 
 // ---------------------------------------------------------------------------
