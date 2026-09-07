@@ -191,6 +191,9 @@ function ensureExtendedFields(state) {
     // that's the seed. Phase 5 re-estimates it from delivery history
     // (median productive day, last 8 weeks) at most once a day.
     if (e.effectiveCapacity === undefined) e.effectiveCapacity = 8.0;
+    // P1: an explicit base productive day for part-timers / non-standard
+    // schedules. null → use the firm default / measured value (capacityOf).
+    if (e.baseHoursPerDay === undefined) e.baseHoursPerDay = null;
     if (e.capacityAuto === undefined) e.capacityAuto = false;
     if (e.capacityEstimatedAt === undefined) e.capacityEstimatedAt = null;
     // One-time: bump the old 6h seed to the 8h working day (only for people
@@ -255,6 +258,11 @@ function runMigrations(state) {
     if (c.addedBy === undefined) c.addedBy = c.ownerId || null;
   });
   if (!state.attendance) state.attendance = {};
+  // P1 — Capacity from attendance: approved leave / half-days carve real
+  // hours out of a person's capacity. { id, employeeId, from, to, type,
+  // halfDay, reason, status, createdBy, createdAt, decidedBy, decidedAt }
+  if (!Array.isArray(state.leaveRequests)) state.leaveRequests = [];
+  if (typeof state.leaveSeq !== 'number') state.leaveSeq = 0;
   // calls-into-tasks Phase 5: the connector's call log moves off the Google
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];

@@ -268,6 +268,94 @@ function refreshCapacity(state, emp) {
 function capacityOf(emp) {
   return Number(emp && emp.effectiveCapacity) > 0 ? Number(emp.effectiveCapacity) : CAP_SEED;
 }
+
+// ---------------------------------------------------------------------------
+// P1 — CAPACITY FROM ATTENDANCE. A person's capacity for one day is their
+// base productive hours, scaled by whether they were actually available:
+// a full day is the base, an approved half-day is half, an approved leave
+// day or a non-working day is zero, and a day they punched a short shift is
+// what they were on the clock for. Everything downstream — the planner,
+// workload, the productivity denominator — sums dayCapacity() across the
+// range instead of assuming a flat full day every working day.
+//
+// Absence is deliberately NOT inferred from a missing punch: with attendance
+// tracking still patchy, an unknown past day counts as a normal PRESENT day.
+// Only an approved leave request or an actually-recorded short shift pulls a
+// day's capacity down.
+// ---------------------------------------------------------------------------
+const LEAVE_TYPES = ['ANNUAL', 'SICK', 'UNPAID', 'OTHER'];
+function baseHoursOf(emp) {
+  const b = Number(emp && emp.baseHoursPerDay);
+  return b > 0 ? b : capacityOf(emp);
+}
+function approvedLeaveOn(state, empId, dateISO) {
+  return (state.leaveRequests || []).find(l => l.employeeId === empId
+    && l.status === 'approved' && dateISO >= l.from && dateISO <= l.to) || null;
+}
+// PRESENT · HALF · PARTIAL · LEAVE · HOLIDAY
+function attendanceStatus(state, emp, dateISO) {
+  if (!cal.isWorkingDay(dateISO)) return 'HOLIDAY';
+  const leave = approvedLeaveOn(state, emp.id, dateISO);
+  if (leave) return leave.halfDay ? 'HALF' : 'LEAVE';
+  const rec = (state.attendance[emp.id] || {})[dateISO];
+  if (dateISO < todayISO() && rec && rec.logoutAt && (rec.secondsWorked || 0) > 0) {
+    const h = rec.secondsWorked / 3600;
+    if (h >= 1 && h < baseHoursOf(emp) * 0.9) return 'PARTIAL';
+  }
+  return 'PRESENT';
+}
+function dayCapacity(state, emp, dateISO) {
+  const base = baseHoursOf(emp);
+  switch (attendanceStatus(state, emp, dateISO)) {
+    case 'HOLIDAY': case 'LEAVE': return 0;
+    case 'HALF': return Math.round((base / 2) * 100) / 100;
+    case 'PARTIAL': {
+      const rec = (state.attendance[emp.id] || {})[dateISO] || { secondsWorked: base * 3600 };
+      return Math.round(Math.min(base, rec.secondsWorked / 3600) * 100) / 100;
+    }
+    default: return base;
+  }
+}
+// Sum of dayCapacity across the working days in [fromISO, toISO] inclusive.
+function capacityHoursBetween(state, emp, fromISO, toISO) {
+  if (!fromISO || !toISO || toISO < fromISO) return 0;
+  let total = 0;
+  let cur = new Date(fromISO + 'T00:00:00Z');
+  const end = new Date(toISO + 'T00:00:00Z').getTime();
+  while (cur.getTime() <= end) {
+    const iso = cur.toISOString().slice(0, 10);
+    if (cal.isWorkingDay(iso)) total += dayCapacity(state, emp, iso);
+    cur = new Date(cur.getTime() + 86400000);
+  }
+  return Math.round(total * 100) / 100;
+}
+// Capacity over the next `n` working days, counting from today.
+function capacityNextWorkingDays(state, emp, n) {
+  let total = 0, got = 0, guard = 0;
+  let cur = todayISO();
+  while (got < n && guard++ < 400) {
+    if (cal.isWorkingDay(cur)) { total += dayCapacity(state, emp, cur); got += 1; }
+    cur = new Date(new Date(cur + 'T00:00:00Z').getTime() + 86400000).toISOString().slice(0, 10);
+  }
+  return Math.round(total * 100) / 100;
+}
+// Approved leave inside a range, as full-day + half-day counts (working days only).
+function leaveDaysBetween(state, empId, fromISO, toISO) {
+  let full = 0, half = 0;
+  (state.leaveRequests || []).filter(l => l.employeeId === empId && l.status === 'approved').forEach(l => {
+    const start = l.from > fromISO ? l.from : fromISO;
+    const stop = l.to < toISO ? l.to : toISO;
+    if (stop < start) return;
+    let cur = new Date(start + 'T00:00:00Z');
+    const end = new Date(stop + 'T00:00:00Z').getTime();
+    while (cur.getTime() <= end) {
+      const iso = cur.toISOString().slice(0, 10);
+      if (cal.isWorkingDay(iso)) { if (l.halfDay) half += 1; else full += 1; }
+      cur = new Date(cur.getTime() + 86400000);
+    }
+  });
+  return { full, half, equivalent: Math.round((full + half / 2) * 100) / 100 };
+}
 // Hours of work still ahead of a person: their active (non-completed,
 // non-query-frozen) tasks' remaining effort. A task's remaining effort is
 // its agreed hours minus what's already been logged, floored at 0.25h.
@@ -288,12 +376,17 @@ function availabilityOf(state, emp) {
   const backlog = queueHours(state, emp.id);
   const daysToClear = cap > 0 ? Math.ceil(backlog / cap) : 0;
   const committedThrough = daysToClear > 0 ? cal.addWorkingDays(todayISO(), daysToClear) : todayISO();
-  const freeNext5wd = Math.max(0, cap * 5 - backlog);
+  const cap5 = capacityNextWorkingDays(state, emp, 5);
+  const freeNext5wd = Math.max(0, cap5 - backlog);
   return {
     effectiveCapacity: cap, capacityAuto: !!emp.capacityAuto,
+    baseHoursPerDay: Number(emp.baseHoursPerDay) > 0 ? Number(emp.baseHoursPerDay) : null,
     backlogHours: Math.round(backlog * 100) / 100,
     committedThrough,
+    capacityNext5wd: cap5,
     freeCapacityNext5wd: Math.round(freeNext5wd * 100) / 100,
+    dayCapacityToday: dayCapacity(state, emp, todayISO()),
+    onLeaveToday: !!approvedLeaveOn(state, emp.id, todayISO()),
   };
 }
 // The internal due date and client commitment date for a task of
@@ -1607,7 +1700,10 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const reworkRounds = done.reduce((s, t) => s + (t.reworkCount || 0), 0);
     if (emp.id) refreshCapacity(state, emp);
     const cap = capacityOf(emp);
-    const capacityHours = cap * workingDays;
+    // P1: capacity is the sum of each working day's real availability
+    // (attendance + approved leave), not a flat full day every working day.
+    const capacityHours = capacityHoursBetween(state, emp, from, to);
+    const leave = leaveDaysBetween(state, id, from, to);
     // shift hours actually logged in the range (from the punch clock)
     const shiftSeconds = Object.entries(state.attendance[id] || {})
       .filter(([d]) => d >= from && d <= to).reduce((s, [, v]) => s + (v.secondsWorked || 0), 0);
@@ -1632,6 +1728,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
       tasks: done.length,
       allocatedHours: r2(allocated), workedHours: r2(worked),
       capacityHours: r2(capacityHours), effectiveCapacity: cap, capacityAuto: !!emp.capacityAuto, workingDays,
+      leaveDays: leave.equivalent, baseHoursPerDay: Number(emp.baseHoursPerDay) > 0 ? Number(emp.baseHoursPerDay) : null,
       shiftHours,
       utilisationPct: capacityHours > 0 ? Math.round((worked / capacityHours) * 100) : null,
       efficiency: worked > 0 ? r2(allocated / worked) : null,
@@ -1883,6 +1980,114 @@ app.get('/api/attendance/all', requireAuth, requireAdmin, (req, res) => {
   });
   db.save(); // getPunchState may have created today's record for someone who's never punched
   res.json({ rows, today });
+});
+
+// ---------------------------------------------------------------------------
+// LEAVE / TIME OFF (P1). An approved leave request reshapes a person's
+// capacity for every working day it covers — immediately, future weeks
+// included, so the assign-time planning preview is already right. Anyone
+// requests their own; a manager decides for their team (canManageEmployee),
+// a superadmin for anyone. A manager filing on behalf of a report books it
+// approved in one step. Nothing is ever hard-deleted — a withdrawn request
+// goes to 'cancelled'.
+// ---------------------------------------------------------------------------
+function leaveVisibleTo(state, me) {
+  if (me.accessRole === 'superadmin') return (state.leaveRequests || []).slice();
+  // A plain employee sees only their own; a manager sees their whole team's
+  // (same boundary as the attendance log).
+  const ids = isAdminRole(me.accessRole)
+    ? new Set([me.id, ...teamRoster(state, me).map(e => e.id)])
+    : new Set([me.id]);
+  return (state.leaveRequests || []).filter(l => ids.has(l.employeeId) || l.createdBy === me.id);
+}
+function publicLeave(state, l) {
+  const emp = findEmployee(state, l.employeeId);
+  return { ...l, employeeName: emp ? emp.name : '—', team: emp ? (emp.team || null) : null };
+}
+app.get('/api/leave', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const rows = leaveVisibleTo(state, me).sort((a, b) => b.from.localeCompare(a.from));
+  const pendingApprovals = me.accessRole === 'employee' ? 0
+    : rows.filter(l => l.status === 'pending' && l.employeeId !== me.id
+        && canManageEmployee(state, me, l.employeeId)).length;
+  res.json({ leave: rows.map(l => publicLeave(state, l)), pendingApprovals });
+});
+app.post('/api/leave', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const b = req.body || {};
+  const isDate = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const from = isDate(b.from) ? b.from.slice(0, 10) : null;
+  const to = isDate(b.to) ? b.to.slice(0, 10) : from;
+  if (!from) return res.status(400).json({ error: 'Pick a start date.' });
+  if (to < from) return res.status(400).json({ error: 'The end date is before the start date.' });
+  if (cal.workingDaysBetween(cal.addWorkingDays(from, -1), to) > 60) {
+    return res.status(400).json({ error: 'That range is too long — file it in parts.' });
+  }
+  const type = LEAVE_TYPES.includes(b.type) ? b.type : 'ANNUAL';
+  const halfDay = (b.halfDay === 'AM' || b.halfDay === 'PM') ? b.halfDay : null;
+  if (halfDay && from !== to) return res.status(400).json({ error: 'A half day must be a single date.' });
+  const employeeId = b.employeeId || me.id;
+  if (employeeId !== me.id && !canManageEmployee(state, me, employeeId)) {
+    return res.status(403).json({ error: 'You can only request time off for yourself or your team.' });
+  }
+  const emp = findEmployee(state, employeeId);
+  if (!emp) return res.status(404).json({ error: 'Employee not found.' });
+  const clash = (state.leaveRequests || []).find(l => l.employeeId === employeeId
+    && l.status !== 'rejected' && l.status !== 'cancelled'
+    && !(to < l.from || from > l.to));
+  if (clash) return res.status(409).json({ error: `That overlaps an existing ${clash.status} request (${clash.from}${clash.to !== clash.from ? '–' + clash.to : ''}).` });
+  const selfApprove = employeeId !== me.id && canManageEmployee(state, me, employeeId);
+  const now = new Date().toISOString();
+  const l = {
+    id: 'lv-' + (++state.leaveSeq),
+    employeeId, from, to, type, halfDay,
+    reason: (b.reason == null ? '' : String(b.reason)).slice(0, 400),
+    status: selfApprove ? 'approved' : 'pending',
+    createdBy: me.id, createdAt: now,
+    decidedBy: selfApprove ? me.id : null, decidedAt: selfApprove ? now : null, decisionNote: null,
+  };
+  state.leaveRequests.push(l);
+  logEvent(state, employeeId, `Time off ${selfApprove ? 'booked' : 'requested'} — ${from}${to !== from ? ' to ' + to : ''}${halfDay ? ' (half day)' : ''}${employeeId !== me.id ? ` by <b>${escHtml(me.name)}</b>` : ''}.`);
+  db.save();
+  res.status(201).json({ leave: publicLeave(state, l) });
+});
+app.post('/api/leave/:id/decision', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
+  if (!l) return res.status(404).json({ error: 'Request not found.' });
+  if (l.status !== 'pending') return res.status(409).json({ error: `Already ${l.status}.` });
+  if (l.employeeId === me.id && me.accessRole !== 'superadmin') {
+    return res.status(403).json({ error: "You can't decide your own request — your manager does." });
+  }
+  if (!canManageEmployee(state, me, l.employeeId)) {
+    return res.status(403).json({ error: 'Not your team.' });
+  }
+  const approve = !!(req.body && req.body.approve);
+  l.status = approve ? 'approved' : 'rejected';
+  l.decidedBy = me.id;
+  l.decidedAt = new Date().toISOString();
+  l.decisionNote = ((req.body && req.body.note) || '').toString().slice(0, 300) || null;
+  logEvent(state, l.employeeId, `Time off ${l.from}${l.to !== l.from ? '–' + l.to : ''} <b>${approve ? 'approved' : 'declined'}</b> by ${escHtml(me.name)}.`);
+  db.save();
+  res.json({ leave: publicLeave(state, l) });
+});
+app.post('/api/leave/:id/cancel', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
+  if (!l) return res.status(404).json({ error: 'Request not found.' });
+  if (['cancelled', 'rejected'].includes(l.status)) return res.status(409).json({ error: `Already ${l.status}.` });
+  const mayCancel = l.employeeId === me.id || l.createdBy === me.id || canManageEmployee(state, me, l.employeeId);
+  if (!mayCancel) return res.status(403).json({ error: 'Not yours to cancel.' });
+  l.status = 'cancelled';
+  l.decidedBy = me.id;
+  l.decidedAt = new Date().toISOString();
+  logEvent(state, l.employeeId, `Time off ${l.from}${l.to !== l.from ? '–' + l.to : ''} cancelled by ${escHtml(me.name)}.`);
+  db.save();
+  res.json({ leave: publicLeave(state, l) });
 });
 
 // ---------------------------------------------------------------------------

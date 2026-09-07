@@ -358,6 +358,15 @@
   .mt-add{ display:flex; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
   .mt-add select{ flex:1; min-width:0; }
 
+  .to-form{ display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+  .to-field{ display:flex; flex-direction:column; gap:4px; }
+  .to-field label{ font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-faint); }
+  .to-field input, .to-field select{ padding:7px 9px; }
+  .to-field.to-grow{ flex:1; min-width:180px; }
+  .to-row{ display:flex; gap:10px; align-items:center; padding:9px 2px; border-top:1px solid var(--line); font-size:13.5px; }
+  .to-row:first-child{ border-top:none; }
+  .to-row .to-main{ flex:1; min-width:0; }
+
   .attn-list{ display:flex; flex-direction:column; gap:10px; }
   .attn-item{ display:flex; align-items:flex-start; gap:12px; padding:14px; background:var(--coral-dim); border:1px solid #F0603E3a; border-radius:var(--radius-m); }
   .attn-icon{ width:28px; height:28px; border-radius:50%; background:var(--coral); color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:13px; }
@@ -705,6 +714,7 @@
     <div class="nav-section">
       <div class="nav-title">My Work</div>
       <div class="nav-item" data-view="report" onclick="showView('report', this)"><span class="nav-icon">◈</span> My Report Card</div>
+      <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
     </div>
     <div class="nav-section">
       <div class="nav-title">Collaborate</div>
@@ -1086,6 +1096,32 @@
             <thead><tr><th>Employee</th><th>Today's Status</th><th>Today Login</th><th>Today Logout</th><th>Last 14 Days</th><th></th></tr></thead>
             <tbody id="attendanceTableBody"></tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- ===================== TIME OFF ===================== -->
+      <section class="view" id="view-timeoff">
+        <div class="panel" style="margin-bottom:16px;">
+          <div class="panel-head"><h2>Book time off</h2></div>
+          <p style="font-size:13.5px; color:var(--text-dim); margin-bottom:12px;">Approved leave and half-days lower capacity for those days — the planner, workload and Productivity view all adjust automatically. A future week already reflects it, so assigning work stays realistic.</p>
+          <div class="to-form">
+            <div class="to-field" id="toWhoWrap" style="display:none;"><label>Who</label><select id="toWho"></select></div>
+            <div class="to-field"><label>From</label><input type="date" id="toFrom"></div>
+            <div class="to-field"><label>To</label><input type="date" id="toTo"></div>
+            <div class="to-field"><label>Type</label><select id="toType"><option value="ANNUAL">Annual</option><option value="SICK">Sick</option><option value="UNPAID">Unpaid</option><option value="OTHER">Other</option></select></div>
+            <div class="to-field"><label>Half day</label><select id="toHalf"><option value="">Full day(s)</option><option value="AM">Morning only</option><option value="PM">Afternoon only</option></select></div>
+            <div class="to-field to-grow"><label>Reason (optional)</label><input type="text" id="toReason" maxlength="400" placeholder="e.g. family commitment"></div>
+            <button class="btn primary" onclick="submitLeave()">Request</button>
+          </div>
+          <div id="toFormErr" style="display:none; margin-top:10px; color:#C2410C; font-size:13px;"></div>
+        </div>
+        <div class="panel" id="toApprovalsPanel" style="display:none; margin-bottom:16px;">
+          <div class="panel-head"><h2>Awaiting your approval <span id="toApprovalsCount" class="badge pending dot"></span></h2></div>
+          <div id="toApprovals"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Time off</h2></div>
+          <div id="toList"></div>
         </div>
       </section>
 
@@ -1911,6 +1947,7 @@ const titles = {
   productivity: ['Productivity', 'Allocated vs worked hours — weekly, monthly, quarterly, year to date'],
   analytics: ['Analytics', 'Build a chart from any breakdown and any metric'],
   report: ['My Report Card', 'Auto-generated monthly, shareable as a PDF'],
+  timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
   command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
@@ -1927,6 +1964,7 @@ function showView(id, el){
   document.getElementById('pageTitle').textContent = titles[id][0];
   document.getElementById('pageSub').textContent = titles[id][1];
   if(id === 'report') renderReportCard();
+  if(id === 'timeoff') renderTimeOff();
   if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
   if(id === 'clients') renderClientGrid();
   if(id === 'manager') renderManagerStatics();
@@ -2260,6 +2298,109 @@ async function reopenPunch(empId){
   } catch(e){
     showToast('error', 'Could not reopen', e.message || 'Try again.');
   }
+}
+
+/* =========================================================================
+   TIME OFF (P1) — everyone can book leave / half-days for themselves; a
+   manager books (pre-approved) or approves for their team. Approved leave
+   reshapes capacity server-side, so after any change we refresh workload.
+   ========================================================================= */
+let _leaveRows = [];
+async function renderTimeOff(){
+  const list = document.getElementById('toList');
+  if(!list) return;
+  const whoWrap = document.getElementById('toWhoWrap');
+  if(isAdmin && whoWrap){
+    const people = [currentViewer(), ...myScopedPeople().filter(e => e.id !== currentViewerId)].filter(Boolean);
+    document.getElementById('toWho').innerHTML = people
+      .map(e => `<option value="${e.id}">${esc(e.id === currentViewerId ? 'Me' : e.name)}</option>`).join('');
+    whoWrap.style.display = people.length > 1 ? '' : 'none';
+  } else if(whoWrap){ whoWrap.style.display = 'none'; }
+
+  let data;
+  try { data = await api('/api/leave'); }
+  catch(e){ list.innerHTML = `<div style="color:var(--text-faint); padding:14px;">${esc(e.message)}</div>`; return; }
+  _leaveRows = data.leave || [];
+
+  const fmtRange = l => l.from === l.to
+    ? fmtDate(l.from) + (l.halfDay ? ` · ${l.halfDay === 'AM' ? 'morning' : 'afternoon'}` : '')
+    : `${fmtDate(l.from)} – ${fmtDate(l.to)}`;
+  const badge = s => ({
+    pending:  '<span class="badge pending dot">Pending</span>',
+    approved: '<span class="badge completed dot">Approved</span>',
+    rejected: '<span class="badge overdue dot">Declined</span>',
+    cancelled:'<span class="badge dot" style="opacity:.55;">Cancelled</span>',
+  }[s] || esc(s));
+  const canDecide = l => isAdmin && l.status === 'pending' && l.employeeId !== currentViewerId;
+
+  const pending = _leaveRows.filter(canDecide);
+  const ap = document.getElementById('toApprovalsPanel');
+  if(ap){
+    if(pending.length){
+      ap.style.display = '';
+      document.getElementById('toApprovalsCount').textContent = pending.length;
+      document.getElementById('toApprovals').innerHTML = pending.map(l => `<div class="to-row">
+        <div class="to-main"><b>${esc(l.employeeName)}</b> · ${fmtRange(l)} · ${esc(l.type.toLowerCase())}${l.reason ? ` — <span style="color:var(--text-faint);">${esc(l.reason)}</span>` : ''}</div>
+        <button class="verify-btn" onclick="decideLeave('${l.id}', true)">Approve</button>
+        <button class="verify-btn" style="border-color:#F0603E; color:#C2410C;" onclick="decideLeave('${l.id}', false)">Decline</button>
+      </div>`).join('');
+    } else { ap.style.display = 'none'; }
+  }
+
+  list.innerHTML = _leaveRows.length ? _leaveRows.map(l => {
+    const mineOrManaged = l.employeeId === currentViewerId || l.createdBy === currentViewerId
+      || (isAdmin && l.team === myTeamName());
+    const cancel = (mineOrManaged && ['pending','approved'].includes(l.status) && l.to >= todayISO())
+      ? `<button class="btn-ghost btn-sm" onclick="cancelLeave('${l.id}')">Cancel</button>` : '';
+    const decided = (l.decidedAt && l.status !== 'pending') ? ` · ${l.status} ${fmtDate(l.decidedAt.slice(0,10))}` : '';
+    return `<div class="to-row">
+      <div class="to-main">
+        <b>${esc(l.employeeName)}</b> · ${fmtRange(l)}
+        <div style="font-size:12px; color:var(--text-faint);">${esc(l.type.toLowerCase())}${l.halfDay ? ' · half day' : ''}${l.reason ? ' · ' + esc(l.reason) : ''}${decided}</div>
+      </div>
+      ${badge(l.status)}
+      ${cancel}
+    </div>`;
+  }).join('') : `<div style="font-size:13.5px; color:var(--text-faint); padding:12px 2px;">No time off booked yet.</div>`;
+}
+async function submitLeave(){
+  const err = document.getElementById('toFormErr');
+  err.style.display = 'none';
+  const from = document.getElementById('toFrom').value;
+  const body = {
+    from,
+    to: document.getElementById('toTo').value || from,
+    type: document.getElementById('toType').value,
+    halfDay: document.getElementById('toHalf').value || undefined,
+    reason: document.getElementById('toReason').value || undefined,
+  };
+  const who = document.getElementById('toWho');
+  if(isAdmin && who && who.value && who.value !== currentViewerId) body.employeeId = who.value;
+  if(!from){ err.textContent = 'Pick a start date.'; err.style.display = 'block'; return; }
+  try {
+    await api('/api/leave', { method:'POST', body: JSON.stringify(body) });
+    document.getElementById('toReason').value = '';
+    showToast('success', 'Time off submitted', 'It shows below with its status.');
+    renderTimeOff();
+    refreshWorkload();
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
+}
+async function decideLeave(id, approve){
+  try {
+    await api(`/api/leave/${id}/decision`, { method:'POST', body: JSON.stringify({ approve }) });
+    showToast('success', approve ? 'Approved' : 'Declined', 'Capacity updated.');
+    renderTimeOff();
+    refreshWorkload();
+  } catch(e){ showToast('error', 'Could not update', e.message); }
+}
+async function cancelLeave(id){
+  if(!confirm('Cancel this time off?')) return;
+  try {
+    await api(`/api/leave/${id}/cancel`, { method:'POST' });
+    showToast('success', 'Cancelled', '');
+    renderTimeOff();
+    refreshWorkload();
+  } catch(e){ showToast('error', 'Could not cancel', e.message); }
 }
 
 /* =========================================================================
@@ -2959,7 +3100,7 @@ function renderWorkloadBlockers(){
       ? `<span class="cap-tag busy">Committed through ${fmtDate(w.committedThrough)}</span>`
       : `<span class="cap-tag free">Queue clear</span>`;
     const capLine = w.effectiveCapacity
-      ? `${w.effectiveCapacity}h/day${w.capacityAuto ? ' measured' : ''} · ${w.freeCapacityNext5wd ?? '—'}h free next 5 working days`
+      ? `${w.baseHoursPerDay || w.effectiveCapacity}h/day${w.capacityAuto ? ' measured' : ''} · ${w.freeCapacityNext5wd ?? '—'}h free next 5 working days${w.onLeaveToday ? ' · <b style="color:#C2410C;">on leave today</b>' : ''}`
       : '';
     return `<div class="cap-row">
       <div class="cap-avatar">${esc(initials)}</div>
@@ -4188,7 +4329,7 @@ async function renderProductivityView(){
       <td>${p.tasks}</td>
       <td style="font-family:var(--font-mono);">${p.allocatedHours.toFixed(1)}</td>
       <td style="font-family:var(--font-mono);">${p.workedHours.toFixed(1)}</td>
-      <td style="font-family:var(--font-mono);">${p.capacityHours.toFixed(0)} <span style="color:var(--text-faint);">@${p.effectiveCapacity}h/d</span></td>
+      <td style="font-family:var(--font-mono);">${p.capacityHours.toFixed(0)} <span style="color:var(--text-faint);">@${p.baseHoursPerDay || p.effectiveCapacity}h/d${p.leaveDays ? ` −${p.leaveDays} leave` : ''}</span></td>
       <td><b style="color:${p.utilisationPct==null?'#6B7390':p.utilisationPct>110?'#F0603E':p.utilisationPct>=75?'#2FBE93':'#F0B93E'};">${p.utilisationPct==null?'—':p.utilisationPct+'%'}</b></td>
       <td style="font-family:var(--font-mono);">${p.efficiency==null?'—':p.efficiency.toFixed(2)}</td>
       <td style="font-family:var(--font-mono);">${p.throughput==null?'—':p.throughput.toFixed(1)+'/d'}</td>
