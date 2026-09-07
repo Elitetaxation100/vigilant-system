@@ -106,7 +106,12 @@ function ensureOrgChart(state) {
   function ensureManages(manager, subordinateIds) {
     if (manager.accessRole === 'employee') manager.accessRole = 'admin'; // don't downgrade an existing admin/superadmin
     manager.managesIds = manager.managesIds || [];
-    subordinateIds.forEach(id => { if (!manager.managesIds.includes(id)) manager.managesIds.push(id); });
+    // Seed the org chart only while a manager has no team yet. Once a team
+    // exists (seeded once, or edited by the manager / a superadmin), live
+    // membership wins — a deploy must not re-add someone who was removed.
+    if (manager.managesIds.length === 0) {
+      subordinateIds.forEach(id => { if (!manager.managesIds.includes(id)) manager.managesIds.push(id); });
+    }
   }
 
   const shubham = ensureEmployee('shubham@elitetaxation.co.nz');

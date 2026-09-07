@@ -349,6 +349,11 @@
   .cap-tag{ font-size:11px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; padding:3px 9px; border-radius:20px; white-space:nowrap; }
   .cap-tag.free{ background:var(--teal-dim); color:#0D9488; }
   .cap-tag.busy{ background:var(--coral-dim); color:#C2410C; }
+  /* My Team panel */
+  .mt-list{ display:flex; flex-direction:column; gap:8px; }
+  .mt-row{ display:flex; align-items:center; gap:12px; padding:10px 12px; background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; }
+  .mt-add{ display:flex; gap:8px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+  .mt-add select{ flex:1; min-width:0; }
 
   .attn-list{ display:flex; flex-direction:column; gap:10px; }
   .attn-item{ display:flex; align-items:flex-start; gap:12px; padding:14px; background:var(--coral-dim); border:1px solid #F0603E3a; border-radius:var(--radius-m); }
@@ -1243,6 +1248,11 @@
 
         <div class="mg-body">
         <div class="fold-grid">
+          <details class="panel panel-fold">
+            <summary><h2>My Team</h2><span class="fold-hint">who's on your team</span></summary>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 12px;">The people you manage. Add anyone in the firm — a person can be on more than one team.</p>
+            <div id="myTeamWrap"></div>
+          </details>
           <details class="panel panel-fold">
             <summary><h2>Team Capacity</h2><span class="fold-hint">agreed hrs vs capacity</span></summary>
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Peak agreed hours on any single day vs each person's daily capacity — new work is blocked once it would push them over.</p>
@@ -3730,10 +3740,61 @@ function computeEmployeeStats(empId){
   const adherence = completed.length ? Math.round((onTime.length / completed.length) * 100) : 0;
   return { empTasks, completed, pts, adherence };
 }
+// Who manages this person (there can be more than one — a person can sit
+// on two teams).
+function managersOf(empId){
+  return employees.filter(e => (e.managesIds || []).includes(empId));
+}
+/* "My Team" — a manager adds / removes their own members. A member added
+   by two managers is on two teams. Superadmins manage this per-person from
+   Employees → Manage access; this panel is the manager's own view of it. */
+async function teamAdd(empId){
+  try { await api('/api/team/add', { method:'POST', body: JSON.stringify({ employeeId: empId }) });
+    await refreshEmployees(); renderMyTeamPanel(); renderManagerStatics();
+    showToast('success', 'Added to your team', empById(empId)?.name || '');
+  } catch(e){ showToast('error', 'Could not add', e.message); }
+}
+async function teamRemove(empId){
+  if(!confirm(`Remove ${empById(empId)?.name || 'this person'} from your team?\n\nTheir work and history stay — they just no longer report to you.`)) return;
+  try { await api('/api/team/remove', { method:'POST', body: JSON.stringify({ employeeId: empId }) });
+    await refreshEmployees(); renderMyTeamPanel(); renderManagerStatics();
+    showToast('success', 'Removed from your team', empById(empId)?.name || '');
+  } catch(e){ showToast('error', 'Could not remove', e.message); }
+}
+function renderMyTeamPanel(){
+  const wrap = document.getElementById('myTeamWrap');
+  if(!wrap) return;
+  const me = empById(currentViewerId) || {};
+  const mine = (me.managesIds || []).map(id => empById(id)).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+  const available = employees
+    .filter(e => e.id !== currentViewerId && !(me.managesIds || []).includes(e.id))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  const rows = mine.length ? mine.map(e => {
+    const otherMgrs = managersOf(e.id).filter(m => m.id !== currentViewerId).map(m => m.name.split(' ')[0]);
+    return `<div class="mt-row">
+      <span class="mini-avatar">${esc(e.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:14px;">${esc(e.name)}</div>
+        <div style="font-size:12px;color:var(--text-faint);">${esc(e.jobTitle||'')}${otherMgrs.length ? ' · also on ' + esc(otherMgrs.join(', ')) + "'s team" : ''}</div>
+      </div>
+      <button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="teamRemove('${e.id}')">Remove</button>
+    </div>`;
+  }).join('') : `<div style="font-size:13.5px;color:var(--text-faint);padding:8px 0;">No members yet — add someone below.</div>`;
+  wrap.innerHTML = `
+    <div class="mt-list">${rows}</div>
+    <div class="mt-add">
+      <select id="mtAddSel">${available.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team||'—')}</option>`).join('') || '<option value="">Everyone is already on your team</option>'}</select>
+      <button class="btn primary small" onclick="teamAdd(document.getElementById('mtAddSel').value)" ${available.length?'':'disabled'}>+ Add member</button>
+    </div>`;
+}
 function renderManagerStatics(){
   const lbWrap = document.getElementById('leaderboardWrap');
   if(!lbWrap) return;
-  const mineOnly = !isSuperAdmin;
+  // The Manager Dashboard is ALWAYS just your own team — nobody, not even a
+  // superadmin, sees the whole firm here. Firm-wide oversight is the
+  // Founder Dashboard.
+  const mineOnly = true;
+  renderMyTeamPanel();
 
   // ---- scope bar ----
   const sel = document.getElementById('mgView');

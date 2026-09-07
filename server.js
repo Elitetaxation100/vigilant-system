@@ -465,6 +465,36 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// MY TEAM — a manager adds / removes their own team members. "My team" is
+// simply the people in my managesIds. A person added by two managers is on
+// two teams (they report to both). An admin can only touch their own list;
+// a superadmin can do it for anyone via /api/employees/:id.
+// ---------------------------------------------------------------------------
+function teamMemberChange(req, res, op) {
+  const state = db.get();
+  const me = state.employees.find(e => e.id === req.employee.id);
+  if (!me || !isAdminRole(me.accessRole)) {
+    return res.status(403).json({ error: 'Only a manager can change team membership.' });
+  }
+  const targetId = String((req.body || {}).employeeId || '');
+  const target = findEmployee(state, targetId);
+  if (!target) return res.status(404).json({ error: 'Employee not found.' });
+  if (targetId === me.id) return res.status(400).json({ error: "You can't add yourself to your own team." });
+  me.managesIds = me.managesIds || [];
+  if (op === 'add') {
+    if (!me.managesIds.includes(targetId)) me.managesIds.push(targetId);
+    logEvent(state, targetId, `Added to <b>${escHtml(me.name)}</b>'s team.`);
+  } else {
+    me.managesIds = me.managesIds.filter(id => id !== targetId);
+    logEvent(state, targetId, `Removed from <b>${escHtml(me.name)}</b>'s team.`);
+  }
+  db.save();
+  res.json({ team: (me.managesIds || []).map(id => publicEmployee(findEmployee(state, id))).filter(Boolean) });
+}
+app.post('/api/team/add', requireAuth, (req, res) => teamMemberChange(req, res, 'add'));
+app.post('/api/team/remove', requireAuth, (req, res) => teamMemberChange(req, res, 'remove'));
+
+// ---------------------------------------------------------------------------
 // TEAMS (calls-into-tasks, Phase 1) — the team registry the membership model
 // and the Admin space read from. Additive: /api/employees/:id still owns the
 // legacy `team` string; this just lists/adds the named teams.
