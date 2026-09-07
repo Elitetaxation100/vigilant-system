@@ -94,24 +94,42 @@ function findEmployee(state, id) { return state.employees.find(e => e.id === id)
 function findTask(state, id) { return state.tasks.find(t => t.id === id); }
 function isAdminRole(role) { return role === 'admin' || role === 'superadmin'; }
 
+/**
+ * A team is a `.team` name. Everyone who shares a name is on that team; the
+ * admins on it are its managers. This is the single source of truth for
+ * "whose team is this" — managesIds is legacy and no longer consulted for
+ * scoping.
+ */
+function teamRoster(state, emp) {
+  const team = emp && typeof emp.team === 'string' ? emp.team.trim() : '';
+  if (!team) return [];
+  return state.employees.filter(e => typeof e.team === 'string' && e.team.trim() === team);
+}
+// The admins on an employee's team — used to fan out notifications to
+// "the manager(s)".
+function managersOfEmployee(state, empId) {
+  const emp = state.employees.find(e => e.id === empId);
+  if (!emp) return [];
+  return teamRoster(state, emp).filter(e => e.id !== empId && isAdminRole(e.accessRole));
+}
 /** Who can `actor` assign NEW work to? Mirrors the same rule everywhere. */
 function assignableEmployees(state, actor) {
   if (actor.accessRole === 'superadmin') return state.employees;
-  if (actor.accessRole === 'admin') return state.employees.filter(e => (actor.managesIds || []).includes(e.id));
+  if (actor.accessRole === 'admin') return teamRoster(state, actor).filter(e => e.id !== actor.id);
   return [];
 }
 /**
  * Can `actor` act on a task that's currently assigned to `employeeId`?
- * Superadmins can act on anyone's task. An admin can only act on tasks
- * belonging to people in their own managesIds — the same boundary
- * assignableEmployees() already enforces for handing out NEW work. Without
- * this, review/reassign/approve-window/reject-window let any admin reach
- * into any other manager's team, which contradicts that boundary.
+ * Superadmins can act on anyone's task. An admin can only act on the work
+ * of their own team — the same boundary assignableEmployees() enforces.
  */
 function canManageEmployee(state, actor, employeeId) {
   if (actor.accessRole === 'superadmin') return true;
-  if (actor.accessRole === 'admin') return (actor.managesIds || []).includes(employeeId);
-  return false;
+  if (actor.accessRole !== 'admin') return false;
+  const target = state.employees.find(e => e.id === employeeId);
+  const myTeam = typeof actor.team === 'string' ? actor.team.trim() : '';
+  return !!target && !!myTeam && typeof target.team === 'string' &&
+    target.team.trim() === myTeam && target.id !== actor.id;
 }
 /**
  * Can `actor` ACT on the review of task `t` (mark clean / error, decide
@@ -476,20 +494,23 @@ function teamMemberChange(req, res, op) {
   if (!me || !isAdminRole(me.accessRole)) {
     return res.status(403).json({ error: 'Only a manager can change team membership.' });
   }
+  const myTeam = typeof me.team === 'string' ? me.team.trim() : '';
+  if (!myTeam) return res.status(400).json({ error: 'Set your own team first (Employees → Manage access).' });
   const targetId = String((req.body || {}).employeeId || '');
   const target = findEmployee(state, targetId);
   if (!target) return res.status(404).json({ error: 'Employee not found.' });
-  if (targetId === me.id) return res.status(400).json({ error: "You can't add yourself to your own team." });
-  me.managesIds = me.managesIds || [];
+  if (targetId === me.id) return res.status(400).json({ error: "You can't move yourself." });
   if (op === 'add') {
-    if (!me.managesIds.includes(targetId)) me.managesIds.push(targetId);
-    logEvent(state, targetId, `Added to <b>${escHtml(me.name)}</b>'s team.`);
+    target.team = myTeam;
+    logEvent(state, targetId, `Moved to the <b>${escHtml(myTeam)}</b> team by <b>${escHtml(me.name)}</b>.`);
   } else {
-    me.managesIds = me.managesIds.filter(id => id !== targetId);
-    logEvent(state, targetId, `Removed from <b>${escHtml(me.name)}</b>'s team.`);
+    if (target.team && target.team.trim() === myTeam) target.team = 'Unassigned';
+    logEvent(state, targetId, `Removed from the <b>${escHtml(myTeam)}</b> team by <b>${escHtml(me.name)}</b>.`);
   }
+  // Keep the legacy managesIds field roughly in step for anything still reading it.
+  me.managesIds = teamRoster(state, me).filter(e => e.id !== me.id).map(e => e.id);
   db.save();
-  res.json({ team: (me.managesIds || []).map(id => publicEmployee(findEmployee(state, id))).filter(Boolean) });
+  res.json({ team: teamRoster(state, me).filter(e => e.id !== me.id).map(publicEmployee) });
 }
 app.post('/api/team/add', requireAuth, (req, res) => teamMemberChange(req, res, 'add'));
 app.post('/api/team/remove', requireAuth, (req, res) => teamMemberChange(req, res, 'remove'));
@@ -668,18 +689,17 @@ app.get('/api/admin/trash', requireAuth, requireAdmin, (req, res) => {
 // real boundary — the client-side filtering on top of it is just cosmetics.
 function visibleTasks(state, me) {
   if (me.accessRole === 'superadmin') return state.tasks;
-  const scopeIds = new Set([me.id, ...(me.managesIds || [])]);
   const isAdmin = me.accessRole === 'admin';
+  // An employee sees only their own work; an admin sees their whole team's.
+  const scopeIds = new Set([me.id]);
+  if (isAdmin) teamRoster(state, me).forEach(e => scopeIds.add(e.id));
   return state.tasks.filter(t =>
     scopeIds.has(t.assignedTo) ||
     t.assignedBy === me.id ||
     t.reviewerId === me.id ||
     t.reviewedBy === me.id ||
     (t.reassignHistory || []).some(h => h.from === me.id || h.to === me.id || h.by === me.id) ||
-    // An admin also sees unassigned work (theirs to hand out) — but NOT every
-    // task that merely shares their team name. A manager's scope is the people
-    // they manage, nothing wider.
-    (isAdmin && !t.assignedTo)
+    (isAdmin && !t.assignedTo)  // unassigned work is theirs to hand out
   );
 }
 app.get('/api/tasks', requireAuth, (req, res) => {
@@ -1215,7 +1235,7 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     // (training, admin) has no client, so a clean review just closes it.
     t.awaitingClientDecision = t.kind !== 'internal';
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
-    const managers = state.employees.filter(e => (e.managesIds || []).includes(t.assignedTo));
+    const managers = managersOfEmployee(state, t.assignedTo);
     managers.forEach(m => {
       logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was reviewed clean by <b>${escHtml(req.employee.name)}</b>.`);
     });
@@ -1246,7 +1266,7 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
   t.awaitingClientDecision = false;
   const outcome = decision === 'yes' ? 'sent directly to the client' : 'held back — not sent to the client';
   logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was ${outcome} by <b>${escHtml(req.employee.name)}</b>.`);
-  const managers = state.employees.filter(e => (e.managesIds || []).includes(t.assignedTo));
+  const managers = managersOfEmployee(state, t.assignedTo);
   managers.forEach(m => {
     logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was ${outcome}.`);
   });
@@ -1635,7 +1655,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   // a superadmin the whole firm (or ?scope=me to narrow).
   let ids;
   if (req.query.scope === 'me' || me.accessRole === 'employee') ids = [me.id];
-  else if (me.accessRole === 'admin') ids = [me.id, ...(me.managesIds || [])];
+  else if (me.accessRole === 'admin') ids = [...new Set([me.id, ...teamRoster(state, me).map(e => e.id)])];
   else ids = state.employees.map(e => e.id);
 
   const people = productivityFor(state, ids, from, to);
@@ -1701,7 +1721,7 @@ app.get('/api/activity', requireAuth, (req, res) => {
   if (me.accessRole === 'superadmin') {
     visible = state.activityLog;
   } else if (me.accessRole === 'admin') {
-    const ids = new Set([me.id, ...(me.managesIds || [])]);
+    const ids = new Set([me.id, ...teamRoster(state, me).map(e => e.id)]);
     visible = state.activityLog.filter(a => !a.empId || ids.has(a.empId));
   } else {
     visible = state.activityLog.filter(a => a.empId === me.id);
@@ -1842,7 +1862,7 @@ app.get('/api/attendance/all', requireAuth, requireAdmin, (req, res) => {
   const me = req.employee;
   const scope = me.accessRole === 'superadmin'
     ? state.employees
-    : state.employees.filter(e => e.id === me.id || (me.managesIds || []).includes(e.id));
+    : [me, ...teamRoster(state, me).filter(e => e.id !== me.id)];
   const rows = scope.map(emp => {
     const hist = state.attendance[emp.id] || {};
     const live = getPunchState(state, emp.id);

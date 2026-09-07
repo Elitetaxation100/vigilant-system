@@ -1244,7 +1244,7 @@
         <div class="fold-grid">
           <details class="panel panel-fold">
             <summary><h2>My Team</h2><span class="fold-hint">who's on your team</span></summary>
-            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 12px;">The people you manage. Add anyone in the firm — a person can be on more than one team.</p>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 12px;">Everyone on your team. Add someone and they move onto it; the dashboard, capacity and directory all follow.</p>
             <div id="myTeamWrap"></div>
           </details>
           <details class="panel panel-fold">
@@ -1616,14 +1616,17 @@ function teamListForScope(){
   return [...set].filter(Boolean).sort((a,b)=>a.localeCompare(b));
 }
 function empInTeam(e, team){ return e && e.team === team; }
-// The people a manager is responsible for: the explicit managesIds list
-// plus themselves. This is the authoritative manager→report mapping —
-// nothing is inferred from team names.
+// A manager's team = everyone who shares their team name (themselves
+// included). The team name IS the scope. A superadmin with no team of
+// their own falls back to the whole firm.
+function myTeamName(){
+  const me = empById(currentViewerId) || {};
+  return (typeof me.team === 'string' ? me.team.trim() : '') || '';
+}
 function myScopedPeople(){
-  const me = empById(currentViewerId);
-  if(!me) return [];
-  const ids = new Set([me.id, ...(me.managesIds || [])]);
-  return employees.filter(e => ids.has(e.id));
+  const t = myTeamName();
+  if(!t) return isSuperAdmin ? employees.slice() : (empById(currentViewerId) ? [empById(currentViewerId)] : []);
+  return employees.filter(e => (e.team || '').trim() === t);
 }
 function dashPeople(key, mineTeamsOnly){
   const s = dashScope[key];
@@ -1659,11 +1662,11 @@ function dashPeriodLabel(key){
 }
 function dashScopeLabel(key, mineOnly){
   const v = dashScope[key].view;
-  if(v === 'reports') return 'My reports';
-  if(v === 'firm') return mineOnly ? 'My reports' : 'Whole firm';
+  if(v === 'reports') return myTeamName() || 'My team';
+  if(v === 'firm') return mineOnly ? (myTeamName() || 'My team') : 'Whole firm';
   if(v.startsWith('t:')) return v.slice(2);
   if(v.startsWith('p:')){ const e = employees.find(x=>x.id===v.slice(2)); return e ? e.name : 'Person'; }
-  return mineOnly ? 'My reports' : 'Whole firm';
+  return mineOnly ? (myTeamName() || 'My team') : 'Whole firm';
 }
 function dashInRange(dateStr, r){ if(!dateStr) return false; const d = dateStr.slice(0,10); return d >= r.start && d < r.end; }
 // tasks whose assignee sits inside the current scope (all statuses). Firm
@@ -1678,29 +1681,31 @@ function populateScopeSelect(selId, key, mineOnly){
   const sel = document.getElementById(selId);
   if(!sel) return;
   const cur = sel.value || dashScope[key].view;
-  const iManage = ((empById(currentViewerId) || {}).managesIds || []).length > 0;
-  let people, teamOpts;
-  if(mineOnly){
-    // A manager: just their own reports, and per-person options for them.
-    // No "by team" — the report list already IS their team.
-    people = myScopedPeople().filter(e => e.id !== currentViewerId);
-    teamOpts = [];
+  let html = '', fallback;
+  if(key === 'mg'){
+    // The Manager Dashboard is ONE team — the viewer's own. The scope
+    // option is labelled with the team name; you can drill into a single
+    // member. No "whole firm", no other teams.
+    const teamName = myTeamName();
+    const members = myScopedPeople().filter(e => e.id !== currentViewerId).sort((a,b)=>a.name.localeCompare(b.name));
+    if(teamName){
+      html += `<option value="reports">◈ ${esc(teamName)}</option>`;
+      fallback = 'reports';
+    } else {
+      html += `<option value="firm">◈ ${isSuperAdmin ? 'Whole firm' : 'My work'}</option>`;
+      fallback = 'firm';
+    }
+    if(members.length) html += `<optgroup label="By person">${members.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
   } else {
-    people = employees.slice();
-    teamOpts = teamListForScope();
+    // Founder Dashboard — whole firm, sliced by team or person.
+    const people = employees.slice().sort((a,b)=>a.name.localeCompare(b.name));
+    const teamOpts = teamListForScope();
+    html += `<option value="firm">◈ Whole firm</option>`;
+    if(teamOpts.length) html += `<optgroup label="By team">${teamOpts.map(t=>`<option value="t:${esc(t)}">${esc(t)}</option>`).join('')}</optgroup>`;
+    if(people.length) html += `<optgroup label="By person">${people.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
+    fallback = 'firm';
   }
-  people.sort((a,b)=>a.name.localeCompare(b.name));
-  // The Manager Dashboard opens on the viewer's own team, even for a
-  // superadmin who manages people. (The Founder Dashboard stays firm-wide.)
-  const reportsFirst = key === 'mg' && iManage;
-  let html = '';
-  if(reportsFirst) html += `<option value="reports">◈ My reports</option>`;
-  if(!mineOnly) html += `<option value="firm">◈ Whole firm</option>`;
-  else if(!reportsFirst) html += `<option value="firm">◈ My reports</option>`;
-  if(teamOpts.length) html += `<optgroup label="By team">${teamOpts.map(t=>`<option value="t:${esc(t)}">${esc(t)}</option>`).join('')}</optgroup>`;
-  if(people.length) html += `<optgroup label="By person">${people.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
   sel.innerHTML = html;
-  const fallback = reportsFirst ? 'reports' : 'firm';
   sel.value = [...sel.options].some(o=>o.value===cur) ? cur : fallback;
   dashScope[key].view = sel.value;
 }
@@ -1769,10 +1774,19 @@ function accessLabel(r){
   if(r === 'admin') return 'Admin';
   return 'Employee';
 }
+// A team is a `.team` name; an admin can assign to anyone who shares theirs.
+function sameTeam(a, b){
+  const ta = a && typeof a.team === 'string' ? a.team.trim() : '';
+  const tb = b && typeof b.team === 'string' ? b.team.trim() : '';
+  return !!ta && ta === tb;
+}
 function assignableEmployees(){
   if(!session) return [];
   if(isSuperAdmin) return employees;
-  if(session.accessRole === 'admin') return employees.filter(e => (session.managesIds||[]).includes(e.id));
+  if(session.accessRole === 'admin'){
+    const meRec = empById(session.id) || session;
+    return employees.filter(e => e.id !== session.id && sameTeam(meRec, e));
+  }
   return [];
 }
 function canAssignTo(empId){ return assignableEmployees().some(e => e.id === empId); }
@@ -1796,7 +1810,7 @@ function withinAgreedHours(t){ return t.logged <= t.tat || (t.holdCount || 0) > 
 function empManagesWork(emp, assigneeId){
   if(!emp || !assigneeId || emp.id === assigneeId) return false;
   if(emp.accessRole === 'superadmin') return true;
-  if(emp.accessRole === 'admin') return (emp.managesIds || []).includes(assigneeId);
+  if(emp.accessRole === 'admin') return sameTeam(empById(emp.id) || emp, empById(assigneeId));
   return false;
 }
 // Review: the person the assignee sent it to, OR a manager over them —
@@ -1925,9 +1939,8 @@ function renderAdminView(){
   // still-unassigned tasks (which anyone can pick up). Superadmin sees all.
   const all = (() => {
     if(isSuperAdmin) return tasks.slice();
-    const myTeam = (currentViewer()||{}).team;
-    const ids = new Set([...(session.managesIds || []), currentViewerId]);
-    return tasks.filter(t => !t.assignedTo || ids.has(t.assignedTo) || (t.team && myTeam && t.team === myTeam));
+    const ids = new Set(myScopedPeople().map(e => e.id));
+    return tasks.filter(t => !t.assignedTo || ids.has(t.assignedTo));
   })();
   // counts per source (independent of the active filter)
   const bySrc = s => all.filter(t => (t.source || 'manual') === s).length;
@@ -1999,9 +2012,7 @@ function myBoardTeams(){
   if(founder){
     teams = [...new Set(employees.map(e => e.team).filter(Boolean))];
   } else {
-    const mine = new Set((me.managesIds || []).map(id => (empById(id) || {}).team).filter(Boolean));
-    if(me.team) mine.add(me.team);
-    teams = [...mine];
+    teams = me.team ? [me.team.trim()] : [];
   }
   return { teams: teams.sort((a,b) => a.localeCompare(b)), founder };
 }
@@ -2074,7 +2085,7 @@ function renderTeamBoard(){
     const overdue = mine.filter(tbOverdue).length;
     const withDue = mine.filter(t => t.internalDeadline).sort((a,b) => a.internalDeadline < b.internalDeadline ? -1 : 1);
     const next = withDue[0];
-    const roleChip = (m.managesIds || []).length > 0 ? '<span class="mchip admin" style="padding:2px 9px;">lead</span>' : '<span class="mchip" style="padding:2px 9px;">member</span>';
+    const roleChip = (m.accessRole === 'admin' || m.accessRole === 'superadmin') ? '<span class="mchip admin" style="padding:2px 9px;">lead</span>' : '<span class="mchip" style="padding:2px 9px;">member</span>';
     return `<tr>
       <td><div class="assignee"><span class="mini-avatar">${esc(m.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span> ${esc(m.name)}</div></td>
       <td>${roleChip}</td>
@@ -3705,14 +3716,11 @@ function computeEmployeeStats(empId){
   const adherence = completed.length ? Math.round((onTime.length / completed.length) * 100) : 0;
   return { empTasks, completed, pts, adherence };
 }
-// Who manages this person (there can be more than one — a person can sit
-// on two teams).
-function managersOf(empId){
-  return employees.filter(e => (e.managesIds || []).includes(empId));
-}
-/* "My Team" — a manager adds / removes their own members. A member added
-   by two managers is on two teams. Superadmins manage this per-person from
-   Employees → Manage access; this panel is the manager's own view of it. */
+/* "My Team" — a manager moves people onto / off their team. A team is a
+   `.team` name; moving someone sets their team to yours. The Manager
+   Dashboard, Team Capacity, Employee Directory etc. all re-scope the moment
+   this changes. Superadmins can also set a person's team from Employees →
+   Manage access. */
 async function teamAdd(empId){
   try { await api('/api/team/add', { method:'POST', body: JSON.stringify({ employeeId: empId }) });
     await refreshEmployees(); renderMyTeamPanel(); renderManagerStatics();
@@ -3720,7 +3728,7 @@ async function teamAdd(empId){
   } catch(e){ showToast('error', 'Could not add', e.message); }
 }
 async function teamRemove(empId){
-  if(!confirm(`Remove ${empById(empId)?.name || 'this person'} from your team?\n\nTheir work and history stay — they just no longer report to you.`)) return;
+  if(!confirm(`Remove ${empById(empId)?.name || 'this person'} from ${myTeamName() || 'your team'}?\n\nTheir work and history stay — their team just becomes Unassigned.`)) return;
   try { await api('/api/team/remove', { method:'POST', body: JSON.stringify({ employeeId: empId }) });
     await refreshEmployees(); renderMyTeamPanel(); renderManagerStatics();
     showToast('success', 'Removed from your team', empById(empId)?.name || '');
@@ -3729,27 +3737,28 @@ async function teamRemove(empId){
 function renderMyTeamPanel(){
   const wrap = document.getElementById('myTeamWrap');
   if(!wrap) return;
-  const me = empById(currentViewerId) || {};
-  const mine = (me.managesIds || []).map(id => empById(id)).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+  const teamName = myTeamName();
+  if(!teamName){
+    wrap.innerHTML = `<div style="font-size:13.5px;color:var(--text-faint);padding:8px 0;">You're not on a team yet — a superadmin can set yours in Employees → Manage access.</div>`;
+    return;
+  }
+  const mine = myScopedPeople().filter(e => e.id !== currentViewerId).sort((a,b)=>a.name.localeCompare(b.name));
   const available = employees
-    .filter(e => e.id !== currentViewerId && !(me.managesIds || []).includes(e.id))
+    .filter(e => e.id !== currentViewerId && (e.team || '').trim() !== teamName)
     .sort((a,b)=>a.name.localeCompare(b.name));
-  const rows = mine.length ? mine.map(e => {
-    const otherMgrs = managersOf(e.id).filter(m => m.id !== currentViewerId).map(m => m.name.split(' ')[0]);
-    return `<div class="mt-row">
+  const rows = mine.length ? mine.map(e => `<div class="mt-row">
       <span class="mini-avatar">${esc(e.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
       <div style="flex:1;min-width:0;">
         <div style="font-weight:600;font-size:14px;">${esc(e.name)}</div>
-        <div style="font-size:12px;color:var(--text-faint);">${esc(e.jobTitle||'')}${otherMgrs.length ? ' · also on ' + esc(otherMgrs.join(', ')) + "'s team" : ''}</div>
+        <div style="font-size:12px;color:var(--text-faint);">${esc(e.jobTitle||'')}${e.accessRole && e.accessRole!=='employee' ? ' · ' + esc(accessLabel(e.accessRole)) : ''}</div>
       </div>
       <button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="teamRemove('${e.id}')">Remove</button>
-    </div>`;
-  }).join('') : `<div style="font-size:13.5px;color:var(--text-faint);padding:8px 0;">No members yet — add someone below.</div>`;
+    </div>`).join('') : `<div style="font-size:13.5px;color:var(--text-faint);padding:8px 0;">No members yet — add someone below.</div>`;
   wrap.innerHTML = `
     <div class="mt-list">${rows}</div>
     <div class="mt-add">
-      <select id="mtAddSel">${available.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team||'—')}</option>`).join('') || '<option value="">Everyone is already on your team</option>'}</select>
-      <button class="btn primary small" onclick="teamAdd(document.getElementById('mtAddSel').value)" ${available.length?'':'disabled'}>+ Add member</button>
+      <select id="mtAddSel">${available.map(e=>`<option value="${e.id}">${esc(e.name)} — currently ${esc((e.team||'').trim()||'Unassigned')}</option>`).join('') || '<option value="">Everyone is already on this team</option>'}</select>
+      <button class="btn primary small" onclick="teamAdd(document.getElementById('mtAddSel').value)" ${available.length?'':'disabled'}>+ Add to ${esc(teamName)}</button>
     </div>`;
 }
 function renderManagerStatics(){
@@ -5372,10 +5381,9 @@ function renderEmployeeGrid(){
   const card = e => {
     let managesLine = '';
     if(e.accessRole === 'admin'){
-      const names = (e.managesIds||[]).map(id => empById(id)?.name).filter(Boolean);
-      managesLine = `<div style="font-size:12.5px; color:var(--text-faint); margin-top:3px;">Manages: ${names.length ? esc(names.join(', ')) : '—'}</div>`;
+      managesLine = `<div style="font-size:12.5px; color:var(--text-faint); margin-top:3px;">Manages the ${esc((e.team||'').trim() || 'Unassigned')} team</div>`;
     } else if(e.accessRole === 'superadmin'){
-      managesLine = `<div style="font-size:12.5px; color:var(--text-faint); margin-top:3px;">Manages: everyone</div>`;
+      managesLine = `<div style="font-size:12.5px; color:var(--text-faint); margin-top:3px;">Superadmin · full firm oversight</div>`;
     }
     return `
     <div class="emp-card">
@@ -5664,12 +5672,11 @@ async function onLoginComplete(){
   document.getElementById('topRole').textContent = session.jobTitle + ' · ' + session.team;
 
   await refreshEmployees();
-  // Team Board — for anyone who actually leads people: an admin/superadmin,
-  // or someone with reports assigned (managesIds). Not driven by the stale
-  // memberships layer any more.
+  // Team Board — for anyone who leads a team: an admin/superadmin, or a
+  // founder. Scoped by the real .team field.
   {
     const meRec = empById(session.id) || session;
-    const leadsTeam = isAdmin || !!(meRec && (meRec.isFounder || (meRec.managesIds || []).length > 0));
+    const leadsTeam = isAdmin || !!(meRec && meRec.isFounder);
     document.getElementById('teamBoardNavSection').style.display = leadsTeam ? '' : 'none';
   }
   await refreshClients();
