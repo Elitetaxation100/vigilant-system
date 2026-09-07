@@ -266,6 +266,10 @@ function runMigrations(state) {
   // P2 — reminder / chase ledger (see logTaskEvent below).
   if (!Array.isArray(state.taskEvents)) state.taskEvents = [];
   if (typeof state.taskEventSeq !== 'number') state.taskEventSeq = 0;
+  // P3 — per-department composite-score weights. { _default?: {...}, [team]: {...} }
+  if (!state.productivityWeights || typeof state.productivityWeights !== 'object' || Array.isArray(state.productivityWeights)) {
+    state.productivityWeights = {};
+  }
   // calls-into-tasks Phase 5: the connector's call log moves off the Google
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];

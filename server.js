@@ -1759,11 +1759,37 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// PRODUCTIVITY TRACKER (Phase 4). Allocated hours (agreed TAT) vs worked
-// hours (what the delivery actually took), rolled up over any date range,
-// with cumulative year-to-date. Not a timesheet — nothing is clocked; the
-// worked figure is derived from the task itself (taskHours).
+// P3 — COMPOSITE PRODUCTIVITY SCORE. One number, 0–100, from five sub-scores
+// that each answer a different question, weighted per department (weights
+// sum to 1). A factor with no data in the range is dropped and the rest
+// renormalised. Below a signal threshold (min tasks OR 10 working days) the
+// score is withheld ("building").
+//
+//   E  Efficiency  100 × allocated / worked          (capped at 100)
+//   T  Timeliness  100 × met / (met + missed)        (client-dated work only)
+//   R  Rework      100 − min(40, 40 × processorReworkRounds / reviewedTasks)
+//   N  Reminders   100 − min(30, 15 × chaseEvents / openTasks)
+//   C  Coverage    100 × worked / allocated          (denominator is allocated,
+//                                                     never capacity)
 // ---------------------------------------------------------------------------
+const DEFAULT_WEIGHTS = { E: 0.20, T: 0.30, R: 0.15, N: 0.10, C: 0.25, slackTolerancePct: 10, minTasksForScore: 5 };
+const WEIGHT_KEYS = ['E', 'T', 'R', 'N', 'C'];
+function weightsForTeam(state, team) {
+  const store = (state.productivityWeights && typeof state.productivityWeights === 'object') ? state.productivityWeights : {};
+  const base = { ...DEFAULT_WEIGHTS, ...(store._default || {}) };
+  return { ...base, ...((team && store[team]) || {}) };
+}
+function compositeScore(f, weights) {
+  // f: { E, T, R, N, C } each null (no data) or 0..100
+  let wsum = 0, psum = 0;
+  for (const k of WEIGHT_KEYS) {
+    if (f[k] == null) continue;
+    const w = Number(weights[k]) || 0;
+    wsum += w; psum += w * f[k];
+  }
+  return wsum > 0 ? Math.round(psum / wsum) : null;
+}
+
 function productivityFor(state, empIds, fromISO, toISO) {
   const from = fromISO, to = toISO;
   const inRange = d => d && d.slice(0, 10) >= from && d.slice(0, 10) <= to;
@@ -1809,6 +1835,31 @@ function productivityFor(state, empIds, fromISO, toISO) {
       weeks[wk].tasks += 1; weeks[wk].worked += taskHours(t); weeks[wk].allocated += Number(t.tat) || 0;
     });
     const r2 = n => Math.round(n * 100) / 100;
+
+    // ---- P3 composite score ----
+    const weights = weightsForTeam(state, emp.team);
+    const reviewedDone = done.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
+    const processorReworkRounds = done.reduce((s, t) => {
+      const hist = (t.reworkHistory || []).filter(h => h && h.faultType === 'processor').length;
+      if (hist) return s + hist;
+      if (t.reviewStatus === 'error' && t.faultType === 'processor') return s + (t.reworkCount || 1);
+      return s;
+    }, 0);
+    const openNow = state.tasks.filter(t => t.assignedTo === id && !['completed', 'pending_approval'].includes(t.status)).length;
+    const openTasks = done.length + openNow;
+    const clampPct = n => Math.max(0, Math.min(100, Math.round(n)));
+    const factors = {
+      E: worked > 0 ? clampPct(100 * allocated / worked) : null,
+      T: (met + missed) > 0 ? clampPct(100 * met / (met + missed)) : null,
+      R: reviewedDone.length > 0 ? clampPct(100 - Math.min(40, 40 * processorReworkRounds / reviewedDone.length)) : null,
+      N: openTasks > 0 ? clampPct(100 - Math.min(30, 15 * chaseEvents / openTasks)) : null,
+      C: allocated > 0 ? clampPct(100 * worked / allocated) : null,
+    };
+    const rawScore = compositeScore(factors, weights);
+    const minTasks = Number(weights.minTasksForScore) > 0 ? Number(weights.minTasksForScore) : 5;
+    const enoughSignal = done.length >= minTasks || workingDays >= 10;
+    const scoreStatus = rawScore == null ? 'no-data' : (enoughSignal ? 'ready' : 'building');
+
     return {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
       tasks: done.length,
@@ -1821,6 +1872,10 @@ function productivityFor(state, empIds, fromISO, toISO) {
       throughput: workingDays > 0 ? r2(done.length / workingDays) : null,
       onTimeRate: (met + missed) > 0 ? Math.round((met / (met + missed)) * 100) : null,
       met, missed, reworkRounds, chaseEvents,
+      // P3
+      factors, productivityScore: rawScore, scoreStatus, reviewedTasks: reviewedDone.length,
+      processorReworkRounds, openTasksInRange: openTasks,
+      weightsApplied: { E: weights.E, T: weights.T, R: weights.R, N: weights.N, C: weights.C },
       cumulativeYtdWorked: r2(ytdWorked),
       weekly: Object.values(weeks).sort((a, b) => a.weekStart.localeCompare(b.weekStart))
         .map(w => ({ ...w, worked: r2(w.worked), allocated: r2(w.allocated) })),
@@ -1845,9 +1900,27 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const people = productivityFor(state, ids, from, to);
   const sum = (k) => people.reduce((s, p) => s + (p[k] || 0), 0);
   const totalAlloc = sum('allocatedHours'), totalWorked = sum('workedHours'), totalCap = sum('capacityHours');
+
+  // Roll-up composite: build each factor from the summed raw inputs, then
+  // weight. When everyone in scope shares one team, use that team's weights;
+  // otherwise the firm default. Compare within a department, not across.
+  const teamsInScope = [...new Set(people.filter(p => p.tasks > 0).map(p => p.team))];
+  const rollWeights = teamsInScope.length === 1 ? weightsForTeam(state, teamsInScope[0]) : weightsForTeam(state, null);
+  const tMet = sum('met'), tMissed = sum('missed'), tReviewed = sum('reviewedTasks');
+  const tProcRework = sum('processorReworkRounds'), tChase = sum('chaseEvents'), tOpen = sum('openTasksInRange');
+  const clampPct = n => Math.max(0, Math.min(100, Math.round(n)));
+  const rollFactors = {
+    E: totalWorked > 0 ? clampPct(100 * totalAlloc / totalWorked) : null,
+    T: (tMet + tMissed) > 0 ? clampPct(100 * tMet / (tMet + tMissed)) : null,
+    R: tReviewed > 0 ? clampPct(100 - Math.min(40, 40 * tProcRework / tReviewed)) : null,
+    N: tOpen > 0 ? clampPct(100 - Math.min(30, 15 * tChase / tOpen)) : null,
+    C: totalAlloc > 0 ? clampPct(100 * totalWorked / totalAlloc) : null,
+  };
+
   res.json({
     from, to, scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
     people: people.filter(p => p.tasks > 0 || ids.length === 1),
+    weights: rollWeights,
     totals: {
       tasks: sum('tasks'),
       allocatedHours: Math.round(totalAlloc * 100) / 100,
@@ -1855,10 +1928,55 @@ app.get('/api/productivity', requireAuth, (req, res) => {
       capacityHours: Math.round(totalCap * 100) / 100,
       utilisationPct: totalCap > 0 ? Math.round((totalWorked / totalCap) * 100) : null,
       efficiency: totalWorked > 0 ? Math.round((totalAlloc / totalWorked) * 100) / 100 : null,
-      chaseEvents: sum('chaseEvents'),
+      chaseEvents: tChase,
+      factors: rollFactors,
+      productivityScore: compositeScore(rollFactors, rollWeights),
       cumulativeYtdWorked: Math.round(sum('cumulativeYtdWorked') * 100) / 100,
     },
   });
+});
+
+// P3 — per-department score weights. Any admin can read; only a superadmin
+// sets them. E+T+R+N+C must sum to 1. `team: null` edits the firm default;
+// `weights: null` clears a team's override (falls back to default).
+app.get('/api/productivity/weights', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get();
+  const store = state.productivityWeights || {};
+  const teams = [...new Set(state.employees.map(e => e.team).filter(t => t && t !== 'Unassigned'))].sort();
+  res.json({
+    default: { ...DEFAULT_WEIGHTS, ...(store._default || {}) },
+    byTeam: Object.fromEntries(teams.map(t => [t, store[t] ? { ...DEFAULT_WEIGHTS, ...(store._default || {}), ...store[t] } : null])),
+    baseDefault: DEFAULT_WEIGHTS,
+    teams,
+  });
+});
+app.put('/api/productivity/weights', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const body = req.body || {};
+  const team = body.team == null ? '_default' : String(body.team);
+  if (!state.productivityWeights || typeof state.productivityWeights !== 'object') state.productivityWeights = {};
+  if (body.weights === null && team !== '_default') {
+    delete state.productivityWeights[team];
+    db.save();
+    return res.json({ ok: true, cleared: team });
+  }
+  const w = body.weights || {};
+  const nums = {};
+  for (const k of WEIGHT_KEYS) {
+    const v = Number(w[k]);
+    if (!(v >= 0 && v <= 1)) return res.status(400).json({ error: `Weight ${k} must be between 0 and 1.` });
+    nums[k] = Math.round(v * 1000) / 1000;
+  }
+  const total = WEIGHT_KEYS.reduce((s, k) => s + nums[k], 0);
+  if (Math.abs(total - 1) > 0.001) return res.status(400).json({ error: `The five weights must add up to 1 — they add up to ${total.toFixed(3)}.` });
+  const slack = Number(w.slackTolerancePct);
+  nums.slackTolerancePct = (slack >= 0 && slack <= 50) ? Math.round(slack) : DEFAULT_WEIGHTS.slackTolerancePct;
+  const minT = Number(w.minTasksForScore);
+  nums.minTasksForScore = (minT >= 1 && minT <= 50) ? Math.round(minT) : DEFAULT_WEIGHTS.minTasksForScore;
+  state.productivityWeights[team] = nums;
+  logEvent(state, req.employee.id, `Updated productivity weights for <b>${escHtml(team === '_default' ? 'the firm default' : team)}</b>.`);
+  db.save();
+  res.json({ ok: true, team, weights: nums });
 });
 
 // ---------------------------------------------------------------------------

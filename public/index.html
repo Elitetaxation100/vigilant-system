@@ -367,6 +367,22 @@
   .to-row:first-child{ border-top:none; }
   .to-row .to-main{ flex:1; min-width:0; }
 
+  .pscore{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; padding:16px 18px; background:var(--panel-2); border:1px solid var(--panel-border); border-radius:14px; }
+  .pscore-big{ font-size:40px; font-weight:700; line-height:1; font-family:var(--font-mono); }
+  .pscore-big small{ font-size:15px; color:var(--text-faint); font-weight:500; }
+  .pscore-label{ font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint); margin-bottom:4px; }
+  .pfactors{ display:flex; gap:16px; flex-wrap:wrap; flex:1; min-width:260px; }
+  .pf{ min-width:78px; }
+  .pf-top{ display:flex; justify-content:space-between; font-size:11px; color:var(--text-faint); margin-bottom:3px; }
+  .pf-top b{ color:var(--text); font-family:var(--font-mono); }
+  .pf-track{ height:6px; border-radius:999px; background:var(--panel-border); overflow:hidden; }
+  .pf-fill{ height:100%; border-radius:999px; }
+  .pf-na{ font-size:11px; color:var(--text-faint); font-style:italic; }
+  .pw-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; align-items:end; margin:8px 0; }
+  .pw-grid label{ font-size:11px; color:var(--text-faint); display:block; margin-bottom:3px; }
+  .pw-grid input{ width:100%; padding:6px 8px; }
+  .pw-sum{ font-family:var(--font-mono); font-size:12.5px; }
+
   .attn-list{ display:flex; flex-direction:column; gap:10px; }
   .attn-item{ display:flex; align-items:flex-start; gap:12px; padding:14px; background:var(--coral-dim); border:1px solid #F0603E3a; border-radius:var(--radius-m); }
   .attn-icon{ width:28px; height:28px; border-radius:50%; background:var(--coral); color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:13px; }
@@ -1293,7 +1309,7 @@
           <div class="stat-card mg-tile" onclick="openMgTileList('ontrack')"><div class="label">On Track</div><div class="value teal" id="statOnTrack">0</div><div class="delta">due &gt; 1 day out</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('atrisk')"><div class="label">At Risk</div><div class="value amber" id="statAtRisk">0</div><div class="delta">due in ≤ 1 day</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('overdue')"><div class="label">Overdue</div><div class="value coral" id="statOverdueTasks">0</div><div class="delta" id="mgOverdueSub">—</div></div>
-          <div class="stat-card mg-tile" onclick="openMgTileList('productivity')"><div class="label">Team Productivity</div><div class="value" id="mgKpiProd">—</div><div class="delta">worked vs planned hrs</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('productivity')"><div class="label">Team Productivity</div><div class="value" id="mgKpiProd">—</div><div class="delta" id="mgKpiProdSub">worked vs planned hrs</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('commitment')"><div class="label">Commitment Met</div><div class="value teal" id="mgKpiCommit">—</div><div class="delta">on/before client date</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('accuracy')"><div class="label">Accuracy</div><div class="value" id="mgKpiAcc">—</div><div class="delta">error-free on review</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('pending')"><div class="label">Awaiting Review</div><div class="value amber" id="mgKpiPending">0</div><div class="delta" id="mgPendingSub">—</div></div>
@@ -1407,10 +1423,12 @@
             </div>
           </div>
           <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Allocated = the agreed turnaround (TAT) on delivered work. Worked = what delivery actually took. No timers — derived from the task itself. Capacity = each person's productive hours per working day.</p>
-          <div class="top-grid" id="prodTiles"></div>
+          <div id="prodScoreCard"></div>
+          <div id="prodWeightsEditor"></div>
+          <div class="top-grid" id="prodTiles" style="margin-top:16px;"></div>
           <div class="cc-panel" style="margin-top:18px;">
             <table class="cc-table">
-              <thead><tr><th>Person</th><th>Tasks</th><th>Allocated h</th><th>Worked h</th><th>Capacity h</th><th>Utilisation</th><th>Efficiency</th><th>Throughput</th><th>On-time</th><th>Rework</th><th>Chased</th><th>YTD worked</th></tr></thead>
+              <thead><tr><th>Person</th><th>Score</th><th>Tasks</th><th>Allocated h</th><th>Worked h</th><th>Capacity h</th><th>Utilisation</th><th>Efficiency</th><th>Throughput</th><th>On-time</th><th>Rework</th><th>Chased</th><th>YTD worked</th></tr></thead>
               <tbody id="prodBody"></tbody>
             </table>
           </div>
@@ -4012,6 +4030,8 @@ function renderManagerStatics(){
   const pend = scopedTasks.filter(t => t.status === 'completed' && !t.reviewStatus);
   const setT = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
   setT('mgKpiProd', prodPct == null ? '—' : prodPct + '%');
+  // P3: swap the raw worked/planned ratio for the composite score once it loads
+  refreshMgScore();
   setT('mgKpiCommit', commitPct == null ? '—' : commitPct + '%');
   setT('mgKpiAcc', accPct == null ? '—' : accPct + '%');
   setT('mgKpiPending', pend.length);
@@ -4066,6 +4086,19 @@ function ccDonut(pct, label, sub){
       <div class="cc-donut-label">${label}</div>
       <div class="cc-donut-sub">${sub}</div>
     </div>`;
+}
+/* P3 — the Manager Dashboard "Team Productivity" tile shows the composite
+   score (server-computed, department-weighted). Falls back to the raw
+   worked/planned ratio already rendered if the fetch fails. */
+async function refreshMgScore(){
+  try {
+    const d = await api('/api/productivity');
+    const s = d.totals.productivityScore;
+    const el = document.getElementById('mgKpiProd'), sub = document.getElementById('mgKpiProdSub');
+    if(el && s != null){ el.textContent = s; el.style.color = scoreColor(s); }
+    else if(el){ el.textContent = '—'; }
+    if(sub) sub.textContent = 'composite score / 100';
+  } catch(e){ /* keep the raw ratio */ }
 }
 async function renderCommandCenter(){
   if(!document.getElementById('ccStatTotal')) return;
@@ -4323,15 +4356,107 @@ function _prodRange(){
   else { from=new Date(now.getFullYear(), 0, 1); }
   return { from: iso(from), to: iso(now) };
 }
+/* P3 — composite productivity score. Five weighted factors, 0–100 each:
+   E efficiency · T timeliness · R rework quality · N reminder discipline ·
+   C delivery coverage. Weights are per-department and sum to 1. */
+let _prodWeights = null;
+const PF_META = { E:['Efficiency','allocated ÷ worked'], T:['On-time','met ÷ dated'], R:['Rework','processor faults'], N:['Reminders','chases ÷ tasks'], C:['Coverage','worked ÷ allocated'] };
+function pfColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? '#2FBE93' : v>=60 ? '#F0B93E' : '#F0603E'; }
+function scoreColor(v){ return v==null ? '#6B7390' : v>=80 ? '#2FBE93' : v>=60 ? '#F0B93E' : '#F0603E'; }
+function factorBarsHtml(factors, weights){
+  return `<div class="pfactors">` + ['E','T','R','N','C'].map(k=>{
+    const v = factors ? factors[k] : null;
+    const w = weights && weights[k]!=null ? weights[k] : null;
+    return `<div class="pf" title="${PF_META[k][1]}${w!=null?` · weight ${(+w).toFixed(2)}`:''}">
+      <div class="pf-top"><span>${PF_META[k][0]}</span><b>${v==null?'—':v}</b></div>
+      <div class="pf-track">${v==null?'':`<div class="pf-fill" style="width:${v}%;background:${pfColor(v)};"></div>`}</div>
+      ${w!=null?`<div style="font-size:10px;color:var(--text-faint);margin-top:2px;">w ${(+w).toFixed(2)}</div>`:''}
+    </div>`;
+  }).join('') + `</div>`;
+}
+function scoreCardHtml(score, factors, weights, sub){
+  const big = score==null
+    ? `<span style="color:var(--text-faint);">—</span>`
+    : `${score}<small>/100</small>`;
+  return `<div class="pscore">
+    <div>
+      <div class="pscore-label">Productivity score</div>
+      <div class="pscore-big" style="color:${scoreColor(score)};">${big}</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">${esc(sub||'')}</div>
+    </div>
+    ${factorBarsHtml(factors, weights)}
+  </div>`;
+}
+function prodScoreCell(p){
+  const s = p.productivityScore;
+  const brk = p.factors ? ['E','T','R','N','C'].map(k=>`${k} ${p.factors[k]==null?'–':p.factors[k]}`).join(' · ') : '';
+  if(p.scoreStatus === 'building')
+    return `<span title="${brk}\n(building — needs ${'≥5 tasks or ≥10 working days'})" style="color:var(--text-faint);font-style:italic;">building…</span>`;
+  if(s == null) return `<span style="color:var(--text-faint);">—</span>`;
+  return `<b title="${brk}" style="font-family:var(--font-mono);color:${scoreColor(s)};">${s}</b>`;
+}
+async function renderWeightsEditor(){
+  const wrap = document.getElementById('prodWeightsEditor');
+  if(!wrap) return;
+  if(!isSuperAdmin){ wrap.innerHTML=''; return; }
+  let cfg;
+  try { cfg = await api('/api/productivity/weights'); }
+  catch(e){ wrap.innerHTML=''; return; }
+  const teams = ['_default', ...cfg.teams];
+  const rowFor = t => {
+    const w = t==='_default' ? cfg.default : (cfg.byTeam[t] || cfg.default);
+    const overridden = t!=='_default' && !!cfg.byTeam[t];
+    const id = 'pw_'+t.replace(/[^a-z0-9]/gi,'');
+    return `<details class="panel panel-fold" style="margin:6px 0;"><summary><b>${t==='_default'?'Firm default':esc(t)}</b>${overridden?' <span class="badge completed dot" style="font-size:10px;">custom</span>':''}</summary>
+      <div class="pw-grid" data-pw="${esc(t)}" id="${id}">
+        ${['E','T','R','N','C'].map(k=>`<div><label>${PF_META[k][0]} (${k})</label><input type="number" step="0.05" min="0" max="1" data-k="${k}" value="${(+w[k]).toFixed(2)}" oninput="pwSum('${id}')"></div>`).join('')}
+        <div><label>Slack tol. %</label><input type="number" step="1" min="0" max="50" data-k="slackTolerancePct" value="${w.slackTolerancePct??10}"></div>
+        <div><label>Min tasks</label><input type="number" step="1" min="1" max="50" data-k="minTasksForScore" value="${w.minTasksForScore??5}"></div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
+        <span class="pw-sum" id="${id}_sum"></span>
+        <button class="btn primary small" onclick="saveWeights('${esc(t)}','${id}')">Save</button>
+        ${overridden?`<button class="btn small" onclick="saveWeights('${esc(t)}','${id}',true)">Reset to default</button>`:''}
+      </div>
+    </details>`;
+  };
+  wrap.innerHTML = `<details class="panel panel-fold" style="margin-top:14px;"><summary><h2 style="display:inline;font-size:15px;">Score weights</h2> <span class="fold-hint">per department · must sum to 1</span></summary>
+    <p style="font-size:12.5px;color:var(--text-dim);margin:6px 0 4px;">Each department's five weights add up to 1. A heavier weight says that factor matters more for that team — so a score means different things per team, and people are only compared within a department.</p>
+    ${teams.map(rowFor).join('')}</details>`;
+  teams.forEach(t=>pwSum('pw_'+t.replace(/[^a-z0-9]/gi,'')));
+}
+function pwSum(gridId){
+  const g = document.getElementById(gridId); if(!g) return;
+  let s=0; g.querySelectorAll('input[data-k]').forEach(i=>{ if(['E','T','R','N','C'].includes(i.dataset.k)) s+=parseFloat(i.value)||0; });
+  const el = document.getElementById(gridId+'_sum');
+  if(el){ const ok=Math.abs(s-1)<0.001; el.textContent = `Σ = ${s.toFixed(2)}`; el.style.color = ok ? '#2FBE93' : '#F0603E'; }
+}
+async function saveWeights(team, gridId, reset){
+  const body = { team: team==='_default' ? null : team };
+  if(reset){ body.weights = null; }
+  else {
+    const g = document.getElementById(gridId); const w = {};
+    g.querySelectorAll('input[data-k]').forEach(i=>{ w[i.dataset.k] = parseFloat(i.value)||0; });
+    body.weights = w;
+  }
+  try {
+    await api('/api/productivity/weights', { method:'PUT', body: JSON.stringify(body) });
+    showToast('success', reset?'Reset to default':'Weights saved', 'The score recomputes on the next load.');
+    renderProductivityView();
+  } catch(e){ showToast('error', 'Could not save', e.message); }
+}
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
   if(!body) return;
   const { from, to } = _prodRange();
   let data;
   try { data = await api(`/api/productivity?from=${from}&to=${to}`); }
-  catch(e){ body.innerHTML = `<tr><td colspan="12" style="color:var(--text-faint);padding:20px;text-align:center;">${esc(e.message)}</td></tr>`; return; }
+  catch(e){ body.innerHTML = `<tr><td colspan="13" style="color:var(--text-faint);padding:20px;text-align:center;">${esc(e.message)}</td></tr>`; return; }
   const T = data.totals;
   const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}</div>`;
+  _prodWeights = data.weights || _prodWeights;
+  document.getElementById('prodScoreCard').innerHTML = scoreCardHtml(T.productivityScore, T.factors, data.weights, `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}`);
+  renderWeightsEditor();
   document.getElementById('prodTiles').innerHTML =
     tile('Worked hours', T.workedHours.toFixed(1), `of ${T.allocatedHours.toFixed(1)} allocated`) +
     tile('Utilisation', T.utilisationPct==null?'—':T.utilisationPct+'%', `vs ${T.capacityHours.toFixed(0)}h capacity`) +
@@ -4339,9 +4464,10 @@ async function renderProductivityView(){
     tile('Tasks delivered', T.tasks, `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}`) +
     tile('Cumulative YTD', T.cumulativeYtdWorked.toFixed(0)+'h', 'worked, this year');
 
-  const rows = data.people.slice().sort((a,b)=>b.workedHours-a.workedHours);
+  const rows = data.people.slice().sort((a,b)=>(b.productivityScore??-1)-(a.productivityScore??-1) || b.workedHours-a.workedHours);
   body.innerHTML = rows.length ? rows.map(p => `<tr>
       <td><a href="#" onclick="openWorkLog('${p.id}');return false;" style="color:var(--text);font-weight:600;">${esc(p.name)}</a> <span style="font-size:11px;color:var(--text-faint);">↗ log</span><div style="font-size:11px;color:var(--text-faint);">${esc(p.team)}</div></td>
+      <td>${prodScoreCell(p)}</td>
       <td>${p.tasks}</td>
       <td style="font-family:var(--font-mono);">${p.allocatedHours.toFixed(1)}</td>
       <td style="font-family:var(--font-mono);">${p.workedHours.toFixed(1)}</td>
@@ -4353,7 +4479,7 @@ async function renderProductivityView(){
       <td>${p.reworkRounds||''}</td>
       <td title="times chased in this range">${p.chaseEvents||''}</td>
       <td style="font-family:var(--font-mono);">${p.cumulativeYtdWorked.toFixed(0)}h</td>
-    </tr>`).join('') : `<tr><td colspan="12" style="text-align:center;color:var(--text-faint);padding:22px;">No completed work in this range.</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="13" style="text-align:center;color:var(--text-faint);padding:22px;">No completed work in this range.</td></tr>`;
 
   // weekly trend — worked vs allocated, per week, summed across the scope
   const wk = {};
