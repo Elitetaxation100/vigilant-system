@@ -586,7 +586,7 @@
   .mg-side .panel{ margin-bottom:0; }
   @media(max-width:1120px){ .mg-body{ grid-template-columns:1fr; } }
 
-  .d-inout{ display:flex; align-items:flex-end; gap:10px; height:170px; padding-top:6px; }
+  .d-inout{ display:flex; align-items:flex-end; gap:10px; height:150px; padding-top:6px; }
   .d-inout .col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; }
   .d-inout .bb{ flex:1; display:flex; align-items:flex-end; gap:4px; width:100%; justify-content:center; }
   .d-inout .bar{ width:14px; border-radius:3px 3px 0 0; }
@@ -596,7 +596,7 @@
   .d-legend i{ display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:6px; }
   .d-legend .a i{ background:var(--purple); } .d-legend .b i{ background:var(--teal); }
 
-  .d-attn{ display:flex; flex-direction:column; gap:2px; }
+  .d-attn{ display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:2px 14px; }
   .d-attn .row{ display:flex; align-items:center; gap:11px; padding:9px 7px; border-radius:8px; cursor:pointer; }
   .d-attn .row:hover{ background:var(--panel-2); }
   .d-attn .st{ width:3px; align-self:stretch; border-radius:2px; flex:none; }
@@ -1117,14 +1117,14 @@
 
         <div class="dgrid-2">
           <div class="panel">
+            <div class="panel-head"><h2>Needs attention</h2><span style="font-size:12px;color:var(--text-faint);" id="fvAttnCount">—</span></div>
+            <div class="d-attn" id="fvAttn"></div>
+          </div>
+          <div class="panel">
             <div class="panel-head"><h2>Work coming in vs getting done</h2><span style="font-size:12px;color:var(--text-faint);" id="fvInOutNote">by week</span></div>
             <p style="font-size:13px;color:var(--text-dim);margin:-6px 0 14px;">The backlog grows whenever purple (created) keeps beating teal (completed).</p>
             <div class="d-inout" id="fvInOut"></div>
             <div class="d-legend"><span class="a"><i></i>Created</span><span class="b"><i></i>Completed</span></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Needs attention</h2><span style="font-size:12px;color:var(--text-faint);" id="fvAttnCount">—</span></div>
-            <div class="d-attn" id="fvAttn"></div>
           </div>
         </div>
 
@@ -1862,8 +1862,8 @@ function eligibleReviewersFor(assigneeId){
    review. Team- and firm-wide views live on the Manager Dashboard, the
    Founder View and the Command Center, not here. */
 function dashboardScopeTasks(){
-  const reviewIds = new Set(myReviewTasks().map(t => t.id));
-  return tasks.filter(t => t.assignedTo === currentViewerId || reviewIds.has(t.id));
+  // Personal dashboard — the viewer's own work only.
+  return tasks.filter(t => t.assignedTo === currentViewerId);
 }
 function dashboardScopeLabelShort(){ return ''; }
 
@@ -2593,15 +2593,14 @@ function matchesStatusFilter(t, f){
 function renderTaskTable(){
   const q = (document.getElementById('taskSearch').value || '').toLowerCase();
   const status = document.getElementById('statusFilter').value;
-  // The Commitment Dashboard is personal for everyone — this table only
-  // ever shows the viewer's own work plus anything sent to them to review.
-  // Team- and firm-wide task lists live on the Manager Dashboard and the
-  // Command Center.
+  // The Commitment Dashboard is personal for everyone — this table shows
+  // ONLY the viewer's own assigned work. Review work (other people's tasks
+  // sent to you to check) lives on the Manager Dashboard's "Awaiting Review"
+  // section and the "To Review" tile above; team- and firm-wide lists are
+  // on the Manager Dashboard and the Command Center.
   const body = document.getElementById('taskTableBody');
   const rows = tasks.filter(t => {
-    const mineOrToReview = t.assignedTo === currentViewerId ||
-      (t.status === 'completed' && !t.reviewStatus && iCanReview(t));
-    if(!mineOrToReview) return false;
+    if(t.assignedTo !== currentViewerId) return false;
     if(!matchesStatusFilter(t, status)) return false;
     const hay = (t.name + ' ' + t.scope + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
     return hay.includes(q);
@@ -2737,16 +2736,14 @@ function renderEmployeeStats(){
   const crumb = document.getElementById('empCrumb');
   if(crumb) crumb.innerHTML = `<b>You:</b> ${esc(me.name)}${me.team ? ' · ' + esc(me.team) : ''} · ${esc(label)}`;
 
-  // "To do today" = every task on the person's plate that isn't finished —
-  // to accept, in progress, on hold, in rework, or sent for review and not
-  // yet signed off. Excludes fully-closed work (reviewed clean, or a call /
-  // Slack task marked done) and self-assignments still waiting on a manager.
+  // "To do today" = every one of the person's OWN tasks that isn't finished
+  // — to accept, yet to start, in progress, on hold, in rework, or sent for
+  // review and not yet signed off. Excludes fully-closed work and
+  // self-assignments still waiting on a manager. Review work (checking
+  // other people's tasks) is its own "To Review" tile, not counted here.
   myTodaysWork = mine.filter(t =>
     t.status !== 'pending_approval' &&
-    !(t.status === 'completed' && (t.reviewStatus === 'clean' || t.reviewStatus === 'done')))
-    // plus anything other people have sent you to review — that's on your
-    // plate today too.
-    .concat(myReviewTasks());
+    !(t.status === 'completed' && (t.reviewStatus === 'clean' || t.reviewStatus === 'done')));
   // "Done today" = tasks this person completed today (used by the tile +
   // its date-range drill-down, which starts on today).
   myDoneToday = mine.filter(t => t.completedAt && t.completedAt.slice(0,10) === today);
@@ -2859,15 +2856,9 @@ function renderMyDay(){
   }
 
   let html = '';
-  const toReview = myReviewTasks();
-  if(toReview.length){
-    html += `<div class="banner" style="margin-bottom:12px;background:var(--purple-dim,#EEE9FF);border-color:#7C6CF64a;">
-      <span>📝</span>
-      <span><b>${toReview.length} task${toReview.length>1?'s':''} waiting for your review.</b>
-      ${toReview.slice(0,4).map(t => `<a href="#" onclick="openReviewFormModal('${t.id}');return false;" style="color:#6D28D9;text-decoration:underline;margin-left:6px;">${esc(t.name)}</a>`).join(' · ')}
-      ${toReview.length>4 ? ` <a href="#" onclick="openMyReviewQueue();return false;" style="color:#6D28D9;">+${toReview.length-4} more</a>` : ''}</span>
-    </div>`;
-  }
+  // Review work isn't shown here — it has its own "To Review" tile (which
+  // opens the review queue) and the Manager Dashboard's Awaiting Review
+  // section. This view is the person's own commitments only.
   if(pendingApproval.length){
     html += `<div class="banner" style="margin-bottom:12px;"><span>⏳</span><span><b>${pendingApproval.length} self-assigned task${pendingApproval.length>1?'s':''} awaiting your manager's approval:</b> ${pendingApproval.map(t=>esc(t.name)).join(', ')}. You can't start ${pendingApproval.length>1?'them':'it'} until approved.</span></div>`;
   }
