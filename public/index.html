@@ -550,13 +550,18 @@
   .dgrid-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-bottom:20px; align-items:start; }
   .dgrid-2 .panel, .dgrid-2e .panel, .dgrid-3 .panel{ margin-bottom:0; }
   /* Collapsible panel — folded by default, click the header to expand. */
-  details.panel-fold > summary{ cursor:pointer; list-style:none; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  details.panel-fold{ padding:15px 18px; }
+  details.panel-fold > summary{ cursor:pointer; list-style:none; display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
   details.panel-fold > summary::-webkit-details-marker{ display:none; }
-  details.panel-fold > summary::after{ content:'⌄'; margin-left:auto; color:var(--text-faint); font-size:15px; font-weight:700; line-height:1; }
+  details.panel-fold > summary::after{ content:'⌄'; margin-left:auto; color:var(--text-faint); font-size:14px; font-weight:700; line-height:1; }
   details.panel-fold[open] > summary::after{ content:'⌃'; }
-  details.panel-fold[open] > summary{ margin-bottom:16px; }
-  details.panel-fold > summary h2{ margin:0; }
-  details.panel-fold > summary .fold-hint{ font-size:12px; color:var(--text-faint); font-weight:400; }
+  details.panel-fold[open] > summary{ margin-bottom:14px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+  details.panel-fold > summary h2{ margin:0; font-size:15px; }
+  details.panel-fold > summary h2::before{ content:''; display:inline-block; width:3px; height:13px; border-radius:2px; background:linear-gradient(180deg,var(--purple),var(--teal)); margin-right:8px; vertical-align:-1px; }
+  details.panel-fold > summary .fold-hint{ font-size:11.5px; color:var(--text-faint); font-weight:400; }
+  /* Grid of compact fold boxes. */
+  .fold-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; margin-bottom:20px; align-items:start; }
+  .fold-grid > details.panel-fold{ margin-bottom:0; }
 
   .d-inout{ display:flex; align-items:flex-end; gap:10px; height:170px; padding-top:6px; }
   .d-inout .col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; height:100%; }
@@ -1123,13 +1128,13 @@
           </div>
         </div>
 
-        <div class="dgrid-2e">
+        <div class="fold-grid">
           <details class="panel panel-fold">
             <summary><h2>Client Ownership</h2><span class="fold-hint">who owns which client</span></summary>
             <div id="fvClientOwn"></div>
           </details>
           <details class="panel panel-fold">
-            <summary><h2>Team capacity</h2><span class="fold-hint">peak committed hrs vs capacity</span></summary>
+            <summary><h2>Team capacity</h2><span class="fold-hint">agreed hrs vs capacity</span></summary>
             <div id="fvCapacity" class="cap-list">Nobody has active work yet.</div>
           </details>
         </div>
@@ -1218,20 +1223,14 @@
           <div class="stat-card mg-tile" onclick="openMgTileList('pending')"><div class="label">Awaiting Review</div><div class="value amber" id="mgKpiPending">0</div><div class="delta" id="mgPendingSub">—</div></div>
         </div>
 
-        <div class="dgrid-2e">
-          <div class="panel">
-            <div class="panel-head"><h2>Adherence by Employee</h2><span style="font-size:12px;color:var(--text-faint);">% completed within agreed hours</span></div>
-            <div class="bars" id="barsWrap"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Needs Attention</h2><span style="font-size:12px;color:var(--text-faint);">overdue in your scope</span></div>
-            <div id="needsAttentionWrap" class="attn-list">Nothing overdue right now.</div>
-          </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Needs Attention</h2><span style="font-size:12px;color:var(--text-faint);">overdue in your scope</span></div>
+          <div id="needsAttentionWrap" class="attn-list">Nothing overdue right now.</div>
         </div>
 
-        <div class="dgrid-2e">
+        <div class="fold-grid">
           <details class="panel panel-fold">
-            <summary><h2>Team Capacity by Employee</h2><span class="fold-hint">peak agreed hrs vs capacity</span></summary>
+            <summary><h2>Team Capacity</h2><span class="fold-hint">agreed hrs vs capacity</span></summary>
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Peak agreed hours on any single day vs each person's daily capacity — new work is blocked once it would push them over.</p>
             <div id="workloadBlockersWrap" class="cap-list">Nobody has any active work yet.</div>
           </details>
@@ -1241,32 +1240,26 @@
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every client needs a clear owner — no task sits unassigned, no client falls through the cracks.</p>
             <div id="clientOwnershipWrap"></div>
           </details>
-        </div>
-
-        <details class="panel panel-fold">
-          <summary><h2 id="mgLeaderTitle">Leaderboard</h2><span class="fold-hint">points earned · AI-flagged risks</span></summary>
-          <ul class="leaderboard" id="leaderboardWrap"></ul>
-          <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px;">AI-Flagged Risks</h2></div>
-          <div id="riskFlagsWrap"></div>
-        </details>
-
-        <div class="dgrid-2e">
-          <div class="panel">
-            <div class="panel-head">
-              <h2>Productivity</h2>
-              <div class="status-toggle">
-                <button id="prodWeekBtn" class="on" onclick="setProductivityPeriod('week')">This Week</button>
-                <button id="prodMonthBtn" onclick="setProductivityPeriod('month')">This Month</button>
-              </div>
+          <details class="panel panel-fold">
+            <summary><h2 id="mgLeaderTitle">Leaderboard</h2><span class="fold-hint">points · AI-flagged risks</span></summary>
+            <ul class="leaderboard" id="leaderboardWrap"></ul>
+            <div class="panel-head" style="margin-top:20px;"><h2 style="font-size:16.5px;">AI-Flagged Risks</h2></div>
+            <div id="riskFlagsWrap"></div>
+          </details>
+          <details class="panel panel-fold">
+            <summary><h2>Productivity</h2><span class="fold-hint">worked vs planned hrs</span></summary>
+            <div class="status-toggle" style="margin-bottom:12px;">
+              <button id="prodWeekBtn" class="on" onclick="event.stopPropagation(); setProductivityPeriod('week')">This Week</button>
+              <button id="prodMonthBtn" onclick="event.stopPropagation(); setProductivityPeriod('month')">This Month</button>
             </div>
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Hours worked vs. hours planned (TAT) for tasks completed in this period.</p>
             <div id="productivityWrap"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Commitment</h2></div>
+          </details>
+          <details class="panel panel-fold">
+            <summary><h2>Commitment</h2><span class="fold-hint">delivered on/before client date</span></summary>
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Share of completed tasks delivered on or before the client's agreed date.</p>
             <div id="commitmentWrap"></div>
-          </div>
+          </details>
         </div>
 
         <div class="panel">
@@ -3674,8 +3667,8 @@ function computeEmployeeStats(empId){
   return { empTasks, completed, pts, adherence };
 }
 function renderManagerStatics(){
-  const barsWrap = document.getElementById('barsWrap');
-  if(!barsWrap) return;
+  const lbWrap = document.getElementById('leaderboardWrap');
+  if(!lbWrap) return;
   const mineOnly = !isSuperAdmin;
 
   // ---- scope bar ----
@@ -3696,19 +3689,9 @@ function renderManagerStatics(){
   const lt = document.getElementById('mgLeaderTitle');
   if(lt) lt.textContent = 'Leaderboard · ' + dashPeriodLabel('mg');
 
-  // ---- adherence bars + leaderboard (scoped people) ----
+  // ---- leaderboard (scoped people) ----
   const stats = scopedEmps.map(e => ({ name: e.name.split(' ')[0], ...computeEmployeeStats(e.id) }));
   const anyCompleted = stats.some(s => s.completed.length > 0);
-  if(!anyCompleted){
-    barsWrap.innerHTML = `<div style="font-size:14.5px; color:var(--text-faint); padding:20px 0;">No completed tasks in this scope yet.</div>`;
-  } else {
-    barsWrap.innerHTML = stats.map(e => `<div class="bar-col">
-        <div style="font-size:12.5px; color:#5B4FCF; font-family:'JetBrains Mono',monospace;">${e.adherence}%</div>
-        <div class="bar" style="height:${Math.max(e.adherence, 2)}px;"></div>
-        <div class="bl">${esc(e.name)}</div>
-      </div>`).join('');
-  }
-  const lbWrap = document.getElementById('leaderboardWrap');
   const ranked = [...stats].sort((a,b) => b.pts - a.pts);
   lbWrap.innerHTML = anyCompleted
     ? ranked.map((e,i) => `<li><span class="rank">${i+1}</span><span class="lb-name">${esc(e.name)}</span><span class="lb-pts">${e.pts} pts</span></li>`).join('')
