@@ -79,7 +79,16 @@ if (!JWT_SECRET) {
     JWT_SECRET = fs.readFileSync(SECRET_PATH, 'utf8').trim();
   } else {
     JWT_SECRET = crypto.randomBytes(48).toString('hex');
-    fs.writeFileSync(SECRET_PATH, JWT_SECRET);
+    // Persist it so tokens survive a restart. If the data dir doesn't exist
+    // yet (fresh checkout) create it; if the write still fails (read-only FS,
+    // CI sandbox) carry on with the in-memory secret rather than crashing —
+    // set JWT_SECRET in the environment for a stable secret in production.
+    try {
+      fs.mkdirSync(path.dirname(SECRET_PATH), { recursive: true });
+      fs.writeFileSync(SECRET_PATH, JWT_SECRET);
+    } catch (err) {
+      console.warn('[auth] could not persist jwt-secret (' + err.code + ') — using an in-memory secret for this run. Set JWT_SECRET to make it stable.');
+    }
   }
 }
 
