@@ -1812,11 +1812,30 @@ function fiscalYearStart(refISO) {
   return `${m >= 4 ? y : y - 1}-04-01`;
 }
 
+// The system went live on Mon 7 Sept 2026. There is no real attendance,
+// task, or capacity data before that date — anything earlier is seed. So
+// every productivity window is floored here: capacity hours, working days
+// and worked hours are all counted from go-live, never from the (much
+// earlier) fiscal-year start. Without this floor a person shows ~1%
+// utilisation purely because we'd be dividing by five months of capacity
+// they were never being measured over.
+const SYSTEM_GO_LIVE = /^\d{4}-\d{2}-\d{2}$/.test(process.env.SYSTEM_GO_LIVE || '')
+  ? process.env.SYSTEM_GO_LIVE : '2026-09-07';
+// Floor `fromISO` at go-live, but only when the window actually reaches
+// into the live era — a purely historical range is left untouched (and
+// will just show nothing, honestly).
+function floorAtGoLive(fromISO, toISO) {
+  if (toISO < SYSTEM_GO_LIVE) return fromISO;
+  return fromISO < SYSTEM_GO_LIVE ? SYSTEM_GO_LIVE : fromISO;
+}
+
 function productivityFor(state, empIds, fromISO, toISO) {
   const from = fromISO, to = toISO;
   const inRange = d => d && d.slice(0, 10) >= from && d.slice(0, 10) <= to;
   const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
-  const yearStart = fiscalYearStart(to);
+  // YTD counts from the fiscal-year start, but never earlier than go-live —
+  // there's no real worked-hours data before then.
+  const yearStart = floorAtGoLive(fiscalYearStart(to), to);
 
   return empIds.map(id => {
     const emp = findEmployee(state, id) || { id, name: '—' };
@@ -1888,6 +1907,20 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const enoughSignal = done.length >= minTasks || workingDays >= 10;
     const scoreStatus = rawScore == null ? 'no-data' : (enoughSignal ? 'ready' : 'building');
 
+    // A SECOND score, measured against the person's FULL capacity instead of
+    // fairTarget. Every factor is identical except coverage (C), which now
+    // divides worked hours by capacity, not by what the manager actually
+    // handed out. So capacityScore <= productivityScore, and the whole gap
+    // between them is unallocated capacity — the manager's allocation gap,
+    // not the person's. `allocationGapHours` is that gap in hours.
+    // only meaningful once there's a delivery score to compare against.
+    const capacityCoverage = (rawScore == null) ? null
+      : (capacityHours > 0 ? clampPct(100 * worked / capacityHours) : factors.C);
+    const capacityFactors = { ...factors, C: capacityCoverage };
+    const capacityScore = (rawScore == null) ? null : compositeScore(capacityFactors, weights);
+    const allocationGapHours = r2(Math.max(0, capacityHours - assignedLoad));
+    const scoreGap = (rawScore != null && capacityScore != null) ? rawScore - capacityScore : null;
+
     return {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
       tasks: done.length,
@@ -1903,6 +1936,9 @@ function productivityFor(state, empIds, fromISO, toISO) {
       // P3
       factors, productivityScore: rawScore, scoreStatus, reviewedTasks: reviewedDone.length,
       processorReworkRounds, openTasksInRange: openTasks,
+      // second score — coverage measured against full capacity, and the gap
+      capacityFactors, capacityScore, capacityCoverage,
+      allocationGapHours, scoreGap,
       // P4 — the fairness denominator the score is measured against
       assignedLoad: r2(assignedLoad), fairTarget: r2(fairTarget),
       weightsApplied: { E: weights.E, T: weights.T, R: weights.R, N: weights.N, C: weights.C },
@@ -2018,8 +2054,11 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const me = req.employee;
   const clamp = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
   const to = clamp(req.query.to) || todayISO();
-  const from = clamp(req.query.from) || new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
-  if (from > to) return res.status(400).json({ error: 'from must be on or before to.' });
+  const requestedFrom = clamp(req.query.from) || new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  if (requestedFrom > to) return res.status(400).json({ error: 'from must be on or before to.' });
+  // No real data before go-live — count capacity / working days / worked
+  // hours from 7 Sept 2026 on, never from the fiscal-year start.
+  const from = floorAtGoLive(requestedFrom, to);
 
   // scope: an employee sees only themselves; an admin their reports + self;
   // a superadmin the whole firm (or ?scope=me to narrow).
@@ -2048,6 +2087,10 @@ app.get('/api/productivity', requireAuth, (req, res) => {
     N: tOpen > 0 ? clampPct(100 - Math.min(30, 15 * tChase / tOpen)) : null,
     C: tFairTarget > 0 ? clampPct(100 * totalWorked / tFairTarget) : null,
   };
+  // Roll-up second score — coverage against summed full capacity.
+  const rollCapFactors = { ...rollFactors, C: totalCap > 0 ? clampPct(100 * totalWorked / totalCap) : rollFactors.C };
+  const rollCapScore = compositeScore(rollCapFactors, rollWeights);
+  const tAllocationGap = Math.round(Math.max(0, totalCap - sum('assignedLoad')) * 100) / 100;
 
   // P4 — the manager's allocation scorecard for their own team, shown when
   // the caller manages a team and isn't narrowed to a single person.
@@ -2055,7 +2098,9 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const allocation = (managesTeam && ids.length > 1) ? allocationScorecard(state, me.team.trim(), from, to) : null;
 
   res.json({
-    from, to, fiscalYearStart: fiscalYearStart(to),
+    from, to, requestedFrom, goLive: SYSTEM_GO_LIVE,
+    goLiveApplied: from !== requestedFrom,
+    fiscalYearStart: floorAtGoLive(fiscalYearStart(to), to),
     scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
     // The Productivity table hides people with no delivered work in the range
     // (noise). The Report Card picker asks for ?full=1 so a manager/founder can
@@ -2073,6 +2118,9 @@ app.get('/api/productivity', requireAuth, (req, res) => {
       chaseEvents: tChase,
       factors: rollFactors,
       productivityScore: compositeScore(rollFactors, rollWeights),
+      capacityFactors: rollCapFactors,
+      capacityScore: rollCapScore,
+      allocationGapHours: tAllocationGap,
       cumulativeYtdWorked: Math.round(sum('cumulativeYtdWorked') * 100) / 100,
     },
   });

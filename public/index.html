@@ -6122,11 +6122,15 @@ function _rcRange(){
 }
 
 async function renderReportCard(){
-  const { from, to, period } = _rcRange();
+  const { from: reqFrom, to, period } = _rcRange();
   let data;
-  try { data = await api(`/api/productivity?from=${from}&to=${to}&full=1`); }
+  try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&full=1`); }
   catch(e){ document.getElementById('rcExplain').innerHTML = `<p style="color:var(--text-faint);">${esc(e.message)}</p>`; return; }
   _rcData = data;
+  // the server floors the window at go-live (7 Sept 2026) — there's no real
+  // data before then. Use the effective range it returns for every label.
+  const from = data.from || reqFrom;
+  const goLiveFloored = !!data.goLiveApplied;
 
   // Person picker — only when the caller can see more than themselves.
   const people = (data.people || []).slice().sort((a,b)=> a.name.localeCompare(b.name));
@@ -6145,18 +6149,17 @@ async function renderReportCard(){
   const emp = empById(_rcPersonId) || {};
   if(!p){ document.getElementById('rcName').textContent = '—'; return; }
 
-  const periodLbl = period === 'month' ? new Date().toLocaleDateString('en-NZ',{month:'long',year:'numeric'})
-                  : period === 'quarter' ? `Fiscal quarter · ${fmtDate(from)}–${fmtDate(to)}`
-                  : `Fiscal year · ${fmtDate(from)}–${fmtDate(to)}`;
+  const base = period === 'month' ? 'This month' : period === 'quarter' ? 'Fiscal quarter' : 'Fiscal year';
+  const periodLbl = `${base} · ${fmtDate(from)}–${fmtDate(to)}${goLiveFloored ? ' · from go-live' : ''}`;
   document.getElementById('rcName').textContent = p.name;
   document.getElementById('rcRole').textContent = `${p.jobTitle || emp.jobTitle || 'Team member'} · ${p.team} · ${periodLbl}`;
 
-  // ---- hero ring: the composite score (falls back to on-time while building) ----
+  // ---- hero ring: the delivery score (falls back to on-time while building) ----
   const scoreReady = p.scoreStatus === 'ready' && p.productivityScore != null;
   const ringVal = scoreReady ? p.productivityScore
                 : (p.productivityScore != null ? p.productivityScore : (p.onTimeRate != null ? p.onTimeRate : null));
-  document.getElementById('rcRingLbl').textContent = scoreReady ? 'Score /100'
-                : p.scoreStatus === 'building' ? 'Score (building)' : 'Score';
+  document.getElementById('rcRingLbl').textContent = scoreReady ? 'Delivery /100'
+                : p.scoreStatus === 'building' ? 'Delivery (building)' : 'Delivery score';
   document.getElementById('rcPct').textContent = ringVal == null ? '—' : Math.round(ringVal);
   const C = 402;
   document.getElementById('rcRing').setAttribute('stroke-dashoffset', ringVal == null ? C : C - C * Math.max(0,Math.min(100,ringVal)) / 100);
@@ -6178,17 +6181,41 @@ async function renderReportCard(){
     ? '<div class="badge-emoji" title="Score 85+">🎯</div>' + (best >= 5 ? '<div class="badge-emoji" title="5+ streak">🔥</div>' : '') + (p.utilisationPct != null && p.utilisationPct >= 90 ? '<div class="badge-emoji" title="90%+ utilisation">⭐</div>' : '')
     : `<div style="font-size:13px; color:var(--text-faint);">${p.scoreStatus === 'building' ? 'Score still building — needs ≥5 delivered tasks or ≥10 working days in range.' : p.scoreStatus === 'no-data' ? 'No delivered work in this period yet.' : 'No badges earned this period.'}</div>`;
 
-  // ---- composite score card (same component as the Productivity page) ----
-  document.getElementById('rcScoreCard').innerHTML = scoreCardHtml(
-    p.productivityScore, p.factors, p.weightsApplied,
-    `${p.name} · ${fmtDate(from)}–${fmtDate(to)}${p.scoreStatus === 'building' ? ' · building' : ''}`);
+  // ---- two scores: delivery (vs fair target) and capacity (vs full capacity) ----
+  const dScore = p.productivityScore, cScore = p.capacityScore;
+  const gap = (p.scoreGap != null) ? p.scoreGap : (dScore != null && cScore != null ? dScore - cScore : null);
+  const gapH = p.allocationGapHours || 0;
+  const bigN = v => v == null ? `<span style="color:var(--text-faint);">—</span>` : `${Math.round(v)}<small>/100</small>`;
+  document.getElementById('rcScoreCard').innerHTML = `
+    <div class="pscore" style="align-items:stretch;">
+      <div style="display:flex;flex-direction:column;justify-content:center;min-width:150px;">
+        <div class="pscore-label">Delivery score</div>
+        <div class="pscore-big" style="color:${scoreColor(dScore)};">${bigN(dScore)}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">how well ${esc(p.name.split(' ')[0])} handled the work they were given</div>
+      </div>
+      <div style="width:1px;background:var(--panel-border);"></div>
+      <div style="display:flex;flex-direction:column;justify-content:center;min-width:150px;">
+        <div class="pscore-label">Capacity score</div>
+        <div class="pscore-big" style="color:${scoreColor(cScore)};">${bigN(cScore)}</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">the same, but measured against their full ${p.capacityHours.toFixed(0)}h capacity</div>
+      </div>
+      ${factorBarsHtml(p.factors, p.weightsApplied)}
+    </div>
+    ${(dScore != null && cScore != null) ? `<div style="margin-top:12px;padding:13px 16px;border-radius:12px;border:1px solid ${gapH > 0.5 ? 'var(--amber,#B45309)' : 'var(--panel-border)'};background:var(--panel-2);font-size:13px;line-height:1.55;">
+      ${gapH > 0.5
+        ? `<b style="color:var(--amber,#B45309);">${gap} point${gap===1?'':'s'} of the gap between these two scores is not ${esc(p.name.split(' ')[0])}'s.</b>
+           It's unallocated work. ${esc(p.name.split(' ')[0])} was given <b>${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : p.allocatedHours.toFixed(1)}h</b> against <b>${p.capacityHours.toFixed(0)}h</b> of capacity this period, leaving <b>${gapH.toFixed(1)}h</b> unfilled. Closing that is the manager's job — work allocation — not something ${esc(p.name.split(' ')[0])} can fix by working harder. The delivery score (${Math.round(dScore)}) is the fair read on ${esc(p.name.split(' ')[0])}; the capacity score (${Math.round(cScore)}) shows the cost of the allocation gap.`
+        : `<b>${esc(p.name.split(' ')[0])} was allocated close to full capacity</b> (${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : p.allocatedHours.toFixed(1)}h of ${p.capacityHours.toFixed(0)}h), so the two scores line up. No allocation gap this period.`}
+    </div>` : ''}`;
 
   // ---- metric tiles ----
   const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">${sub}</div>`:''}</div>`;
   document.getElementById('rcTiles').innerHTML =
     tile('Tasks delivered', p.tasks, `${p.met} met · ${p.missed} missed commitment`) +
     tile('Worked hours', p.workedHours.toFixed(1), `of ${p.allocatedHours.toFixed(1)}h allocated`) +
-    tile('Capacity', p.capacityHours.toFixed(0) + 'h', `${p.workingDays} working days${p.leaveDays ? ` · −${p.leaveDays} leave` : ''}`) +
+    tile('Capacity', p.capacityHours.toFixed(0) + 'h', `${p.workingDays} working days${goLiveFloored ? ' since go-live' : ''}${p.leaveDays ? ` · −${p.leaveDays} leave` : ''}`) +
+    tile('Allocated', p.assignedLoad != null ? p.assignedLoad.toFixed(1) + 'h' : p.allocatedHours.toFixed(1) + 'h', 'work the manager handed out') +
+    tile('Allocation gap', (p.allocationGapHours || 0).toFixed(1) + 'h', (p.allocationGapHours || 0) > 0.5 ? 'unfilled capacity — manager to close' : 'fully allocated') +
     tile('Utilisation', p.utilisationPct == null ? '—' : p.utilisationPct + '%', 'worked ÷ capacity') +
     tile('Efficiency', p.efficiency == null ? '—' : p.efficiency.toFixed(2) + '×', p.efficiency == null ? '' : p.efficiency >= 1 ? 'at/under estimate' : 'over estimate') +
     tile('Throughput', p.throughput == null ? '—' : p.throughput.toFixed(1), 'tasks per working day') +
@@ -6223,7 +6250,12 @@ async function renderReportCard(){
         ${line('N','Reminder discipline', `${p.chaseEvents} chase(s) ÷ ${p.openTasksInRange} open task(s)`, p.openTasksInRange === 0 ? 'no open work' : '')}
         ${line('C','Delivery coverage', `worked ${p.workedHours.toFixed(1)}h ÷ fair target ${fairT != null ? fairT.toFixed(1) : '—'}h`, `fair target = min(assigned ${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : '—'}h, capacity ${p.capacityHours.toFixed(0)}h)`)}
       </tbody>
-    </table></div>`;
+    </table></div>
+    <p style="font-size:12.5px;color:var(--text-dim);margin:12px 0 0;">
+      <b>The capacity score</b> swaps that last factor for coverage against <b>full capacity</b>:
+      worked ${p.workedHours.toFixed(1)}h ÷ ${p.capacityHours.toFixed(0)}h = <b style="color:${pfColor(p.capacityCoverage)};">${p.capacityCoverage == null ? '—' : p.capacityCoverage}</b>
+      (vs ${f.C == null ? '—' : f.C} against fair target). Everything else stays the same. The drop is the ${(p.allocationGapHours||0).toFixed(1)}h the manager left unallocated.
+    </p>`;
 
   // ---- monthly trend (worked vs allocated) ----
   const series = (p.monthly || []).slice().sort((a,b)=>a.monthStart.localeCompare(b.monthStart));
