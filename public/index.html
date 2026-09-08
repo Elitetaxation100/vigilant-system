@@ -6183,31 +6183,32 @@ async function renderReportCard(){
     ? '<div class="badge-emoji" title="Score 85+">🎯</div>' + (best >= 5 ? '<div class="badge-emoji" title="5+ streak">🔥</div>' : '') + (p.utilisationPct != null && p.utilisationPct >= 90 ? '<div class="badge-emoji" title="90%+ utilisation">⭐</div>' : '')
     : `<div style="font-size:13px; color:var(--text-faint);">${p.scoreStatus === 'building' ? 'Score still building — needs ≥5 delivered tasks or ≥10 working days in range.' : p.scoreStatus === 'no-data' ? 'No delivered work in this period yet.' : 'No badges earned this period.'}</div>`;
 
-  // ---- two scores: delivery (vs fair target) and capacity (vs full capacity) ----
+  // ---- score card: delivery score is the headline; capacity score sits
+  //      beneath it, smaller and muted (it's context, not the person's grade) ----
   const dScore = p.productivityScore, cScore = p.capacityScore;
+  const first = esc(p.name.split(' ')[0]);
   const gap = (p.scoreGap != null) ? p.scoreGap : (dScore != null && cScore != null ? dScore - cScore : null);
   const gapH = p.allocationGapHours || 0;
   const bigN = v => v == null ? `<span style="color:var(--text-faint);">—</span>` : `${Math.round(v)}<small>/100</small>`;
   document.getElementById('rcScoreCard').innerHTML = `
     <div class="pscore" style="align-items:stretch;">
-      <div style="display:flex;flex-direction:column;justify-content:center;min-width:150px;">
-        <div class="pscore-label">Delivery score</div>
+      <div style="display:flex;flex-direction:column;justify-content:center;min-width:190px;">
+        <div class="pscore-label">Delivery score${p.scoreStatus === 'building' ? ' · building' : ''}</div>
         <div class="pscore-big" style="color:${scoreColor(dScore)};">${bigN(dScore)}</div>
-        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">how well ${esc(p.name.split(' ')[0])} handled the work they were given</div>
-      </div>
-      <div style="width:1px;background:var(--panel-border);"></div>
-      <div style="display:flex;flex-direction:column;justify-content:center;min-width:150px;">
-        <div class="pscore-label">Capacity score</div>
-        <div class="pscore-big" style="color:${scoreColor(cScore)};">${bigN(cScore)}</div>
-        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">the same, but measured against their full ${p.capacityHours.toFixed(0)}h capacity</div>
+        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;max-width:230px;">how well ${first} handled the work they were given — the fair read on ${first}</div>
+        ${cScore != null ? `<div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--panel-border);">
+          <span style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-faint);">Capacity score</span>
+          <span style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--text-dim);margin-left:7px;">${Math.round(cScore)}</span><span style="font-size:11px;color:var(--text-faint);">/100</span>
+          <div style="font-size:10.5px;color:var(--text-faint);margin-top:2px;max-width:230px;">same score measured against ${first}'s full ${p.capacityHours.toFixed(0)}h capacity${gapH > 0.5 ? ` — ${gap} pts lower because of the allocation gap` : ''}</div>
+        </div>` : ''}
       </div>
       ${factorBarsHtml(p.factors, p.weightsApplied)}
     </div>
     ${(dScore != null && cScore != null) ? `<div style="margin-top:12px;padding:13px 16px;border-radius:12px;border:1px solid ${gapH > 0.5 ? 'var(--amber,#B45309)' : 'var(--panel-border)'};background:var(--panel-2);font-size:13px;line-height:1.55;">
       ${gapH > 0.5
-        ? `<b style="color:var(--amber,#B45309);">${gap} point${gap===1?'':'s'} of the gap between these two scores is not ${esc(p.name.split(' ')[0])}'s.</b>
-           It's unallocated work. ${esc(p.name.split(' ')[0])} was given <b>${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : p.allocatedHours.toFixed(1)}h</b> against <b>${p.capacityHours.toFixed(0)}h</b> of capacity this period, leaving <b>${gapH.toFixed(1)}h</b> unfilled. Closing that is the manager's job — work allocation — not something ${esc(p.name.split(' ')[0])} can fix by working harder. The delivery score (${Math.round(dScore)}) is the fair read on ${esc(p.name.split(' ')[0])}; the capacity score (${Math.round(cScore)}) shows the cost of the allocation gap.`
-        : `<b>${esc(p.name.split(' ')[0])} was allocated close to full capacity</b> (${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : p.allocatedHours.toFixed(1)}h of ${p.capacityHours.toFixed(0)}h), so the two scores line up. No allocation gap this period.`}
+        ? `<b style="color:var(--amber,#B45309);">${gap} point${gap===1?'':'s'} of the gap between these two scores is not ${first}'s.</b>
+           It's unallocated work. ${first} was given <b>${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : p.allocatedHours.toFixed(1)}h</b> against <b>${p.capacityHours.toFixed(0)}h</b> of capacity this period, leaving <b>${gapH.toFixed(1)}h</b> unfilled. Closing that is the manager's job — work allocation — not something ${first} can fix by working harder.`
+        : `<b>${first} was allocated close to full capacity</b> (${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : p.allocatedHours.toFixed(1)}h of ${p.capacityHours.toFixed(0)}h), so the two scores line up. No allocation gap this period.`}
     </div>` : ''}`;
 
   // ---- metric tiles ----
