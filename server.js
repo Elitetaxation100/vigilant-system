@@ -1804,11 +1804,19 @@ function compositeScore(f, weights) {
   return wsum > 0 ? Math.round(psum / wsum) : null;
 }
 
+// The firm's fiscal year runs 1 April – 31 March. YTD figures count from
+// the fiscal-year start that contains `refISO`, not calendar January.
+function fiscalYearStart(refISO) {
+  const s = (refISO || todayISO()).slice(0, 10);
+  const y = Number(s.slice(0, 4)), m = Number(s.slice(5, 7));
+  return `${m >= 4 ? y : y - 1}-04-01`;
+}
+
 function productivityFor(state, empIds, fromISO, toISO) {
   const from = fromISO, to = toISO;
   const inRange = d => d && d.slice(0, 10) >= from && d.slice(0, 10) <= to;
   const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
-  const yearStart = to.slice(0, 4) + '-01-01';
+  const yearStart = fiscalYearStart(to);
 
   return empIds.map(id => {
     const emp = findEmployee(state, id) || { id, name: '—' };
@@ -1819,11 +1827,14 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const met = dated.filter(t => commitmentOutcome(t) === 'met').length;
     const missed = dated.filter(t => commitmentOutcome(t) === 'missed').length;
     const reworkRounds = done.reduce((s, t) => s + (t.reworkCount || 0), 0);
-    // P2: how many times this person's tasks were chased in the range —
-    // the raw input to the "reminder discipline" factor (scored in P3).
+    // P2: how many times this person was DELIBERATELY chased in the range —
+    // a manager's Nudge or a Slack escalation. The system's own once-a-day
+    // "due soon / overdue" auto-reminder (channel 'auto') is excluded: it's
+    // a helper, not a mark against the person, so it doesn't feed the score
+    // or show in the Chased column.
     const myTaskIds = new Set(state.tasks.filter(t => t.assignedTo === id).map(t => t.id));
     const chaseEvents = (state.taskEvents || [])
-      .filter(e => e.type === 'reminded' && myTaskIds.has(e.taskId) && inRange(e.at)).length;
+      .filter(e => e.type === 'reminded' && e.channel !== 'auto' && myTaskIds.has(e.taskId) && inRange(e.at)).length;
     if (emp.id) refreshCapacity(state, emp);
     const cap = capacityOf(emp);
     // P1: capacity is the sum of each working day's real availability
@@ -1838,15 +1849,12 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const ytdWorked = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed'
       && (t.completedAt || '').slice(0, 10) >= yearStart && (t.completedAt || '').slice(0, 10) <= to)
       .reduce((s, t) => s + taskHours(t), 0);
-    // weekly trend (Mon-anchored) across the range
-    const weeks = {};
+    // monthly trend across the range (reporting is monthly / fiscal-year)
+    const months = {};
     done.forEach(t => {
-      const d = new Date(t.completedAt.slice(0, 10) + 'T00:00:00Z');
-      const dow = (d.getUTCDay() + 6) % 7;               // 0 = Monday
-      d.setUTCDate(d.getUTCDate() - dow);
-      const wk = d.toISOString().slice(0, 10);
-      (weeks[wk] = weeks[wk] || { weekStart: wk, tasks: 0, worked: 0, allocated: 0 });
-      weeks[wk].tasks += 1; weeks[wk].worked += taskHours(t); weeks[wk].allocated += Number(t.tat) || 0;
+      const mk = t.completedAt.slice(0, 7) + '-01';       // YYYY-MM-01
+      (months[mk] = months[mk] || { monthStart: mk, tasks: 0, worked: 0, allocated: 0 });
+      months[mk].tasks += 1; months[mk].worked += taskHours(t); months[mk].allocated += Number(t.tat) || 0;
     });
     const r2 = n => Math.round(n * 100) / 100;
 
@@ -1898,9 +1906,9 @@ function productivityFor(state, empIds, fromISO, toISO) {
       // P4 — the fairness denominator the score is measured against
       assignedLoad: r2(assignedLoad), fairTarget: r2(fairTarget),
       weightsApplied: { E: weights.E, T: weights.T, R: weights.R, N: weights.N, C: weights.C },
-      cumulativeYtdWorked: r2(ytdWorked),
-      weekly: Object.values(weeks).sort((a, b) => a.weekStart.localeCompare(b.weekStart))
-        .map(w => ({ ...w, worked: r2(w.worked), allocated: r2(w.allocated) })),
+      cumulativeYtdWorked: r2(ytdWorked), fiscalYearStart: yearStart,
+      monthly: Object.values(months).sort((a, b) => a.monthStart.localeCompare(b.monthStart))
+        .map(m => ({ ...m, worked: r2(m.worked), allocated: r2(m.allocated) })),
     };
   });
 }
@@ -2047,7 +2055,8 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const allocation = (managesTeam && ids.length > 1) ? allocationScorecard(state, me.team.trim(), from, to) : null;
 
   res.json({
-    from, to, scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
+    from, to, fiscalYearStart: fiscalYearStart(to),
+    scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
     people: people.filter(p => p.tasks > 0 || ids.length === 1),
     weights: rollWeights,
     allocation,
@@ -2195,6 +2204,35 @@ app.get('/api/workload', requireAuth, (req, res) => {
   });
   db.save(); // persist any capacity re-estimates
   res.json({ workload: rows });
+});
+
+// ---------------------------------------------------------------------------
+// BUSY BOARD — everyone's current load at a glance: hours still in their
+// queue and the date that queue clears. Visible to every signed-in user
+// (it's a coordination aid, not a performance number), so no role gate.
+// ---------------------------------------------------------------------------
+app.get('/api/busy-board', requireAuth, (req, res) => {
+  const state = db.get();
+  const today = todayISO();
+  const r2 = n => Math.round(n * 100) / 100;
+  const rows = state.employees.map(e => {
+    const open = state.tasks.filter(t => t.assignedTo === e.id && !['completed', 'pending_approval'].includes(t.status));
+    const av = availabilityOf(state, e);
+    return {
+      id: e.id, name: e.name, team: e.team || '—',
+      openTasks: open.length,
+      queueHours: av.backlogHours,
+      dayCapacity: dayCapacity(state, e, today),
+      busyUntil: av.committedThrough && av.committedThrough > today ? av.committedThrough : null,
+      onLeaveToday: !!approvedLeaveOn(state, e.id, today),
+    };
+  }).filter(r => r.openTasks > 0 || r.onLeaveToday)
+    .sort((a, b) => (b.busyUntil || '').localeCompare(a.busyUntil || '') || b.queueHours - a.queueHours);
+  res.json({
+    date: today,
+    board: rows,
+    totalQueueHours: r2(rows.reduce((s, r) => s + r.queueHours, 0)),
+  });
 });
 
 // ---------------------------------------------------------------------------

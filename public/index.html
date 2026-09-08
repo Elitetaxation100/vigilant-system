@@ -856,14 +856,6 @@
             <div class="mt-value" style="color:#F0603E;" id="myExtraHours">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myExtraSub"></div>
           </div>
-          <div class="metric-tile" title="Of your completed work that had a client date, how much landed on or before it">
-            <div class="mt-label">On-Time</div>
-            <div class="mt-value teal" id="myProductivity">—</div>
-          </div>
-          <div class="metric-tile">
-            <div class="mt-label">Accuracy</div>
-            <div class="mt-value purple" id="myAccuracy">—</div>
-          </div>
           <div class="donut-tile">
             <div class="mt-label">Task Status Breakdown <span id="statusDonutScope" style="text-transform:none;letter-spacing:0;color:var(--text-faint);font-weight:500;"></span></div>
             <div class="donut-wrap" id="statusDonutWrap"></div>
@@ -880,6 +872,12 @@
           <div id="todayGauge"></div>
           <div id="myDayWrap"></div>
         </div>
+
+        <details class="panel panel-fold" id="busyBoardPanel" style="margin-bottom:24px;" ontoggle="if(this.open) renderBusyBoard()">
+          <summary><h2>Who's busy until when</h2><span class="fold-hint">everyone's queue &amp; when it clears</span></summary>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 12px;">How much work each person still has and the date their queue clears — so you know who to hand something to.</p>
+          <div id="busyBoardWrap">Loading…</div>
+        </details>
 
         <details class="panel panel-fold" style="margin-bottom:24px;">
           <summary><h2>All my tasks</h2><span class="fold-hint">full table · search &amp; filter</span></summary>
@@ -1374,10 +1372,10 @@
           <details class="panel panel-fold">
             <summary><h2>Productivity</h2><span class="fold-hint">worked vs planned hrs</span></summary>
             <div class="status-toggle" style="margin-bottom:12px;">
-              <button id="prodWeekBtn" class="on" onclick="event.stopPropagation(); setProductivityPeriod('week')">This Week</button>
-              <button id="prodMonthBtn" onclick="event.stopPropagation(); setProductivityPeriod('month')">This Month</button>
+              <button id="prodMonthBtn" class="on" onclick="event.stopPropagation(); setProductivityPeriod('month')">This Month</button>
+              <button id="prodYearBtn" onclick="event.stopPropagation(); setProductivityPeriod('year')">Fiscal Year</button>
             </div>
-            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Hours worked vs. hours planned (TAT) for tasks completed in this period.</p>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Hours worked vs. hours planned (TAT) for tasks completed in this period. Reporting runs monthly and by fiscal year (Apr–Mar).</p>
             <div id="productivityWrap"></div>
           </details>
           <details class="panel panel-fold">
@@ -1447,10 +1445,9 @@
             <h2>Productivity — allocated vs worked</h2>
             <div class="panel-head-actions">
               <select id="prodPeriod" onchange="renderProductivityView()">
-                <option value="week">This week</option>
                 <option value="month" selected>This month</option>
-                <option value="quarter">This quarter</option>
-                <option value="year">This year</option>
+                <option value="quarter">This fiscal quarter</option>
+                <option value="year">This fiscal year (Apr–Mar)</option>
                 <option value="custom">Custom range…</option>
               </select>
               <span id="prodCustom" style="display:none;">
@@ -1576,7 +1573,7 @@ let isSuperAdmin = false;
 let currentViewerId = null;
 let employees = [];
 let clients = [];
-let productivityPeriod = 'week';
+let productivityPeriod = 'month';
 let tasks = [];
 let activityLog = [];
 let workload = []; // per-employee occupancy from /api/workload — who's booked until when
@@ -3059,10 +3056,8 @@ function renderEmployeeStats(){
   const extraH = _myExtra.reduce((s,x) => s + x.extra, 0);
   setV('myExtraHours', extraH > 0.05 ? extraH.toFixed(1) + '<small>h</small>' : '0');
   setV('myExtraSub', _myExtra.length ? `${_myExtra.length} task${_myExtra.length===1?'':'s'} ran over` : 'all within estimate');
-  const withDate = doneP.filter(t => t.clientDate);
-  setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.commitmentOutcome === 'met').length / withDate.length * 100) + '<small>%</small>' : '—');
-  const reviewed = doneP.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
-  setV('myAccuracy', reviewed.length ? Math.round(reviewed.filter(t => t.reviewStatus === 'clean').length / reviewed.length * 100) + '<small>%</small>' : '—');
+  // On-time and Accuracy live on the Productivity page and the Report Card
+  // now — not on the Commitment Dashboard.
   renderMirrorBanner();
 }
 function renderGreeting(){
@@ -3235,6 +3230,36 @@ async function refreshToday(){
   catch(e){ _todayData = null; renderTodayGauge(); renderTodayTeam(); return; }
   renderTodayGauge();
   renderTodayTeam();
+  if(document.getElementById('busyBoardPanel')?.open) renderBusyBoard();
+}
+/* Who's busy until when — every person's remaining queue and the date it
+   clears. Visible to everyone; a coordination aid, not a performance stat.
+   Only fetched while the panel is open. */
+async function renderBusyBoard(){
+  const wrap = document.getElementById('busyBoardWrap');
+  if(!wrap) return;
+  let d;
+  try { d = await api('/api/busy-board'); }
+  catch(e){ wrap.innerHTML = `<div style="font-size:13px;color:var(--text-faint);">Couldn't load.</div>`; return; }
+  if(!d.board.length){ wrap.innerHTML = `<div style="font-size:13.5px;color:var(--text-faint);">Nobody has open work right now.</div>`; return; }
+  const head = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:10px;">${d.board.length} people with work · <b>${d.totalQueueHours}h</b> in queues across the firm.</div>`;
+  wrap.innerHTML = head + d.board.map(r => {
+    const me = r.id === currentViewerId;
+    const status = r.onLeaveToday
+      ? `<span class="badge dot" style="opacity:.7;">on leave today</span>`
+      : r.busyUntil
+        ? `<span class="badge overdue dot" style="font-size:10px;">booked to ${fmtDate(r.busyUntil)}</span>`
+        : `<span class="badge completed dot" style="font-size:10px;">queue clear</span>`;
+    return `<div class="to-row"${me ? ' style="background:var(--purple-dim);border-radius:8px;"' : ''}>
+      <div class="to-main">
+        <b>${esc(r.name)}${me ? ' (you)' : ''}</b> <span style="font-size:11px;color:var(--text-faint);">${esc(r.team)}</span>
+        <div style="font-size:12px;color:var(--text-faint);margin-top:2px;">
+          <span class="hrs-badge">⏱ ${r.queueHours}h</span> in queue · ${r.openTasks} open task${r.openTasks===1?'':'s'}
+        </div>
+      </div>
+      ${status}
+    </div>`;
+  }).join('');
 }
 function todayStatusColor(s){ return s==='over' ? '#F0603E' : s==='light' ? '#E8A33D' : s==='off' ? '#6B7390' : '#2FBE93'; }
 function tgBar(pending, capacity){
@@ -4674,6 +4699,13 @@ function computeChartData(groupBy, metric){
 /* =========================================================================
    PRODUCTIVITY TRACKER (Phase 4) — allocated vs worked hours over a range.
    ========================================================================= */
+// The firm runs on a 1 April – 31 March fiscal year. "This year" and
+// "This quarter" on the Productivity page follow that calendar, not Jan–Dec.
+function fiscalYearStartDate(ref){
+  const d = ref ? new Date(ref) : new Date();
+  const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; // April = month index 3
+  return new Date(y, 3, 1);
+}
 function _prodRange(){
   const p = (document.getElementById('prodPeriod')||{}).value || 'month';
   const now = new Date(); const iso = d => d.toISOString().slice(0,10);
@@ -4683,10 +4715,14 @@ function _prodRange(){
              to: (document.getElementById('prodTo')||{}).value || iso(now) };
   }
   let from;
-  if(p === 'week'){ const wd=(now.getDay()+6)%7; from=new Date(now); from.setDate(now.getDate()-wd); }
-  else if(p === 'month'){ from=new Date(now.getFullYear(), now.getMonth(), 1); }
-  else if(p === 'quarter'){ from=new Date(now.getFullYear(), Math.floor(now.getMonth()/3)*3, 1); }
-  else { from=new Date(now.getFullYear(), 0, 1); }
+  if(p === 'month'){ from=new Date(now.getFullYear(), now.getMonth(), 1); }
+  else if(p === 'quarter'){
+    // fiscal quarter: Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar
+    const fyStart = fiscalYearStartDate(now);
+    const q = Math.floor(((now.getMonth() - 3 + 12) % 12) / 3);
+    from = new Date(fyStart.getFullYear(), 3 + q * 3, 1);
+  }
+  else { from = fiscalYearStartDate(now); }   // 'year' = fiscal year
   return { from: iso(from), to: iso(now) };
 }
 /* P3 — composite productivity score. Five weighted factors, 0–100 each:
@@ -4795,7 +4831,7 @@ async function renderProductivityView(){
     tile('Utilisation', T.utilisationPct==null?'—':T.utilisationPct+'%', `vs ${T.capacityHours.toFixed(0)}h capacity`) +
     tile('Efficiency', T.efficiency==null?'—':T.efficiency.toFixed(2)+'×', T.efficiency>=1?'under budget':'over budget') +
     tile('Tasks delivered', T.tasks, `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}`) +
-    tile('Cumulative YTD', T.cumulativeYtdWorked.toFixed(0)+'h', 'worked, this year');
+    tile('Fiscal YTD', T.cumulativeYtdWorked.toFixed(0)+'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`);
 
   const rows = data.people.slice().sort((a,b)=>(b.productivityScore??-1)-(a.productivityScore??-1) || b.workedHours-a.workedHours);
   body.innerHTML = rows.length ? rows.map(p => `<tr>
@@ -4814,23 +4850,24 @@ async function renderProductivityView(){
       <td style="font-family:var(--font-mono);">${p.cumulativeYtdWorked.toFixed(0)}h</td>
     </tr>`).join('') : `<tr><td colspan="13" style="text-align:center;color:var(--text-faint);padding:22px;">No completed work in this range.</td></tr>`;
 
-  // weekly trend — worked vs allocated, per week, summed across the scope
-  const wk = {};
-  data.people.forEach(p => (p.weekly||[]).forEach(w => {
-    (wk[w.weekStart] = wk[w.weekStart] || { weekStart:w.weekStart, worked:0, allocated:0, tasks:0 });
-    wk[w.weekStart].worked += w.worked; wk[w.weekStart].allocated += w.allocated; wk[w.weekStart].tasks += w.tasks;
+  // monthly trend — worked vs allocated, per month, summed across the scope
+  const mk = {};
+  data.people.forEach(p => (p.monthly||[]).forEach(m => {
+    (mk[m.monthStart] = mk[m.monthStart] || { monthStart:m.monthStart, worked:0, allocated:0, tasks:0 });
+    mk[m.monthStart].worked += m.worked; mk[m.monthStart].allocated += m.allocated; mk[m.monthStart].tasks += m.tasks;
   }));
-  const series = Object.values(wk).sort((a,b)=>a.weekStart.localeCompare(b.weekStart));
+  const series = Object.values(mk).sort((a,b)=>a.monthStart.localeCompare(b.monthStart));
   const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
+  const monthLbl = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
   document.getElementById('prodTrend').innerHTML = series.length ? `
-    <div class="label" style="margin-bottom:8px;">Weekly — <span style="color:var(--teal,#0D9488);">worked</span> vs <span style="color:var(--text-faint);">allocated</span></div>
-    <div style="display:flex;gap:10px;align-items:flex-end;height:120px;overflow-x:auto;padding-bottom:4px;">
-      ${series.map(s => `<div style="flex:0 0 44px;text-align:center;">
+    <div class="label" style="margin-bottom:8px;">Monthly — <span style="color:var(--teal,#0D9488);">worked</span> vs <span style="color:var(--text-faint);">allocated</span></div>
+    <div style="display:flex;gap:12px;align-items:flex-end;height:120px;overflow-x:auto;padding-bottom:4px;">
+      ${series.map(s => `<div style="flex:0 0 54px;text-align:center;">
         <div style="height:100px;display:flex;gap:3px;align-items:flex-end;justify-content:center;">
-          <div style="width:14px;background:var(--teal,#0D9488);height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
-          <div style="width:14px;background:var(--panel-border);height:${Math.round(s.allocated/max*100)}%;border-radius:2px 2px 0 0;" title="${s.allocated.toFixed(1)}h allocated"></div>
+          <div style="width:16px;background:var(--teal,#0D9488);height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
+          <div style="width:16px;background:var(--panel-border);height:${Math.round(s.allocated/max*100)}%;border-radius:2px 2px 0 0;" title="${s.allocated.toFixed(1)}h allocated"></div>
         </div>
-        <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${fmtDate(s.weekStart).slice(0,6)}</div>
+        <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${monthLbl(s.monthStart)}</div>
       </div>`).join('')}
     </div>` : '';
 }
@@ -5646,11 +5683,9 @@ function renderClientOwnership(){
    ========================================================================= */
 function periodBounds(period){
   const now = new Date();
-  if(period === 'week'){
-    const day = now.getDay();
-    const diffToMonday = (day === 0 ? -6 : 1) - day;
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
-    const end = new Date(start); end.setDate(start.getDate() + 7);
+  if(period === 'year'){
+    const start = fiscalYearStartDate(now);
+    const end = new Date(start.getFullYear() + 1, 3, 1);
     return { start, end };
   }
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -5659,8 +5694,8 @@ function periodBounds(period){
 }
 function setProductivityPeriod(period){
   productivityPeriod = period;
-  document.getElementById('prodWeekBtn').classList.toggle('on', period === 'week');
   document.getElementById('prodMonthBtn').classList.toggle('on', period === 'month');
+  const yb = document.getElementById('prodYearBtn'); if(yb) yb.classList.toggle('on', period === 'year');
   renderProductivity();
 }
 function renderProductivity(){
