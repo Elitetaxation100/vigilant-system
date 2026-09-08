@@ -1483,6 +1483,23 @@
 
       <!-- ===================== EMPLOYEE REPORT CARD VIEW ===================== -->
       <section class="view" id="view-report">
+        <div class="panel" style="margin-bottom:16px;">
+          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+            <div id="rcPersonWrap" style="display:none;">
+              <label style="font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); font-weight:600; display:block; margin-bottom:4px;">Report card for</label>
+              <select id="rcPerson" onchange="renderReportCard()"></select>
+            </div>
+            <div>
+              <label style="font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); font-weight:600; display:block; margin-bottom:4px;">Period</label>
+              <select id="rcPeriod" onchange="renderReportCard()">
+                <option value="month">This month</option>
+                <option value="quarter">This fiscal quarter</option>
+                <option value="year" selected>This fiscal year (Apr–Mar)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div class="card-hero">
           <div class="ring-wrap">
             <svg width="150" height="150" viewBox="0 0 150 150">
@@ -1490,25 +1507,38 @@
               <circle cx="75" cy="75" r="64" fill="none" stroke="url(#g1)" stroke-width="12" stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402" id="rcRing" />
               <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F0A93E"/><stop offset="100%" stop-color="#22C99E"/></linearGradient></defs>
             </svg>
-            <div class="ring-center"><div class="pct" id="rcPct">—</div><div class="lbl">Adherence</div></div>
+            <div class="ring-center"><div class="pct" id="rcPct">—</div><div class="lbl" id="rcRingLbl">Score</div></div>
           </div>
           <div class="rc-meta">
             <h2 id="rcName">—</h2>
             <div class="role" id="rcRole">—</div>
             <div class="rc-stats">
-              <div class="rc-stat"><div class="v" id="rcPoints">0</div><div class="l">Points</div></div>
-              <div class="rc-stat"><div class="v" id="rcGap" style="color:#C2410C;">—</div><div class="l">Gap %</div></div>
-              <div class="rc-stat"><div class="v" id="rcStreak" style="color:#B45309;">—</div><div class="l">Best Streak</div></div>
-              <div class="rc-stat"><div class="v" id="rcRank" style="color:#5B4FCF;">—</div><div class="l">Team Rank</div></div>
+              <div class="rc-stat"><div class="v" id="rcOnTime" style="color:#0D9488;">—</div><div class="l">On-time</div></div>
+              <div class="rc-stat"><div class="v" id="rcUtil" style="color:#5B4FCF;">—</div><div class="l">Utilisation</div></div>
+              <div class="rc-stat"><div class="v" id="rcEff" style="color:#B45309;">—</div><div class="l">Efficiency</div></div>
               <div class="rc-stat"><div class="v" id="rcCommitment" style="color:#0D9488;">—</div><div class="l">Commitment Met</div></div>
+              <div class="rc-stat"><div class="v" id="rcStreak" style="color:#C2410C;">—</div><div class="l">Best Streak</div></div>
             </div>
             <div class="badges-row" id="badgesRow"></div>
           </div>
         </div>
 
-        <div class="panel" style="margin-top:20px;">
-          <div class="panel-head"><h2 style="font-size:16.5px;">My Commitments</h2></div>
-          <div id="myCommitmentsWrap"></div>
+        <div id="rcScoreCard" style="margin-top:18px;"></div>
+        <div class="top-grid" id="rcTiles" style="margin-top:16px;"></div>
+
+        <div class="panel" style="margin-top:16px;">
+          <div class="panel-head"><h2 style="font-size:15.5px;">How this score is built</h2></div>
+          <div id="rcExplain"></div>
+        </div>
+
+        <div class="panel" style="margin-top:16px;">
+          <div class="panel-head"><h2 style="font-size:15.5px;">Monthly — worked vs allocated</h2></div>
+          <div id="rcTrend"></div>
+        </div>
+
+        <div class="panel" style="margin-top:16px;">
+          <div class="panel-head"><h2 style="font-size:15.5px;">Delivery this period</h2></div>
+          <div id="rcDelivery"></div>
         </div>
       </section>
 
@@ -6066,55 +6096,168 @@ async function submitResubmit(id){
 /* =========================================================================
    REPORT CARD
    ========================================================================= */
-function renderReportCard(){
-  const v = currentViewer();
-  if(!v) return;
-  document.getElementById('rcName').textContent = v.name;
-  document.getElementById('rcRole').textContent = v.jobTitle + ' · ' + v.team + ' · ' + new Date().toLocaleDateString('en-NZ',{month:'long', year:'numeric'});
+/* =========================================================================
+   MY REPORT CARD — a per-person productivity deep-dive. Managers & founders
+   pick any of their people; an employee sees their own. All the numbers come
+   straight from /api/productivity so the card and the Productivity page can
+   never disagree.
+   ========================================================================= */
+let _rcData = null;         // last /api/productivity payload
+let _rcPersonId = null;     // who the card is showing
 
-  const mine = tasks.filter(t => t.assignedTo === currentViewerId);
-  const completed = mine.filter(t => t.status === 'completed');
-  const onTime = completed.filter(t => withinAgreedHours(t));
-  const points = completed.reduce((s,t) => s + t.points, 0);
-  const adherencePct = completed.length ? Math.round((onTime.length / completed.length) * 100) : 0;
-  const gapPct = completed.length ? Math.round(((completed.length - onTime.length) / completed.length) * 1000) / 10 : null;
+function _rcRange(){
+  const p = (document.getElementById('rcPeriod')||{}).value || 'year';
+  const now = new Date();
+  // format a Date in LOCAL time — toISOString() would shift NZ dates back a day
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  let from;
+  if(p === 'month'){ from = new Date(now.getFullYear(), now.getMonth(), 1); }
+  else if(p === 'quarter'){
+    const fy = fiscalYearStartDate(now);
+    const q = Math.floor(((now.getMonth() - 3 + 12) % 12) / 3);
+    from = new Date(fy.getFullYear(), 3 + q * 3, 1);
+  } else { from = fiscalYearStartDate(now); }
+  return { from: iso(from), to: iso(now), period: p };
+}
 
-  let streak = 0, bestStreak = 0;
-  for(const t of mine){
-    if(t.status === 'completed'){ streak++; bestStreak = Math.max(bestStreak, streak); }
-    else streak = 0;
+async function renderReportCard(){
+  const { from, to, period } = _rcRange();
+  let data;
+  try { data = await api(`/api/productivity?from=${from}&to=${to}&full=1`); }
+  catch(e){ document.getElementById('rcExplain').innerHTML = `<p style="color:var(--text-faint);">${esc(e.message)}</p>`; return; }
+  _rcData = data;
+
+  // Person picker — only when the caller can see more than themselves.
+  const people = (data.people || []).slice().sort((a,b)=> a.name.localeCompare(b.name));
+  const pickWrap = document.getElementById('rcPersonWrap');
+  const pick = document.getElementById('rcPerson');
+  if(people.length > 1){
+    pickWrap.style.display = '';
+    if(!_rcPersonId || !people.some(p=>p.id===_rcPersonId)) _rcPersonId = (currentViewer() && people.some(p=>p.id===currentViewerId)) ? currentViewerId : people[0].id;
+    pick.innerHTML = people.map(p=>`<option value="${p.id}"${p.id===_rcPersonId?' selected':''}>${esc(p.name)} — ${esc(p.team)}</option>`).join('');
+  } else {
+    pickWrap.style.display = 'none';
+    _rcPersonId = people[0] ? people[0].id : currentViewerId;
   }
 
-  const allTotals = employees
-    .map(e => ({ id: e.id, pts: tasks.filter(t => t.assignedTo === e.id && t.status === 'completed').reduce((s,t) => s + t.points, 0) }))
-    .sort((a,b) => b.pts - a.pts);
-  const rank = points > 0 ? allTotals.findIndex(e => e.id === currentViewerId) + 1 : null;
+  const p = people.find(x => x.id === _rcPersonId) || people[0];
+  const emp = empById(_rcPersonId) || {};
+  if(!p){ document.getElementById('rcName').textContent = '—'; return; }
 
-  document.getElementById('rcPct').textContent = completed.length ? adherencePct + '%' : '—';
-  const circumference = 402;
-  const offset = completed.length ? circumference - (circumference * adherencePct / 100) : circumference;
-  document.getElementById('rcRing').setAttribute('stroke-dashoffset', offset);
-  document.getElementById('rcPoints').textContent = points;
-  document.getElementById('rcGap').textContent = gapPct === null ? '—' : gapPct + '%';
-  document.getElementById('rcStreak').textContent = bestStreak > 0 ? '🔥 ' + bestStreak : '—';
-  document.getElementById('rcRank').textContent = rank ? '#' + rank : '—';
-  const completedWithDate = completed.filter(t => t.clientDate && t.completedAt);
-  const commitMet = completedWithDate.filter(t => commitmentStatus(t) === 'met').length;
-  document.getElementById('rcCommitment').textContent = completedWithDate.length ? Math.round((commitMet / completedWithDate.length) * 100) + '%' : '—';
-  document.getElementById('badgesRow').innerHTML = points > 0
-    ? '<div class="badge-emoji">🎯</div><div class="badge-emoji">🔥</div><div class="badge-emoji">⭐</div>'
-    : '<div style="font-size:14px; color:var(--text-faint);">No badges earned yet.</div>';
+  const periodLbl = period === 'month' ? new Date().toLocaleDateString('en-NZ',{month:'long',year:'numeric'})
+                  : period === 'quarter' ? `Fiscal quarter · ${fmtDate(from)}–${fmtDate(to)}`
+                  : `Fiscal year · ${fmtDate(from)}–${fmtDate(to)}`;
+  document.getElementById('rcName').textContent = p.name;
+  document.getElementById('rcRole').textContent = `${p.jobTitle || emp.jobTitle || 'Team member'} · ${p.team} · ${periodLbl}`;
 
-  const wrap = document.getElementById('myCommitmentsWrap');
-  if(mine.length === 0){ wrap.innerHTML = '<p style="font-size:14.5px;color:var(--text-faint);">No commitments assigned yet.</p>'; return; }
-  wrap.innerHTML = mine.map(t => {
-    const isToday = t.internalDeadline === todayISO() && t.status !== 'completed';
-    const cBadge = commitmentBadge(t);
-    return `<div style="display:flex; align-items:center; gap:14px; padding:13px 16px; background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; margin-bottom:9px;">
-      <div style="flex:1;"><div style="font-weight:600; font-size:15px;">${esc(t.name)}</div><div style="font-size:13.5px; color:var(--text-faint);">Client: ${esc(t.clientName)} ${t.clientDate ? '· Committed ' + fmtDate(t.clientDate) : ''} ${isToday ? '<b style="color:#C2410C;">· TODAY</b>' : ''}</div></div>
-      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">${statusBadge(t)}${cBadge}</div>
-    </div>`;
-  }).join('');
+  // ---- hero ring: the composite score (falls back to on-time while building) ----
+  const scoreReady = p.scoreStatus === 'ready' && p.productivityScore != null;
+  const ringVal = scoreReady ? p.productivityScore
+                : (p.productivityScore != null ? p.productivityScore : (p.onTimeRate != null ? p.onTimeRate : null));
+  document.getElementById('rcRingLbl').textContent = scoreReady ? 'Score /100'
+                : p.scoreStatus === 'building' ? 'Score (building)' : 'Score';
+  document.getElementById('rcPct').textContent = ringVal == null ? '—' : Math.round(ringVal);
+  const C = 402;
+  document.getElementById('rcRing').setAttribute('stroke-dashoffset', ringVal == null ? C : C - C * Math.max(0,Math.min(100,ringVal)) / 100);
+
+  // ---- best streak of completed tasks (kept from the old card) ----
+  const mine = tasks.filter(t => t.assignedTo === _rcPersonId);
+  let streak = 0, best = 0;
+  for(const t of mine){ if(t.status === 'completed'){ streak++; best = Math.max(best, streak); } else streak = 0; }
+
+  const setV = (id,val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
+  setV('rcOnTime', p.onTimeRate == null ? '—' : p.onTimeRate + '%');
+  setV('rcUtil', p.utilisationPct == null ? '—' : p.utilisationPct + '%');
+  setV('rcEff', p.efficiency == null ? '—' : p.efficiency.toFixed(2) + '×');
+  const commitMet = p.met + p.missed > 0 ? Math.round(p.met / (p.met + p.missed) * 100) + '%' : '—';
+  setV('rcCommitment', commitMet);
+  setV('rcStreak', best > 0 ? '🔥 ' + best : '—');
+
+  document.getElementById('badgesRow').innerHTML = scoreReady && p.productivityScore >= 85
+    ? '<div class="badge-emoji" title="Score 85+">🎯</div>' + (best >= 5 ? '<div class="badge-emoji" title="5+ streak">🔥</div>' : '') + (p.utilisationPct != null && p.utilisationPct >= 90 ? '<div class="badge-emoji" title="90%+ utilisation">⭐</div>' : '')
+    : `<div style="font-size:13px; color:var(--text-faint);">${p.scoreStatus === 'building' ? 'Score still building — needs ≥5 delivered tasks or ≥10 working days in range.' : p.scoreStatus === 'no-data' ? 'No delivered work in this period yet.' : 'No badges earned this period.'}</div>`;
+
+  // ---- composite score card (same component as the Productivity page) ----
+  document.getElementById('rcScoreCard').innerHTML = scoreCardHtml(
+    p.productivityScore, p.factors, p.weightsApplied,
+    `${p.name} · ${fmtDate(from)}–${fmtDate(to)}${p.scoreStatus === 'building' ? ' · building' : ''}`);
+
+  // ---- metric tiles ----
+  const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">${sub}</div>`:''}</div>`;
+  document.getElementById('rcTiles').innerHTML =
+    tile('Tasks delivered', p.tasks, `${p.met} met · ${p.missed} missed commitment`) +
+    tile('Worked hours', p.workedHours.toFixed(1), `of ${p.allocatedHours.toFixed(1)}h allocated`) +
+    tile('Capacity', p.capacityHours.toFixed(0) + 'h', `${p.workingDays} working days${p.leaveDays ? ` · −${p.leaveDays} leave` : ''}`) +
+    tile('Utilisation', p.utilisationPct == null ? '—' : p.utilisationPct + '%', 'worked ÷ capacity') +
+    tile('Efficiency', p.efficiency == null ? '—' : p.efficiency.toFixed(2) + '×', p.efficiency == null ? '' : p.efficiency >= 1 ? 'at/under estimate' : 'over estimate') +
+    tile('Throughput', p.throughput == null ? '—' : p.throughput.toFixed(1), 'tasks per working day') +
+    tile('Rework rounds', p.processorReworkRounds || 0, `${p.reviewedTasks} reviewed`) +
+    tile('Chased', p.chaseEvents || 0, 'deliberate nudges in range') +
+    tile('Fiscal YTD', p.cumulativeYtdWorked.toFixed(0) + 'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`);
+
+  // ---- factor-by-factor explanation ----
+  const w = p.weightsApplied || {};
+  const f = p.factors || {};
+  const line = (k, title, math, note) => {
+    const v = f[k], wk = w[k];
+    const contrib = (v != null && wk != null) ? (v * wk) : null;
+    return `<tr>
+      <td style="font-weight:600;">${title} <span style="color:var(--text-faint);font-weight:400;">(${k})</span></td>
+      <td style="font-family:var(--font-mono);color:${pfColor(v)};">${v == null ? '—' : v}</td>
+      <td style="font-family:var(--font-mono);color:var(--text-faint);">${wk == null ? '—' : (+wk).toFixed(2)}</td>
+      <td style="font-family:var(--font-mono);">${contrib == null ? '—' : contrib.toFixed(1)}</td>
+      <td style="font-size:12.5px;color:var(--text-dim);">${math}${note ? ` <span style="color:var(--text-faint);">— ${note}</span>` : ''}</td>
+    </tr>`;
+  };
+  const eff = p.efficiency, fairT = p.fairTarget;
+  document.getElementById('rcExplain').innerHTML = `
+    <p style="font-size:12.5px;color:var(--text-dim);margin:0 0 10px;">Score = Σ(factor × weight) ÷ Σ(weight), over the factors that have data. A factor shows “—” when there's nothing to measure it on yet — it's then left out of the score, not counted as zero.</p>
+    <div style="overflow-x:auto;"><table class="rc-explain-table" style="width:100%;border-collapse:collapse;font-size:13.5px;">
+      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">
+        <th style="padding:6px 10px 6px 0;">Factor</th><th style="padding:6px 10px;">0–100</th><th style="padding:6px 10px;">Weight</th><th style="padding:6px 10px;">×</th><th style="padding:6px 10px;">Based on</th></tr></thead>
+      <tbody>
+        ${line('E','Efficiency', `allocated ${p.allocatedHours.toFixed(1)}h ÷ worked ${p.workedHours.toFixed(1)}h`, eff == null ? 'no work logged' : `${(eff*100).toFixed(0)}% of estimate used`)}
+        ${line('T','On-time', `${p.met} met ÷ ${p.met + p.missed} client-dated`, p.met + p.missed === 0 ? 'no dated tasks' : '')}
+        ${line('R','Rework quality', `${p.processorReworkRounds} processor-fault round(s) ÷ ${p.reviewedTasks} reviewed`, p.reviewedTasks === 0 ? 'nothing reviewed yet' : '')}
+        ${line('N','Reminder discipline', `${p.chaseEvents} chase(s) ÷ ${p.openTasksInRange} open task(s)`, p.openTasksInRange === 0 ? 'no open work' : '')}
+        ${line('C','Delivery coverage', `worked ${p.workedHours.toFixed(1)}h ÷ fair target ${fairT != null ? fairT.toFixed(1) : '—'}h`, `fair target = min(assigned ${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : '—'}h, capacity ${p.capacityHours.toFixed(0)}h)`)}
+      </tbody>
+    </table></div>`;
+
+  // ---- monthly trend (worked vs allocated) ----
+  const series = (p.monthly || []).slice().sort((a,b)=>a.monthStart.localeCompare(b.monthStart));
+  const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
+  const monthLbl = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
+  document.getElementById('rcTrend').innerHTML = series.length ? `
+    <div class="label" style="margin-bottom:8px;"><span style="color:var(--teal,#0D9488);">worked</span> vs <span style="color:var(--text-faint);">allocated</span>, per month</div>
+    <div style="display:flex;gap:14px;align-items:flex-end;height:130px;overflow-x:auto;padding-bottom:4px;">
+      ${series.map(s => `<div style="flex:0 0 56px;text-align:center;">
+        <div style="height:104px;display:flex;gap:4px;align-items:flex-end;justify-content:center;">
+          <div style="width:17px;background:var(--teal,#0D9488);height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
+          <div style="width:17px;background:var(--panel-border);height:${Math.round(s.allocated/max*100)}%;border-radius:2px 2px 0 0;" title="${s.allocated.toFixed(1)}h allocated"></div>
+        </div>
+        <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${monthLbl(s.monthStart)}</div>
+        <div style="font-size:10px;color:var(--text-faint);">${s.tasks} task${s.tasks===1?'':'s'}</div>
+      </div>`).join('')}
+    </div>` : '<p style="font-size:13px;color:var(--text-faint);">No delivered work in this period.</p>';
+
+  // ---- delivered tasks in the period ----
+  const delivered = tasks.filter(t => t.assignedTo === _rcPersonId && t.status === 'completed'
+    && (t.completedAt || '').slice(0,10) >= from && (t.completedAt || '').slice(0,10) <= to)
+    .sort((a,b)=>(b.completedAt||'').localeCompare(a.completedAt||''));
+  document.getElementById('rcDelivery').innerHTML = delivered.length ? `
+    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">
+        <th style="padding:6px 10px 6px 0;">Task</th><th style="padding:6px 10px;">Client</th><th style="padding:6px 10px;">Delivered</th><th style="padding:6px 10px;">Est.</th><th style="padding:6px 10px;">Actual</th><th style="padding:6px 10px;">Commitment</th></tr></thead>
+      <tbody>${delivered.map(t => `<tr style="border-top:1px solid var(--panel-border);">
+        <td style="padding:7px 10px 7px 0;font-weight:600;">${esc(t.name)}</td>
+        <td style="padding:7px 10px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
+        <td style="padding:7px 10px;color:var(--text-dim);">${fmtDate((t.completedAt||'').slice(0,10))}</td>
+        <td style="padding:7px 10px;font-family:var(--font-mono);">${Number(t.tat) > 0 ? Number(t.tat).toFixed(1)+'h' : '—'}</td>
+        <td style="padding:7px 10px;font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
+        <td style="padding:7px 10px;">${t.clientDate ? commitmentBadge(t) : '<span style="color:var(--text-faint);">no date</span>'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<p style="font-size:13px;color:var(--text-faint);">No tasks delivered in this period.</p>';
 }
 
 /* =========================================================================
@@ -6606,7 +6749,6 @@ async function onLoginComplete(){
   await refreshTasks();
   await refreshActivity();
   await loadPunchState();
-  renderReportCard();
 
   if(isAdmin){
     showView('manager', document.querySelector('.nav-item[data-view="manager"]'));

@@ -2057,7 +2057,10 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   res.json({
     from, to, fiscalYearStart: fiscalYearStart(to),
     scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
-    people: people.filter(p => p.tasks > 0 || ids.length === 1),
+    // The Productivity table hides people with no delivered work in the range
+    // (noise). The Report Card picker asks for ?full=1 so a manager/founder can
+    // pull up anyone on their roster, output or not.
+    people: (req.query.full === '1') ? people : people.filter(p => p.tasks > 0 || ids.length === 1),
     weights: rollWeights,
     allocation,
     totals: {
