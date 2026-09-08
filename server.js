@@ -2218,6 +2218,15 @@ app.get('/api/today', requireAuth, (req, res) => {
   const showAll = req.query.all === '1' || req.query.all === 'true';
   const r2 = n => Math.round(n * 100) / 100;
 
+  // ?as=<empId> — a manager / founder mirroring someone's dashboard.
+  let subject = me, mirroring = false;
+  if (req.query.as && req.query.as !== me.id) {
+    if (!canManageEmployee(state, me, req.query.as)) return res.status(403).json({ error: "You can't view this person's dashboard." });
+    const sub = findEmployee(state, req.query.as);
+    if (!sub) return res.status(404).json({ error: 'Employee not found.' });
+    subject = sub; mirroring = true;
+  }
+
   const pendingFor = (empId) => {
     const open = state.tasks.filter(t => t.assignedTo === empId
       && !['completed', 'pending_approval'].includes(t.status));
@@ -2237,30 +2246,35 @@ app.get('/api/today', requireAuth, (req, res) => {
   };
   const statusOf = (pending, cap) => cap === 0 ? 'off' : pending > cap ? 'over' : pending < cap * 0.5 ? 'light' : 'balanced';
 
-  const emp = findEmployee(state, me.id) || me;
+  const emp = findEmployee(state, subject.id) || subject;
   const capToday = dayCapacity(state, emp, today);
-  const mine = pendingFor(me.id);
+  const mine = pendingFor(subject.id);
+  const avail = availabilityOf(state, emp);
   const out = {
-    date: today, showAll,
+    date: today, showAll, mirroring, subject: { id: subject.id, name: subject.name },
     me: {
       ...mine,
       capacityToday: capToday,
-      doneToday: r2(hoursDoneOnDate(state, me.id, today)),
-      onLeaveToday: !!approvedLeaveOn(state, me.id, today),
+      doneToday: r2(hoursDoneOnDate(state, subject.id, today)),
+      onLeaveToday: !!approvedLeaveOn(state, subject.id, today),
       status: statusOf(mine.pendingHours, capToday),
+      busyUntil: avail.committedThrough && avail.committedThrough > today ? avail.committedThrough : null,
+      backlogHours: avail.backlogHours,
     },
   };
 
-  if (isAdminRole(me.accessRole) && emp.team && String(emp.team).trim() && emp.team !== 'Unassigned') {
+  if (!mirroring && isAdminRole(me.accessRole) && emp.team && String(emp.team).trim() && emp.team !== 'Unassigned') {
     out.team = teamRoster(state, emp).filter(e => e.id !== me.id).map(e => {
       const p = pendingFor(e.id);
       const cap = dayCapacity(state, e, today);
+      const av = availabilityOf(state, e);
       return {
         id: e.id, name: e.name,
         pendingHours: p.pendingHours, pendingCount: p.pendingCount,
         capacityToday: cap, doneToday: r2(hoursDoneOnDate(state, e.id, today)),
         onLeaveToday: !!approvedLeaveOn(state, e.id, today),
         status: statusOf(p.pendingHours, cap),
+        busyUntil: av.committedThrough && av.committedThrough > today ? av.committedThrough : null,
       };
     }).sort((a, b) => b.pendingHours - a.pendingHours);
     out.teamPendingHours = r2(out.team.reduce((s, x) => s + x.pendingHours, 0));
