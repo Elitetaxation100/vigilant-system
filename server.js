@@ -896,6 +896,22 @@ app.get('/api/tasks/plan', requireAuth, (req, res) => {
   const start = (typeof req.query.start === 'string' && /^\d{4}-\d{2}-\d{2}/.test(req.query.start)) ? req.query.start.slice(0, 10) : null;
   res.json({ assignee: emp.name, ...computeCommitmentDates(state, emp, hours, start), ...availabilityOf(state, emp) });
 });
+// The client commitment date for a given manager (internal) due date: the
+// dispatch buffer in working days on top, skipping Sundays, public holidays
+// (the shared calendar) and any of the assignee's approved leave days.
+app.get('/api/plan/dispatch-date', requireAuth, (req, res) => {
+  const state = db.get();
+  const internal = (typeof req.query.internal === 'string' && /^\d{4}-\d{2}-\d{2}/.test(req.query.internal)) ? req.query.internal.slice(0, 10) : null;
+  if (!internal) return res.status(400).json({ error: 'internal (YYYY-MM-DD) is required.' });
+  const emp = req.query.assignee ? findEmployee(state, req.query.assignee) : null;
+  let d = internal, added = 0, guard = 0;
+  while (added < DISPATCH_BUFFER_WD && guard++ < 200) {
+    d = cal.addWorkingDays(d, 1);                       // next Mon–Sat, holidays skipped
+    if (emp && approvedLeaveOn(state, emp.id, d)) continue; // an approved leave day doesn't count
+    added += 1;
+  }
+  res.json({ internal, clientDate: d, bufferWorkingDays: DISPATCH_BUFFER_WD });
+});
 // The hold screenshot for one task — pulled only when the detail is opened.
 // Visible to the assignee, whoever put it on hold, or a manager over them.
 app.get('/api/tasks/:id/hold-screenshot', requireAuth, (req, res) => {

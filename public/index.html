@@ -227,7 +227,8 @@
   .greeting-block h1{ font-family:var(--font-display); font-size:24px; font-weight:700; letter-spacing:-.3px; }
   .greeting-block .greeting-sub{ margin-top:6px; font-size:13.5px; color:var(--text-faint); }
   .greeting-block .greeting-sub b{ color:var(--text-dim); font-weight:600; }
-  .top-grid{ display:grid; grid-template-columns:repeat(5,1fr) 1.7fr; gap:14px; margin-bottom:24px; }
+  .top-grid{ display:grid; grid-template-columns:repeat(6,1fr) 1.7fr; gap:14px; margin-bottom:24px; }
+  @media(max-width:1400px){ .top-grid{ grid-template-columns:repeat(4,1fr); } }
   @media(max-width:1180px){ .top-grid{ grid-template-columns:repeat(3,1fr); } }
   @media(max-width:640px){ .top-grid{ grid-template-columns:repeat(2,1fr); } }
   .metric-tile{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:18px 18px 16px; }
@@ -836,6 +837,10 @@
             <div class="mt-value" id="myTasksToday">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myPendingHoursSub"></div>
           </div>
+          <div class="metric-tile mg-tile" onclick="openMyReviewQueue()" title="Work other people chose you to check">
+            <div class="mt-label">To Review</div>
+            <div class="mt-value" style="color:#F0B93E;" id="myToReview">0</div>
+          </div>
           <div class="metric-tile mg-tile" onclick="openMyInReview()" title="Your work you've sent for review — off your to-do list, waiting on a checker">
             <div class="mt-label">In Review</div>
             <div class="mt-value purple" id="myInReview">0</div>
@@ -903,9 +908,8 @@
             <thead>
               <tr>
                 <th>Task ID</th>
-                <th>Deliverable Scope</th>
+                <th>Task</th>
                 <th>Client / Commitment Date</th>
-                <th>Points</th>
                 <th>Assigned To</th>
                 <th>Agreed Hrs</th>
                 <th>Status</th>
@@ -2829,16 +2833,15 @@ function renderTaskTable(){
     return hay.includes(q);
   }).sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
   if(rows.length === 0){
-    body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-faint); padding:26px;">No tasks match this view.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:26px;">No tasks match this view.</td></tr>`;
   } else {
     body.innerHTML = rows.map(t => {
       const assignee = empById(t.assignedTo);
       const isToday = t.internalDeadline === todayISO() && t.status !== 'completed';
       return `<tr>
         <td class="task-id">${t.id}</td>
-        <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${esc(t.scope)}</div>${(t.source && t.source !== 'manual') ? `<div class="admin-src-cell">${srcTag(t.source)}</div>` : ''}</td>
-        <td class="clientcell">${esc(t.clientName) || '—'}<div class="cdate ${isToday?'deadline-today':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}${t.clientDateOverride ? ' <span class="pill neutral" style="font-size:9px;">PROMISED</span>' : ''}</div><div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Internal due: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${(t.dateHistory||[]).length ? ' · <span title="edited by a manager">edited ' + (t.dateHistory.length) + '×</span>' : ''}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
-        <td class="pts">★ ${t.points} pts</td>
+        <td><div class="task-name">${esc(t.name)}</div>${(t.source && t.source !== 'manual') ? `<div class="admin-src-cell">${srcTag(t.source)}</div>` : ''}</td>
+        <td class="clientcell">${esc(t.clientName) || '—'}<div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Manager due: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${(t.dateHistory||[]).length ? ' · <span title="edited by a manager">edited ' + (t.dateHistory.length) + '×</span>' : ''}</div><div class="cdate ${isToday?'deadline-today':''}">Client: ${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}${t.clientDateOverride ? ' <span class="pill neutral" style="font-size:9px;">PROMISED</span>' : ''}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
         <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
         <td class="logged">${t.tat} hrs</td>
         <td style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')" title="Who did what — full history">${statusBadge(t)}<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">history ›</div></td>
@@ -2972,6 +2975,7 @@ function renderEmployeeStats(){
   const doneAll  = mine.filter(t => t.status === 'completed' && ['clean','done'].includes(t.reviewStatus));
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
   setV('myTasksToday', myTodaysWork.length);
+  setV('myToReview', myReviewTasks().length);
   setV('myInReview', inReview.length);
   setV('myDoneAll', doneAll.length);
   const doneHrs = doneAll.reduce((s,t) => s + taskHrs(t), 0);
@@ -3098,7 +3102,7 @@ function renderMyDay(){
     html += `<div class="working-card">
       <div class="working-top">
         <div>
-          <span class="pill pill-purple">${esc(running.scope || 'Task')}</span>
+          <span class="pill pill-purple">${esc(running.kind === 'internal' ? 'Internal' : 'Client work')}</span>
           <span class="working-client">${esc(running.clientName || '')}</span>
           <div class="working-title">${esc(running.name || '')}</div>
         </div>
@@ -3203,9 +3207,13 @@ function renderStatusDonut(){
       // own tasks, a manager their team's, a founder/superadmin the firm.
       const scoped = dashboardScopeTasks();
       if(scoped.length === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
-      const colors = { awaiting_acceptance:'#F0B93E', window_proposed:'#7C6CF6', accepted:'#2FBE93', pending:'#6B7390', rework:'#F0603E', completed:'#0D9488' };
+      const colors = { awaiting_acceptance:'#F0B93E', window_proposed:'#7C6CF6', accepted:'#2FBE93', pending:'#6B7390', rework:'#F0603E', on_hold:'#B45309', inreview:'#7C6CF6', done:'#0D9488' };
+      // A finished task is either still IN REVIEW (sent, not signed off) or
+      // DONE (reviewed clean / closed) — never both, and "Sent for Review"
+      // never lingers on the ring once it's cleared.
+      const donutKey = t => t.status !== 'completed' ? t.status : (t.reviewStatus ? 'done' : 'inreview');
       const counts = {};
-      scoped.forEach(t => { counts[t.status] = (counts[t.status]||0) + 1; });
+      scoped.forEach(t => { const k = donutKey(t); counts[k] = (counts[k]||0) + 1; });
       const order = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
       const total = scoped.length;
       let acc = 0;
@@ -3884,14 +3892,11 @@ function openAssignModal(mode){
       <div class="field"><label>Task type</label><select id="atPreset" onchange="applyTaskPreset()">${taskPresetOptionsHtml()}</select></div>
     </div>
     <div class="field"><label>Task name</label><input type="text" id="atName" placeholder="e.g. GST Return / Train new hire on cashbook"></div>
-    <div id="atClientScope"${noClients ? ' style="display:none;"' : ''}>
-      <div class="field"><label>Deliverable scope</label><input type="text" id="atScope" placeholder="e.g. Q3 filing"></div>
-    </div>
     <div class="field"><label>Team / work category</label>
       <select id="atTeam" onchange="onAtTeamChange()">${teamCategoryOptionsHtml((currentViewer() || {}).team || '')}</select>
       <input type="text" id="atTeamCustom" placeholder="Type a team or work category" style="display:none; margin-top:8px;">
     </div>
-    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee" onchange="atPlanPreview()">${assignableEmployees().map(e=>{
+    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee" onchange="atPlanPreview(); atSyncClientDate()">${assignableEmployees().map(e=>{
       const w = workload.find(x => x.id === e.id);
       const ct = w && w.committedThrough;
       const load = ct && ct > todayISO() ? ` — free from ${fmtDate(ct)}` : (w && w.freeCapacityNext5wd != null ? ` — ${w.freeCapacityNext5wd}h free this week` : '');
@@ -3904,11 +3909,10 @@ function openAssignModal(mode){
         <datalist id="atClientList">${clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>`<option value="${esc(c.name)}"></option>`).join('')}</datalist>
         <div id="atClientErr" style="font-size:12px;color:#C2410C;margin-top:4px;display:none;">Pick a client from the list (or add it first in Clients).</div>
       </div>
-      <div class="field"><label>Client commitment date</label><input type="date" id="atClientDate" value="${addDaysISO(3)}"></div>
     </div>
     <div class="field"><label id="atTatLabel">Estimated time (hours) <span class="req-mark">*</span></label><input type="number" id="atTat" value="3" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
-    <div class="field"><label id="atDeadlineLabel">Agreed delivery date <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}"></div>
-    <div id="atPointsField"${noClients ? ' style="display:none;"' : ''}><div class="field"><label>Points</label><input type="number" id="atPoints" value="10" min="0"></div></div>
+    <div class="field"><label id="atDeadlineLabel">Manager due date (internal) <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}" onchange="atPlanPreview(); atSyncClientDate()"></div>
+    <div class="field" id="atClientDateWrap"><label>Client commitment date <span style="font-weight:400;color:var(--text-faint);">— auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
     <div class="modal-error" id="assignError">Please enter a task name.</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -3916,8 +3920,31 @@ function openAssignModal(mode){
     </div>
   `;
   openModal();
+  window.__stickyModal = true;              // don't close on a click outside a half-filled form
+  _atClientDateTouched = false;
   setAssignKind(noClients ? 'internal' : 'client');
   if(isTeam) atPlanPreview();
+  atSyncClientDate();
+}
+// Fill the client commitment date from the manager due date — internal
+// date + the firm's dispatch buffer in working days, skipping Sundays,
+// public holidays, and any of the assignee's approved leave. Editable: a
+// manual change to the client-date field switches this off.
+let _atClientDateTouched = false;
+let _atSyncTimer = null;
+function atSyncClientDate(){
+  if(_atClientDateTouched) return;
+  const internal = (document.getElementById('atDeadline') || {}).value;
+  const cd = document.getElementById('atClientDate');
+  if(!internal || !cd) return;
+  const asgn = (document.getElementById('atAssignee') || {}).value || currentViewerId;
+  clearTimeout(_atSyncTimer);
+  _atSyncTimer = setTimeout(async () => {
+    try {
+      const r = await api(`/api/plan/dispatch-date?internal=${internal}&assignee=${encodeURIComponent(asgn)}`);
+      if(!_atClientDateTouched && r.clientDate) cd.value = r.clientDate;
+    } catch(e){ /* leave it */ }
+  }, 150);
 }
 // Live "when will this land?" preview for a team assignment, from the
 // assignee's real capacity + queue (Phase 5).
@@ -3940,7 +3967,7 @@ function atPlanPreview(){
 }
 function atUseComputedDates(internal, client){
   const d = document.getElementById('atDeadline'); if(d) d.value = internal;
-  const c = document.getElementById('atClientDate'); if(c) c.value = client;
+  const c = document.getElementById('atClientDate'); if(c){ c.value = client; _atClientDateTouched = true; }
   showToast('info', 'Dates set from capacity', '');
 }
 let _assignKind = 'client';
@@ -3948,11 +3975,11 @@ function setAssignKind(kind){
   _assignKind = kind === 'internal' ? 'internal' : 'client';
   const isInternal = _assignKind === 'internal';
   document.querySelectorAll('.atKindBtn').forEach(b => b.classList.toggle('primary', b.dataset.kind === _assignKind));
-  ['atClientOnly','atClientScope','atClientBlock','atPointsField'].forEach(id => {
+  ['atClientOnly','atClientBlock','atClientDateWrap'].forEach(id => {
     const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
   });
   const dl = document.getElementById('atDeadlineLabel');
-  if(dl) dl.innerHTML = isInternal ? 'Due date' : 'Agreed delivery date <span class="req-mark">*</span>';
+  if(dl) dl.innerHTML = isInternal ? 'Due date' : 'Manager due date (internal) <span class="req-mark">*</span>';
   const tl = document.getElementById('atTatLabel');
   if(tl) tl.innerHTML = isInternal ? 'Estimated time (hours)' : 'Estimated time (hours) <span class="req-mark">*</span>';
 }
@@ -3975,17 +4002,14 @@ async function submitAssign(mode){
   const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };
   if(isInternal){
     payload.kind = 'internal';
-    payload.points = 0;
   } else {
     payload.kind = 'client';
-    payload.scope = (document.getElementById('atScope')||{}).value.trim();
     const cid = resolveClientId((document.getElementById('atClientId')||{}).value);
     const cerr = document.getElementById('atClientErr');
     if(!cid){ if(cerr) cerr.style.display = 'block'; return; }
     if(cerr) cerr.style.display = 'none';
     payload.clientId = cid;
-    payload.clientDate = (document.getElementById('atClientDate')||{}).value;
-    payload.points = parseInt((document.getElementById('atPoints')||{}).value) || 0;
+    payload.clientDate = (document.getElementById('atClientDate')||{}).value || undefined;
   }
   await submitTaskPayload(payload);
 }
@@ -4506,7 +4530,9 @@ function statusLabel(status){
     case 'pending': return 'Pending';
     case 'paused': return 'Paused';
     case 'rework': return 'In Rework';
-          case 'completed': return 'Sent for Review';
+    case 'completed': return 'Sent for Review';
+    case 'inreview': return 'In Review';
+    case 'done': return 'Done';
     default: return status || 'Unknown';
   }
 }
@@ -4944,9 +4970,9 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
     const o = empById(t.assignedTo);
     const due = t.internalDeadline ? fmtDate(t.internalDeadline) : '—';
     const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today;
-    const hay = (t.name + ' ' + (t.clientName||'') + ' ' + (t.scope||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase();
+    const hay = (t.name + ' ' + (t.clientName||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase();
     return `<tr data-hay="${esc(hay)}">
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}${t.scope && t.scope !== '—' ? ' · ' + esc(t.scope) : ''}</div></td>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
       <td style="font-family:var(--font-mono);white-space:nowrap;">⏱ ${t.tat}h</td>
       ${showOwner ? `<td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>` : ''}
       <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${due}${overdue ? ' · overdue' : ''}${t.clientDate ? `<div class="tl-sub">client: ${fmtDate(t.clientDate)}</div>` : ''}</td>
@@ -5020,8 +5046,10 @@ function openMyReviewQueue(){
   const list = myReviewTasks().slice().sort((a,b) => (a.completedAt||'').localeCompare(b.completedAt||''));
   const rows = list.map(t => {
     const o = empById(t.assignedTo);
-    return `<tr>
+    const hay = (t.name + ' ' + (t.clientName||'') + ' ' + (o?o.name:'') + ' ' + t.id).toLowerCase();
+    return `<tr data-hay="${esc(hay)}">
       <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</div></td>
+      <td style="font-family:var(--font-mono);">⏱ ${t.tat}h</td>
       <td>${o ? esc(o.name) : '—'}</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</td>
       <td><button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="closeModal();openReviewFormModal('${t.id}')">📝 Review</button></td>
@@ -5030,9 +5058,10 @@ function openMyReviewQueue(){
   document.getElementById('modalBox').innerHTML = `
     <div class="tasklist-modal">
       <h3>Waiting for your review <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
-      <div class="modal-sub">Work other people sent you to check before it's signed off.</div>
-      ${list.length ? `<div class="tl-scroll"><table>
-        <thead><tr><th>Task</th><th>Submitted by</th><th>Completed</th><th></th></tr></thead>
+      <div class="modal-sub">Work other people chose you to check before it's signed off.</div>
+      ${list.length ? `<input type="text" class="modal-search" placeholder="Search…" oninput="filterModalRows(this.value)">
+        <div class="tl-scroll"><table>
+        <thead><tr><th>Task</th><th>Hrs</th><th>Submitted by</th><th>Completed</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>`
         : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting for your review right now.</p>`}
       <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
@@ -6482,9 +6511,11 @@ function logoutSession(){
    MODAL HELPERS
    ========================================================================= */
 function openModal(){ document.getElementById('modalOverlay').classList.add('active'); }
-function closeModal(){ document.getElementById('modalOverlay').classList.remove('active'); }
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('active'); window.__stickyModal = false; }
+// A click on the backdrop closes most modals — but not a "sticky" one (a
+// half-filled form like Assign Task); those only close via Cancel.
 document.getElementById('modalOverlay').addEventListener('click', function(e){
-  if(e.target === this && !window.__loginGateActive) closeModal();
+  if(e.target === this && !window.__loginGateActive && !window.__stickyModal) closeModal();
 });
 // Escape closes an open modal too (the login gate stays put — it's not dismissable).
 document.addEventListener('keydown', function(e){
