@@ -827,11 +827,6 @@
 
         <div id="empDeadlineNote"></div>
 
-        <div class="banner">
-          <span>ⓘ</span>
-          <span><b>Workflow Standard TAT Guidelines:</b> GST Filing tasks default to an average of <b>3.0 hours</b> (fast-track cases complete in <span class="tag">40–45 mins</span>).</span>
-        </div>
-
         <div class="top-grid">
           <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Every task assigned to this person">
             <div class="mt-label">Total Tasks</div>
@@ -4070,9 +4065,9 @@ function setAssignKind(kind){
     const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
   });
   const dl = document.getElementById('atDeadlineLabel');
-  if(dl) dl.innerHTML = isInternal ? 'Due date' : 'Manager due date (internal) <span class="req-mark">*</span>';
+  if(dl) dl.innerHTML = (isInternal ? 'Due date' : 'Manager due date (internal)') + ' <span class="req-mark">*</span>';
   const tl = document.getElementById('atTatLabel');
-  if(tl) tl.innerHTML = isInternal ? 'Estimated time (hours)' : 'Estimated time (hours) <span class="req-mark">*</span>';
+  if(tl) tl.innerHTML = 'Estimated time (hours) <span class="req-mark">*</span>';
 }
 async function submitAssign(mode){
   const errEl = document.getElementById('assignError');
@@ -4082,12 +4077,9 @@ async function submitAssign(mode){
   const isInternal = _assignKind === 'internal';
   const assignedTo = mode === 'team' ? document.getElementById('atAssignee').value : currentViewerId;
   const deadline = document.getElementById('atDeadline').value;
-  const tatRaw = parseFloat(document.getElementById('atTat').value);
-  const tat = tatRaw > 0 ? tatRaw : (isInternal ? 1 : 0);
-  if(!isInternal){
-    if(!(tat > 0)){ showErr('Enter the estimated time in hours — it\'s required for client work.'); return; }
-    if(!deadline){ showErr('Pick a delivery date — it\'s required for client work.'); return; }
-  }
+  const tat = parseFloat(document.getElementById('atTat').value);
+  if(!(tat > 0)){ showErr('Enter the estimated time in hours — it\'s required.'); return; }
+  if(!deadline){ showErr('Pick a due date — it\'s required.'); return; }
   let team = (document.getElementById('atTeam') || {}).value || '';
   if(team === '__custom__') team = ((document.getElementById('atTeamCustom') || {}).value || '').trim();
   const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };

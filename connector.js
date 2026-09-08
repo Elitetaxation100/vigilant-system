@@ -877,10 +877,18 @@ async function generateAiDraft(rowId) {
 // ---------------------------------------------------------------------------
 // App Home tab — per-user view of what needs attention
 // ---------------------------------------------------------------------------
+// A mandatory call still needs a listen only when it hasn't been resolved
+// some other way: nobody's logged an outcome, it wasn't marked "no action",
+// AND it hasn't been turned into a task. Once there's a task the person is
+// handling it through that — the digest shouldn't keep nagging to listen.
+function callNeedsListen(c) {
+  return !!c && c.mandatory && c.recordingUrl && !c.listenedBy
+    && !c.finalOutcome && !c.taskId && c.status !== 'no_action';
+}
 function pendingListenCalls(state, { team } = {}) {
   const graceMs = LISTEN_GRACE_HOURS * 3600000;
   return (state.calls || []).filter(c =>
-    c.mandatory && c.recordingUrl && !c.listenedBy && !c.finalOutcome && c.status !== 'no_action' &&
+    callNeedsListen(c) &&
     Date.now() - new Date(c.recordingFetchedAt || c.occurredAt).getTime() > graceMs &&
     (!team || c.team === team));
 }
@@ -903,7 +911,7 @@ function buildHomeView(state, slackUserId) {
 
   let mine = [];
   (state.calls || []).forEach(c => {
-    if (!c.mandatory || !c.recordingUrl || c.listenedBy || c.finalOutcome || c.status === 'no_action') return;
+    if (!callNeedsListen(c)) return;
     if (isFounder || myTeams.includes(c.team) || (AGENT_MAP[c.agentAircallId] && (AGENT_MAP[c.agentAircallId].slackIds || []).includes(slackUserId))) mine.push(c);
   });
   mine = mine.sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt)).slice(0, 15);
@@ -925,7 +933,7 @@ function buildHomeView(state, slackUserId) {
 
   if (isFounder) {
     blocks.push({ type: 'divider' });
-    const unlogged = (state.calls || []).filter(c => c.mandatory && c.recordingUrl && !c.finalOutcome && c.status !== 'no_action').length;
+    const unlogged = (state.calls || []).filter(c => c.mandatory && c.recordingUrl && !c.finalOutcome && !c.taskId && c.status !== 'no_action').length;
     const overdue = overdueIntegrationTasks(state).length;
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🔒 Founder view*\n• ${unlogged} mandatory calls not yet logged\n• ${overdue} call/Slack tasks overdue` } });
   }

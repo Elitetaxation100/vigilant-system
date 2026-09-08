@@ -55,10 +55,16 @@ const ROSTER = [
   { name: 'Nitish', email: 'nitish@elitetaxation.co.nz', password: 'Nitish@2026', jobTitle: 'Tax Associate', team: 'GST Team', accessRole: 'employee' },
   { name: 'Smita', email: 'smita@elitetaxation.co.nz', password: 'Smita@2026', jobTitle: 'Tax Associate', team: 'Unassigned', accessRole: 'employee' },
   { name: 'Hunny', email: 'hunny@elitetaxation.co.nz', password: 'Hunny@2026', jobTitle: 'Tax Associate', team: 'Unassigned', accessRole: 'employee' },
-  { name: 'Natasha', email: 'natasha@elitetaxation.co.nz', password: 'Natasha@2026', jobTitle: 'Tax Associate', team: 'Rideshare Team', accessRole: 'employee' },
   { name: 'Vishal', email: 'vishal@elitetaxation.co.nz', password: 'Vishal@2026', jobTitle: 'Manager', team: 'Unassigned', accessRole: 'admin' },
-  { name: 'Krishna', email: 'krishna@elitetaxation.co.nz', password: 'Krishna@2026', jobTitle: 'Tax Associate', team: 'Unassigned', accessRole: 'employee' },
 ];
+
+// People who have left / were removed and must NOT be re-created by
+// ensureOrgChart on the next deploy. pruneRetiredEmployees() also deletes
+// any lingering record every startup.
+const RETIRED_EMAILS = new Set([
+  'natasha@elitetaxation.co.nz',
+  'krishna@elitetaxation.co.nz',
+]);
 
 function seedData() {
   const now = Date.now();
@@ -123,30 +129,44 @@ function ensureOrgChart(state) {
   const nitish = ensureEmployee('nitish@elitetaxation.co.nz');
   const smita = ensureEmployee('smita@elitetaxation.co.nz');
   const hunny = ensureEmployee('hunny@elitetaxation.co.nz');
-  const natasha = ensureEmployee('natasha@elitetaxation.co.nz');
-  const krishna = ensureEmployee('krishna@elitetaxation.co.nz');
   const ranjit = byEmail('ranjit@elitetaxation.co.nz');
   const mukul = byEmail('mukul@elitetaxation.co.nz');
 
   if (disha) ensureManages(disha, [khushi.id, diksha.id, nitish.id]);
   ensureManages(vishal, [smita.id, hunny.id]);
-  if (parvinder) ensureManages(parvinder, [natasha.id, ...(ranjit ? [ranjit.id] : []), ...(mukul ? [mukul.id] : [])]);
-  // Disha, Vishal, Krishna, and Parvinder report to Shubham. Shubham is
-  // superadmin, which already grants him assign-access to every employee —
-  // managesIds only matters for the 'admin' role — so recording it here
-  // isn't functionally required for that permission to work, but it keeps
-  // the org chart correct and visible in the Employee Directory, and keeps
-  // it accurate if Shubham's role is ever changed to admin later.
-  const reportsToShubham = [disha, vishal, krishna, parvinder].filter(Boolean).map(e => e.id);
+  if (parvinder) ensureManages(parvinder, [...(ranjit ? [ranjit.id] : []), ...(mukul ? [mukul.id] : [])]);
+  // Disha, Vishal and Parvinder report to Shubham. Shubham is superadmin,
+  // which already grants him assign-access to every employee — managesIds
+  // only matters for the 'admin' role — so recording it here isn't
+  // functionally required for that permission, but it keeps the org chart
+  // correct and visible in the Employee Directory.
+  const reportsToShubham = [disha, vishal, parvinder].filter(Boolean).map(e => e.id);
   ensureManages(shubham, reportsToShubham);
 
-  // Governance-wide superadmins: Shubham, Vishal, Parvinder, Krishna, and
-  // HR Administrator all get full oversight — who assigned what to whom,
-  // every report card, and the Excel export — regardless of what role
-  // they were seeded or previously set to. Enforced here every startup so
-  // it can't silently drift.
+  // Governance-wide superadmins: Shubham, Vishal, Parvinder and HR
+  // Administrator get full oversight regardless of what role they were
+  // seeded or previously set to. Enforced every startup so it can't drift.
   const hrAdmin = byEmail('hr@elitetaxation.co.nz');
-  [shubham, vishal, parvinder, krishna, hrAdmin].filter(Boolean).forEach(e => { e.accessRole = 'superadmin'; });
+  [shubham, vishal, parvinder, hrAdmin].filter(Boolean).forEach(e => { e.accessRole = 'superadmin'; });
+}
+
+// Delete any lingering record for a retired employee every startup, and
+// tidy up after them: unassign their open work, drop them from managesIds,
+// and null any client they owned. This is what makes a "remove" stick even
+// though ensureOrgChart runs on every deploy.
+function pruneRetiredEmployees(state) {
+  const gone = (state.employees || []).filter(e => RETIRED_EMAILS.has(String(e.email || '').toLowerCase()));
+  if (!gone.length) return;
+  const goneIds = new Set(gone.map(e => e.id));
+  (state.tasks || []).forEach(t => {
+    if (goneIds.has(t.assignedTo) && t.status !== 'completed') t.assignedTo = null;
+  });
+  (state.employees || []).forEach(e => {
+    if (Array.isArray(e.managesIds)) e.managesIds = e.managesIds.filter(id => !goneIds.has(id));
+  });
+  (state.clients || []).forEach(c => { if (goneIds.has(c.ownerId)) c.ownerId = null; });
+  gone.forEach(e => { delete (state.punchLog || {})[e.id]; delete (state.attendance || {})[e.id]; });
+  state.employees = state.employees.filter(e => !goneIds.has(e.id));
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +409,7 @@ function runMigrations(state) {
     state._slackDoneBackfilled = true;
   }
   ensureOrgChart(state);
+  pruneRetiredEmployees(state);
   ensureExtendedFields(state);
   rebuildOrgChart(state);
 }

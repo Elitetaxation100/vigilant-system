@@ -944,20 +944,12 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     const allowed = assignableEmployees(state, req.employee).some(e => e.id === assignee);
     if (!allowed) return res.status(403).json({ error: "You're not authorized to assign work to this person." });
   }
-  // A client task cannot exist without an estimated time and a delivery date
-  // — those two drive planning, the dashboard, and every hours figure. An
-  // internal task (training, admin) can still be auto-planned from capacity.
+  // Every task — client or internal — needs an estimated time (hours) and a
+  // due date. Those two drive planning, the dashboard, and every hours
+  // figure; nothing is auto-planned any more.
   const numTat = parseFloat(tat);
-  if (!isInternal) {
-    if (!(numTat > 0)) return res.status(400).json({ error: 'A client task needs an estimated time in hours.' });
-    if (!internalDeadline) return res.status(400).json({ error: 'A client task needs a delivery date.' });
-  }
-  let computedDates = null;
-  if (!internalDeadline) {
-    const emp = findEmployee(state, assignee);
-    if (emp) { refreshCapacity(state, emp); computedDates = computeCommitmentDates(state, emp, numTat > 0 ? numTat : 1, null); internalDeadline = computedDates.internalDeadline; }
-  }
-  if (!internalDeadline) return res.status(400).json({ error: 'Give a due date, or an assignee we can plan around.' });
+  if (!(numTat > 0)) return res.status(400).json({ error: 'A task needs an estimated time in hours.' });
+  if (!internalDeadline) return res.status(400).json({ error: 'A task needs a due date.' });
 
   // No daily-hours cap and no self-assignment approval — anyone can hand
   // themselves (or someone they manage) work, whatever the day already holds.
