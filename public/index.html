@@ -413,17 +413,19 @@
   .flag-count{ font-family:var(--font-mono); background:var(--coral-dim); color:#C2410C; font-size:12px; padding:1px 6px; border-radius:8px; margin-left:auto; flex-shrink:0; }
 
   /* employee report card */
-  .card-hero{ background:linear-gradient(135deg, #F4F1FE, #FFFFFF); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:26px; display:flex; gap:28px; align-items:center; flex-wrap:wrap; }
+  /* the hero card is a permanently-light surface, so its text needs fixed
+     dark colours — the app's --text token is near-white (dark-only theme). */
+  .card-hero{ background:linear-gradient(135deg, #F4F1FE, #FFFFFF); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:26px; display:flex; gap:28px; align-items:center; flex-wrap:wrap; color:#23263B; }
   .ring-wrap{ position:relative; width:150px; height:150px; flex-shrink:0; }
   .ring-wrap svg{ transform:rotate(-90deg); }
   .ring-center{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  .ring-center .pct{ font-family:var(--font-display); font-size:29px; font-weight:700; }
-  .ring-center .lbl{ font-size:11px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.6px; margin-top:2px;}
-  .rc-meta h2{ font-family:var(--font-display); font-size:21.5px; margin-bottom:4px; }
-  .rc-meta .role{ color:var(--text-dim); font-size:15px; margin-bottom:14px; }
+  .card-hero .ring-center .pct{ font-family:var(--font-display); font-size:29px; font-weight:700; color:#1A1D33; }
+  .card-hero .ring-center .lbl{ font-size:11px; color:#5A6178; text-transform:uppercase; letter-spacing:.6px; margin-top:2px;}
+  .card-hero .rc-meta h2{ font-family:var(--font-display); font-size:21.5px; margin-bottom:4px; color:#171932; }
+  .card-hero .rc-meta .role{ color:#4C5370; font-size:15px; margin-bottom:14px; }
   .rc-stats{ display:flex; gap:26px; flex-wrap:wrap; }
   .rc-stat .v{ font-family:var(--font-mono); font-size:20.5px; font-weight:700; color:#5B4FCF; }
-  .rc-stat .l{ font-size:12.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.5px; margin-top:2px;}
+  .card-hero .rc-stat .l{ font-size:12.5px; color:#6A7289; text-transform:uppercase; letter-spacing:.5px; margin-top:2px;}
   .badges-row{ display:flex; gap:8px; margin-top:16px; }
   .badge-emoji{ width:34px; height:34px; border-radius:9px; background:var(--panel-2); border:1px solid var(--panel-border); display:flex; align-items:center; justify-content:center; font-size:17.5px; }
 
