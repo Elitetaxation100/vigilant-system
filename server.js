@@ -493,26 +493,33 @@ function maybeEscalateChase(state, t) {
     logEvent(state, mgr.id, `"${escHtml(t.name)}" has needed chasing 3 times and still isn't done — ${escHtml(who)} may be stuck.`);
   }
 }
-// Once a day: any open, not-yet-started task within one working day of its
-// internal deadline gets one auto-reminder — a ledger entry plus a line in
-// the assignee's activity feed. Guarded by a date stamp so it runs once.
+// Any open, not-yet-started task within one working day of its internal
+// deadline gets ONE auto-reminder per day — a ledger entry plus a line in the
+// assignee's activity feed. Idempotency is per task per day (the `remindedToday`
+// set), not a single once-a-day flag: a task that only becomes due later in the
+// day still gets caught, and the sweep is safe to run on every /api/tasks call.
+// It's cheap — a field-check filter over the task list, and it only touches the
+// event log when there's actually a candidate to chase.
 function sweepAutoReminders(state) {
   const today = todayISO();
-  if (state._autoRemindDay === today) return 0;
-  state._autoRemindDay = today;
   const soon = cal.addWorkingDays(today, 1);
+  const candidates = state.tasks.filter(t =>
+    taskIsOpen(t) && t.assignedTo &&
+    !t.startedAt && !t.timerStartedAt && t.status !== 'on_hold' &&
+    t.internalDeadline && t.internalDeadline <= soon);
+  if (!candidates.length) return 0;
+  const remindedToday = new Set(
+    (state.taskEvents || [])
+      .filter(e => e.type === 'reminded' && e.channel === 'auto' && (e.at || '').slice(0, 10) === today)
+      .map(e => e.taskId));
   let n = 0;
-  for (const t of state.tasks) {
-    if (!taskIsOpen(t) || !t.assignedTo) continue;
-    if (t.startedAt || t.timerStartedAt || t.status === 'on_hold') continue;
-    if (!t.internalDeadline || t.internalDeadline > soon) continue;
-    const alreadyToday = remindersFor(state, t.id)
-      .some(e => e.channel === 'auto' && (e.at || '').slice(0, 10) === today);
-    if (alreadyToday) continue;
+  for (const t of candidates) {
+    if (remindedToday.has(t.id)) continue;
     const why = t.internalDeadline < today ? 'overdue and not started' : 'due soon and not started';
     db.logTaskEvent(state, t.id, 'reminded', null, { channel: 'auto', note: why });
     logEvent(state, t.assignedTo, `Reminder — "${escHtml(t.name)}" is ${why}.`);
     maybeEscalateChase(state, t);
+    remindedToday.add(t.id);
     n += 1;
   }
   if (n) db.save();
@@ -855,7 +862,7 @@ function visibleTasks(state, me) {
 }
 app.get('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  sweepAutoReminders(state); // once a day, chase due-soon tasks that never started
+  sweepAutoReminders(state); // chase due-soon tasks that never started (once/day per task)
   res.json({ tasks: visibleTasks(state, req.employee).map(taskForClient) });
 });
 // P2 — a manual "Nudge": whoever oversees a task records that they've chased
