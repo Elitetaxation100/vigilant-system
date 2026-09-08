@@ -208,6 +208,18 @@
     .today-row{ display:flex; align-items:center; justify-content:space-between; gap:14px; background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:13px 16px; flex-wrap:wrap; }
     .today-row-title{ font-size:14px; font-weight:600; color:var(--text); }
     .today-row-sub{ font-size:12px; color:var(--text-faint); margin-top:3px; }
+    .tr-left{ display:flex; align-items:flex-start; gap:12px; min-width:0; flex:1; }
+    .hrs-badge{ flex:none; display:inline-flex; align-items:center; gap:3px; font-size:12px; font-weight:600; font-family:var(--font-mono); color:var(--text-dim); background:var(--panel-2); border:1px solid var(--panel-border); border-radius:7px; padding:3px 8px; margin-top:1px; }
+    .todo-chips{ display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 16px; }
+    .todo-chip{ font-size:12.5px; padding:5px 12px; border-radius:999px; border:1px solid var(--panel-border); background:var(--panel-2); color:var(--text-dim); cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
+    .todo-chip.on{ background:var(--purple-dim); color:#6D28D9; border-color:#6C5CE733; font-weight:600; }
+    .todo-chip span{ font-family:var(--font-mono); font-size:11px; opacity:.8; }
+    .todo-group-hd{ font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); font-weight:600; margin:16px 0 8px; display:flex; align-items:center; gap:8px; }
+    .todo-group-hd:first-child{ margin-top:2px; }
+    .todo-group-hd span{ font-family:var(--font-mono); background:var(--panel-2); border-radius:5px; padding:1px 6px; letter-spacing:0; }
+    .todo-group-hd.is-overdue{ color:#C2410C; }
+    .modal-search{ width:100%; padding:8px 11px; margin:8px 0 10px; border-radius:8px; border:1px solid var(--panel-border); background:var(--panel-2); color:var(--text); font-size:13px; }
+    .req-mark{ color:#F0603E; font-weight:700; }
     .pill{ display:inline-flex; align-items:center; font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px; letter-spacing:.2px; }
     .pill-purple{ background:#7C6CF61f; color:#B7AEFA; }
     .pill-teal{ background:#2FBE931f; color:#6EE7C4; }
@@ -824,17 +836,14 @@
             <div class="mt-value" id="myTasksToday">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myPendingHoursSub"></div>
           </div>
-          <div class="metric-tile mg-tile" onclick="openMyDoneList()">
-            <div class="mt-label">Done Today</div>
-            <div class="mt-value teal" id="myDoneToday">0</div>
+          <div class="metric-tile mg-tile" onclick="openMyInReview()" title="Your work you've sent for review — off your to-do list, waiting on a checker">
+            <div class="mt-label">In Review</div>
+            <div class="mt-value purple" id="myInReview">0</div>
           </div>
-          <div class="metric-tile mg-tile" onclick="openMyReviewQueue()">
-            <div class="mt-label">To Review</div>
-            <div class="mt-value purple" id="myToReview">0</div>
-          </div>
-          <div class="metric-tile mg-tile" onclick="openMyDoneList()">
-            <div class="mt-label">Productive Hours</div>
-            <div class="mt-value" id="myHoursCommitted">0.0<small>h</small></div>
+          <div class="metric-tile mg-tile" onclick="openMyDoneList()" title="Everything you've finished and had signed off">
+            <div class="mt-label">Done</div>
+            <div class="mt-value teal" id="myDoneAll">0</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myDoneSub"></div>
           </div>
           <div class="metric-tile" title="Of your completed work that had a client date, how much landed on or before it">
             <div class="mt-label">On-Time</div>
@@ -851,28 +860,25 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>To-Do Today</h2><span style="font-size:12px;color:var(--text-faint);">your open tasks, most urgent first</span></div>
+          <div class="panel-head">
+            <h2>To do — by date</h2>
+            <div class="panel-head-actions">
+              <button class="btn primary small" onclick="openAssignModal('me')">+ Add a task</button>
+            </div>
+          </div>
           <div id="todayGauge"></div>
           <div id="myDayWrap"></div>
         </div>
 
-        <div class="chart-panel" style="margin-bottom:24px;" id="assigneeBarPanel">
-          <h3>Open Tasks by Assignee <span id="assigneeBarScope" style="font-size:12px;color:var(--text-faint);font-weight:500;"></span></h3>
-          <div class="bar-list" id="assigneeBarWrap"></div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Commitment Dashboard &amp; Verification Matrix</h2>
-            <div class="panel-head-actions">
-              <button class="btn primary small" id="assignTeamBtn" style="display:none;" onclick="openAssignModal('team')">+ Assign Task</button>
-              <button class="btn small" onclick="showToast('success','Report exported','(demo only) — this is a placeholder export.')">⬇ Export Points Report</button>
-            </div>
+        <details class="panel panel-fold" style="margin-bottom:24px;">
+          <summary><h2>All my tasks</h2><span class="fold-hint">full table · search &amp; filter</span></summary>
+          <div class="panel-head-actions" style="margin-bottom:12px;">
+            <button class="btn primary small" id="assignTeamBtn" style="display:none;" onclick="event.stopPropagation(); openAssignModal('team')">+ Assign Task</button>
           </div>
           <div class="filter-row">
-            <input type="text" id="taskSearch" placeholder="Search commitments or tasks…" oninput="renderTaskTable()">
+            <input type="text" id="taskSearch" placeholder="Search by task, client, ID…" oninput="renderTaskTable()">
             <select id="statusFilter" onchange="renderTaskTable()">
-              <option value="">All Statuses</option>
+              <option value="">Open work</option>
               <option value="awaiting_acceptance">Awaiting Acceptance</option>
               <option value="_yettostart">Yet to Start</option>
               <option value="_inprogress">In Progress</option>
@@ -880,7 +886,16 @@
               <option value="on_hold">On Hold</option>
               <option value="rework">Needs Rework</option>
               <option value="window_proposed">Window Proposed</option>
-              <option value="completed">Sent for Review</option>
+              <option value="_inreview">In Review</option>
+              <option value="_done">Done</option>
+              <option value="_all">Everything</option>
+            </select>
+            <select id="dueFilter" onchange="renderTaskTable()">
+              <option value="">Any due date</option>
+              <option value="overdue">Overdue</option>
+              <option value="today">Due today</option>
+              <option value="week">Due this week</option>
+              <option value="later">Due later</option>
             </select>
           </div>
 
@@ -2787,27 +2802,32 @@ async function removeTask(id){
 // "accepted" splits three ways in the UI — yet to start / in progress /
 // paused — so the status filter needs to look past t.status for those.
 function matchesStatusFilter(t, f){
-  if(!f) return true;
+  // "" = open work only (nothing sent for review, nothing done)
+  if(!f) return t.status !== 'completed';
+  if(f === '_all') return true;
+  if(f === '_inreview') return t.status === 'completed' && !t.reviewStatus;
+  if(f === '_done') return t.status === 'completed' && ['clean','done'].includes(t.reviewStatus);
   if(f === '_yettostart') return t.status === 'accepted' && !t.timerStartedAt && !t.startedAt;
   if(f === '_inprogress') return (t.status === 'accepted' || t.status === 'rework') && !!t.timerStartedAt;
   if(f === '_paused') return (t.status === 'accepted' || t.status === 'rework') && !t.timerStartedAt && !!t.startedAt;
   return t.status === f;
 }
 function renderTaskTable(){
-  const q = (document.getElementById('taskSearch').value || '').toLowerCase();
-  const status = document.getElementById('statusFilter').value;
+  const se = document.getElementById('taskSearch');
+  const q = (se ? se.value : '').toLowerCase();
+  const status = (document.getElementById('statusFilter') || {}).value || '';
+  const due = (document.getElementById('dueFilter') || {}).value || '';
   // The Commitment Dashboard is personal for everyone — this table shows
-  // ONLY the viewer's own assigned work. Review work (other people's tasks
-  // sent to you to check) lives on the Manager Dashboard's "Awaiting Review"
-  // section and the "To Review" tile above; team- and firm-wide lists are
-  // on the Manager Dashboard and the Command Center.
+  // ONLY the viewer's own assigned work, most urgent (soonest due) first.
   const body = document.getElementById('taskTableBody');
+  if(!body) return;
   const rows = tasks.filter(t => {
     if(t.assignedTo !== currentViewerId) return false;
     if(!matchesStatusFilter(t, status)) return false;
-    const hay = (t.name + ' ' + t.scope + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
+    if(due && !dueBucketMatches(t, due)) return false;
+    const hay = (t.name + ' ' + t.scope + ' ' + (t.clientName||'') + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
     return hay.includes(q);
-  });
+  }).sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
   if(rows.length === 0){
     body.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-faint); padding:26px;">No tasks match this view.</td></tr>`;
   } else {
@@ -2944,18 +2964,18 @@ function renderEmployeeStats(){
   // deadline is today/past. A task you accepted for three days out is not
   // counted — it shows under "Coming up", not here.
   myTodaysWork = mine.filter(isTodaysWork);
-  // "Done today" = tasks this person completed today (used by the tile +
-  // its date-range drill-down, which starts on today).
   myDoneToday = mine.filter(t => t.completedAt && t.completedAt.slice(0,10) === today);
+  // In Review = your own finished work waiting on a checker — off your to-do
+  // list, not yet signed off. Done = everything finished AND reviewed
+  // (clean, or closed without review), all-time.
+  const inReview = mine.filter(t => t.status === 'completed' && !t.reviewStatus);
+  const doneAll  = mine.filter(t => t.status === 'completed' && ['clean','done'].includes(t.reviewStatus));
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
   setV('myTasksToday', myTodaysWork.length);
-  setV('myDoneToday', myDoneToday.length);
-  setV('myToReview', myReviewTasks().length);
-  // Productive hours today = for each task finished today, its actual time
-  // if the clock caught it, otherwise the agreed estimate. Shown against an
-  // 8-hour shift for context — not a limit.
-  const prodHrsToday = myDoneToday.reduce((s,t) => s + taskHrs(t), 0);
-  setV('myHoursCommitted', `${prodHrsToday.toFixed(1)}<small>h · in 8h shift</small>`);
+  setV('myInReview', inReview.length);
+  setV('myDoneAll', doneAll.length);
+  const doneHrs = doneAll.reduce((s,t) => s + taskHrs(t), 0);
+  setV('myDoneSub', doneAll.length ? `${doneHrs.toFixed(1)}h total` : '');
   const withDate = doneP.filter(t => t.clientDate);
   setV('myProductivity', withDate.length ? Math.round(withDate.filter(t => t.commitmentOutcome === 'met').length / withDate.length * 100) + '<small>%</small>' : '—');
   const reviewed = doneP.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
@@ -2999,20 +3019,54 @@ function isTodaysWork(t){
   if(t.status === 'on_hold') return false;
   return !!t.internalDeadline && t.internalDeadline <= todayISO();
 }
+/* miniState / dueBucket — shared by the To-do view and the modals. */
+function miniState(t){
+  if(t.timerStartedAt) return `<b style="color:#0D9488;">● In progress</b>`;
+  if(t.status === 'accepted' && t.startedAt) return `<b style="color:#C2410C;">⏸ Paused</b>`;
+  if(t.status === 'accepted') return `<b style="color:#6D28D9;">Yet to start</b>`;
+  if(t.status === 'awaiting_acceptance') return `<b style="color:#B45309;">Awaiting acceptance</b>`;
+  if(t.status === 'rework') return `<b style="color:#C2410C;">⚠ In rework</b>`;
+  if(t.status === 'window_proposed') return `<b style="color:#B45309;">Window proposed</b>`;
+  if(t.status === 'on_hold') return `<b style="color:#B45309;">⏸ On hold${t.holdReason ? ' — ' + esc(t.holdReason) : ''}</b>`;
+  return '';
+}
+function dueBucket(t){
+  const today = todayISO();
+  if(!t.internalDeadline) return 'nodate';
+  if(t.internalDeadline < today) return 'overdue';
+  if(t.internalDeadline === today) return 'today';
+  if(t.internalDeadline <= addDaysISO(6)) return 'week';
+  return 'later';
+}
+function dueBucketMatches(t, f){
+  if(!f) return true;
+  const b = dueBucket(t);
+  if(f === 'overdue') return b === 'overdue';
+  if(f === 'today')   return b === 'overdue' || b === 'today';
+  if(f === 'week')    return ['overdue','today','week'].includes(b);
+  if(f === 'later')   return b === 'later' || b === 'nodate';
+  return true;
+}
+
+/* The main To-do view — every open task the viewer can work on, grouped by
+   due date, filterable, most urgent first. Tasks sent for review / done are
+   NOT here (see the In Review and Done tiles). */
+let _todoFilter = 'week';
+function setTodoFilter(f){ _todoFilter = f; renderMyDay(); }
 function renderMyDay(){
   const wrap = document.getElementById('myDayWrap');
   if(!wrap) return;
   const today = todayISO();
   const pendingApproval = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'pending_approval');
-  const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval')
-    .slice()
-    .sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
+  const mineOpen = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval');
   const running  = mineOpen.find(t => t.timerStartedAt);
   const held     = mineOpen.filter(t => t.status === 'on_hold');
-  const todays   = mineOpen.filter(t => t !== running && t.status !== 'on_hold' && isTodaysWork(t));
-  const upcoming = mineOpen.filter(t => t !== running && t.status !== 'on_hold' && !isTodaysWork(t));
+  const needsResponse = mineOpen.filter(t => ['awaiting_acceptance','rework','window_proposed'].includes(t.status));
+  const actionable = mineOpen
+    .filter(t => t !== running && !held.includes(t) && !needsResponse.includes(t))
+    .sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
 
-  function metaBlock(t){
+  const metaBlock = t => {
     const isInternal = t.kind === 'internal';
     return `<div class="working-meta">
       <div><div class="wm-label">Estimated</div><div class="wm-value">${t.tat} hr${t.tat === 1 ? '' : 's'}</div></div>
@@ -3020,35 +3074,26 @@ function renderMyDay(){
       <div><div class="wm-label">${isInternal ? 'Due' : 'Internal date'}</div><div class="wm-value">${fmtDate(t.internalDeadline)}</div></div>
       ${isInternal ? '' : `<div><div class="wm-label">Points</div><div class="wm-value">${t.points} pts</div></div>`}
     </div>`;
-  }
-  function miniState(t){
-    if(t.timerStartedAt) return `<b style="color:#0D9488;">● In progress</b>`;
-    if(t.status === 'accepted' && t.startedAt) return `<b style="color:#C2410C;">⏸ Paused</b>`;
-    if(t.status === 'accepted') return `<b style="color:#6D28D9;">Yet to start</b>`;
-    if(t.status === 'awaiting_acceptance') return `<b style="color:#B45309;">Awaiting acceptance</b>`;
-    if(t.status === 'rework') return `<b style="color:#C2410C;">⚠ In rework</b>`;
-    if(t.status === 'window_proposed') return `<b style="color:#B45309;">Window proposed</b>`;
-    if(t.status === 'on_hold') return `<b style="color:#B45309;">⏸ On hold${t.holdReason ? ' — ' + esc(t.holdReason) : ''}</b>`;
-    return '';
-  }
-  function row(t){
-    const od = t.internalDeadline && t.internalDeadline < today && !t.timerStartedAt && t.status !== 'on_hold';
+  };
+  const row = t => {
+    const od = dueBucket(t) === 'overdue';
     return `<div class="today-row">
-      <div>
-        <span class="pill pill-teal">${esc(t.kind === 'internal' ? 'Internal' : (t.scope || 'Task'))}</span>
-        <span class="today-row-title">${esc(t.clientName ? t.clientName + ': ' : '')}${esc(t.name || '')}</span>
-        <div class="today-row-sub">${miniState(t)} &middot; est. ${t.tat} hr${t.tat === 1 ? '' : 's'} &middot; due ${fmtDate(t.internalDeadline)}${od ? ' <span style="color:#C2410C;font-weight:700;">&middot; overdue</span>' : ''}</div>
+      <div class="tr-left">
+        <span class="hrs-badge" title="estimated time for this task">⏱ ${t.tat}h</span>
+        <div style="min-width:0;">
+          <div class="today-row-title">${esc(t.clientName ? t.clientName + ' — ' : '')}${esc(t.name || '')}</div>
+          <div class="today-row-sub">${miniState(t)} &middot; due ${t.internalDeadline ? fmtDate(t.internalDeadline) : 'no date'}${od ? ' <b style="color:#C2410C;">&middot; overdue</b>' : ''}${t.clientDate ? ' &middot; client ' + fmtDate(t.clientDate) : ''}</div>
+        </div>
       </div>
       <div class="today-row-right">${actionButtonHtml(t)}</div>
     </div>`;
-  }
+  };
 
   let html = '';
   if(pendingApproval.length){
-    html += `<div class="banner" style="margin-bottom:12px;"><span>⏳</span><span><b>${pendingApproval.length} self-assigned task${pendingApproval.length>1?'s':''} awaiting your manager's approval:</b> ${pendingApproval.map(t=>esc(t.name)).join(', ')}. You can't start ${pendingApproval.length>1?'them':'it'} until approved.</span></div>`;
+    html += `<div class="banner" style="margin-bottom:12px;"><span>⏳</span><span><b>${pendingApproval.length} self-assigned task${pendingApproval.length>1?'s':''} awaiting your manager's approval:</b> ${pendingApproval.map(t=>esc(t.name)).join(', ')}.</span></div>`;
   }
 
-  // Working on now — only the task actually running.
   if(running){
     html += `<div class="working-card">
       <div class="working-top">
@@ -3061,25 +3106,38 @@ function renderMyDay(){
       </div>
       ${metaBlock(running)}
     </div>`;
-  } else {
-    html += `<div class="myday-empty">Nothing running right now &mdash; pick a task below and hit &#9654; Start.</div>`;
   }
 
-  html += `<div class="section-label" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-    <span>Due today &amp; overdue</span>
-    <button class="btn primary small" onclick="openAssignModal('me')">+ Add a task</button>
+  // filter chips
+  const nFor = f => actionable.filter(t => dueBucketMatches(t, f === 'all' ? '' : f)).length;
+  const chip = (key, label) => `<button class="todo-chip ${_todoFilter === key ? 'on' : ''}" onclick="setTodoFilter('${key}')">${label} <span>${nFor(key)}</span></button>`;
+  html += `<div class="todo-chips">
+    ${chip('overdue','Overdue')}
+    ${chip('today','Today')}
+    ${chip('week','This week')}
+    ${chip('later','Later')}
+    ${chip('all','All')}
   </div>`;
-  html += todays.length
-    ? `<div class="today-list">${todays.map(row).join('')}</div>`
-    : `<div class="myday-empty">Nothing due today. 🎉</div>`;
 
-  if(upcoming.length){
-    html += `<div class="section-label">Coming up <span style="color:var(--text-faint);font-weight:400;font-size:11.5px;">&middot; not due yet</span></div>`;
-    html += `<div class="today-list muted">${upcoming.map(row).join('')}</div>`;
+  // grouped list
+  const shown = actionable.filter(t => dueBucketMatches(t, _todoFilter === 'all' ? '' : _todoFilter));
+  const groups = [['overdue','Overdue'],['today','Due today'],['week','This week'],['later','Later'],['nodate','No date set']];
+  let listHtml = '';
+  groups.forEach(([key, label]) => {
+    const items = shown.filter(t => dueBucket(t) === key);
+    if(!items.length) return;
+    listHtml += `<div class="todo-group-hd${key === 'overdue' ? ' is-overdue' : ''}">${label} <span>${items.length}</span></div>`;
+    listHtml += `<div class="today-list">${items.map(row).join('')}</div>`;
+  });
+  html += listHtml || `<div class="myday-empty">Nothing in this view. ${_todoFilter !== 'all' ? '<a href="#" onclick="setTodoFilter(\'all\');return false;">See everything</a>' : "You're all clear. 🎉"}</div>`;
+
+  if(needsResponse.length){
+    html += `<div class="todo-group-hd">Needs your response <span>${needsResponse.length}</span></div>`;
+    html += `<div class="today-list">${needsResponse.map(row).join('')}</div>`;
   }
   if(held.length){
-    html += `<div class="section-label">On hold</div>`;
-    html += `<div class="today-list">${held.map(row).join('')}</div>`;
+    html += `<div class="todo-group-hd">On hold <span>${held.length}</span></div>`;
+    html += `<div class="today-list muted">${held.map(row).join('')}</div>`;
   }
   wrap.innerHTML = html;
 }
@@ -3848,8 +3906,8 @@ function openAssignModal(mode){
       </div>
       <div class="field"><label>Client commitment date</label><input type="date" id="atClientDate" value="${addDaysISO(3)}"></div>
     </div>
-    <div class="field"><label id="atTatLabel">Estimated time (hours)</label><input type="number" id="atTat" value="3" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
-    <div class="field"><label id="atDeadlineLabel">Agreed delivery date</label><input type="date" id="atDeadline" value="${addDaysISO(2)}"></div>
+    <div class="field"><label id="atTatLabel">Estimated time (hours) <span class="req-mark">*</span></label><input type="number" id="atTat" value="3" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
+    <div class="field"><label id="atDeadlineLabel">Agreed delivery date <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}"></div>
     <div id="atPointsField"${noClients ? ' style="display:none;"' : ''}><div class="field"><label>Points</label><input type="number" id="atPoints" value="10" min="0"></div></div>
     <div class="modal-error" id="assignError">Please enter a task name.</div>
     <div class="modal-actions">
@@ -3893,15 +3951,25 @@ function setAssignKind(kind){
   ['atClientOnly','atClientScope','atClientBlock','atPointsField'].forEach(id => {
     const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
   });
-  const dl = document.getElementById('atDeadlineLabel'); if(dl) dl.textContent = isInternal ? 'Due date' : 'Agreed delivery date';
+  const dl = document.getElementById('atDeadlineLabel');
+  if(dl) dl.innerHTML = isInternal ? 'Due date' : 'Agreed delivery date <span class="req-mark">*</span>';
+  const tl = document.getElementById('atTatLabel');
+  if(tl) tl.innerHTML = isInternal ? 'Estimated time (hours)' : 'Estimated time (hours) <span class="req-mark">*</span>';
 }
 async function submitAssign(mode){
+  const errEl = document.getElementById('assignError');
+  const showErr = m => { if(errEl){ errEl.textContent = m; errEl.style.display = 'block'; } };
   const name = document.getElementById('atName').value.trim();
-  if(!name){ document.getElementById('assignError').style.display = 'block'; return; }
+  if(!name){ showErr('Please enter a task name.'); return; }
   const isInternal = _assignKind === 'internal';
   const assignedTo = mode === 'team' ? document.getElementById('atAssignee').value : currentViewerId;
   const deadline = document.getElementById('atDeadline').value;
-  const tat = parseFloat(document.getElementById('atTat').value) || (isInternal ? 1 : 3);
+  const tatRaw = parseFloat(document.getElementById('atTat').value);
+  const tat = tatRaw > 0 ? tatRaw : (isInternal ? 1 : 0);
+  if(!isInternal){
+    if(!(tat > 0)){ showErr('Enter the estimated time in hours — it\'s required for client work.'); return; }
+    if(!deadline){ showErr('Pick a delivery date — it\'s required for client work.'); return; }
+  }
   let team = (document.getElementById('atTeam') || {}).value || '';
   if(team === '__custom__') team = ((document.getElementById('atTeamCustom') || {}).value || '').trim();
   const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };
@@ -4876,8 +4944,10 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
     const o = empById(t.assignedTo);
     const due = t.internalDeadline ? fmtDate(t.internalDeadline) : '—';
     const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today;
-    return `<tr>
+    const hay = (t.name + ' ' + (t.clientName||'') + ' ' + (t.scope||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase();
+    return `<tr data-hay="${esc(hay)}">
       <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}${t.scope && t.scope !== '—' ? ' · ' + esc(t.scope) : ''}</div></td>
+      <td style="font-family:var(--font-mono);white-space:nowrap;">⏱ ${t.tat}h</td>
       ${showOwner ? `<td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>` : ''}
       <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${due}${overdue ? ' · overdue' : ''}${t.clientDate ? `<div class="tl-sub">client: ${fmtDate(t.clientDate)}</div>` : ''}</td>
       <td>${statusBadge(t)}</td>
@@ -4887,13 +4957,22 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
     <div class="tasklist-modal">
       <h3>${esc(title)} <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${sorted.length}</span></h3>
       ${subtitle ? `<div class="modal-sub">${esc(subtitle)}</div>` : ''}
-      ${sorted.length ? `<div class="tl-scroll"><table>
-        <thead><tr><th>Task</th>${showOwner ? '<th>Owner</th>' : ''}<th>Due</th><th>Status</th></tr></thead>
+      ${sorted.length ? `<input type="text" class="modal-search" placeholder="Search…" oninput="filterModalRows(this.value)">
+        <div class="tl-scroll"><table>
+        <thead><tr><th>Task</th><th>Hrs</th>${showOwner ? '<th>Owner</th>' : ''}<th>Due</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody></table></div>`
         : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">${esc(empty)}</p>`}
       <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
     </div>`;
   openModal();
+}
+/* Live-filter the rows of whatever task list is showing in the modal. */
+function filterModalRows(q){
+  q = (q || '').trim().toLowerCase();
+  document.querySelectorAll('#modalBox tbody tr').forEach(tr => {
+    const hay = tr.getAttribute('data-hay') || tr.textContent.toLowerCase();
+    tr.style.display = (!q || hay.includes(q)) ? '' : 'none';
+  });
 }
 function openMgTileList(key){
   const meta = MG_TILE_META[key]; if(!meta) return;
@@ -5012,33 +5091,69 @@ function openWorkLog(empId, startISO, endISO){
     </div>`;
   openModal();
 }
-function openMyDoneList(startISO, endISO){
-  const t0 = todayISO();
-  const s = startISO || t0, e = endISO || t0;
-  const list = tasks
-    .filter(t => t.assignedTo === currentViewerId && t.completedAt && t.completedAt.slice(0,10) >= s && t.completedAt.slice(0,10) <= e)
+/* In Review — the viewer's own finished work waiting on a checker. Off the
+   to-do list; lands in Done once it's signed off. */
+function openMyInReview(q){
+  q = (q || '').toLowerCase();
+  const all = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'completed' && !t.reviewStatus)
     .sort((a,b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
-  const rows = list.map(t => `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
-      <td>${fmtDate(t.completedAt.slice(0,10))}</td>
-      <td>${t.reviewStatus === 'clean' ? '<span class="badge completed dot" title="Reviewed clean">✓ Done</span>' : t.reviewStatus === 'error' ? '<span class="badge overdue dot">⚠ Error found</span>' : '<span class="badge pending dot">Sent for review</span>'}</td>
-    </tr>`).join('');
-  const same = s === e;
+  const list = q ? all.filter(t => (t.name + ' ' + (t.clientName||'') + ' ' + t.id).toLowerCase().includes(q)) : all;
+  const rows = list.map(t => {
+    const r = empById(t.reviewerId);
+    return `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')} · ${t.id}</div></td>
+      <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
+      <td class="tl-sub">${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</td>
+      <td class="tl-sub">${r ? esc(r.name) : 'unassigned'}</td>
+    </tr>`;
+  }).join('');
   document.getElementById('modalBox').innerHTML = `
     <div class="tasklist-modal">
-      <h3>Done ${same ? (s === t0 ? 'today' : fmtDate(s)) : fmtDate(s) + ' – ' + fmtDate(e)} <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
-      <div class="modal-sub">Tasks you completed in this range</div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 4px;font-size:12.5px;color:var(--text-faint);">
+      <h3>In review <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${all.length}</span></h3>
+      <div class="modal-sub">Your finished work waiting on a checker — it moves to Done once it's signed off.</div>
+      <input type="text" class="modal-search" placeholder="Search…" value="${esc(q)}" oninput="openMyInReview(this.value)">
+      ${list.length ? `<div class="tl-scroll"><table><thead><tr><th>Task</th><th>Hrs</th><th>Sent</th><th>Reviewer</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">${q ? 'No match.' : 'Nothing waiting for review.'}</p>`}
+      <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+    </div>`;
+  openModal();
+  const si = document.querySelector('#modalBox .modal-search'); if(si){ si.focus(); si.setSelectionRange(si.value.length, si.value.length); }
+}
+/* Done — everything the viewer has finished and had signed off, all-time,
+   searchable, with an optional date range. */
+function openMyDoneList(startISO, endISO, q){
+  q = (q || '').toLowerCase();
+  const s = startISO || '', e = endISO || '';
+  const all = tasks
+    .filter(t => t.assignedTo === currentViewerId && t.status === 'completed' && ['clean','done'].includes(t.reviewStatus))
+    .filter(t => (!s || t.completedAt.slice(0,10) >= s) && (!e || t.completedAt.slice(0,10) <= e))
+    .sort((a,b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  const list = q ? all.filter(t => (t.name + ' ' + (t.clientName||'') + ' ' + t.id).toLowerCase().includes(q)) : all;
+  const rows = list.map(t => `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')} · ${t.id}</div></td>
+      <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
+      <td class="tl-sub">${fmtDate(t.completedAt.slice(0,10))}</td>
+      <td>${t.reviewStatus === 'clean' ? '<span class="badge completed dot">✓ Clean</span>' : '<span class="badge completed dot">✓ Done</span>'}</td>
+    </tr>`).join('');
+  const totalHrs = list.reduce((n,t) => n + taskHrs(t), 0);
+  const setV = id => (document.getElementById(id) || {}).value || undefined;
+  document.getElementById('modalBox').innerHTML = `
+    <div class="tasklist-modal">
+      <h3>Done <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${all.length} task${all.length === 1 ? '' : 's'} · ${totalHrs.toFixed(1)}h</span></h3>
+      <div class="modal-sub">Everything you've finished and had signed off.</div>
+      <input type="text" class="modal-search" placeholder="Search task or client…" value="${esc(q)}" oninput="openMyDoneList(${s?`'${s}'`:'undefined'}, ${e?`'${e}'`:'undefined'}, this.value)">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px;font-size:12.5px;color:var(--text-faint);">
         <input type="date" id="dtStart" value="${s}"> → <input type="date" id="dtEnd" value="${e}">
-        <button class="btn small" onclick="openMyDoneList(document.getElementById('dtStart').value||undefined, document.getElementById('dtEnd').value||undefined)">Apply</button>
-        <button class="btn small" onclick="openMyDoneList()">Today</button>
+        <button class="btn small" onclick="openMyDoneList(setDone('dtStart'), setDone('dtEnd'))">Apply</button>
+        ${(s||e) ? `<button class="btn small" onclick="openMyDoneList()">All time</button>` : ''}
       </div>
-      ${list.length ? `<div class="tl-scroll"><table><thead><tr><th>Task</th><th>Completed</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table></div>`
-        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing completed in this range.</p>`}
+      ${list.length ? `<div class="tl-scroll"><table><thead><tr><th>Task</th><th>Hrs</th><th>Completed</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">${q ? 'No match.' : 'Nothing signed off yet.'}</p>`}
       <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
     </div>`;
   openModal();
 }
+function setDone(id){ return (document.getElementById(id) || {}).value || undefined; }
 /* =========================================================================
    FOUNDER VIEW — superadmin-only, last-30-days snapshot of the whole firm:
    completed work, on-time delivery, first-time quality, per-owner
@@ -5854,6 +5969,8 @@ function renderClientGrid(){
   grid.innerHTML = clients.map(c => {
     const owner = empById(c.ownerId);
     const canEdit = isAdmin || c.ownerId === currentViewerId || c.addedBy === currentViewerId;
+    const openT = tasks.filter(t => t.clientId === c.id && t.status !== 'completed');
+    const openHrs = openT.reduce((s,t) => s + (Number(t.tat) || 0), 0);
     return `
     <div class="emp-card">
       <span class="mini-avatar">${esc(c.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
@@ -5862,6 +5979,9 @@ function renderClientGrid(){
         ${c.type ? `<div class="et" style="color:#5B4FCF;">${esc(c.type)}</div>` : ''}
         ${c.email ? `<div class="et"><a href="mailto:${esc(c.email)}" style="color:var(--teal,#0D9488);">${esc(c.email)}</a></div>` : ''}
         <div class="et">${owner ? 'Owner: ' + esc(owner.name) : '<span style="color:#C2410C;">⚠ No owner assigned</span>'}</div>
+        <div class="et" style="cursor:${openT.length?'pointer':'default'};" ${openT.length?`onclick="openClientTasks('${c.id}')"`:''}>
+          <span class="hrs-badge">⏱ ${openHrs}h</span> ${openT.length} open task${openT.length===1?'':'s'}${openT.length?' ›':''}
+        </div>
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
           ${canEdit ? `<button class="verify-btn" onclick="openEditClientModal('${c.id}')">Edit</button>` : ''}
           ${isAdmin ? `<button class="verify-btn" onclick="openAssignClientOwner('${c.id}')">${owner ? 'Reassign owner' : 'Assign owner'}</button>` : ''}
@@ -5870,6 +5990,13 @@ function renderClientGrid(){
       </div>
     </div>`;
   }).join('');
+}
+/* A client's tasks — every task on that client, with per-task hours,
+   visible to anyone. */
+function openClientTasks(clientId){
+  const c = clients.find(x => x.id === clientId); if(!c) return;
+  const list = tasks.filter(t => t.clientId === clientId);
+  taskListModal(c.name + ' — tasks', `${list.filter(t=>t.status!=='completed').length} open · ${list.reduce((s,t)=>s+(t.status!=='completed'?(Number(t.tat)||0):0),0)}h`, list, { empty: 'No tasks on this client yet.' });
 }
 const CLIENT_TYPES = ['Rideshare', 'Rental', 'Company', 'Custom'];
 let selectedClientType = 'Rideshare';
