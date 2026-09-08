@@ -1930,10 +1930,13 @@ function iCanReview(t){
   if(!t || t.assignedTo === currentViewerId) return false;
   return t.reviewerId === currentViewerId || empManagesWork(currentViewer(), t.assignedTo);
 }
-// Tasks sitting in front of the current viewer for review right now —
-// completed, not yet signed off, and it's theirs to check.
+// The current viewer's PERSONAL review queue — only work where they were
+// the person specifically chosen as reviewer. A manager can still step in
+// on any of their team's pending reviews (that list is the Manager
+// Dashboard's "Awaiting Review"), but it doesn't clutter their own tile.
 function myReviewTasks(){
-  return tasks.filter(t => t.status === 'completed' && !t.reviewStatus && iCanReview(t));
+  return tasks.filter(t => t.status === 'completed' && !t.reviewStatus
+    && t.reviewerId === currentViewerId && t.assignedTo !== currentViewerId);
 }
 // Can the viewer re-open a closed task (marked done, or reviewed clean)
 // and send it to someone for a review? The assignee, whoever assigned it,
