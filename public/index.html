@@ -733,6 +733,7 @@
       <div class="nav-title">Assign Work</div>
       <div class="nav-item" onclick="openAssignModal('me')"><span class="nav-icon">→</span> Assign to Me</div>
       <div class="nav-item" id="assignTeamNavItem" style="display:none;" onclick="openAssignModal('team')"><span class="nav-icon">⇉</span> Assign to Team</div>
+      <div class="nav-item" id="bulkAssignNavItem" style="display:none;" onclick="openBulkAssignModal()"><span class="nav-icon">≣</span> Bulk Assign</div>
     </div>
     <div class="nav-section" id="managerNavSection" style="display:none;">
       <div class="nav-title">Team</div>
@@ -1482,6 +1483,13 @@
             <button class="btn primary small" onclick="openAddClientModal()">+ Add Client</button>
           </div>
           <p style="font-size:14px; color:var(--text-faint); margin-bottom:14px;">Anyone can add a client and their contact email. Whoever adds it owns it and can edit its details; an admin can hand a client to someone else. Clients without an owner are flagged.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+            <input type="text" id="clientSearch" placeholder="Search clients, email, owner, type…" oninput="renderClientGrid()"
+              style="flex:1; min-width:220px; background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 12px; font-size:14px;">
+            <select id="clientTypeFilter" onchange="renderClientGrid()" style="background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:13.5px;"></select>
+            <select id="clientOwnerFilter" onchange="renderClientGrid()" style="background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:13.5px;"></select>
+            <span id="clientCount" style="font-size:12.5px; color:var(--text-faint);"></span>
+          </div>
           <div class="emp-grid" id="clientGrid"></div>
         </div>
       </section>
@@ -4212,6 +4220,117 @@ async function submitAssign(mode){
   }
 
 /* =========================================================================
+   BULK ASSIGN — paste a list. One client + one assignee for the batch,
+   then one line per task: "Task name | 3 | 2026-10-20" (name | hours | due).
+   Each line goes through the normal POST /api/tasks, so all the usual
+   validation applies; the modal previews what will be created first.
+   ========================================================================= */
+function _bulkParseLines(){
+  const raw = (document.getElementById('bkLines') || {}).value || '';
+  return raw.split('\n').map(s => s.trim()).filter(Boolean).map((line, i) => {
+    const parts = line.split('|').map(p => p.trim());
+    const name = parts[0] || '';
+    const hours = parseFloat(parts[1]);
+    let due = parts[2] || '';
+    const m = due.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if(m) due = `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+    const errs = [];
+    if(!name) errs.push('no task name');
+    if(!(hours > 0)) errs.push('hours must be a positive number');
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(due)) errs.push('due date must be YYYY-MM-DD');
+    else if(due < todayISO()) errs.push('due date is in the past');
+    return { n: i + 1, line, name, hours, due, errs };
+  });
+}
+function renderBulkPreview(){
+  const rows = _bulkParseLines();
+  const wrap = document.getElementById('bkPreview');
+  const btn = document.getElementById('bkSubmitBtn');
+  if(!wrap) return;
+  const ok = rows.filter(r => !r.errs.length);
+  if(!rows.length){ wrap.innerHTML = '<p style="font-size:12.5px;color:var(--text-faint);">Nothing to preview yet.</p>'; if(btn) btn.disabled = true; return; }
+  wrap.innerHTML = `<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${ok.length} ready${rows.length - ok.length ? ` · <span style="color:#C2410C;">${rows.length - ok.length} need fixing</span>` : ''}</div>
+    <div style="max-height:220px;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+    <thead><tr style="color:var(--text-faint);text-align:left;"><th style="padding:5px 8px;">#</th><th style="padding:5px 8px;">Task</th><th style="padding:5px 8px;">Hrs</th><th style="padding:5px 8px;">Due</th><th style="padding:5px 8px;">—</th></tr></thead>
+    <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--line);${r.errs.length?'background:var(--coral-dim);':''}">
+      <td style="padding:5px 8px;color:var(--text-faint);">${r.n}</td>
+      <td style="padding:5px 8px;">${esc(r.name || '—')}</td>
+      <td style="padding:5px 8px;font-family:var(--font-mono);">${r.errs.includes('hours must be a positive number') ? '?' : r.hours + 'h'}</td>
+      <td style="padding:5px 8px;font-family:var(--font-mono);">${/^\d{4}-\d{2}-\d{2}$/.test(r.due) ? r.due : '?'}</td>
+      <td style="padding:5px 8px;color:#C2410C;">${r.errs.join(', ')}</td>
+    </tr>`).join('')}</tbody></table></div>`;
+  if(btn) btn.disabled = ok.length === 0;
+}
+function openBulkAssignModal(){
+  const people = assignableEmployees();
+  if(!people.length){
+    document.getElementById('modalBox').innerHTML = `<h3>Bulk Assign</h3><div class="modal-sub">You're not authorized to assign work to anyone yet.</div><div class="modal-actions"><button class="btn primary" onclick="closeModal()">Close</button></div>`;
+    openModal(); return;
+  }
+  const cs = clients.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Bulk Assign — paste a list</h3>
+    <div class="modal-sub">Pick a client and a person, then one task per line. All tasks go to that person for acceptance.</div>
+    <div class="field"><label>Kind</label>
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn small bkKindBtn primary" data-k="client" onclick="setBulkKind('client')"${cs.length?'':' disabled title="Add a client first"'}>Client work</button>
+        <button type="button" class="btn small bkKindBtn" data-k="internal" onclick="setBulkKind('internal')">Internal</button>
+      </div>
+    </div>
+    <div class="field" id="bkClientWrap"${cs.length?'':' style="display:none;"'}><label>Client</label>
+      <select id="bkClient">${cs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>Assign every task to</label>
+      <select id="bkAssignee">${people.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="field"><label>Tasks <span style="font-weight:400;color:var(--text-faint);">— one per line: <code>Name | hours | YYYY-MM-DD</code></span></label>
+      <textarea id="bkLines" rows="7" placeholder="GST return Q1 | 3 | 2026-10-20&#10;Bank reconciliation | 2 | 2026-10-21&#10;Annual accounts draft | 8 | 2026-10-28" oninput="renderBulkPreview()" style="width:100%;background:var(--bg-deep);border:1px solid var(--panel-border);color:var(--text);border-radius:8px;padding:10px;font-family:var(--font-mono);font-size:13px;"></textarea></div>
+    <div id="bkPreview" style="margin:4px 0 10px;"></div>
+    <div class="modal-error" id="bkErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="bkSubmitBtn" disabled onclick="submitBulkAssign()">Create tasks</button>
+    </div>`;
+  window.__stickyModal = true;
+  openModal();
+  renderBulkPreview();
+}
+function setBulkKind(k){
+  document.querySelectorAll('.bkKindBtn').forEach(b => b.classList.toggle('primary', b.dataset.k === k));
+  const w = document.getElementById('bkClientWrap');
+  if(w) w.style.display = k === 'internal' ? 'none' : '';
+}
+async function submitBulkAssign(){
+  const errEl = document.getElementById('bkErr');
+  const kind = document.querySelector('.bkKindBtn.primary')?.dataset.k || 'client';
+  const assignedTo = document.getElementById('bkAssignee').value;
+  const clientId = document.getElementById('bkClient')?.value;
+  const rows = _bulkParseLines().filter(r => !r.errs.length);
+  if(!rows.length){ errEl.textContent = 'Nothing valid to create.'; errEl.style.display = 'block'; return; }
+  if(kind === 'client' && !clientId){ errEl.textContent = 'Pick a client.'; errEl.style.display = 'block'; return; }
+  const btn = document.getElementById('bkSubmitBtn');
+  btn.disabled = true; btn.textContent = `Creating… 0/${rows.length}`;
+  const team = (empById(assignedTo) || {}).team || '';
+  let made = 0; const failed = [];
+  for(const r of rows){
+    const payload = { mode: 'team', name: r.name, assignedTo, internalDeadline: r.due, tat: r.hours, team,
+      kind: kind === 'internal' ? 'internal' : 'client' };
+    if(kind !== 'internal') payload.clientId = clientId;
+    try { await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) }); made++; }
+    catch(e){ failed.push(`“${r.name}” — ${e.message}`); }
+    btn.textContent = `Creating… ${made}/${rows.length}`;
+  }
+  window.__stickyModal = false;
+  closeModal();
+  await refreshTasks(); await refreshActivity({ silent:true });
+  const who = empById(assignedTo)?.name || 'the assignee';
+  if(failed.length){
+    showToast('error', `${made} created, ${failed.length} failed`, failed.slice(0,3).join(' · '));
+  } else {
+    showToast('success', `${made} task${made===1?'':'s'} assigned`, `All sent to ${who} for acceptance.`);
+  }
+}
+
+/* =========================================================================
    REASSIGNMENT — hands an existing task to a different employee. Routes
    through the exact same Accept / Propose New Window step a brand-new
    assignment uses (server sets status back to 'awaiting_acceptance'), so
@@ -6364,13 +6483,57 @@ async function refreshTeams(){
   catch(e){ /* teams are optional context — never block the UI */ }
 }
 function clientById(id){ return clients.find(c => c.id === id); }
+// keep the type + owner filter <select>s populated from the live client list
+function _syncClientFilters(){
+  const typeSel = document.getElementById('clientTypeFilter');
+  const ownSel = document.getElementById('clientOwnerFilter');
+  if(!typeSel || !ownSel) return;
+  const types = [...new Set(clients.map(c => (c.type||'').trim()).filter(Boolean))].sort();
+  const curType = typeSel.value;
+  typeSel.innerHTML = `<option value="">All types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+  if([...typeSel.options].some(o => o.value === curType)) typeSel.value = curType;
+  const ownerIds = [...new Set(clients.map(c => c.ownerId).filter(Boolean))];
+  const owners = ownerIds.map(id => empById(id)).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+  const hasNoOwner = clients.some(c => !c.ownerId);
+  const curOwn = ownSel.value;
+  ownSel.innerHTML = `<option value="">All owners</option>`
+    + (hasNoOwner ? `<option value="__none__">⚠ No owner</option>` : '')
+    + owners.map(o => `<option value="${o.id}">${esc(o.name)}</option>`).join('');
+  if([...ownSel.options].some(o => o.value === curOwn)) ownSel.value = curOwn;
+}
 function renderClientGrid(){
   const grid = document.getElementById('clientGrid');
   if(clients.length === 0){
     grid.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No clients yet — add your first one.</p>`;
+    const cc = document.getElementById('clientCount'); if(cc) cc.textContent = '';
     return;
   }
-  grid.innerHTML = clients.map(c => {
+  _syncClientFilters();
+  const q = (document.getElementById('clientSearch')?.value || '').trim().toLowerCase();
+  const typeF = document.getElementById('clientTypeFilter')?.value || '';
+  const ownerF = document.getElementById('clientOwnerFilter')?.value || '';
+  const shown = clients.filter(c => {
+    const owner = empById(c.ownerId);
+    if(typeF && (c.type||'').trim() !== typeF) return false;
+    if(ownerF === '__none__' && c.ownerId) return false;
+    if(ownerF && ownerF !== '__none__' && c.ownerId !== ownerF) return false;
+    if(q){
+      const hay = `${c.name} ${c.email||''} ${c.type||''} ${owner?owner.name:''}`.toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a,b) => {
+    // group by owner name when an owner filter isn't already pinning one
+    const an = empById(a.ownerId)?.name || '~~~', bn = empById(b.ownerId)?.name || '~~~';
+    return an.localeCompare(bn) || a.name.localeCompare(b.name);
+  });
+  const cc = document.getElementById('clientCount');
+  if(cc) cc.textContent = shown.length === clients.length ? `${clients.length} clients` : `${shown.length} of ${clients.length}`;
+  if(shown.length === 0){
+    grid.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No clients match this filter.</p>`;
+    return;
+  }
+  grid.innerHTML = shown.map(c => {
     const owner = empById(c.ownerId);
     const canEdit = isAdmin || c.ownerId === currentViewerId || c.addedBy === currentViewerId;
     const openT = tasks.filter(t => t.clientId === c.id && t.status !== 'completed');
@@ -6709,6 +6872,7 @@ async function submitManageEmployee(id){
     // whether they can actually assign to anyone (superadmin-granted) is
     // enforced inside the modal itself, not by hiding the door entirely.
     document.getElementById('assignTeamNavItem').style.display = isAdmin ? '' : 'none';
+    document.getElementById('bulkAssignNavItem').style.display = isAdmin ? '' : 'none';
     document.getElementById('assignTeamBtn').style.display = isAdmin ? '' : 'none';
   } catch(e){
     document.getElementById('meError').textContent = e.message;
@@ -6828,6 +6992,7 @@ async function onLoginComplete(){
   // a Superadmin via Manage Access) is enforced inside the modal, not by
   // hiding the nav item from managers who haven't been granted anyone yet.
   document.getElementById('assignTeamNavItem').style.display = isAdmin ? '' : 'none';
+  document.getElementById('bulkAssignNavItem').style.display = isAdmin ? '' : 'none';
   document.getElementById('assignTeamBtn').style.display = isAdmin ? '' : 'none';
   document.getElementById('adminStatus').style.display = 'block';
   document.getElementById('adminStatus').textContent = `✓ ${session.name} · ${accessLabel(session.accessRole)}`;
@@ -6885,6 +7050,7 @@ function logoutSession(){
   document.getElementById('founderNavSection').style.display = 'none';
   document.getElementById('teamBoardNavSection').style.display = 'none';
   document.getElementById('assignTeamNavItem').style.display = 'none';
+  document.getElementById('bulkAssignNavItem').style.display = 'none';
   document.getElementById('assignTeamBtn').style.display = 'none';
   document.getElementById('adminStatus').style.display = 'none';
   document.getElementById('adminLoginBtn').textContent = '🔒 Account';
