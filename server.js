@@ -1,3 +1,9 @@
+// The firm runs on the New Zealand calendar day. Pin the process TZ so every
+// `new Date()` (and the date maths built on it) is NZ-local, not the server's
+// UTC. Stored timestamps stay UTC — `.toISOString()` ignores this. Overridable
+// for tests via the TZ env var.
+if (!process.env.TZ) process.env.TZ = 'Pacific/Auckland';
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -265,7 +271,7 @@ function commitmentOutcome(t) {
   if (!t.clientDate) return null;
   const eff = effectiveClientDate(t);
   if (t.status === 'completed' && t.completedAt) {
-    return t.completedAt.slice(0, 10) <= eff ? 'met' : 'missed';
+    return nzDay(t.completedAt) <= eff ? 'met' : 'missed';
   }
   if (t.reviewStatus === 'error') return 'rework';
   if (anyQueryOpen(t)) return 'exempt';
@@ -531,7 +537,7 @@ function taskHours(t) {
 function hoursDoneOnDate(state, employeeId, date) {
   return state.tasks
     .filter(t => t.assignedTo === employeeId && t.status === 'completed'
-      && (t.completedAt || '').slice(0, 10) === date)
+      && nzDay(t.completedAt) === date)
     .reduce((sum, t) => sum + taskHours(t), 0);
 }
 function hoursDoneToday(state, employeeId) {
@@ -587,7 +593,14 @@ function taskNotifyStatus(state, taskId, empId) {
   return { at: latest.at, seen: !!latest.seenAt, seenAt: latest.seenAt || null, unseen: ns.filter(n => !n.seenAt).length };
 }
 
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+// The current New Zealand calendar day, YYYY-MM-DD. Explicit TZ so it's
+// correct even if the process TZ isn't NZ (belt and braces with the top-of-
+// file pin). `en-CA` formats as YYYY-MM-DD.
+const _NZ_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit' });
+function todayISO() { return _NZ_FMT.format(new Date()); }
+// The NZ calendar day a stored UTC timestamp falls on — for "was this done
+// today / on time" checks where the stored value is a full ISO timestamp.
+function nzDay(ts) { return ts ? _NZ_FMT.format(new Date(ts)) : ''; }
 
 // ---------------------------------------------------------------------------
 // P2 — REMINDER LEDGER. Every chase — a manual manager nudge or a system
@@ -623,7 +636,7 @@ function sweepAutoReminders(state) {
   if (!candidates.length) return 0;
   const remindedToday = new Set(
     (state.taskEvents || [])
-      .filter(e => e.type === 'reminded' && e.channel === 'auto' && (e.at || '').slice(0, 10) === today)
+      .filter(e => e.type === 'reminded' && e.channel === 'auto' && nzDay(e.at) === today)
       .map(e => e.taskId));
   let n = 0;
   for (const t of candidates) {
@@ -1242,14 +1255,16 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     if (t.status !== 'on_hold') return res.status(400).json({ error: 'This task is not on hold.' });
     t.status = ['accepted', 'rework', 'awaiting_acceptance'].includes(t.preHoldStatus) ? t.preHoldStatus : 'accepted';
     t.preHoldStatus = null;
-    const now = new Date().toISOString();
+    // `resumedAt` is a working-DAY marker (it feeds queryShift's resume-lag
+    // calc), so store the NZ calendar day, not a UTC timestamp.
+    const resumeDay = todayISO();
     const last = (t.holdHistory || [])[t.holdHistory.length - 1];
-    if (last && !last.resumedAt) last.resumedAt = now;
+    if (last && !last.resumedAt) last.resumedAt = resumeDay;
     // Mark the query for this hold as resumed — this starts the resume-lag
     // clock that can forfeit part of the freeze (calendar.queryShift).
     if (last && last.queryId) {
       const q = (t.queries || []).find(x => x.id === last.queryId);
-      if (q && !q.resumedAt) q.resumedAt = now;
+      if (q && !q.resumedAt) q.resumedAt = resumeDay;
     }
     t.heldAt = null;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);

@@ -332,10 +332,10 @@
   #view-dashboard .dash-cap::after{ content:""; position:absolute; right:-38px; top:-38px; width:140px; height:140px; border-radius:50%; background:rgba(191,229,134,.13); }
   #view-dashboard .dash-cap .c-tag{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:.16em; color:#90b6a9; }
   #view-dashboard .dash-cap .c-chip{ width:30px; height:22px; border-radius:6px; background:linear-gradient(135deg,#cde9a6,var(--mint-deep)); }
-  #view-dashboard .dash-cap .c-big{ font-family:var(--font-display); font-weight:700; font-size:19px; }
-  #view-dashboard .dash-cap .c-sub{ font-family:var(--font-mono); font-size:11px; letter-spacing:.1em; color:#90b6a9; margin-top:2px; }
-  #view-dashboard .dash-cap .c-amt{ font-family:var(--font-display); font-weight:700; font-size:22px; color:var(--mint); }
-  #view-dashboard .dash-cap .c-amt small{ font-family:var(--font-body); font-size:11.5px; font-weight:600; color:#90b6a9; display:block; margin-top:2px; }
+  #view-dashboard .dash-cap .c-hero{ font-family:var(--font-display); font-weight:700; font-size:27px; line-height:1; color:var(--mint); letter-spacing:-.01em; }
+  #view-dashboard .dash-cap .c-hero small{ font-family:var(--font-body); font-size:12px; font-weight:600; color:#a9c9bd; display:block; margin-top:6px; letter-spacing:0; }
+  #view-dashboard .dash-cap .c-foot{ font-family:var(--font-display); font-weight:600; font-size:13.5px; color:#dcefe4; }
+  #view-dashboard .dash-cap .c-foot span{ font-family:var(--font-mono); font-weight:500; font-size:10.5px; letter-spacing:.12em; color:#90b6a9; display:block; margin-top:3px; }
 
   /* to-do rows → transaction style */
   #view-dashboard .today-list{ gap:0; margin-bottom:6px; }
@@ -1926,8 +1926,14 @@ function renderDashMirrorPicker(){
     </optgroup>
   </select>`;
 }
-function todayISO(){ return new Date().toISOString().slice(0,10); }
-function addDaysISO(days){ const d = new Date(); d.setDate(d.getDate()+days); return d.toISOString().slice(0,10); }
+// Local calendar day (the browser is in NZ) — NOT toISOString(), which is UTC
+// and rolls over ~12h early for anyone in New Zealand.
+function _localDay(d){ d = d instanceof Date ? d : new Date(d); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function todayISO(){ return _localDay(new Date()); }
+// The local calendar day a stored UTC timestamp falls on — use instead of
+// `.slice(0,10)` whenever comparing a timestamp against "today".
+function dayOf(ts){ return ts ? _localDay(new Date(ts)) : ''; }
+function addDaysISO(days){ const d = new Date(); d.setDate(d.getDate()+days); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
 /* =========================================================================
    DASHBOARD SCOPE — the shared "who / what period" filter used by the
@@ -1939,7 +1945,7 @@ const dashScope = {
   // (a manager → "My reports"; a non-managing superadmin → "Whole firm").
   mg: { view:null, period:'this-month', cStart:null, cEnd:null, cmp:true },
 };
-function _iso(d){ return d.toISOString().slice(0,10); }
+function _iso(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 // The real team list — just the distinct team names people are actually on.
 // (The org-chart / memberships layer carries stale phantom names like
 // "Companies" / "Leads" and duplicates like "Rental" vs "Rental Team"; it
@@ -2305,7 +2311,7 @@ function renderAdminView(){
   setTxt('adminStatOpen', openish.length);
   setTxt('adminStatOverdue', openish.filter(t => t.internalDeadline && t.internalDeadline < todayISO()).length);
   setTxt('adminStatUnassigned', openish.filter(t => !t.assignedTo).length);
-  setTxt('adminStatToday', all.filter(t => (t.assignedAt || '').slice(0,10) === todayISO()).length);
+  setTxt('adminStatToday', all.filter(t => dayOf(t.assignedAt) === todayISO()).length);
 
   const q = (document.getElementById('adminSearch').value || '').toLowerCase();
   const statusF = document.getElementById('adminStatusFilter').value;
@@ -3301,7 +3307,7 @@ function renderEmployeeStats(){
   // deadline is today/past. A task you accepted for three days out is not
   // counted — it shows under "Coming up", not here.
   myTodaysWork = mine.filter(isTodaysWork);
-  myDoneToday = mine.filter(t => t.completedAt && t.completedAt.slice(0,10) === today);
+  myDoneToday = mine.filter(t => t.completedAt && dayOf(t.completedAt) === today);
   // In Review = your own finished work waiting on a checker — off your to-do
   // list, not yet signed off. Done = everything finished AND reviewed
   // (clean, or closed without review), all-time.
@@ -3345,7 +3351,7 @@ function renderGreeting(){
   const mineOpen = tasks.filter(t => t.assignedTo === who && t.status !== 'completed');
   const dueThisWeek = mineOpen.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= weekEnd).length;
   const doneTodayHrs = tasks
-    .filter(t => t.assignedTo === who && t.status === 'completed' && (t.completedAt||'').slice(0,10) === today)
+    .filter(t => t.assignedTo === who && t.status === 'completed' && dayOf(t.completedAt) === today)
     .reduce((s,t) => s + taskHrs(t), 0);
   wrap.innerHTML = `<div class="greeting-block">
     <div>
@@ -3585,11 +3591,10 @@ function renderCapacityCard(){
       <div class="c-chip"></div>
       <span class="c-tag">CAPACITY</span>
     </div>
-    <div>
-      <div class="c-big">${daily ? daily : '—'} h / day${m.onLeaveToday ? ' · on leave today' : ''}</div>
-      <div class="c-sub">${esc(String(team).toUpperCase())}</div>
+    <div class="c-hero">${queue}h<small>${clearLine}</small></div>
+    <div class="c-foot">${daily ? daily : '—'} h / day${m.onLeaveToday ? ' · on leave today' : ''}
+      <span>${esc(String(team).toUpperCase())}</span>
     </div>
-    <div class="c-amt">${queue}h<small>${clearLine}</small></div>
   </div>`;
 }
 function renderTodayTeam(){
@@ -4472,18 +4477,37 @@ async function submitAssign(mode){
   }
 
 /* =========================================================================
-   BULK ASSIGN — paste a list. One client + one assignee for the batch,
-   then one line per task: "Task name | 3 | 2026-10-20" (name | hours | due).
-   Each line goes through the normal POST /api/tasks, so all the usual
-   validation applies; the modal previews what will be created first.
+   BULK ASSIGN — paste a list, one assignee for the batch. In client mode
+   each line can name its OWN client:  "Client | Task | 3 | 2026-10-20".
+   A 3-field line ("Task | 3 | date") falls back to the default client
+   picked above. Each line goes through the normal POST /api/tasks, so all
+   the usual validation applies; the modal previews what will be created.
    ========================================================================= */
+function _bulkKind(){ return document.querySelector('.bkKindBtn.primary')?.dataset.k || 'client'; }
+function _bulkResolveClient(q){
+  q = (q || '').trim().toLowerCase();
+  if(!q) return null;
+  const exact = clients.filter(c => (c.name || '').toLowerCase() === q);
+  if(exact.length) return exact[0];
+  const starts = clients.filter(c => (c.name || '').toLowerCase().startsWith(q));
+  if(starts.length === 1) return starts[0];
+  const has = clients.filter(c => (c.name || '').toLowerCase().includes(q));
+  if(has.length === 1) return has[0];
+  return has.length > 1 ? '__ambiguous__' : null;
+}
 function _bulkParseLines(){
+  const kind = _bulkKind();
   const raw = (document.getElementById('bkLines') || {}).value || '';
+  const defClientId = (document.getElementById('bkClient') || {}).value || '';
   return raw.split('\n').map(s => s.trim()).filter(Boolean).map((line, i) => {
     const parts = line.split('|').map(p => p.trim());
-    const name = parts[0] || '';
-    const hours = parseFloat(parts[1]);
-    let due = parts[2] || '';
+    let clientRaw = '', name = '', hours, dueRaw = '';
+    if(kind === 'client' && parts.length >= 4){
+      clientRaw = parts[0]; name = parts[1]; hours = parseFloat(parts[2]); dueRaw = parts[3] || '';
+    } else {
+      name = parts[0] || ''; hours = parseFloat(parts[1]); dueRaw = parts[2] || '';
+    }
+    let due = dueRaw;
     const m = due.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
     if(m) due = `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
     const errs = [];
@@ -4491,7 +4515,21 @@ function _bulkParseLines(){
     if(!(hours > 0)) errs.push('hours must be a positive number');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(due)) errs.push('due date must be YYYY-MM-DD');
     else if(due < todayISO()) errs.push('due date is in the past');
-    return { n: i + 1, line, name, hours, due, errs };
+    let clientId = null, clientLabel = '';
+    if(kind === 'client'){
+      if(clientRaw){
+        const r = _bulkResolveClient(clientRaw);
+        if(r === '__ambiguous__') errs.push(`"${clientRaw}" matches more than one client`);
+        else if(!r) errs.push(`no client matches "${clientRaw}"`);
+        else { clientId = r.id; clientLabel = r.name; }
+      } else if(defClientId){
+        const c = clients.find(x => x.id === defClientId);
+        if(c){ clientId = c.id; clientLabel = c.name + ' · default'; }
+      } else {
+        errs.push('name a client on the line, or pick a default above');
+      }
+    }
+    return { n: i + 1, line, name, hours, due, clientId, clientLabel, errs };
   });
 }
 function renderBulkPreview(){
@@ -4499,18 +4537,20 @@ function renderBulkPreview(){
   const wrap = document.getElementById('bkPreview');
   const btn = document.getElementById('bkSubmitBtn');
   if(!wrap) return;
+  const showClient = _bulkKind() === 'client';
   const ok = rows.filter(r => !r.errs.length);
   if(!rows.length){ wrap.innerHTML = '<p style="font-size:12.5px;color:var(--text-faint);">Nothing to preview yet.</p>'; if(btn) btn.disabled = true; return; }
-  wrap.innerHTML = `<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${ok.length} ready${rows.length - ok.length ? ` · <span style="color:#C2410C;">${rows.length - ok.length} need fixing</span>` : ''}</div>
+  wrap.innerHTML = `<div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">${ok.length} ready${rows.length - ok.length ? ` · <span style="color:var(--coral);">${rows.length - ok.length} need fixing</span>` : ''}</div>
     <div style="max-height:220px;overflow:auto;border:1px solid var(--panel-border);border-radius:8px;">
     <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-    <thead><tr style="color:var(--text-faint);text-align:left;"><th style="padding:5px 8px;">#</th><th style="padding:5px 8px;">Task</th><th style="padding:5px 8px;">Hrs</th><th style="padding:5px 8px;">Due</th><th style="padding:5px 8px;">—</th></tr></thead>
+    <thead><tr style="color:var(--text-faint);text-align:left;"><th style="padding:5px 8px;">#</th>${showClient?'<th style="padding:5px 8px;">Client</th>':''}<th style="padding:5px 8px;">Task</th><th style="padding:5px 8px;">Hrs</th><th style="padding:5px 8px;">Due</th><th style="padding:5px 8px;">—</th></tr></thead>
     <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--line);${r.errs.length?'background:var(--coral-dim);':''}">
       <td style="padding:5px 8px;color:var(--text-faint);">${r.n}</td>
+      ${showClient?`<td style="padding:5px 8px;">${esc(r.clientLabel || '—')}</td>`:''}
       <td style="padding:5px 8px;">${esc(r.name || '—')}</td>
       <td style="padding:5px 8px;font-family:var(--font-mono);">${r.errs.includes('hours must be a positive number') ? '?' : r.hours + 'h'}</td>
       <td style="padding:5px 8px;font-family:var(--font-mono);">${/^\d{4}-\d{2}-\d{2}$/.test(r.due) ? r.due : '?'}</td>
-      <td style="padding:5px 8px;color:#C2410C;">${r.errs.join(', ')}</td>
+      <td style="padding:5px 8px;color:var(--coral);">${r.errs.join(', ')}</td>
     </tr>`).join('')}</tbody></table></div>`;
   if(btn) btn.disabled = ok.length === 0;
 }
@@ -4523,19 +4563,19 @@ function openBulkAssignModal(){
   const cs = clients.slice().sort((a,b)=>a.name.localeCompare(b.name));
   document.getElementById('modalBox').innerHTML = `
     <h3>Bulk Assign — paste a list</h3>
-    <div class="modal-sub">Pick a client and a person, then one task per line. All tasks go to that person for acceptance.</div>
+    <div class="modal-sub">Pick a person, then one task per line. All tasks go to that person for acceptance.</div>
     <div class="field"><label>Kind</label>
       <div style="display:flex;gap:8px;">
         <button type="button" class="btn small bkKindBtn primary" data-k="client" onclick="setBulkKind('client')"${cs.length?'':' disabled title="Add a client first"'}>Client work</button>
         <button type="button" class="btn small bkKindBtn" data-k="internal" onclick="setBulkKind('internal')">Internal</button>
       </div>
     </div>
-    <div class="field" id="bkClientWrap"${cs.length?'':' style="display:none;"'}><label>Client</label>
-      <select id="bkClient">${cs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
+    <div class="field" id="bkClientWrap"${cs.length?'':' style="display:none;"'}><label>Default client <span style="font-weight:400;color:var(--text-faint);">— used for any line that doesn't name its own</span></label>
+      <select id="bkClient" onchange="renderBulkPreview()"><option value="">— none (name a client on every line) —</option>${cs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Assign every task to</label>
       <select id="bkAssignee">${people.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
-    <div class="field"><label>Tasks <span style="font-weight:400;color:var(--text-faint);">— one per line: <code>Name | hours | YYYY-MM-DD</code></span></label>
-      <textarea id="bkLines" rows="7" placeholder="GST return Q1 | 3 | 2026-10-20&#10;Bank reconciliation | 2 | 2026-10-21&#10;Annual accounts draft | 8 | 2026-10-28" oninput="renderBulkPreview()" style="width:100%;background:var(--bg-deep);border:1px solid var(--panel-border);color:var(--text);border-radius:8px;padding:10px;font-family:var(--font-mono);font-size:13px;"></textarea></div>
+    <div class="field"><label>Tasks <span style="font-weight:400;color:var(--text-faint);">— one per line: <code id="bkFmt">Client | Name | hours | YYYY-MM-DD</code></span></label>
+      <textarea id="bkLines" rows="7" placeholder="Neo Wave ICT Ltd | GST return Q1 | 3 | 2026-10-20&#10;City Cabs Ltd | Bank reconciliation | 2 | 2026-10-21&#10;GST return Q2 | 4 | 2026-10-28   (uses the default client)" oninput="renderBulkPreview()" style="width:100%;background:var(--bg-deep);border:1px solid var(--panel-border);color:var(--text);border-radius:8px;padding:10px;font-family:var(--font-mono);font-size:13px;"></textarea></div>
     <div id="bkPreview" style="margin:4px 0 10px;"></div>
     <div class="modal-error" id="bkErr"></div>
     <div class="modal-actions">
@@ -4550,15 +4590,16 @@ function setBulkKind(k){
   document.querySelectorAll('.bkKindBtn').forEach(b => b.classList.toggle('primary', b.dataset.k === k));
   const w = document.getElementById('bkClientWrap');
   if(w) w.style.display = k === 'internal' ? 'none' : '';
+  const fmt = document.getElementById('bkFmt');
+  if(fmt) fmt.textContent = k === 'internal' ? 'Name | hours | YYYY-MM-DD' : 'Client | Name | hours | YYYY-MM-DD';
+  renderBulkPreview();
 }
 async function submitBulkAssign(){
   const errEl = document.getElementById('bkErr');
-  const kind = document.querySelector('.bkKindBtn.primary')?.dataset.k || 'client';
+  const kind = _bulkKind();
   const assignedTo = document.getElementById('bkAssignee').value;
-  const clientId = document.getElementById('bkClient')?.value;
   const rows = _bulkParseLines().filter(r => !r.errs.length);
   if(!rows.length){ errEl.textContent = 'Nothing valid to create.'; errEl.style.display = 'block'; return; }
-  if(kind === 'client' && !clientId){ errEl.textContent = 'Pick a client.'; errEl.style.display = 'block'; return; }
   const btn = document.getElementById('bkSubmitBtn');
   btn.disabled = true; btn.textContent = `Creating… 0/${rows.length}`;
   const team = (empById(assignedTo) || {}).team || '';
@@ -4566,7 +4607,7 @@ async function submitBulkAssign(){
   for(const r of rows){
     const payload = { mode: 'team', name: r.name, assignedTo, internalDeadline: r.due, tat: r.hours, team,
       kind: kind === 'internal' ? 'internal' : 'client' };
-    if(kind !== 'internal') payload.clientId = clientId;
+    if(kind !== 'internal') payload.clientId = r.clientId;
     try { await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) }); made++; }
     catch(e){ failed.push(`“${r.name}” — ${e.message}`); }
     btn.textContent = `Creating… ${made}/${rows.length}`;
