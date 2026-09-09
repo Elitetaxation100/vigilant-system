@@ -4869,12 +4869,19 @@ async function renderProductivityView(){
   _prodWeights = data.weights || _prodWeights;
   document.getElementById('prodScoreCard').innerHTML = scoreCardHtml(T.productivityScore, T.factors, data.weights, `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}`);
   renderWeightsEditor();
+  // second score — coverage measured against FULL capacity, not just the
+  // work that was allocated. The gap to the delivery score above, and the
+  // hours managers never handed out, are the allocation shortfall.
+  const capGap = (T.productivityScore != null && T.capacityScore != null) ? T.productivityScore - T.capacityScore : null;
+  const unalloc = T.allocationGapHours || 0;
   document.getElementById('prodTiles').innerHTML =
     tile('Worked hours', T.workedHours.toFixed(1), `of ${T.allocatedHours.toFixed(1)} allocated`) +
     tile('Utilisation', T.utilisationPct==null?'—':T.utilisationPct+'%', `vs ${T.capacityHours.toFixed(0)}h capacity`) +
     tile('Efficiency', T.efficiency==null?'—':T.efficiency.toFixed(2)+'×', T.efficiency>=1?'under budget':'over budget') +
     tile('Tasks delivered', T.tasks, `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}`) +
-    tile('Fiscal YTD', T.cumulativeYtdWorked.toFixed(0)+'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`);
+    tile('Fiscal YTD', T.cumulativeYtdWorked.toFixed(0)+'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`) +
+    tile('Capacity score', T.capacityScore==null?'—':T.capacityScore+'/100',
+      `${capGap!=null && capGap>0 ? `${capGap} pts below the delivery score` : 'in line with the delivery score'} · managers left <b>${unalloc.toFixed(0)}h</b> of capacity unallocated`);
 
   const rows = data.people.slice().sort((a,b)=>(b.productivityScore??-1)-(a.productivityScore??-1) || b.workedHours-a.workedHours);
   body.innerHTML = rows.length ? rows.map(p => `<tr>
