@@ -181,10 +181,10 @@
   .tasklist-modal .wl-datehdr td{ background:var(--panel-2); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-dim); position:sticky; top:0; }
   .stat-card .label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); margin-bottom:8px; }
   .stat-card .value{ font-family:var(--font-display); font-size:27px; font-weight:700; }
-  .stat-card .value.purple{ color:#5B4FCF; }
-  .stat-card .value.teal{ color:#0D9488; }
-  .stat-card .value.amber{ color:#B45309; }
-  .stat-card .value.coral{ color:#C2410C; }
+  .stat-card .value.purple{ color:var(--purple); }
+  .stat-card .value.teal{ color:var(--teal); }
+  .stat-card .value.amber{ color:var(--amber); }
+  .stat-card .value.coral{ color:var(--coral); }
 
   .fault-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   .fault-card{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 18px; }
@@ -546,11 +546,12 @@
   .cc{
     --panel:#131826; --panel-2:#161C29; --panel-border:#232838; --line:#1E2330;
     --text:#E7EAF2; --text-dim:#9BA3BC; --text-faint:#6B7390; --bg-deep:#0B0E14;
-    background:#0B0E14; border-radius:20px; padding:26px 28px 32px; margin:-4px 0 4px;
+    --purple:#7C6CF6; --teal:#2FBE93; --amber:#F0B93E; --coral:#F0603E;
+    background:var(--bg-deep); border-radius:20px; padding:26px 28px 32px; margin:-4px 0 4px;
     color:var(--text); font-family:var(--font-body);
     box-shadow:0 20px 50px -20px #00000055;
   }
-  .cc-header{ display:flex; align-items:center; justify-content:space-between; padding-bottom:18px; border-bottom:1px solid #1E2330; margin-bottom:20px; flex-wrap:wrap; gap:12px; }
+  .cc-header{ display:flex; align-items:center; justify-content:space-between; padding-bottom:18px; border-bottom:1px solid var(--line); margin-bottom:20px; flex-wrap:wrap; gap:12px; }
   .cc-header-left{ display:flex; align-items:center; gap:14px; }
   .cc-logo-mark{
     width:42px; height:42px; border-radius:11px; flex-shrink:0;
@@ -569,37 +570,37 @@
   .cc-toolbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:10px; }
   .cc-toolbar-group{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .cc-toolbar-label{ font-size:11px; letter-spacing:.8px; color:var(--text-faint); margin-right:4px; }
-  .cc-window-tab{ background:#151A24; border:1px solid #232838; color:var(--text-dim); font-size:13px; font-weight:600; padding:6px 13px; border-radius:20px; transition:all .15s ease; }
-  .cc-window-tab.on{ background:#2FBE93; color:#04120C; border-color:var(--teal); }
-  .cc-window-tab:hover:not(.on){ border-color:var(--teal)77; color:var(--text); }
-  .cc-excel-btn{ background:#151A24; border:1px solid #2FBE9355; color:var(--teal); font-size:13.5px; font-weight:700; padding:8px 16px; border-radius:10px; }
+  .cc-window-tab{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; font-weight:600; padding:6px 13px; border-radius:20px; transition:all .15s ease; }
+  .cc-window-tab.on{ background:var(--teal); color:#04120C; border-color:var(--teal); }
+  .cc-window-tab:hover:not(.on){ border-color:#2FBE9377; color:var(--text); }
+  .cc-excel-btn{ background:var(--panel-2); border:1px solid #2FBE9355; color:var(--teal); font-size:13.5px; font-weight:700; padding:8px 16px; border-radius:10px; }
   .cc-excel-btn:hover{ background:#2FBE9318; }
 
   .cc-stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:14px; margin-bottom:22px; }
-  .cc-stat-card{ background:#131826; border:1px solid #1E2330; border-radius:14px; padding:16px 18px; position:relative; overflow:hidden; }
+  .cc-stat-card{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; position:relative; overflow:hidden; }
   .cc-stat-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.8px; color:var(--text-faint); margin-bottom:8px; }
-  .cc-stat-value{ font-family:var(--font-display); font-size:30px; font-weight:700; color:#F5F7FA; }
+  .cc-stat-value{ font-family:var(--font-display); font-size:30px; font-weight:700; color:var(--text); }
   .cc-stat-value.teal{ color:var(--teal); } .cc-stat-value.amber{ color:var(--amber); }
   .cc-stamp-cell{ display:flex; flex-direction:column; }
   .cc-stamp{ position:absolute; right:10px; top:8px; width:64px; height:64px; opacity:.9; }
 
-  .cc-panel{ background:#131826; border:1px solid #1E2330; border-radius:16px; padding:18px 20px 20px; margin-bottom:16px; overflow-x:auto; max-width:100%; }
+  .cc-panel{ background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px 20px 20px; margin-bottom:16px; overflow-x:auto; max-width:100%; }
   .cc-panel-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:6px; }
-  .cc-panel-head h3{ font-family:var(--font-display); font-size:15.5px; font-weight:700; color:#F5F7FA; }
+  .cc-panel-head h3{ font-family:var(--font-display); font-size:15.5px; font-weight:700; color:var(--text); }
   .cc-panel-sub{ font-size:12px; color:var(--text-faint); }
 
   .cc-donut-row{ display:flex; flex-wrap:wrap; gap:20px; }
   .cc-donut-card{ display:flex; flex-direction:column; align-items:center; width:104px; }
   .cc-donut{ width:84px; height:84px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; }
-  .cc-donut::before{ content:''; position:absolute; inset:9px; background:#131826; border-radius:50%; }
-  .cc-donut-hole{ position:relative; font-family:var(--font-mono); font-weight:700; font-size:15px; color:#F5F7FA; z-index:1; }
+  .cc-donut::before{ content:''; position:absolute; inset:9px; background:var(--panel); border-radius:50%; }
+  .cc-donut-hole{ position:relative; font-family:var(--font-mono); font-weight:700; font-size:15px; color:var(--text); z-index:1; }
   .cc-donut-label{ margin-top:9px; font-size:13px; font-weight:600; color:var(--text); text-align:center; }
   .cc-donut-sub{ font-size:11px; color:var(--text-faint); text-align:center; margin-top:2px; }
 
   .cc-table{ width:100%; min-width:640px; border-collapse:collapse; table-layout:auto; }
-  .cc-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); padding:8px 10px; border-bottom:1px solid #1E2330; white-space:nowrap; }
-  .cc-table td{ padding:10px 10px; border-bottom:1px solid #1A1F2B; font-size:13.5px; color:#D6DAE6; vertical-align:top; word-break:break-word; overflow-wrap:anywhere; }
-  .cc-table tr:hover td{ background:#161C29; }
+  .cc-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  .cc-table td{ padding:10px 10px; border-bottom:1px solid var(--line); font-size:13.5px; color:var(--text-dim); vertical-align:top; word-break:break-word; overflow-wrap:anywhere; }
+  .cc-table tr:hover td{ background:var(--panel-2); }
 
   /* ===== Admin space + task source tags (calls-into-tasks, Phase 1) ===== */
   .src-tag{ display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; font-family:var(--font-mono); padding:2px 7px; border-radius:6px; white-space:nowrap; letter-spacing:.2px; }
@@ -3342,7 +3343,7 @@ async function renderBusyBoard(){
     </div>`;
   }).join('');
 }
-function todayStatusColor(s){ return s==='over' ? '#F0603E' : s==='light' ? '#E8A33D' : s==='off' ? 'var(--text-faint)' : '#2FBE93'; }
+function todayStatusColor(s){ return s==='over' ? 'var(--coral)' : s==='light' ? 'var(--amber)' : s==='off' ? 'var(--text-faint)' : 'var(--teal)'; }
 function tgBar(pending, capacity){
   const cap = capacity > 0 ? capacity : Math.max(pending, 1);
   const pct = Math.min(100, Math.round(pending / cap * 100));
@@ -4599,7 +4600,7 @@ function renderAllocationPanel(a){
   }[s] || s);
   const head = `<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;margin-bottom:12px;">
     <div><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);">Allocation accuracy</div>
-      <div style="font-size:26px;font-weight:700;font-family:var(--font-mono);color:${acc==null?'var(--text-faint)':acc>=85?'#2FBE93':acc>=65?'#F0B93E':'#F0603E'};">${acc==null?'—':acc+'%'}</div></div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--font-mono);color:${acc==null?'var(--text-faint)':acc>=85?'var(--teal)':acc>=65?'var(--amber)':'var(--coral)'};">${acc==null?'—':acc+'%'}</div></div>
     <div style="font-size:13px;color:var(--text-dim);">
       ${a.underAllocatedWeeks} under-allocated person-week${a.underAllocatedWeeks===1?'':'s'}
       ${a.untaggedUnderAllocatedWeeks>0?` · <b style="color:#C2410C;">${a.untaggedUnderAllocatedWeeks} untagged</b>`:' · all tagged'}
@@ -4944,8 +4945,8 @@ function _prodRange(){
    C delivery coverage. Weights are per-department and sum to 1. */
 let _prodWeights = null;
 const PF_META = { E:['Efficiency','allocated ÷ worked'], T:['On-time','met ÷ dated'], R:['Rework','processor faults'], N:['Reminders','chases ÷ tasks'], C:['Coverage','worked ÷ allocated'] };
-function pfColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? '#2FBE93' : v>=60 ? '#F0B93E' : '#F0603E'; }
-function scoreColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? '#2FBE93' : v>=60 ? '#F0B93E' : '#F0603E'; }
+function pfColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? 'var(--teal)' : v>=60 ? 'var(--amber)' : 'var(--coral)'; }
+function scoreColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? 'var(--teal)' : v>=60 ? 'var(--amber)' : 'var(--coral)'; }
 function factorBarsHtml(factors, weights){
   return `<div class="pfactors">` + ['E','T','R','N','C'].map(k=>{
     const v = factors ? factors[k] : null;
@@ -5066,7 +5067,7 @@ async function renderProductivityView(){
       <td style="font-family:var(--font-mono);">${p.allocatedHours.toFixed(1)}</td>
       <td style="font-family:var(--font-mono);">${p.workedHours.toFixed(1)}</td>
       <td style="font-family:var(--font-mono);">${p.capacityHours.toFixed(0)} <span style="color:var(--text-faint);">@${p.baseHoursPerDay || p.effectiveCapacity}h/d${p.leaveDays ? ` −${p.leaveDays} leave` : ''}</span></td>
-      <td><b style="color:${p.utilisationPct==null?'var(--text-faint)':p.utilisationPct>110?'#F0603E':p.utilisationPct>=75?'#2FBE93':'#F0B93E'};">${p.utilisationPct==null?'—':p.utilisationPct+'%'}</b></td>
+      <td><b style="color:${p.utilisationPct==null?'var(--text-faint)':p.utilisationPct>110?'var(--coral)':p.utilisationPct>=75?'var(--teal)':'var(--amber)'};">${p.utilisationPct==null?'—':p.utilisationPct+'%'}</b></td>
       <td style="font-family:var(--font-mono);">${p.efficiency==null?'—':p.efficiency.toFixed(2)}</td>
       <td style="font-family:var(--font-mono);">${p.throughput==null?'—':p.throughput.toFixed(1)+'/d'}</td>
       <td>${p.onTimeRate==null?'—':p.onTimeRate+'%'}</td>
