@@ -4,11 +4,43 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Commitment Pulse — Governance OS</title>
+<script>/* apply the saved theme before first paint — no flash */try{if(localStorage.getItem('governanceOsTheme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
+    /* LIGHT is the default. Dark is opt-in via [data-theme="dark"]. Every
+       component styles through these tokens, so switching themes only
+       redefines the block below. */
+    --bg-deep:      #F4F5F9;
+    --panel:        #FFFFFF;
+    --panel-2:      #F5F7FB;
+    --panel-border: #E3E6EF;
+    --line:         #ECEEF4;
+    --text:         #1B2030;
+    --text-dim:     #55607A;
+    --text-faint:   #8790A6;
+    /* accents double as saturated fills AND as text — these light values
+       stay legible on white; the dark theme swaps in brighter ones below. */
+    --purple:       #6C5CE7;
+    --purple-dim: #EEEBFD;
+    --teal:         #12A277;
+    --teal-dim:   #DDF9F1;
+    --amber:        #B9791A;
+    --amber-dim:  #FCF0D8;
+    --coral:        #DC4B2B;
+    --coral-dim:  #FDE8E2;
+    --flag:       #C2410C;
+    --shadow-1: 0 1px 2px rgba(20,24,40,.06), 0 1px 3px rgba(20,24,40,.05);
+    --radius-s: 8px;
+    --radius-m: 12px;
+    --radius-l: 18px;
+      --font-display: 'Plus Jakarta Sans', 'SF Pro Display', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  :root[data-theme="dark"]{
     --bg-deep:      #0B0E14;
     --panel:        #131826;
     --panel-2:      #161C29;
@@ -18,19 +50,11 @@
     --text-dim:     #9BA3BC;
     --text-faint:   #6B7390;
     --purple:       #7C6CF6;
-    --purple-dim: #EEEBFD;
     --teal:         #2FBE93;
-    --teal-dim:   #DDF9F1;
     --amber:        #F0B93E;
-    --amber-dim:  #FCF0D8;
     --coral:        #F0603E;
-    --coral-dim:  #FDE8E2;
-    --radius-s: 8px;
-    --radius-m: 12px;
-    --radius-l: 18px;
-      --font-display: 'Plus Jakarta Sans', 'SF Pro Display', sans-serif;
-    --font-body: 'Inter', sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
+    --flag:       #F0603E;
+    --shadow-1: 0 1px 3px rgba(0,0,0,.4);
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
@@ -116,7 +140,7 @@
   .admin-btn:hover{ border-color:var(--purple); color:#6D28D9; }
   .admin-status{ font-size:12.5px; color:#0D9488; margin-top:8px; text-align:center; }
 
-  .topbar{ display:flex; align-items:center; justify-content:space-between; padding:16px 28px; border-bottom:1px solid var(--line); background:#131826cc; backdrop-filter:blur(10px); position:sticky; top:0; z-index:20; }
+  .topbar{ display:flex; align-items:center; justify-content:space-between; padding:16px 28px; border-bottom:1px solid var(--line); background:var(--panel); backdrop-filter:blur(10px); position:sticky; top:0; z-index:20; }
   .main{ flex:1; min-width:0; }
   .topbar h1{ font-family:var(--font-display); font-size:22px; font-weight:700; letter-spacing:-.2px; }
   .topbar .sub{ font-size:14px; color:var(--text-faint); margin-top:2px; }
@@ -136,7 +160,7 @@
   .banner{ display:flex; align-items:center; gap:10px; background:var(--purple-dim); border:1px solid #7C6CF63a; color:#6D28D9; font-size:14.5px; padding:11px 16px; border-radius:var(--radius-s); margin-bottom:14px; }
   .banner b{ color:#3B1F94; }
   .banner .tag{ font-family:var(--font-mono); background:#00000010; padding:1px 7px; border-radius:5px; font-size:13.5px; }
-  .banner.warn{ background:var(--coral-dim); border-color:#F0603E4a; color:#9A3412; }
+  .banner.warn{ background:var(--coral-dim); border-color:var(--coral)4a; color:#9A3412; }
   .banner.warn b{ color:#7A2A0C; }
 
   .stat-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:22px; }
@@ -219,7 +243,7 @@
     .todo-group-hd span{ font-family:var(--font-mono); background:var(--panel-2); border-radius:5px; padding:1px 6px; letter-spacing:0; }
     .todo-group-hd.is-overdue{ color:#C2410C; }
     .modal-search{ width:100%; padding:8px 11px; margin:8px 0 10px; border-radius:8px; border:1px solid var(--panel-border); background:var(--panel-2); color:var(--text); font-size:13px; }
-    .req-mark{ color:#F0603E; font-weight:700; }
+    .req-mark{ color:var(--coral); font-weight:700; }
     .pill{ display:inline-flex; align-items:center; font-size:11px; font-weight:600; padding:3px 9px; border-radius:999px; letter-spacing:.2px; }
     .pill-purple{ background:#7C6CF61f; color:#B7AEFA; }
     .pill-teal{ background:#2FBE931f; color:#6EE7C4; }
@@ -341,10 +365,10 @@
   .sla-toggle-label{ font-size:13px; color:var(--text-dim); }
   .toggle-switch{ position:relative; width:40px; height:22px; border-radius:999px; background:var(--panel-2); border:1px solid var(--panel-border); cursor:pointer; flex-shrink:0; transition:background .15s ease; }
   .toggle-switch::after{ content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--text-faint); transition:transform .15s ease, background .15s ease; }
-  .toggle-switch.on{ background:#22C99E33; border-color:#22C99E; }
+  .toggle-switch.on{ background:#22C99E33; border-color:var(--teal); }
   .toggle-switch.on::after{ transform:translateX(18px); background:#22C99E; }
   .sla-status-chip{ font-size:11.5px; font-family:var(--font-mono); padding:3px 9px; border-radius:999px; border:1px solid var(--panel-border); color:var(--text-faint); }
-  .sla-status-chip.live{ color:#0D9488; border-color:#22C99E; }
+  .sla-status-chip.live{ color:#0D9488; border-color:var(--teal); }
   .sla-chart-wrap{ margin-top:16px; }
   .sla-chart-note{ font-size:12.5px; color:var(--text-faint); margin-top:10px; line-height:1.5; }
   .bars{ display:flex; align-items:flex-end; gap:14px; height:130px; margin-top:14px; padding:0 4px; }
@@ -440,7 +464,7 @@
   .emp-card .et{ font-size:12.5px; color:#5B4FCF; margin-top:4px; }
   /* Teams & Access — membership chips (calls-into-tasks, Phase 1b) */
   .mchip{ display:inline-flex; align-items:center; gap:6px; font-size:12px; background:var(--panel-2); border:1px solid var(--panel-border); border-radius:20px; padding:3px 5px 3px 11px; color:var(--text-dim); }
-  .mchip.admin{ background:#7C6CF614; border-color:#7C6CF655; color:#6D28D9; }
+  .mchip.admin{ background:#7C6CF614; border-color:var(--purple)55; color:#6D28D9; }
   .mchip .mx{ width:16px; height:16px; border-radius:50%; background:#00000012; border:none; color:var(--text-faint); font-size:11px; line-height:1; display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .mchip .mx:hover{ background:var(--coral); color:#fff; }
   .founder-chip{ display:inline-block; font-size:10px; font-family:var(--font-mono); letter-spacing:.5px; background:linear-gradient(135deg,var(--amber),#C6890F); color:#3a2500; padding:2px 7px; border-radius:6px; font-weight:700; }
@@ -517,10 +541,13 @@
   .cb-bar-track{ background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:7px; height:22px; overflow:hidden; }
   .cb-bar-fill{ height:100%; border-radius:7px; background:linear-gradient(90deg,var(--purple),var(--teal)); transition:width .35s cubic-bezier(.2,.9,.25,1); }
   .cb-val{ font-family:var(--font-mono); font-size:12.5px; text-align:right; color:var(--text); }
-  /* ============ COMMAND CENTER (dark oversight dashboard) ============ */
+  /* ============ COMMAND CENTER — a deliberately dark ops console; it
+     stays dark in both themes, so it re-declares the tokens locally ====== */
   .cc{
+    --panel:#131826; --panel-2:#161C29; --panel-border:#232838; --line:#1E2330;
+    --text:#E7EAF2; --text-dim:#9BA3BC; --text-faint:#6B7390; --bg-deep:#0B0E14;
     background:#0B0E14; border-radius:20px; padding:26px 28px 32px; margin:-4px 0 4px;
-    color:#E7EAF2; font-family:var(--font-body);
+    color:var(--text); font-family:var(--font-body);
     box-shadow:0 20px 50px -20px #00000055;
   }
   .cc-header{ display:flex; align-items:center; justify-content:space-between; padding-bottom:18px; border-bottom:1px solid #1E2330; margin-bottom:20px; flex-wrap:wrap; gap:12px; }
@@ -533,7 +560,7 @@
     box-shadow:0 4px 18px #2FBE9344;
   }
   .cc-title{ font-family:var(--font-display); font-weight:700; font-size:20px; color:#F5F7FA; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .cc-live-dot{ font-size:11px; font-weight:700; letter-spacing:.6px; color:#2FBE93; background:#2FBE9318; border:1px solid #2FBE9355; padding:3px 8px; border-radius:20px; }
+  .cc-live-dot{ font-size:11px; font-weight:700; letter-spacing:.6px; color:var(--teal); background:#2FBE9318; border:1px solid #2FBE9355; padding:3px 8px; border-radius:20px; }
   .cc-subtitle{ font-size:12.5px; color:#8A93AE; margin-top:2px; }
   .cc-header-right{ text-align:right; }
   .cc-clock{ font-family:var(--font-mono); font-size:22px; font-weight:600; color:#F5F7FA; font-variant-numeric:tabular-nums; }
@@ -541,36 +568,36 @@
 
   .cc-toolbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:10px; }
   .cc-toolbar-group{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
-  .cc-toolbar-label{ font-size:11px; letter-spacing:.8px; color:#6B7390; margin-right:4px; }
-  .cc-window-tab{ background:#151A24; border:1px solid #232838; color:#9BA3BC; font-size:13px; font-weight:600; padding:6px 13px; border-radius:20px; transition:all .15s ease; }
-  .cc-window-tab.on{ background:#2FBE93; color:#04120C; border-color:#2FBE93; }
-  .cc-window-tab:hover:not(.on){ border-color:#2FBE9377; color:#E7EAF2; }
-  .cc-excel-btn{ background:#151A24; border:1px solid #2FBE9355; color:#2FBE93; font-size:13.5px; font-weight:700; padding:8px 16px; border-radius:10px; }
+  .cc-toolbar-label{ font-size:11px; letter-spacing:.8px; color:var(--text-faint); margin-right:4px; }
+  .cc-window-tab{ background:#151A24; border:1px solid #232838; color:var(--text-dim); font-size:13px; font-weight:600; padding:6px 13px; border-radius:20px; transition:all .15s ease; }
+  .cc-window-tab.on{ background:#2FBE93; color:#04120C; border-color:var(--teal); }
+  .cc-window-tab:hover:not(.on){ border-color:var(--teal)77; color:var(--text); }
+  .cc-excel-btn{ background:#151A24; border:1px solid #2FBE9355; color:var(--teal); font-size:13.5px; font-weight:700; padding:8px 16px; border-radius:10px; }
   .cc-excel-btn:hover{ background:#2FBE9318; }
 
   .cc-stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:14px; margin-bottom:22px; }
   .cc-stat-card{ background:#131826; border:1px solid #1E2330; border-radius:14px; padding:16px 18px; position:relative; overflow:hidden; }
-  .cc-stat-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.8px; color:#6B7390; margin-bottom:8px; }
+  .cc-stat-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.8px; color:var(--text-faint); margin-bottom:8px; }
   .cc-stat-value{ font-family:var(--font-display); font-size:30px; font-weight:700; color:#F5F7FA; }
-  .cc-stat-value.teal{ color:#2FBE93; } .cc-stat-value.amber{ color:#F0B93E; }
+  .cc-stat-value.teal{ color:var(--teal); } .cc-stat-value.amber{ color:var(--amber); }
   .cc-stamp-cell{ display:flex; flex-direction:column; }
   .cc-stamp{ position:absolute; right:10px; top:8px; width:64px; height:64px; opacity:.9; }
 
   .cc-panel{ background:#131826; border:1px solid #1E2330; border-radius:16px; padding:18px 20px 20px; margin-bottom:16px; overflow-x:auto; max-width:100%; }
   .cc-panel-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:6px; }
   .cc-panel-head h3{ font-family:var(--font-display); font-size:15.5px; font-weight:700; color:#F5F7FA; }
-  .cc-panel-sub{ font-size:12px; color:#6B7390; }
+  .cc-panel-sub{ font-size:12px; color:var(--text-faint); }
 
   .cc-donut-row{ display:flex; flex-wrap:wrap; gap:20px; }
   .cc-donut-card{ display:flex; flex-direction:column; align-items:center; width:104px; }
   .cc-donut{ width:84px; height:84px; border-radius:50%; display:flex; align-items:center; justify-content:center; position:relative; }
   .cc-donut::before{ content:''; position:absolute; inset:9px; background:#131826; border-radius:50%; }
   .cc-donut-hole{ position:relative; font-family:var(--font-mono); font-weight:700; font-size:15px; color:#F5F7FA; z-index:1; }
-  .cc-donut-label{ margin-top:9px; font-size:13px; font-weight:600; color:#E7EAF2; text-align:center; }
-  .cc-donut-sub{ font-size:11px; color:#6B7390; text-align:center; margin-top:2px; }
+  .cc-donut-label{ margin-top:9px; font-size:13px; font-weight:600; color:var(--text); text-align:center; }
+  .cc-donut-sub{ font-size:11px; color:var(--text-faint); text-align:center; margin-top:2px; }
 
   .cc-table{ width:100%; min-width:640px; border-collapse:collapse; table-layout:auto; }
-  .cc-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#6B7390; padding:8px 10px; border-bottom:1px solid #1E2330; white-space:nowrap; }
+  .cc-table th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); padding:8px 10px; border-bottom:1px solid #1E2330; white-space:nowrap; }
   .cc-table td{ padding:10px 10px; border-bottom:1px solid #1A1F2B; font-size:13.5px; color:#D6DAE6; vertical-align:top; word-break:break-word; overflow-wrap:anywhere; }
   .cc-table tr:hover td{ background:#161C29; }
 
@@ -791,6 +818,7 @@
         <div class="sub" id="pageSub">Verification matrix & live task tracking</div>
       </div>
       <div class="topbar-right">
+        <button class="bell" id="themeToggle" title="Switch light / dark" onclick="toggleTheme()" style="border:none;background:transparent;">🌙</button>
         <div class="bell" id="bellIcon" onclick="openNotifications()">🔔</div>
         <div class="user-pill">
           <div class="avatar" id="topAvatar">HR</div>
@@ -829,7 +857,7 @@
           <span class="dcrumb" id="empCrumb"></span>
         </div>
 
-        <div class="banner" id="dashMirrorBanner" style="display:none; margin-bottom:16px; border-color:#7C6CF655; background:var(--purple-dim);"></div>
+        <div class="banner" id="dashMirrorBanner" style="display:none; margin-bottom:16px; border-color:var(--purple)55; background:var(--purple-dim);"></div>
 
         <div id="empDeadlineNote"></div>
 
@@ -846,7 +874,7 @@
           </div>
           <div class="metric-tile mg-tile" onclick="openMyReviewQueue()" title="Work other people chose you to check">
             <div class="mt-label">To Review</div>
-            <div class="mt-value" style="color:#F0B93E;" id="myToReview">0</div>
+            <div class="mt-value" style="color:var(--amber);" id="myToReview">0</div>
           </div>
           <div class="metric-tile mg-tile" onclick="openMyInReview()" title="Your work sent for review — off your to-do list, waiting on a checker">
             <div class="mt-label">Sent for Review</div>
@@ -859,7 +887,7 @@
           </div>
           <div class="metric-tile mg-tile" onclick="openMyExtraHours()" title="Completed work that ran over its estimate, and by how much">
             <div class="mt-label">Extra Hours</div>
-            <div class="mt-value" style="color:#F0603E;" id="myExtraHours">0</div>
+            <div class="mt-value" style="color:var(--coral);" id="myExtraHours">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myExtraSub"></div>
           </div>
           <div class="donut-tile">
@@ -1037,7 +1065,7 @@
             <div class="cc-header-right">
               <div class="cc-clock" id="ccClock">00:00:00</div>
               <div class="cc-date" id="ccDate">—</div>
-              <button class="btn small" style="margin-top:8px;border-color:#F0603E;color:#F0603E;" onclick="confirmClearTasks()">Clear all tasks…</button>
+              <button class="btn small" style="margin-top:8px;border-color:var(--coral);color:var(--coral);" onclick="confirmClearTasks()">Clear all tasks…</button>
             </div>
           </div>
 
@@ -2509,7 +2537,7 @@ async function renderTimeOff(){
       document.getElementById('toApprovals').innerHTML = pending.map(l => `<div class="to-row">
         <div class="to-main"><b>${esc(l.employeeName)}</b> · ${fmtRange(l)} · ${esc(l.type.toLowerCase())}${l.reason ? ` — <span style="color:var(--text-faint);">${esc(l.reason)}</span>` : ''}</div>
         <button class="verify-btn" onclick="decideLeave('${l.id}', true)">Approve</button>
-        <button class="verify-btn" style="border-color:#F0603E; color:#C2410C;" onclick="decideLeave('${l.id}', false)">Decline</button>
+        <button class="verify-btn" style="border-color:var(--coral); color:#C2410C;" onclick="decideLeave('${l.id}', false)">Decline</button>
       </div>`).join('');
     } else { ap.style.display = 'none'; }
   }
@@ -2631,16 +2659,16 @@ function openUnacceptedBlockModal(list){
     const flagged = isReworkFlagged(t);
     let actions = '';
     if(t.status === 'awaiting_acceptance'){
-      actions = `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTaskFromBlock('${t.id}')">Accept</button>
+      actions = `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="acceptTaskFromBlock('${t.id}')">Accept</button>
                  <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>`;
     } else if(t.status === 'rework'){
-      actions = `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>`;
+      actions = `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>`;
     } else if(t.status === 'window_proposed'){
       actions = `<span style="font-size:12.5px;color:var(--text-faint);">Waiting on your manager's decision — or put it on hold.</span>`;
     } else {
       actions = `<button class="verify-btn" onclick="closeModal(); openCompleteModal('${t.id}')">Mark Complete</button>`;
     }
-    actions += `<button class="verify-btn" style="border-color:#F0B93E;color:#B45309;" onclick="closeModal(); openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+    actions += `<button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="closeModal(); openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
     return `
       <div style="background:${flagged?'var(--coral-dim)':'var(--panel-2)'}; border:1px solid ${flagged?'#F0603E4a':'var(--panel-border)'}; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
         <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)} <span style="font-weight:400;font-size:12px;color:var(--text-faint);">· ${statusLabel(t.status)}</span></div>
@@ -2835,18 +2863,18 @@ function actionCell(t){
     } else {
       // status is already shown in the Status column — Actions only carries
       // things you can actually do.
-      if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+      if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
       else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
       if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open and send it to someone to check">Send for Review</button>`;
     }
-    if(iCanRemoveTask(t)) html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="removeTask('${t.id}')">Remove</button>`;
+    if(iCanRemoveTask(t)) html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="removeTask('${t.id}')">Remove</button>`;
     html += '</div>';
     return html;
   }
   if(t.status === 'pending_approval'){
     if(iCanApproveAssignment(t)){
-      html += `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="approveAssignment('${t.id}')">Approve</button>`;
-      html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="declineAssignment('${t.id}')">Decline</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="approveAssignment('${t.id}')">Approve</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="declineAssignment('${t.id}')">Decline</button>`;
     } else if(isMine){
       html += `<span style="font-size:12.5px;color:var(--text-faint);">Waiting for your manager to approve</span>`;
     } else {
@@ -2854,13 +2882,13 @@ function actionCell(t){
     }
   } else if(t.status === 'awaiting_acceptance' && isMine){
     if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back for rework — accept to start fixing it</span>`;
-    html += `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTask('${t.id}')">Accept</button>`;
+    html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="acceptTask('${t.id}')">Accept</button>`;
     html += `<button class="verify-btn" onclick="openProposeModal('${t.id}')">Propose Window</button>`;
   } else if(t.status === 'window_proposed'){
     if(isAdmin){
       if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;">⚠ Rework — window proposed instead of starting the fix</span>`;
-      html += `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="approveProposal('${t.id}')">Approve</button>`;
-      html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="approveProposal('${t.id}')">Approve</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
     } else {
       html += `<span style="font-size:13px;color:var(--text-faint);">Awaiting manager approval</span>`;
     }
@@ -2882,7 +2910,7 @@ function actionCell(t){
     }
   } else if(t.status === 'rework'){
     if(isMine){
-      html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="openReworkDetailModal('${t.id}')">View Error &amp; Resubmit</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="openReworkDetailModal('${t.id}')">View Error &amp; Resubmit</button>`;
       html += holdControlsHtml(t);
     } else {
       html += `<span style="font-size:13px;color:var(--text-faint);" title="${esc(t.reviewNote||'')}">Sent back for rework</span>`;
@@ -2890,9 +2918,9 @@ function actionCell(t){
   } else if(t.status === 'completed'){
     // The Status column already shows ✓ Done / Sent for Review / Error —
     // Actions only carries what this viewer can do about it.
-    if(!t.reviewStatus && iCanReview(t)) html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
+    if(!t.reviewStatus && iCanReview(t)) html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
-    else if(t.reviewStatus === 'clean' || t.reviewStatus === 'error') html += `<button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewViewModal('${t.id}')">View review</button>`;
+    else if(t.reviewStatus === 'clean' || t.reviewStatus === 'error') html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewViewModal('${t.id}')">View review</button>`;
     if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open and send it to someone to check">Send for Review</button>`;
   }
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
@@ -2902,7 +2930,7 @@ function actionCell(t){
     }
   }
   if(iCanRemoveTask(t)){
-    html += `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" title="Remove this task" onclick="removeTask('${t.id}')">Remove</button>`;
+    html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" title="Remove this task" onclick="removeTask('${t.id}')">Remove</button>`;
   }
   html += '</div>';
   return html;
@@ -3314,7 +3342,7 @@ async function renderBusyBoard(){
     </div>`;
   }).join('');
 }
-function todayStatusColor(s){ return s==='over' ? '#F0603E' : s==='light' ? '#E8A33D' : s==='off' ? '#6B7390' : '#2FBE93'; }
+function todayStatusColor(s){ return s==='over' ? '#F0603E' : s==='light' ? '#E8A33D' : s==='off' ? 'var(--text-faint)' : '#2FBE93'; }
 function tgBar(pending, capacity){
   const cap = capacity > 0 ? capacity : Math.max(pending, 1);
   const pct = Math.min(100, Math.round(pending / cap * 100));
@@ -3371,7 +3399,7 @@ function renderStatusDonut(){
       // own tasks, a manager their team's, a founder/superadmin the firm.
       const scoped = dashboardScopeTasks();
       if(scoped.length === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
-      const colors = { awaiting_acceptance:'#F0B93E', window_proposed:'#7C6CF6', accepted:'#2FBE93', pending:'#6B7390', rework:'#F0603E', on_hold:'#B45309', inreview:'#7C6CF6', done:'#0D9488' };
+      const colors = { awaiting_acceptance:'#F0B93E', window_proposed:'#7C6CF6', accepted:'#2FBE93', pending:'var(--text-faint)', rework:'#F0603E', on_hold:'#B45309', inreview:'#7C6CF6', done:'#0D9488' };
       // A finished task is either still IN REVIEW (sent, not signed off) or
       // DONE (reviewed clean / closed) — never both, and "Sent for Review"
       // never lingers on the ring once it's cleared.
@@ -3384,9 +3412,9 @@ function renderStatusDonut(){
       const stops = order.map(status => {
             const pct = counts[status] / total * 100;
             const start = acc; acc += pct;
-                                                                                                    return `${colors[status]||'#6B7390'} ${start*3.6}deg ${acc*3.6}deg`;
+                                                                                                    return `${colors[status]||'var(--text-faint)'} ${start*3.6}deg ${acc*3.6}deg`;
       }).join(', ');
-      const legend = order.map(status => `<div class="donut-legend-item"><span class="dot" style="background:${colors[status]||'#6B7390'};"></span>${statusLabel(status)} <b>${counts[status]}</b></div>`).join('');
+      const legend = order.map(status => `<div class="donut-legend-item"><span class="dot" style="background:${colors[status]||'var(--text-faint)'};"></span>${statusLabel(status)} <b>${counts[status]}</b></div>`).join('');
       wrap.innerHTML = `<div class="donut-ring" style="background:conic-gradient(${stops});"><div class="donut-ring-hole"><b>${total}</b><span>Total</span></div></div><div class="donut-legend">${legend}</div>`;
       const sc = document.getElementById('statusDonutScope');
       if(sc){ const lbl = dashboardScopeLabelShort(); sc.textContent = lbl ? '· ' + lbl : ''; }
@@ -3545,7 +3573,7 @@ function openNewAssignmentModal(){
           <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)}${flagged && t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
           <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${flagged ? ' · Sent back for rework' + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') : ''}</div>
           <div style="display:flex; gap:8px;">
-            <button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="acceptTaskFromNewAssignment('${t.id}')">Accept</button>
+            <button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="acceptTaskFromNewAssignment('${t.id}')">Accept</button>
             <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>
           </div>
         </div>`;
@@ -3632,7 +3660,7 @@ function holdControlsHtml(t){
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
     return h;
   }
-  return `<button class="verify-btn" style="border-color:#F0B93E;color:#B45309;" onclick="openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+  return `<button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
 }
 function openLogReplyModal(taskId, qid){
   const t = findTask(taskId); if(!t) return;
@@ -4428,7 +4456,7 @@ function renderMyTeamPanel(){
         <div style="font-size:12px;color:var(--text-faint);">${esc(e.jobTitle||'')}${e.accessRole && e.accessRole!=='employee' ? ' · ' + esc(accessLabel(e.accessRole)) : ''}</div>
       </div>
       <button class="verify-btn" onclick="openWorkLog('${e.id}')" title="What they've completed, by date">Work log</button>
-      <button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="teamRemove('${e.id}')">Remove</button>
+      <button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="teamRemove('${e.id}')">Remove</button>
     </div>`).join('') : `<div style="font-size:13.5px;color:var(--text-faint);padding:8px 0;">No members yet — add someone below.</div>`;
   wrap.innerHTML = `
     <div class="mt-list">${rows}</div>
@@ -4571,7 +4599,7 @@ function renderAllocationPanel(a){
   }[s] || s);
   const head = `<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;margin-bottom:12px;">
     <div><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);">Allocation accuracy</div>
-      <div style="font-size:26px;font-weight:700;font-family:var(--font-mono);color:${acc==null?'#6B7390':acc>=85?'#2FBE93':acc>=65?'#F0B93E':'#F0603E'};">${acc==null?'—':acc+'%'}</div></div>
+      <div style="font-size:26px;font-weight:700;font-family:var(--font-mono);color:${acc==null?'var(--text-faint)':acc>=85?'#2FBE93':acc>=65?'#F0B93E':'#F0603E'};">${acc==null?'—':acc+'%'}</div></div>
     <div style="font-size:13px;color:var(--text-dim);">
       ${a.underAllocatedWeeks} under-allocated person-week${a.underAllocatedWeeks===1?'':'s'}
       ${a.untaggedUnderAllocatedWeeks>0?` · <b style="color:#C2410C;">${a.untaggedUnderAllocatedWeeks} untagged</b>`:' · all tagged'}
@@ -4673,7 +4701,7 @@ async function renderCommandCenter(){
     const pct = et.length ? Math.round((ed.length/et.length)*100) : 0;
     return ccDonut(pct, esc(e.name), `${ed.length}/${et.length} delivered`);
   }).filter(Boolean).join('');
-  document.getElementById('ccByPerson').innerHTML = personHtml || `<div style="color:#6B7390; font-size:13.5px;">No activity in this window yet.</div>`;
+  document.getElementById('ccByPerson').innerHTML = personHtml || `<div style="color:var(--text-faint); font-size:13.5px;">No activity in this window yet.</div>`;
 
   const rows = ccAssignments.length ? ccAssignments.filter(a => ccInWindow(a.assignedAt)) : source.map(t => ({
     id: t.id, name: t.name, clientName: t.clientName,
@@ -4695,20 +4723,20 @@ async function renderCommandCenter(){
   document.getElementById('ccAssignBody').innerHTML = rows.length ? rows.map(r => `
       <tr style="cursor:pointer;" onclick="openTaskTrailModal('${r.id}')" title="Click for the full history — who did what, when">
         <td class="task-id">${r.id}</td>
-        <td>${esc(r.name)}${r.clientName ? `<div style="font-size:12px;color:#6B7390;">${esc(r.clientName)}</div>` : ''}</td>
+        <td>${esc(r.name)}${r.clientName ? `<div style="font-size:12px;color:var(--text-faint);">${esc(r.clientName)}</div>` : ''}</td>
         <td>${esc(r.assignedBy)}</td>
         <td>${esc(r.assignedTo)}</td>
-        <td>${statusBadge(r)}${whoLine(r) ? `<div style="font-size:11px;color:#6B7390;margin-top:3px;">${whoLine(r)}</div>` : ''}</td>
+        <td>${statusBadge(r)}${whoLine(r) ? `<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">${whoLine(r)}</div>` : ''}</td>
         <td style="font-family:var(--font-mono); white-space:nowrap;">${r.loggedHours.toFixed(2)} / ${r.tatHours} hrs</td>
         <td>${r.reassigned > 0 ? `<span class="badge overdue dot">${r.reassigned}×</span>` : '—'}</td>
-      </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:#6B7390;padding:22px;">No assignments in this window.</td></tr>`;
+      </tr>`).join('') : `<tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:22px;">No assignments in this window.</td></tr>`;
 
   const rcWrap = document.getElementById('ccRatingsWrap');
   if(isSuperAdmin){
     rcWrap.style.display = '';
     document.getElementById('ccRatingsBody').innerHTML = ccReportRows.map(r => `
       <tr>
-        <td>${esc(r.name)}<div style="font-size:12px;color:#6B7390;">${esc(r.jobTitle)}</div></td>
+        <td>${esc(r.name)}<div style="font-size:12px;color:var(--text-faint);">${esc(r.jobTitle)}</div></td>
         <td>${esc(r.team)}</td>
         <td>${r.assigned}</td>
         <td>${r.delivered}</td>
@@ -4721,7 +4749,7 @@ async function renderCommandCenter(){
         <td style="font-family:var(--font-mono);">${r.reworkHoursTotal ? r.reworkHoursTotal.toFixed(2)+'h' : '—'}</td>
         <td style="font-family:var(--font-mono);">${r.shiftHours ? r.shiftHours.toFixed(1)+'h' : '—'}</td>
         <td>${r.productivityPct===null?'—':r.productivityPct+'%'}</td>
-        <td><b style="color:${r.rating===null?'#6B7390':(r.rating>=4?'#2FBE93':r.rating>=2.5?'#F0B93E':'#F0603E')};">${r.rating===null?'—':r.rating+' / 5'}</b></td>
+        <td><b style="color:${r.rating===null?'var(--text-faint)':(r.rating>=4?'#2FBE93':r.rating>=2.5?'#F0B93E':'#F0603E')};">${r.rating===null?'—':r.rating+' / 5'}</b></td>
       </tr>`).join('');
   } else {
     rcWrap.style.display = 'none';
@@ -4743,7 +4771,7 @@ async function renderTrash(){
     <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
       <div><div style="font-weight:600;color:var(--text);">${esc(title)}</div>
         <div style="font-size:12px;color:var(--text-faint);">${esc(sub)} · removed ${esc(when)}${who ? ' by ' + esc(who) : ''}</div></div>
-      <button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="${restoreCall}">↩ Restore</button>
+      <button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="${restoreCall}">↩ Restore</button>
     </div>`;
   let html = '';
   if(tasks.length){
@@ -4917,7 +4945,7 @@ function _prodRange(){
 let _prodWeights = null;
 const PF_META = { E:['Efficiency','allocated ÷ worked'], T:['On-time','met ÷ dated'], R:['Rework','processor faults'], N:['Reminders','chases ÷ tasks'], C:['Coverage','worked ÷ allocated'] };
 function pfColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? '#2FBE93' : v>=60 ? '#F0B93E' : '#F0603E'; }
-function scoreColor(v){ return v==null ? '#6B7390' : v>=80 ? '#2FBE93' : v>=60 ? '#F0B93E' : '#F0603E'; }
+function scoreColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? '#2FBE93' : v>=60 ? '#F0B93E' : '#F0603E'; }
 function factorBarsHtml(factors, weights){
   return `<div class="pfactors">` + ['E','T','R','N','C'].map(k=>{
     const v = factors ? factors[k] : null;
@@ -5038,7 +5066,7 @@ async function renderProductivityView(){
       <td style="font-family:var(--font-mono);">${p.allocatedHours.toFixed(1)}</td>
       <td style="font-family:var(--font-mono);">${p.workedHours.toFixed(1)}</td>
       <td style="font-family:var(--font-mono);">${p.capacityHours.toFixed(0)} <span style="color:var(--text-faint);">@${p.baseHoursPerDay || p.effectiveCapacity}h/d${p.leaveDays ? ` −${p.leaveDays} leave` : ''}</span></td>
-      <td><b style="color:${p.utilisationPct==null?'#6B7390':p.utilisationPct>110?'#F0603E':p.utilisationPct>=75?'#2FBE93':'#F0B93E'};">${p.utilisationPct==null?'—':p.utilisationPct+'%'}</b></td>
+      <td><b style="color:${p.utilisationPct==null?'var(--text-faint)':p.utilisationPct>110?'#F0603E':p.utilisationPct>=75?'#2FBE93':'#F0B93E'};">${p.utilisationPct==null?'—':p.utilisationPct+'%'}</b></td>
       <td style="font-family:var(--font-mono);">${p.efficiency==null?'—':p.efficiency.toFixed(2)}</td>
       <td style="font-family:var(--font-mono);">${p.throughput==null?'—':p.throughput.toFixed(1)+'/d'}</td>
       <td>${p.onTimeRate==null?'—':p.onTimeRate+'%'}</td>
@@ -5398,7 +5426,7 @@ function openMyReviewQueue(){
       <td style="font-family:var(--font-mono);">⏱ ${t.tat}h</td>
       <td>${o ? esc(o.name) : '—'}</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</td>
-      <td><button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="closeModal();openReviewFormModal('${t.id}')">📝 Review</button></td>
+      <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="closeModal();openReviewFormModal('${t.id}')">📝 Review</button></td>
     </tr>`;
   }).join('');
   document.getElementById('modalBox').innerHTML = `
@@ -5988,7 +6016,7 @@ function renderPendingReview(){
     return `<div class="flag-row" style="align-items:center;">
       <span>${esc(t.name)} <span style="color:var(--text-faint); font-size:12.5px;">— ${emp ? esc(emp.name) : '—'} · ${esc(t.clientName)}</span></span>
       <span style="margin-left:auto;">
-        <button class="verify-btn" style="border-color:#7C6CF6;color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>
+        <button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>
       </span>
     </div>`;
   }).join('');
@@ -6009,7 +6037,7 @@ function renderNeedsRework(){
     if(t.status === 'rework') stageLabel = t.reworkElapsedHours != null ? 'In rework ' + fmtHrsMins(t.reworkElapsedHours) : 'In rework';
     else if(t.status === 'window_proposed'){
       stageLabel = 'Proposed: ' + fmtDate(t.proposedDate);
-      if(isAdmin) action = `<button class="verify-btn" style="border-color:#22C99E;color:#0D9488;" onclick="approveProposal('${t.id}')">Approve</button> <button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
+      if(isAdmin) action = `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="approveProposal('${t.id}')">Approve</button> <button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
     }
     else stageLabel = 'Awaiting acceptance';
     return `<div class="flag-row" style="align-items:center;">
@@ -6552,7 +6580,7 @@ function renderClientGrid(){
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
           ${canEdit ? `<button class="verify-btn" onclick="openEditClientModal('${c.id}')">Edit</button>` : ''}
           ${isAdmin ? `<button class="verify-btn" onclick="openAssignClientOwner('${c.id}')">${owner ? 'Reassign owner' : 'Assign owner'}</button>` : ''}
-          ${canEdit ? `<button class="verify-btn" style="border-color:#F0603E;color:#C2410C;" onclick="removeClient('${c.id}', '${esc(c.name).replace(/'/g, "\\'")}')">Remove</button>` : ''}
+          ${canEdit ? `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="removeClient('${c.id}', '${esc(c.name).replace(/'/g, "\\'")}')">Remove</button>` : ''}
         </div>
       </div>
     </div>`;
@@ -7106,7 +7134,21 @@ function tickCcClock(){
 }
 setInterval(tickCcClock, 1000);
 
+/* ---- theme ---- default is light; 'dark' is stored + applied pre-paint (see <head>) ---- */
+function _syncThemeIcon(){
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const b = document.getElementById('themeToggle');
+  if(b){ b.textContent = dark ? '☀️' : '🌙'; b.title = dark ? 'Switch to light' : 'Switch to dark'; }
+}
+function toggleTheme(){
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if(dark){ document.documentElement.removeAttribute('data-theme'); try{ localStorage.setItem('governanceOsTheme','light'); }catch(e){} }
+  else { document.documentElement.setAttribute('data-theme','dark'); try{ localStorage.setItem('governanceOsTheme','dark'); }catch(e){} }
+  _syncThemeIcon();
+}
+
 (async function init(){
+  _syncThemeIcon();
   tickCcClock();
   document.getElementById('clockDisplay').textContent = fmtClock(0);
   if(authToken){
