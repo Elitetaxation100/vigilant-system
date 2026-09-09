@@ -734,10 +734,13 @@
       <div class="nav-item" onclick="openAssignModal('me')"><span class="nav-icon">→</span> Assign to Me</div>
       <div class="nav-item" id="assignTeamNavItem" style="display:none;" onclick="openAssignModal('team')"><span class="nav-icon">⇉</span> Assign to Team</div>
     </div>
+    <div class="nav-section" id="managerNavSection" style="display:none;">
+      <div class="nav-title">Team</div>
+      <div class="nav-item" data-view="manager" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
+    </div>
     <div class="nav-section" id="analyticsNavSection" style="display:none;">
       <div class="nav-title">Engines & Analytics</div>
       <div class="nav-item" data-view="taskengine" onclick="showView('taskengine', this)"><span class="nav-icon">⚙</span> Task Engine</div>
-      <div class="nav-item" data-view="manager" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
       <div class="nav-item" data-view="productivity" onclick="showView('productivity', this)"><span class="nav-icon">▤</span> Productivity</div>
       <div class="nav-item" data-view="analytics" onclick="showView('analytics', this)"><span class="nav-icon">📊</span> Analytics</div>
     </div>
@@ -875,7 +878,7 @@
           <div id="myDayWrap"></div>
         </div>
 
-        <details class="panel panel-fold" id="busyBoardPanel" style="margin-bottom:24px;" ontoggle="if(this.open) renderBusyBoard()">
+        <details class="panel panel-fold" id="busyBoardPanel" style="margin-bottom:24px; display:none;" ontoggle="if(this.open) renderBusyBoard()">
           <summary><h2>Who's busy until when</h2><span class="fold-hint">everyone's queue &amp; when it clears</span></summary>
           <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 12px;">How much work each person still has and the date their queue clears — so you know who to hand something to.</p>
           <div id="busyBoardWrap">Loading…</div>
@@ -2102,7 +2105,12 @@ const titles = {
   admin: ['Admin', 'Every task that came in from a call or a Slack message'],
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
 };
+const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees'];
 function showView(id, el){
+  // hard gate — these screens are superadmin-only (nav is hidden too, this
+  // catches a stale link or a programmatic call)
+  if(SUPERADMIN_ONLY_VIEWS.includes(id) && !isSuperAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
+  if(id === 'manager' && !isAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + id).classList.add('active');
   document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
@@ -2400,7 +2408,7 @@ async function submitSetOwner(id){
 async function renderAttendance(){
   const body = document.getElementById('attendanceTableBody');
   if(!body) return;
-  if(!isAdmin){ body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:22px;">Manager or superadmin access required.</td></tr>`; return; }
+  if(!isSuperAdmin){ body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:22px;">Superadmin access required.</td></tr>`; return; }
   let rows = [];
   try {
     const data = await api('/api/attendance/all');
@@ -3268,11 +3276,11 @@ async function refreshToday(){
   if(document.getElementById('busyBoardPanel')?.open) renderBusyBoard();
 }
 /* Who's busy until when — every person's remaining queue and the date it
-   clears. Visible to everyone; a coordination aid, not a performance stat.
+   clears. A manager/superadmin coordination aid, not a performance stat.
    Only fetched while the panel is open. */
 async function renderBusyBoard(){
   const wrap = document.getElementById('busyBoardWrap');
-  if(!wrap) return;
+  if(!wrap || !isAdmin) return;
   let d;
   try { d = await api('/api/busy-board'); }
   catch(e){ wrap.innerHTML = `<div style="font-size:13px;color:var(--text-faint);">Couldn't load.</div>`; return; }
@@ -4492,7 +4500,7 @@ async function submitAllocTag(empId){
   } catch(e){ showToast('error', 'Could not save', e.message); }
 }
 async function renderCommandCenter(){
-  if(!document.getElementById('ccStatTotal')) return;
+  if(!document.getElementById('ccStatTotal') || !isSuperAdmin) return;
   if(isSuperAdmin){
     try {
       const data = await api('/api/reports/summary');
@@ -4582,7 +4590,7 @@ async function renderCommandCenter(){
 }
 async function renderTrash(){
   const wrap = document.getElementById('ccTrashBody');
-  if(!wrap) return;
+  if(!wrap || !isSuperAdmin) return;
   let data;
   try { data = await api('/api/admin/trash'); }
   catch(e){ wrap.innerHTML = `<span style="color:var(--text-faint);">${esc(e.message)}</span>`; return; }
@@ -6759,15 +6767,22 @@ async function submitLogin(){
 }
 async function onLoginComplete(){
   seenAwaitingIds = null; // fresh baseline each login — don't re-pop tasks already surfaced last session
-  document.getElementById('adminNavItem').style.display = isAdmin ? '' : 'none';
-  document.getElementById('employeesNavSection').style.display = isAdmin ? '' : 'none';
-  document.getElementById('commandCenterNavSection').style.display = isAdmin ? '' : 'none';
-  document.getElementById('attendanceNavSection').style.display = isAdmin ? '' : 'none';
+  // Firm-wide oversight & administration — SUPERADMIN only. An Admin manages
+  // their own team (Manager Dashboard + team task actions) but doesn't get
+  // the HR log, the employee directory, the Slack space, Command Center, or
+  // the firm analytics engines.
+  document.getElementById('adminNavItem').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('employeesNavSection').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('commandCenterNavSection').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('founderNavSection').style.display = isSuperAdmin ? '' : 'none';
-  // Task Engine / Manager Dashboard / Analytics show cross-team performance —
-  // managers and above only. A plain employee sees their own work and their
-  // own report card, nothing about anyone else.
-  document.getElementById('analyticsNavSection').style.display = isAdmin ? '' : 'none';
+  document.getElementById('analyticsNavSection').style.display = isSuperAdmin ? '' : 'none';
+  // Manager Dashboard stays with the Admin role — team oversight & the
+  // review / approve / reassign actions live there.
+  document.getElementById('managerNavSection').style.display = isAdmin ? '' : 'none';
+  // "Who's busy until when" — manager/superadmin coordination aid, hidden
+  // from plain employees.
+  document.getElementById('busyBoardPanel').style.display = isAdmin ? '' : 'none';
   // Visible to every Admin/Superadmin — actual assign permission (decided by
   // a Superadmin via Manage Access) is enforced inside the modal, not by
   // hiding the nav item from managers who haven't been granted anyone yet.

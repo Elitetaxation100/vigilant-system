@@ -588,7 +588,7 @@ app.get('/api/employees', requireAuth, (req, res) => {
   const state = db.get();
   res.json({ employees: state.employees.map(publicEmployee) });
 });
-app.post('/api/employees', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/employees', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
   const { name, email, password, jobTitle, team } = req.body || {};
   let { accessRole } = req.body || {};
@@ -830,7 +830,7 @@ app.post('/api/clients/:id/restore', requireAuth, (req, res) => {
   res.json({ client });
 });
 // Recently-removed tasks and clients, newest first. Any admin/superadmin.
-app.get('/api/admin/trash', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/admin/trash', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
   const me = req.employee;
   const canSeeTask = t => me.accessRole === 'superadmin' || t.deletedBy === me.id || canManageEmployee(state, me, t.assignedTo);
@@ -2270,11 +2270,14 @@ app.get('/api/workload', requireAuth, (req, res) => {
 
 // ---------------------------------------------------------------------------
 // BUSY BOARD — everyone's current load at a glance: hours still in their
-// queue and the date that queue clears. Visible to every signed-in user
-// (it's a coordination aid, not a performance number), so no role gate.
+// queue and the date that queue clears. A manager/superadmin coordination
+// aid — not shown to plain employees.
 // ---------------------------------------------------------------------------
 app.get('/api/busy-board', requireAuth, (req, res) => {
   const state = db.get();
+  if (!isAdminRole(req.employee.accessRole)) {
+    return res.status(403).json({ error: 'Manager or superadmin access required.' });
+  }
   const today = todayISO();
   const r2 = n => Math.round(n * 100) / 100;
   const rows = state.employees.map(e => {
@@ -2523,7 +2526,7 @@ app.post('/api/punch/reopen', requireAuth, (req, res) => {
 // signal the shiftHours calc in /api/reports/summary needs rather than
 // silently assuming a full shift. `canReopen` per row drives the
 // undo-an-accidental-punch-out control (POST /api/punch/reopen).
-app.get('/api/attendance/all', requireAuth, requireAdmin, (req, res) => {
+app.get('/api/attendance/all', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
   const today = todayISO();
   const me = req.employee;
