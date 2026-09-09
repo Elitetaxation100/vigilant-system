@@ -741,7 +741,8 @@ app.post('/api/clients', requireAuth, (req, res) => {
   const { name, ownerId, type, email } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Client name is required.' });
   const cleanEmail = email ? String(email).trim() : '';
-  if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+  if (!cleanEmail) return res.status(400).json({ error: 'A client email is required — it makes the client searchable by email.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
     return res.status(400).json({ error: "That doesn't look like a valid email address." });
   }
   let owner = ownerId || null;
@@ -782,10 +783,11 @@ app.patch('/api/clients/:id', requireAuth, (req, res) => {
   if (type !== undefined) client.type = type ? String(type).trim() : null;
   if (email !== undefined) {
     const cleanEmail = email ? String(email).trim() : '';
-    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    if (!cleanEmail) return res.status(400).json({ error: 'A client email is required.' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       return res.status(400).json({ error: "That doesn't look like a valid email address." });
     }
-    client.email = cleanEmail || null;
+    client.email = cleanEmail;
   }
   db.save();
   res.json({ client });
@@ -937,13 +939,19 @@ app.get('/api/tasks/:id/hold-screenshot', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind, internalRef } = req.body || {};
   let { internalDeadline } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
   // Internal tasks (training, admin, meetings…) have no client. Everything
   // else must name one.
   const isInternal = kind === 'internal';
   let client = null;
+  // an internal task can OPTIONALLY carry a client / group reference — e.g. a
+  // "client payment follow-up". If it matches a real client, link it; else it
+  // stays a free-text label (e.g. "Payroll").
+  const iref = isInternal && internalRef ? String(internalRef).trim() : '';
+  let internalClient = null;
+  if (iref) internalClient = state.clients.find(c => c.name.toLowerCase() === iref.toLowerCase());
   if (!isInternal) {
     if (!clientId) return res.status(400).json({ error: 'A client is required — or switch to an internal task.' });
     client = state.clients.find(c => c.id === clientId);
@@ -971,7 +979,9 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     name: String(name).trim(), scope: isInternal ? (scope ? String(scope).trim() : '—') : (scope || '—'),
     kind: isInternal ? 'internal' : 'client',
     team: team ? String(team).trim() : (findEmployee(state, assignee) || {}).team || null,
-    clientId: client ? client.id : null, clientName: client ? client.name : (isInternal ? 'Internal' : ''),
+    clientId: client ? client.id : (internalClient ? internalClient.id : null),
+    clientName: client ? client.name : (internalClient ? internalClient.name : (iref || (isInternal ? 'Internal' : ''))),
+    internalRef: iref || null,
     // Client tasks get a commitment date: whatever was passed, or the internal
     // due date + the firm's 3-working-day dispatch buffer.
     clientDate: isInternal ? null

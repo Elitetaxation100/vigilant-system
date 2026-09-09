@@ -297,6 +297,16 @@
 
   table{ width:100%; border-collapse:collapse; }
   thead th{ text-align:left; font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); padding:10px 12px; border-bottom:1px solid var(--line); font-weight:600; white-space:nowrap;}
+  /* spreadsheet-style client table — dense rows, column separators, sticky head */
+  .client-sheet{ font-size:13.5px; }
+  .client-sheet thead th{ position:sticky; top:0; background:var(--panel); z-index:1; padding:9px 12px; }
+  .client-sheet tbody td{ padding:8px 12px; font-size:13.5px; border-right:1px solid var(--line); }
+  .client-sheet tbody td:last-child{ border-right:none; }
+  .client-sheet thead th{ border-right:1px solid var(--line); }
+  .client-sheet thead th:last-child{ border-right:none; }
+  .client-sheet tbody tr:nth-child(even){ background:var(--panel-2); }
+  .client-sheet tbody tr:hover{ background:var(--purple-dim); }
+  .client-sheet .verify-btn{ padding:3px 8px; font-size:12px; }
   tbody td{ padding:14px 12px; border-bottom:1px solid var(--line); font-size:15px; vertical-align:middle; }
   tbody tr:last-child td{ border-bottom:none; }
   tbody tr:hover{ background:var(--panel-2); }
@@ -1519,7 +1529,7 @@
             <select id="clientOwnerFilter" onchange="renderClientGrid()" style="background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:13.5px;"></select>
             <span id="clientCount" style="font-size:12.5px; color:var(--text-faint);"></span>
           </div>
-          <div class="emp-grid" id="clientGrid"></div>
+          <div id="clientGrid"></div>
         </div>
       </section>
 
@@ -3269,15 +3279,13 @@ function renderMyDay(){
     </div>`;
   }
 
-  // filter chips
+  // filter — a single dropdown (keeps the panel tidy)
   const nFor = f => actionable.filter(t => dueBucketMatches(t, f === 'all' ? '' : f)).length;
-  const chip = (key, label) => `<button class="todo-chip ${_todoFilter === key ? 'on' : ''}" onclick="setTodoFilter('${key}')">${label} <span>${nFor(key)}</span></button>`;
-  html += `<div class="todo-chips">
-    ${chip('overdue','Overdue')}
-    ${chip('today','Today')}
-    ${chip('week','This week')}
-    ${chip('later','Later')}
-    ${chip('all','All')}
+  const opt = (key, label) => `<option value="${key}"${_todoFilter === key ? ' selected' : ''}>${label} (${nFor(key)})</option>`;
+  html += `<div style="margin-bottom:12px;">
+    <select onchange="setTodoFilter(this.value)" style="background:var(--panel-2);border:1px solid var(--panel-border);color:var(--text);border-radius:8px;padding:7px 11px;font-size:13.5px;font-weight:600;">
+      ${opt('overdue','Overdue')}${opt('today','Due today')}${opt('week','This week')}${opt('later','Later')}${opt('all','Everything')}
+    </select>
   </div>`;
 
   // grouped list
@@ -4119,8 +4127,12 @@ function openAssignModal(mode){
       <div class="field"><label>Client</label>
         <input type="text" id="atClientId" list="atClientList" placeholder="Start typing a client name…" autocomplete="off" spellcheck="false">
         <datalist id="atClientList">${clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>`<option value="${esc(c.name)}"></option>`).join('')}</datalist>
-        <div id="atClientErr" style="font-size:12px;color:#C2410C;margin-top:4px;display:none;">Pick a client from the list (or add it first in Clients).</div>
+        <div id="atClientErr" style="font-size:12px;color:var(--coral);margin-top:4px;display:none;">Pick a client from the list (or add it first in Clients).</div>
       </div>
+    </div>
+    <div id="atInternalRefWrap" class="field" style="display:none;">
+      <label>Client or group <span style="font-weight:400;color:var(--text-faint);">— optional, e.g. a client name for a payment task, or "Payroll"</span></label>
+      <input type="text" id="atInternalRef" list="atClientList" placeholder="e.g. City Cabs Ltd · Payroll · Admin" autocomplete="off">
     </div>
     <div class="field"><label id="atTatLabel">Estimated time (hours) <span class="req-mark">*</span></label><input type="number" id="atTat" value="3" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
     <div class="field"><label id="atDeadlineLabel">Manager due date (internal) <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}" onchange="atPlanPreview(); atSyncClientDate()"></div>
@@ -4190,6 +4202,8 @@ function setAssignKind(kind){
   ['atClientOnly','atClientBlock','atClientDateWrap'].forEach(id => {
     const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
   });
+  const iref = document.getElementById('atInternalRefWrap');
+  if(iref) iref.style.display = isInternal ? '' : 'none';
   const dl = document.getElementById('atDeadlineLabel');
   if(dl) dl.innerHTML = (isInternal ? 'Due date' : 'Manager due date (internal)') + ' <span class="req-mark">*</span>';
   const tl = document.getElementById('atTatLabel');
@@ -4211,6 +4225,8 @@ async function submitAssign(mode){
   const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };
   if(isInternal){
     payload.kind = 'internal';
+    const ref = (document.getElementById('atInternalRef')||{}).value.trim();
+    if(ref) payload.internalRef = ref;
   } else {
     payload.kind = 'client';
     const cid = resolveClientId((document.getElementById('atClientId')||{}).value);
@@ -6556,36 +6572,62 @@ function renderClientGrid(){
     const an = empById(a.ownerId)?.name || '~~~', bn = empById(b.ownerId)?.name || '~~~';
     return an.localeCompare(bn) || a.name.localeCompare(b.name);
   });
+  // sort — click a column header to change it
+  const sortKey = window._clientSort || 'owner';
+  const dir = window._clientSortDir || 1;
+  const openHrsOf = c => tasks.filter(t => t.clientId === c.id && t.status !== 'completed').reduce((s,t) => s + (Number(t.tat) || 0), 0);
+  const keyVal = (c, k) => {
+    if(k === 'name') return c.name.toLowerCase();
+    if(k === 'type') return (c.type || '~').toLowerCase();
+    if(k === 'email') return (c.email || '~').toLowerCase();
+    if(k === 'owner') return (empById(c.ownerId)?.name || '~~~').toLowerCase();
+    if(k === 'open') return tasks.filter(t => t.clientId === c.id && t.status !== 'completed').length;
+    return '';
+  };
+  shown.sort((a,b) => { const av = keyVal(a, sortKey), bv = keyVal(b, sortKey); return (av < bv ? -1 : av > bv ? 1 : a.name.localeCompare(b.name)) * dir; });
+
   const cc = document.getElementById('clientCount');
   if(cc) cc.textContent = shown.length === clients.length ? `${clients.length} clients` : `${shown.length} of ${clients.length}`;
   if(shown.length === 0){
     grid.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No clients match this filter.</p>`;
     return;
   }
-  grid.innerHTML = shown.map(c => {
-    const owner = empById(c.ownerId);
-    const canEdit = isAdmin || c.ownerId === currentViewerId || c.addedBy === currentViewerId;
-    const openT = tasks.filter(t => t.clientId === c.id && t.status !== 'completed');
-    const openHrs = openT.reduce((s,t) => s + (Number(t.tat) || 0), 0);
-    return `
-    <div class="emp-card">
-      <span class="mini-avatar">${esc(c.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
-      <div style="flex:1;">
-        <div class="en">${esc(c.name)}</div>
-        ${c.type ? `<div class="et" style="color:#5B4FCF;">${esc(c.type)}</div>` : ''}
-        ${c.email ? `<div class="et"><a href="mailto:${esc(c.email)}" style="color:var(--teal,#0D9488);">${esc(c.email)}</a></div>` : ''}
-        <div class="et">${owner ? 'Owner: ' + esc(owner.name) : '<span style="color:#C2410C;">⚠ No owner assigned</span>'}</div>
-        <div class="et" style="cursor:${openT.length?'pointer':'default'};" ${openT.length?`onclick="openClientTasks('${c.id}')"`:''}>
-          <span class="hrs-badge">⏱ ${openHrs}h</span> ${openT.length} open task${openT.length===1?'':'s'}${openT.length?' ›':''}
-        </div>
-        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
-          ${canEdit ? `<button class="verify-btn" onclick="openEditClientModal('${c.id}')">Edit</button>` : ''}
-          ${isAdmin ? `<button class="verify-btn" onclick="openAssignClientOwner('${c.id}')">${owner ? 'Reassign owner' : 'Assign owner'}</button>` : ''}
-          ${canEdit ? `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="removeClient('${c.id}', '${esc(c.name).replace(/'/g, "\\'")}')">Remove</button>` : ''}
-        </div>
-      </div>
-    </div>`;
-  }).join('');
+  const arrow = k => sortKey === k ? (dir === 1 ? ' ▲' : ' ▼') : '';
+  const th = (k, label, extra='') => `<th style="cursor:pointer;${extra}" onclick="sortClients('${k}')">${label}${arrow(k)}</th>`;
+  grid.innerHTML = `<div style="overflow-x:auto;border:1px solid var(--panel-border);border-radius:var(--radius-m);">
+    <table class="client-sheet">
+      <thead><tr>
+        ${th('name','Client')}
+        ${th('type','Type')}
+        ${th('email','Email')}
+        ${th('owner','Owner')}
+        ${th('open','Open',' text-align:right;')}
+        <th style="text-align:right;">Actions</th>
+      </tr></thead>
+      <tbody>${shown.map(c => {
+        const owner = empById(c.ownerId);
+        const canEdit = isAdmin || c.ownerId === currentViewerId || c.addedBy === currentViewerId;
+        const openT = tasks.filter(t => t.clientId === c.id && t.status !== 'completed');
+        const openHrs = openT.reduce((s,t) => s + (Number(t.tat) || 0), 0);
+        return `<tr>
+          <td style="font-weight:600;">${esc(c.name)}</td>
+          <td>${c.type ? `<span class="pill neutral" style="font-size:11px;">${esc(c.type)}</span>` : '<span style="color:var(--text-faint);">—</span>'}</td>
+          <td>${c.email ? `<a href="mailto:${esc(c.email)}" style="color:var(--teal);">${esc(c.email)}</a>` : '<span style="color:var(--coral);">⚠ no email</span>'}</td>
+          <td>${owner ? esc(owner.name) : '<span style="color:var(--coral);">⚠ unassigned</span>'}</td>
+          <td style="text-align:right;${openT.length?'cursor:pointer;':''}" ${openT.length?`onclick="openClientTasks('${c.id}')"`:''}>${openT.length ? `${openT.length} · ${openHrs}h ›` : '<span style="color:var(--text-faint);">0</span>'}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            ${canEdit ? `<button class="verify-btn" onclick="openEditClientModal('${c.id}')">Edit</button>` : ''}
+            ${isAdmin ? `<button class="verify-btn" onclick="openAssignClientOwner('${c.id}')">Owner</button>` : ''}
+            ${canEdit ? `<button class="verify-btn" style="border-color:var(--coral);color:var(--coral);" onclick="removeClient('${c.id}', '${esc(c.name).replace(/'/g, "\\'")}')">×</button>` : ''}
+          </td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`;
+}
+function sortClients(k){
+  if(window._clientSort === k) window._clientSortDir = (window._clientSortDir || 1) * -1;
+  else { window._clientSort = k; window._clientSortDir = 1; }
+  renderClientGrid();
 }
 /* A client's tasks — every task on that client, with per-task hours,
    visible to anyone. */
@@ -6613,7 +6655,7 @@ function openAddClientModal(){
     <h3>Add Client</h3>
     <div class="modal-sub">The person who adds a client owns it. An admin can hand it to someone else.</div>
     <div class="field"><label>Client name</label><input type="text" id="ncName" placeholder="e.g. City Cabs Ltd"></div>
-    <div class="field"><label>Client email <span style="color:var(--text-faint);">(optional)</span></label><input type="email" id="ncEmail" placeholder="e.g. accounts@citycabs.co.nz"></div>
+    <div class="field"><label>Client email <span class="req-mark">*</span> <span style="font-weight:400;color:var(--text-faint);">— so the client is searchable by email</span></label><input type="email" id="ncEmail" placeholder="e.g. accounts@citycabs.co.nz"></div>
     <div class="field"><label>Client type</label>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         ${CLIENT_TYPES.map((type,i) => `<button type="button" class="btn small ncTypeBtn${i===0?' primary':''}" onclick="selectClientType('${type}', this)">${type}</button>`).join('')}
@@ -6634,7 +6676,10 @@ async function submitAddClient(){
   const email = document.getElementById('ncEmail').value.trim();
   const ownerId = (document.getElementById('ncOwner') || {}).value || null;
   const type = selectedClientType === 'Custom' ? (document.getElementById('ncTypeCustom').value.trim() || 'Custom') : selectedClientType;
-  if(!name){ document.getElementById('ncError').textContent = 'Please enter a client name.'; document.getElementById('ncError').style.display = 'block'; return; }
+  const err = m => { const e = document.getElementById('ncError'); e.textContent = m; e.style.display = 'block'; };
+  if(!name){ err('Please enter a client name.'); return; }
+  if(!email){ err('A client email is required — it makes the client searchable.'); return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err("That doesn't look like a valid email address."); return; }
   try {
     await api('/api/clients', { method:'POST', body: JSON.stringify({ name, email, ownerId, type }) });
     closeModal();
@@ -6652,7 +6697,7 @@ function openEditClientModal(id){
   document.getElementById('modalBox').innerHTML = `
     <h3>Edit client — ${esc(c.name)}</h3>
     <div class="field"><label>Client name</label><input type="text" id="ecName" value="${esc(c.name)}"></div>
-    <div class="field"><label>Client email</label><input type="email" id="ecEmail" value="${esc(c.email||'')}" placeholder="e.g. accounts@client.co.nz"></div>
+    <div class="field"><label>Client email <span class="req-mark">*</span></label><input type="email" id="ecEmail" value="${esc(c.email||'')}" placeholder="e.g. accounts@client.co.nz"></div>
     <div class="field"><label>Client type</label><input type="text" id="ecType" value="${esc(c.type||'')}" placeholder="e.g. Rideshare"></div>
     <div class="modal-error" id="ecError"></div>
     <div class="modal-actions">
@@ -6665,7 +6710,10 @@ async function submitEditClient(id){
   const name = document.getElementById('ecName').value.trim();
   const email = document.getElementById('ecEmail').value.trim();
   const type = document.getElementById('ecType').value.trim();
-  if(!name){ document.getElementById('ecError').textContent = 'Client name is required.'; document.getElementById('ecError').style.display = 'block'; return; }
+  const err = m => { const e = document.getElementById('ecError'); e.textContent = m; e.style.display = 'block'; };
+  if(!name){ err('Client name is required.'); return; }
+  if(!email){ err('A client email is required.'); return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err("That doesn't look like a valid email address."); return; }
   try {
     await api(`/api/clients/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({ name, email, type }) });
     closeModal();

@@ -277,6 +277,13 @@ function activity(state, empId, text, meta) {
   if (state.activityLog.length > 300) state.activityLog.shift();
 }
 function createTask(state, o) {
+  // An estimate is REQUIRED — no task without a time on it, same as the
+  // in-app assign form. Returns null when there's no valid estimate; the
+  // caller tells the user to reopen the modal and fill it in.
+  const mins = Number(o.estMinutes);
+  if (!(mins > 0)) { clog('warn', 'createTask refused — no estimate', { title: o.title, source: o.source }); return null; }
+  const tat = Math.max(0.25, Math.round((mins / 60) * 4) / 4); // minutes → hours, 0.25h steps
+
   let assignee = null;
   if (o.assigneeSlackId) assignee = empBySlackId(state, o.assigneeSlackId);
   let client = null;
@@ -290,15 +297,15 @@ function createTask(state, o) {
     clientDate: null, internalDeadline: o.dueDate || null, points: 0,
     assignedTo: assignee ? assignee.id : null, assignedBy: assignee ? assignee.id : null,
     team: (assignee && assignee.team) || null,
-    assignedAt: now, reassignHistory: [], status: 'accepted', logged: 0, tat: 0,
+    assignedAt: now, reassignHistory: [], status: 'accepted', logged: 0, tat,
     acceptedAt: now, timerStartedAt: null, completedAt: null, reviewStatus: null, reviewedBy: null,
     reviewNote: null, reviewedAt: null, reworkCount: 0, reviewerId: null, awaitingClientDecision: false,
     sentToClient: null, sentToClientAt: null, sentToClientBy: null, reworkStartedAt: null, faultType: null,
-    reworkHistory: [], source: o.source || 'call', sourceRef: o.sourceRef || null,
-    estMinutes: o.estMinutes != null && !isNaN(Number(o.estMinutes)) ? Number(o.estMinutes) : null, priority: null,
+    reworkHistory: [], dateHistory: [], tatHistory: [], source: o.source || 'call', sourceRef: o.sourceRef || null,
+    estMinutes: mins, priority: null,
   };
   state.tasks.unshift(task);
-  activity(state, task.assignedTo, `Task from ${task.source === 'call' ? 'a call' : 'Slack'}: "${esc(task.name)}"${assignee ? ` — assigned to <b>${esc(assignee.name)}</b>` : ' — unassigned'}.`, { source: task.source });
+  activity(state, task.assignedTo, `Task from ${task.source === 'call' ? 'a call' : 'Slack'}: "${esc(task.name)}" (${tat}h)${assignee ? ` — assigned to <b>${esc(assignee.name)}</b>` : ' — unassigned'}.`, { source: task.source });
   return task;
 }
 function completeTask(state, taskId, byName) {
@@ -538,7 +545,9 @@ async function onSelfAssign(payload, rowId) {
     detail: "Self-claimed via 'I'll Handle This'.", source: 'call',
     sourceRef: row.slackTs ? slackPermalink(row) : null, assigneeSlackId: payload.user.id,
     clientName: row.clientName && row.clientName.indexOf('Unknown') !== 0 ? row.clientName : null,
+    estMinutes: 30, // placeholder — the person sets the real estimate in "Log Outcome"
   });
+  if (!task) { await dm(payload.user.id, "Couldn't create that task — try again."); return; }
   row.taskId = task.id; db.save();
   await postTaskCard(row, task, payload.user.id, payload.user.name || payload.user.id, true);
 }
@@ -674,8 +683,8 @@ async function openLogOutcomeModal(payload, rowId) {
       element: Object.assign({ type: 'plain_text_input', action_id: 'v', multiline: true }, ai && ai.aiAction ? { initial_value: ai.aiAction } : {}) },
     { type: 'input', block_id: 'due', optional: true, label: { type: 'plain_text', text: 'Task Due Date' },
       element: Object.assign({ type: 'datepicker', action_id: 'v' }, ai && ai.aiDue ? { initial_date: ai.aiDue } : {}) },
-    { type: 'input', block_id: 'mins', optional: true, label: { type: 'plain_text', text: 'Estimated Time (minutes)' },
-      element: { type: 'number_input', action_id: 'v', is_decimal_allowed: false } },
+    { type: 'input', block_id: 'mins', label: { type: 'plain_text', text: 'Estimated Time (minutes) — required' },
+      element: Object.assign({ type: 'number_input', action_id: 'v', is_decimal_allowed: false, min_value: '1' }, ai && ai.aiMins ? { initial_value: String(ai.aiMins) } : {}) },
     { type: 'input', block_id: 'assignee', optional: true, label: { type: 'plain_text', text: 'Assign to (blank = yourself)' },
       element: { type: 'users_select', action_id: 'v' } }
   );
@@ -703,20 +712,25 @@ async function submitLogOutcome(payload) {
   const title = (action.split('\n')[0] || (row.clientName && row.clientName.indexOf('Unknown') !== 0 ? 'Call — ' + row.clientName : 'Call follow-up')).slice(0, 140);
   const detail = [outcome, action].filter(Boolean).join('\n\n');
 
+  const minsN = Number(mins);
+  if (!(minsN > 0)) { await dm(payload.user.id, '⏱ That task needs an estimated time — reopen “Log Outcome” and add the minutes.'); return; }
+
   if (row.taskId) {
     const t = (state.tasks || []).find(x => x.id === row.taskId);
     if (t) {
       t.name = title; t.scope = detail || '—'; t.internalDeadline = due || null;
       const a = empBySlackId(state, assigneeSlackId); if (a) t.assignedTo = a.id;
-      if (mins) t.estMinutes = Number(mins);
+      t.estMinutes = minsN;
+      t.tat = Math.max(0.25, Math.round((minsN / 60) * 4) / 4);
       db.save();
     }
   } else {
     const task = createTask(state, {
       title, detail, source: 'call', sourceRef: slackPermalink(row),
       assigneeSlackId, clientName: row.clientName && row.clientName.indexOf('Unknown') !== 0 ? row.clientName : null,
-      dueDate: due || null, estMinutes: mins || null,
+      dueDate: due || null, estMinutes: minsN,
     });
+    if (!task) { await dm(payload.user.id, '⏱ That task needs an estimated time to be created.'); return; }
     row.taskId = task.id; db.save();
     await postTaskCard(row, task, assigneeSlackId, payload.user.name || payload.user.id, !pickedAssignee);
   }
@@ -740,8 +754,8 @@ async function openConvertModal(payload) {
           element: { type: 'users_select', action_id: 'v' } },
         { type: 'input', block_id: 'due', optional: true, label: { type: 'plain_text', text: 'Due Date' },
           element: { type: 'datepicker', action_id: 'v' } },
-        { type: 'input', block_id: 'mins', optional: true, label: { type: 'plain_text', text: 'Estimated Time (minutes)' },
-          element: { type: 'number_input', action_id: 'v', is_decimal_allowed: false } },
+        { type: 'input', block_id: 'mins', label: { type: 'plain_text', text: 'Estimated Time (minutes) — required' },
+          element: { type: 'number_input', action_id: 'v', is_decimal_allowed: false, min_value: '1' } },
       ] },
   });
 }
@@ -754,10 +768,12 @@ async function submitConvert(payload) {
   const due = (v.due && v.due.v.selected_date) || '';
   const mins = (v.mins && v.mins.v.value) || '';
   const link = meta.channel && meta.ts ? `https://slack.com/archives/${meta.channel}/p${String(meta.ts).replace('.', '')}` : null;
+  if (!(Number(mins) > 0)) { await dm(payload.user.id, '⏱ A task needs an estimated time — reopen “Convert to Task” and add the minutes.'); return; }
   const task = createTask(state, {
     title: (desc.split('\n')[0] || 'Task from Slack').slice(0, 140), detail: desc,
-    source: 'slack_message', sourceRef: link, assigneeSlackId, dueDate: due || null, estMinutes: mins || null,
+    source: 'slack_message', sourceRef: link, assigneeSlackId, dueDate: due || null, estMinutes: Number(mins),
   });
+  if (!task) { await dm(payload.user.id, '⏱ That task needs an estimated time to be created.'); return; }
   db.save();
   const blocks = [
     { type: 'section', text: { type: 'mrkdwn', text: `📌 *Task created* — <@${assigneeSlackId}>` } },
