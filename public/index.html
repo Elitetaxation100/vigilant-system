@@ -1016,7 +1016,7 @@
         <div class="panel" id="tbTasksPanel">
           <div class="panel-head"><h2>Open tasks</h2><div class="panel-head-actions"><span style="font-size:12.5px;color:var(--text-faint);align-self:center;">assigned to a member of this team</span></div></div>
           <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Source</th><th>Assignee</th><th>Due</th><th>Status</th></tr></thead>
+            <thead><tr><th>Task</th><th>Client</th><th>Source</th><th>Assignee</th><th>Due</th><th>Status</th><th></th></tr></thead>
             <tbody id="tbTasksBody"></tbody>
           </table>
         </div>
@@ -2323,15 +2323,17 @@ function renderTeamBoard(){
   });
   document.getElementById('tbTasksBody').innerHTML = sorted.length ? sorted.map(t => {
     const a = empById(t.assignedTo);
+    const canEdit = t.status !== 'completed' && t.status !== 'pending_approval' && empManagesWork(currentViewer(), t.assignedTo);
     return `<tr>
-      <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${t.id}</div></td>
+      <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${t.id}${(t.dateHistory||[]).length || (t.tatHistory||[]).length ? ' · <span title="edited by a manager" style="color:var(--text-faint);">edited</span>' : ''}</div></td>
       <td class="clientcell">${esc(t.clientName) || '—'}</td>
       <td>${srcTag(t.source || 'manual')}</td>
       <td><div class="assignee">${a ? esc(a.name) : '<span style="color:var(--amber);">Unassigned</span>'}</div></td>
-      <td class="logged" style="${tbOverdue(t)?'color:#C2410C;font-weight:700;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</td>
+      <td class="logged" style="${tbOverdue(t)?'color:#C2410C;font-weight:700;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}<div style="font-size:11px;color:var(--text-faint);">⏱ ${t.tat}h</div></td>
       <td>${statusBadge(t)}</td>
+      <td>${canEdit ? `<button class="verify-btn" style="border-color:#2D5B8E;color:#2D5B8E;white-space:nowrap;" onclick="openSetDatesModal('${t.id}')">Edit dates / hrs</button>` : ''}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:26px;">Nothing open for this team. 🎉</td></tr>';
+  }).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-faint);padding:26px;">Nothing open for this team. 🎉</td></tr>';
 }
 function setTeamBoardTeam(team, el){
   teamBoardTeam = team;
@@ -3972,6 +3974,8 @@ async function submitSetDates(id){
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/set-dates`, { method:'POST', body: JSON.stringify(body) });
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    if(document.getElementById('view-teamboard')?.classList.contains('active')) renderTeamBoard();
+    if(document.getElementById('view-manager')?.classList.contains('active')) renderManagerStatics();
     showToast('success', 'Task updated', '');
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
@@ -5160,6 +5164,8 @@ const MG_TILE_META = {
 function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner = true } = {}){
   const today = todayISO();
   const sorted = list.slice().sort((a,b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+  const canEdit = t => t.status !== 'completed' && t.status !== 'pending_approval' && empManagesWork(currentViewer(), t.assignedTo);
+  const showActions = sorted.some(canEdit);
   const rows = sorted.map(t => {
     const o = empById(t.assignedTo);
     const due = t.internalDeadline ? fmtDate(t.internalDeadline) : '—';
@@ -5171,6 +5177,7 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
       ${showOwner ? `<td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>` : ''}
       <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${due}${overdue ? ' · overdue' : ''}${t.clientDate ? `<div class="tl-sub">client: ${fmtDate(t.clientDate)}</div>` : ''}</td>
       <td>${statusBadge(t)}</td>
+      ${showActions ? `<td>${canEdit(t) ? `<button class="verify-btn" style="border-color:#2D5B8E;color:#2D5B8E;white-space:nowrap;" onclick="openSetDatesModal('${t.id}')">Edit dates / hrs</button>` : ''}</td>` : ''}
     </tr>`;
   }).join('');
   document.getElementById('modalBox').innerHTML = `
@@ -5179,7 +5186,7 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
       ${subtitle ? `<div class="modal-sub">${esc(subtitle)}</div>` : ''}
       ${sorted.length ? `<input type="text" class="modal-search" placeholder="Search…" oninput="filterModalRows(this.value)">
         <div class="tl-scroll"><table>
-        <thead><tr><th>Task</th><th>Hrs</th>${showOwner ? '<th>Owner</th>' : ''}<th>Due</th><th>Status</th></tr></thead>
+        <thead><tr><th>Task</th><th>Hrs</th>${showOwner ? '<th>Owner</th>' : ''}<th>Due</th><th>Status</th>${showActions ? '<th></th>' : ''}</tr></thead>
         <tbody>${rows}</tbody></table></div>`
         : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">${esc(empty)}</p>`}
       <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
