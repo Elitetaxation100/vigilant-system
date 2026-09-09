@@ -996,7 +996,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
-    holdReasonCode: null, dateHistory: [], queries: [],
+    holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [],
     // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
     // app are 'manual'; the Slack connector will send 'call' / 'slack' later.
     source: 'manual', sourceRef: null,
@@ -1586,10 +1586,23 @@ app.post('/api/tasks/:id/set-dates', requireAuth, requireAdmin, (req, res) => {
     return res.status(400).json({ error: "You can't set the due date in the past." });
   }
   const note = String(body.note || '').trim();
-  const wasEarlier = t.internalDeadline && newInternal < t.internalDeadline;
-  if (wasEarlier && !note) {
-    return res.status(400).json({ error: 'Pulling a deadline in needs a one-line reason.' });
+
+  // optional: adjust the agreed estimate (TAT) in the same edit
+  const newTat = (body.tat !== undefined && body.tat !== null && body.tat !== '') ? Number(body.tat) : null;
+  if (newTat !== null && !(newTat > 0)) {
+    return res.status(400).json({ error: 'The estimate must be a positive number of hours.' });
   }
+  const curTat = Number(t.tat) || 0;
+  const tatChanged = newTat !== null && Math.abs(newTat - curTat) > 0.01;
+
+  const wasEarlier = t.internalDeadline && newInternal < t.internalDeadline;
+  const cutEstimate = tatChanged && newTat < curTat;
+  if ((wasEarlier || cutEstimate) && !note) {
+    return res.status(400).json({
+      error: wasEarlier ? 'Pulling a deadline in needs a one-line reason.' : 'Cutting the estimate needs a one-line reason.',
+    });
+  }
+
   const before = { internal: t.internalDeadline, client: t.clientDate };
   t.internalDeadline = newInternal;
 
@@ -1602,13 +1615,26 @@ app.post('/api/tasks/:id/set-dates', requireAuth, requireAdmin, (req, res) => {
     t.clientDate = cal.addWorkingDays(newInternal, DISPATCH_BUFFER_WD);
     t.clientDateOverride = false;
   }
-  t.dateHistory = t.dateHistory || [];
-  t.dateHistory.push({
-    at: new Date().toISOString(), by: req.employee.name,
-    from: before, to: { internal: t.internalDeadline, client: t.clientDate }, note: note || null,
-  });
-  logEvent(state, t.assignedTo, `Dates on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b> — internal ${escHtml(t.internalDeadline)}${t.clientDate ? ', client ' + escHtml(t.clientDate) : ''}${note ? ' (' + escHtml(note) + ')' : ''}.`);
-  db.save();
+
+  const dateChanged = before.internal !== t.internalDeadline || before.client !== t.clientDate;
+  if (dateChanged) {
+    t.dateHistory = t.dateHistory || [];
+    t.dateHistory.push({
+      at: new Date().toISOString(), by: req.employee.name,
+      from: before, to: { internal: t.internalDeadline, client: t.clientDate }, note: note || null,
+    });
+    logEvent(state, t.assignedTo, `Dates on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b> — internal ${escHtml(t.internalDeadline)}${t.clientDate ? ', client ' + escHtml(t.clientDate) : ''}${note ? ' (' + escHtml(note) + ')' : ''}.`);
+  }
+  if (tatChanged) {
+    t.tatHistory = t.tatHistory || [];
+    t.tatHistory.push({
+      at: new Date().toISOString(), by: req.employee.name,
+      from: curTat, to: newTat, note: note || null,
+    });
+    t.tat = newTat;
+    logEvent(state, t.assignedTo, `Estimate on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b> — ${curTat}h → ${newTat}h${note ? ' (' + escHtml(note) + ')' : ''}.`);
+  }
+  if (dateChanged || tatChanged) db.save();
   res.json({ task: taskForClient(t) });
 });
 

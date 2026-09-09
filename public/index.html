@@ -2888,7 +2888,7 @@ function actionCell(t){
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
     html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>`;
     if(t.internalDeadline && empManagesWork(currentViewer(), t.assignedTo)){
-      html += `<button class="verify-btn" style="border-color:#2D5B8E;color:#2D5B8E;" onclick="openSetDatesModal('${t.id}')">Edit dates</button>`;
+      html += `<button class="verify-btn" style="border-color:#2D5B8E;color:#2D5B8E;" onclick="openSetDatesModal('${t.id}')">Edit dates / hrs</button>`;
     }
   }
   if(iCanRemoveTask(t)){
@@ -3911,7 +3911,7 @@ function openSetDatesModal(id){
   if(!t) return;
   const isInternalTask = t.kind === 'internal' || !t.clientDate;
   document.getElementById('modalBox').innerHTML = `
-    <h3>Edit dates — ${esc(t.name)}</h3>
+    <h3>Edit dates &amp; estimate — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName)||'Internal'} · ${esc(empById(t.assignedTo)?.name || '—')}</div>
     <div class="field"><label>Internal due date <span style="color:var(--text-faint);">— what you hold ${esc((empById(t.assignedTo)?.name||'the assignee').split(' ')[0])} to</span></label>
       <input type="date" id="sdInternal" value="${esc(t.internalDeadline || todayISO())}" onchange="_sdRecalc()"></div>
@@ -3919,15 +3919,19 @@ function openSetDatesModal(id){
     <div class="field"><label>Client commitment date</label>
       <input type="date" id="sdClient" value="${esc(t.clientDate || '')}" onchange="_sdClientTouched=true">
       <div id="sdClientHint" style="font-size:12px;color:var(--text-faint);margin-top:4px;"></div></div>`}
+    <div class="field"><label>Estimated time (hours) <span style="color:var(--text-faint);">— the agreed turnaround</span></label>
+      <input type="number" id="sdTat" min="0.25" step="0.25" value="${esc(String(Number(t.tat) || ''))}" onchange="_sdRecalc()">
+      <div id="sdTatHint" style="font-size:12px;color:var(--text-faint);margin-top:4px;"></div></div>
     <div class="field"><label>Reason for the change <span id="sdNoteReq" style="color:var(--text-faint);">(optional)</span></label>
-      <input type="text" id="sdNote" placeholder="e.g. client sent records late / re-prioritised to fit the GST batch"></div>
+      <input type="text" id="sdNote" placeholder="e.g. client sent records late / scope grew / re-prioritised to fit the GST batch"></div>
     <div class="modal-error" id="sdErr"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" onclick="submitSetDates('${id}')">Save dates</button>
+      <button class="btn primary" onclick="submitSetDates('${id}')">Save changes</button>
     </div>`;
   window._sdClientTouched = false;
   window._sdOriginalInternal = t.internalDeadline;
+  window._sdOriginalTat = Number(t.tat) || 0;
   openModal();
   _sdRecalc();
 }
@@ -3935,8 +3939,17 @@ function _sdRecalc(){
   const internal = document.getElementById('sdInternal').value;
   const clientEl = document.getElementById('sdClient');
   const noteReq = document.getElementById('sdNoteReq');
-  if(noteReq) noteReq.innerHTML = (window._sdOriginalInternal && internal < window._sdOriginalInternal)
-    ? '<span style="color:var(--flag,#C2410C);">(required — pulling it in)</span>' : '(optional)';
+  const tatEl = document.getElementById('sdTat');
+  const newTat = tatEl ? parseFloat(tatEl.value) : NaN;
+  const pullingIn = window._sdOriginalInternal && internal < window._sdOriginalInternal;
+  const cuttingEst = !isNaN(newTat) && window._sdOriginalTat && newTat < window._sdOriginalTat;
+  if(noteReq) noteReq.innerHTML = (pullingIn || cuttingEst)
+    ? `<span style="color:var(--flag,#C2410C);">(required — ${pullingIn ? 'pulling the deadline in' : 'cutting the estimate'})</span>` : '(optional)';
+  const tatHint = document.getElementById('sdTatHint');
+  if(tatHint && !isNaN(newTat) && window._sdOriginalTat && Math.abs(newTat - window._sdOriginalTat) > 0.01){
+    const d = newTat - window._sdOriginalTat;
+    tatHint.textContent = `${window._sdOriginalTat}h → ${newTat}h (${d > 0 ? '+' : ''}${d.toFixed(2)}h). Changing the agreed hours re-bases utilisation, efficiency & the allocation gap.`;
+  } else if(tatHint) tatHint.textContent = '';
   if(clientEl && !window._sdClientTouched && internal){
     const computed = addWorkingDaysLite(internal, DISPATCH_BUFFER_WD);
     clientEl.value = computed;
@@ -3946,16 +3959,20 @@ function _sdRecalc(){
 async function submitSetDates(id){
   const internalDeadline = document.getElementById('sdInternal').value;
   const clientEl = document.getElementById('sdClient');
+  const tatEl = document.getElementById('sdTat');
   const note = (document.getElementById('sdNote').value || '').trim();
   const errEl = document.getElementById('sdErr');
   if(!internalDeadline){ errEl.textContent = 'Give an internal due date.'; errEl.style.display = 'block'; return; }
+  const newTat = tatEl && tatEl.value !== '' ? parseFloat(tatEl.value) : null;
+  if(newTat !== null && !(newTat > 0)){ errEl.textContent = 'The estimate must be a positive number of hours.'; errEl.style.display = 'block'; return; }
   const body = { internalDeadline, note };
+  if(newTat !== null) body.tat = newTat;
   if(clientEl && window._sdClientTouched && clientEl.value) body.clientDate = clientEl.value;
   else if(clientEl) body.recalcClient = true;
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/set-dates`, { method:'POST', body: JSON.stringify(body) });
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
-    showToast('success', 'Dates updated', '');
+    showToast('success', 'Task updated', '');
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* =========================================================================
@@ -6030,6 +6047,9 @@ function openTaskTrailModal(id){
     if(h.from && h.to && h.from.internal !== h.to.internal) bits.push(`internal ${fmtDate(h.from.internal)} → ${fmtDate(h.to.internal)}`);
     if(h.from && h.to && h.from.client !== h.to.client) bits.push(`client ${h.from.client?fmtDate(h.from.client):'—'} → ${h.to.client?fmtDate(h.to.client):'—'}`);
     push(h.at, '📅', `<b>${esc(h.by||'—')}</b> changed the dates${bits.length ? ' — ' + bits.join(', ') : ''}${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
+  });
+  (t.tatHistory||[]).forEach(h => {
+    push(h.at, '⏱', `<b>${esc(h.by||'—')}</b> changed the estimate — ${h.from}h → ${h.to}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
   });
   (t.queries||[]).forEach(q => {
     push(q.sentAt, '❓', `Query to the client raised (${esc(q.source)})${q.note ? ': “'+esc(q.note)+'”' : ''} — commitment clock frozen.`);
