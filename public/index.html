@@ -1736,6 +1736,9 @@ let punching = false, seconds = 0, punchedInAt = null, clockInterval = null;
 
 function empById(id){ return employees.find(e => e.id === id); }
 function currentViewer(){ return empById(currentViewerId); }
+// A "dashboard observer" can mirror ANY employee's Commitment Dashboard,
+// read-only — set per-person in Manage Access. Superadmins have it implicitly.
+function isDashObserver(){ const v = currentViewer(); return isSuperAdmin || !!(v && v.dashObserver); }
 
 /* Dashboard "mirror": a manager (own team) or founder (anyone) can view
    another person's Commitment Dashboard exactly as they see it, read-only.
@@ -1747,11 +1750,11 @@ function dashSubject(){ return empById(dashSubjectId()) || currentViewer(); }
 function isMirroring(){ return !!_dashMirror && _dashMirror !== currentViewerId; }
 function canMirror(id){
   if(!id || id === currentViewerId) return true;
-  if(isSuperAdmin) return true;
+  if(isDashObserver()) return true;
   return isAdmin && myScopedPeople().some(e => e.id === id);
 }
 function mirrorPool(){
-  return (isSuperAdmin ? employees.slice() : isAdmin ? myScopedPeople() : [])
+  return (isDashObserver() ? employees.slice() : isAdmin ? myScopedPeople() : [])
     .filter(e => e.id !== currentViewerId)
     .sort((a,b) => a.name.localeCompare(b.name));
 }
@@ -1785,7 +1788,7 @@ function renderDashMirrorPicker(){
   if(!pool.length){ chip.textContent = '👤 My work'; return; }
   chip.innerHTML = `<select onchange="setDashMirror(this.value)" style="font-size:13px;font-weight:600;padding:5px 9px;border-radius:8px;background:var(--panel-2);border:1px solid var(--panel-border);color:var(--text);max-width:260px;">
     <option value="">👤 My work</option>
-    <optgroup label="${isSuperAdmin ? 'Mirror any employee' : 'Mirror a team member'}">
+    <optgroup label="${isDashObserver() ? 'Mirror any employee' : 'Mirror a team member'}">
       ${pool.map(e => `<option value="${e.id}"${_dashMirror === e.id ? ' selected' : ''}>${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('')}
     </optgroup>
   </select>`;
@@ -6575,6 +6578,10 @@ function openManageEmployee(id){
       <label style="display:flex; align-items:center; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
         <input type="checkbox" id="meFounder" ${e.isFounder ? 'checked' : ''}> <span>Founder — sees every team's board</span>
       </label>
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
+        <input type="checkbox" id="meDashObserver" ${e.dashObserver ? 'checked' : ''} style="margin-top:3px;">
+        <span>Dashboard observer — can open <b>any</b> employee's Commitment Dashboard, read-only<br><span style="color:var(--text-faint);font-size:12.5px;">No other powers: can't assign, reassign, review, or change anything outside their own work.</span></span>
+      </label>
       <div class="field"><label>Slack user ID <span style="text-transform:none; color:var(--text-faint);">— so Slack tasks reach this person</span></label><input type="text" id="meSlackId" value="${esc(e.slackUserId || '')}" placeholder="U0XXXXXXXX"></div>
       <div class="field"><label>Aircall agent ID <span style="text-transform:none; color:var(--text-faint);">— only if they take calls</span></label><input type="text" id="meAircallId" value="${esc(e.aircallAgentId || '')}" placeholder="1234567"></div>
       <div class="field">
@@ -6637,12 +6644,13 @@ async function submitManageEmployee(id){
   // Teams & Access — calls-into-tasks, Phase 1b
   const memberships = meMembershipsDraft.map(m => ({ team: m.team, level: m.level }));
   const isFounder = document.getElementById('meFounder').checked;
+  const dashObserver = document.getElementById('meDashObserver').checked;
   const slackUserId = document.getElementById('meSlackId').value.trim();
   const aircallAgentId = document.getElementById('meAircallId').value.trim();
   try {
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({
       accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
-      memberships, isFounder, slackUserId, aircallAgentId
+      memberships, isFounder, dashObserver, slackUserId, aircallAgentId
     })});
     closeModal();
     await refreshEmployees();

@@ -217,6 +217,10 @@ function ensureExtendedFields(state) {
     // P5 — maps a badge / HR-system employee reference to this record for
     // POST /api/attendance/ingest.
     if (e.biometricId === undefined) e.biometricId = null;
+    // Grants read-only mirror of ANY employee's Commitment Dashboard without
+    // any of the other admin/superadmin powers. Set from Employees → Manage
+    // access. Superadmins already have this implicitly.
+    if (e.dashObserver === undefined) e.dashObserver = false;
     if (e.capacityAuto === undefined) e.capacityAuto = false;
     if (e.capacityEstimatedAt === undefined) e.capacityEstimatedAt = null;
     // One-time: bump the old 6h seed to the 8h working day (only for people

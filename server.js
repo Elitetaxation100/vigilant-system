@@ -633,6 +633,8 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
       .map(m => ({ team: m.team.trim(), level: m.level === 'admin' ? 'admin' : 'member' }));
   }
   if (typeof req.body.isFounder === 'boolean') emp.isFounder = req.body.isFounder;
+  // Read-only firm-wide Commitment Dashboard observer — no other powers.
+  if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
   if (req.body.slackUserId !== undefined) emp.slackUserId = req.body.slackUserId ? String(req.body.slackUserId).trim() : null;
   if (req.body.aircallAgentId !== undefined) emp.aircallAgentId = req.body.aircallAgentId ? String(req.body.aircallAgentId).trim() : null;
 
@@ -846,7 +848,9 @@ app.get('/api/admin/trash', requireAuth, requireAdmin, (req, res) => {
 // (the Admin/Slack space and their oversight views need that). This is the
 // real boundary — the client-side filtering on top of it is just cosmetics.
 function visibleTasks(state, me) {
-  if (me.accessRole === 'superadmin') return state.tasks;
+  // superadmins, and read-only firm-wide dashboard observers, see everything
+  // (the observer can't act on any of it — that's still gated per-action).
+  if (me.accessRole === 'superadmin' || me.dashObserver) return state.tasks;
   const isAdmin = me.accessRole === 'admin';
   // An employee sees only their own work; an admin sees their whole team's.
   const scopeIds = new Set([me.id]);
@@ -2306,10 +2310,10 @@ app.get('/api/today', requireAuth, (req, res) => {
   const showAll = req.query.all === '1' || req.query.all === 'true';
   const r2 = n => Math.round(n * 100) / 100;
 
-  // ?as=<empId> — a manager / founder mirroring someone's dashboard.
+  // ?as=<empId> — a manager / founder / dashboard-observer mirroring someone's dashboard.
   let subject = me, mirroring = false;
   if (req.query.as && req.query.as !== me.id) {
-    if (!canManageEmployee(state, me, req.query.as)) return res.status(403).json({ error: "You can't view this person's dashboard." });
+    if (!canManageEmployee(state, me, req.query.as) && !me.dashObserver) return res.status(403).json({ error: "You can't view this person's dashboard." });
     const sub = findEmployee(state, req.query.as);
     if (!sub) return res.status(404).json({ error: 'Employee not found.' });
     subject = sub; mirroring = true;
