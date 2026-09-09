@@ -309,13 +309,12 @@
   #view-dashboard .metric-tile .mt-value small{ font-size:13px; }
   #view-dashboard .mg-tile::after{ content:none; }
 
-  /* bento row — status · today · capacity */
-  #view-dashboard .dash-bento{ display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:14px; margin-bottom:20px; align-items:stretch; }
-  @media(max-width:1000px){ #view-dashboard .dash-bento{ grid-template-columns:1fr 1fr; } }
+  /* bento row — task status · capacity */
+  #view-dashboard .dash-bento{ display:grid; grid-template-columns:1.15fr 1fr; gap:14px; margin-bottom:20px; align-items:stretch; }
   @media(max-width:620px){ #view-dashboard .dash-bento{ grid-template-columns:1fr; } }
   #view-dashboard .dash-bento > *{ margin-bottom:0; }
   #view-dashboard .dash-bento > div{ display:flex; flex-direction:column; }
-  #view-dashboard .dash-bento .dash-hero, #view-dashboard .dash-bento .dash-cap{ flex:1; }
+  #view-dashboard .dash-bento .dash-cap{ flex:1; }
   #view-dashboard .dash-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:18px; box-shadow:var(--shadow-1); display:flex; flex-direction:column; }
   #view-dashboard .dash-card .dc-hd{ font-size:11.5px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-faint); font-weight:600; margin-bottom:14px; }
   #view-dashboard .dash-card .dc-hd small{ text-transform:none; letter-spacing:0; color:var(--text-faint); font-weight:500; }
@@ -327,18 +326,6 @@
   #view-dashboard .seg-key .k{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; color:var(--text-dim); }
   #view-dashboard .seg-key .k b{ color:var(--text); font-family:var(--font-display); font-weight:700; }
   #view-dashboard .seg-key .k i{ width:8px; height:8px; border-radius:3px; display:inline-block; margin-right:8px; vertical-align:1px; }
-
-  /* mint "to do today" hero */
-  #view-dashboard .dash-hero{ background:var(--mint); color:var(--ink-teal); border-radius:var(--radius-l); padding:18px; display:flex; flex-direction:column; gap:11px; box-shadow:var(--shadow-1); }
-  #view-dashboard .dash-hero .h-tag{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:.16em; color:#1c4a3f; }
-  #view-dashboard .dash-hero .h-lbl{ font-size:12.5px; color:#1c4a3f; }
-  #view-dashboard .dash-hero .h-big{ font-family:var(--font-display); font-size:33px; font-weight:700; line-height:1; letter-spacing:-.02em; }
-  #view-dashboard .dash-hero .h-big small{ font-size:15px; font-weight:600; color:#1c4a3f; }
-  #view-dashboard .dash-hero .h-meter{ height:8px; border-radius:6px; background:rgba(14,58,50,.16); overflow:hidden; }
-  #view-dashboard .dash-hero .h-meter i{ display:block; height:100%; background:var(--ink-teal); border-radius:6px; }
-  #view-dashboard .dash-hero .h-meter i.over{ background:var(--coral); }
-  #view-dashboard .dash-hero .h-foot{ display:flex; justify-content:space-between; font-size:11.5px; color:#1c4a3f; }
-  #view-dashboard .dash-hero .h-chip{ background:rgba(14,58,50,.13); border-radius:999px; padding:3px 9px; font-weight:700; }
 
   /* deep-teal capacity card */
   #view-dashboard .dash-cap{ background:var(--ink-teal); color:#dcefe4; border-radius:var(--radius-l); padding:18px; display:flex; flex-direction:column; justify-content:space-between; gap:12px; min-height:150px; box-shadow:var(--shadow-1); position:relative; overflow:hidden; }
@@ -357,17 +344,7 @@
   #view-dashboard .today-list.muted .today-row{ background:transparent; }
   #view-dashboard .today-row .hrs-badge{ width:34px; height:34px; justify-content:center; border-radius:10px; background:var(--panel-2); margin-top:0; font-size:11px; }
   #view-dashboard .today-row-title{ font-size:13.5px; }
-
-  /* work-delivered heatmap */
-  #view-dashboard .heat-grid{ display:grid; grid-template-columns:repeat(21,1fr); gap:6px; margin-top:6px; max-width:520px; }
-  #view-dashboard .heat-grid i{ aspect-ratio:1; border-radius:4px; background:var(--panel-2); }
-  #view-dashboard .heat-grid i.l1{ background:var(--mint-soft); }
-  #view-dashboard .heat-grid i.l2{ background:color-mix(in srgb, var(--mint) 55%, var(--panel)); }
-  #view-dashboard .heat-grid i.l3{ background:var(--mint-deep); }
-  #view-dashboard .heat-grid i.l4{ background:var(--teal); }
-  @media(max-width:720px){ #view-dashboard .heat-grid{ grid-template-columns:repeat(14,1fr); } }
-  #view-dashboard .heat-foot{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text-faint); margin-top:12px; }
-  #view-dashboard .heat-foot i{ width:11px; height:11px; border-radius:3px; display:inline-block; }
+  #view-dashboard #todoPanel > summary{ cursor:pointer; }
 
 
   .panel{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:20px 22px; margin-bottom:20px; box-shadow:0 1px 2px #10182804, 0 8px 24px -6px #10182812; }
@@ -1009,27 +986,19 @@
             <div class="dc-hd">Task status <span id="statusDonutScope"></span></div>
             <div id="statusDonutWrap"></div>
           </div>
-          <div id="todayGauge"></div>
           <div id="capacityCard"></div>
         </div>
 
-        <div class="panel">
-          <div class="panel-head">
+        <details class="panel panel-fold" id="todoPanel">
+          <summary>
             <h2>To do — by date</h2>
-            <div class="panel-head-actions">
-              <button class="btn primary small" id="dashAddTaskBtn" onclick="openAssignModal('me')">+ Add a task</button>
-            </div>
+            <span class="fold-hint" id="todoFoldHint">click to open</span>
+          </summary>
+          <div class="panel-head-actions" style="margin:2px 0 12px;">
+            <button class="btn primary small" id="dashAddTaskBtn" onclick="event.stopPropagation(); openAssignModal('me')">+ Add a task</button>
           </div>
           <div id="myDayWrap"></div>
-        </div>
-
-        <div class="panel" id="workHeatPanel" style="display:none;">
-          <div class="panel-head">
-            <h2>Work delivered</h2>
-            <span class="fold-hint" id="workHeatSub">hours completed per day · last 6 weeks</span>
-          </div>
-          <div id="workHeatWrap"></div>
-        </div>
+        </details>
 
         <details class="panel panel-fold" id="busyBoardPanel" style="margin-bottom:24px; display:none;" ontoggle="if(this.open) renderBusyBoard()">
           <summary><h2>Who's busy until when</h2><span class="fold-hint">everyone's queue &amp; when it clears</span></summary>
@@ -1902,6 +1871,9 @@ function currentViewer(){ return empById(currentViewerId); }
 // A "dashboard observer" can mirror ANY employee's Commitment Dashboard,
 // read-only — set per-person in Manage Access. Superadmins have it implicitly.
 function isDashObserver(){ const v = currentViewer(); return isSuperAdmin || !!(v && v.dashObserver); }
+// A founder / superadmin gets firm-wide scope on the Manager Dashboard too,
+// not just their own team.
+function mgFirmWide(){ const v = currentViewer(); return isSuperAdmin || !!(v && v.isFounder); }
 
 /* Dashboard "mirror": a manager (own team) or founder (anyone) can view
    another person's Commitment Dashboard exactly as they see it, read-only.
@@ -2046,8 +2018,8 @@ function populateScopeSelect(selId, key, mineOnly){
   if(!sel) return;
   const cur = sel.value || dashScope[key].view;
   let html = '', fallback;
-  if(key === 'mg'){
-    // The Manager Dashboard is ONE team — the viewer's own. The scope
+  if(key === 'mg' && mineOnly){
+    // A manager's Manager Dashboard is ONE team — their own. The scope
     // option is labelled with the team name; you can drill into a single
     // member. No "whole firm", no other teams.
     const teamName = myTeamName();
@@ -2056,7 +2028,7 @@ function populateScopeSelect(selId, key, mineOnly){
       html += `<option value="reports">◈ ${esc(teamName)}</option>`;
       fallback = 'reports';
     } else {
-      html += `<option value="firm">◈ ${isSuperAdmin ? 'Whole firm' : 'My work'}</option>`;
+      html += `<option value="firm">◈ My work</option>`;
       fallback = 'firm';
     }
     if(members.length) html += `<optgroup label="By person">${members.map(e=>`<option value="p:${e.id}">${esc(e.name)}</option>`).join('')}</optgroup>`;
@@ -2086,7 +2058,7 @@ function onDashScope(key){
   s.cmp = (document.getElementById(pfx+'Cmp')||{}).checked !== false;
   document.getElementById(pfx+'Scope').classList.toggle('is-custom', s.period === 'custom');
   const crumb = document.getElementById(pfx+'Crumb');
-  if(crumb) crumb.innerHTML = `<b>Scope:</b> ${esc(dashScopeLabel(key, key === 'mg' && !isSuperAdmin))} · ${esc(dashPeriodLabel(key))}`;
+  if(crumb) crumb.innerHTML = `<b>Scope:</b> ${esc(dashScopeLabel(key, key === 'mg' && !mgFirmWide()))} · ${esc(dashPeriodLabel(key))}`;
   if(key === 'fv') renderFounderView();
   if(key === 'mg') renderManagerStatics();
 }
@@ -3358,7 +3330,6 @@ function renderEmployeeStats(){
   // On-time and Accuracy live on the Productivity page and the Report Card
   // now — not on the Commitment Dashboard.
   renderMirrorBanner();
-  renderWorkHeatmap();
 }
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
@@ -3517,6 +3488,14 @@ function renderMyDay(){
     html += `<div class="today-list muted">${held.map(row).join('')}</div>`;
   }
   wrap.innerHTML = html;
+  const hint = document.getElementById('todoFoldHint');
+  if(hint){
+    const bits = [];
+    if(actionable.length) bits.push(`${actionable.length} open`);
+    if(needsResponse.length) bits.push(`${needsResponse.length} to respond`);
+    if(held.length) bits.push(`${held.length} on hold`);
+    hint.textContent = bits.length ? bits.join(' · ') : 'all clear';
+  }
 }
 /* P5 — "To-Do Today". /api/today gives the caller their pending hours vs
    today's capacity, and (for a manager) the same for every report. */
@@ -3547,7 +3526,7 @@ async function renderBusyBoard(){
     const status = r.onLeaveToday
       ? `<span class="badge dot" style="opacity:.7;">on leave today</span>`
       : r.busyUntil
-        ? `<span class="badge overdue dot" style="font-size:10px;">booked to ${fmtDate(r.busyUntil)}</span>`
+        ? `<span class="badge overdue dot" style="font-size:10px;">busy until ${r.busyUntilAt ? fmtBusyUntil(r.busyUntilAt) : fmtDate(r.busyUntil)}</span>`
         : `<span class="badge completed dot" style="font-size:10px;">queue clear</span>`;
     return `<div class="to-row"${me ? ' style="background:var(--purple-dim);border-radius:8px;"' : ''}>
       <div class="to-main">
@@ -3569,96 +3548,49 @@ function tgBar(pending, capacity){
     <div style="height:100%;width:${pct}%;border-radius:999px;background:${over?'#F0603E':'#2FBE93'};"></div>
   </div>`;
 }
-function renderTodayGauge(){
-  const el = document.getElementById('todayGauge');
-  if(!el) return;
-  const m = _todayData && _todayData.me;
-  if(!m){ el.innerHTML = ''; return; }
-  const sub = document.getElementById('myPendingHoursSub');
-  if(sub) sub.textContent = m.pendingHours ? `${m.pendingHours}h to clear` : '';
-  if(m.onLeaveToday){
-    el.innerHTML = `<div class="dash-hero">
-      <span class="h-tag">TO DO · TODAY</span>
-      <div><div class="h-lbl">On approved leave today.</div><div class="h-big">0<small> h</small></div></div>
-    </div>`;
-    return;
-  }
-  const cap = m.capacityToday || 0;
-  const over = m.pendingHours > cap && cap > 0;
-  const pct = cap > 0 ? Math.min(100, Math.round(m.pendingHours / cap * 100)) : (m.pendingHours ? 100 : 0);
-  const footer = over
-    ? `<div style="font-size:11px;color:var(--ink-teal);opacity:.85;">More on the plate than hours to do it — a date needs to move.</div>`
-    : m.busyUntil
-      ? `<div class="h-foot"><span>📅 Booked through <b>${fmtDate(m.busyUntil)}</b></span>${m.backlogHours?`<span>${m.backlogHours}h queued</span>`:''}</div>`
-      : `<div class="h-foot"><span>✓ Queue is clear${m.backlogHours?` · ${m.backlogHours}h of work left`:''}</span></div>`;
-  el.innerHTML = `<div class="dash-hero">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <span class="h-tag">TO DO · TODAY</span>
-      <span style="width:24px;height:24px;border-radius:50%;border:2px solid var(--ink-teal);display:flex;align-items:center;justify-content:center;font-size:11px;">◔</span>
-    </div>
-    <div>
-      <div class="h-lbl">Pending on your plate</div>
-      <div class="h-big">${m.pendingHours}<small> h</small></div>
-    </div>
-    <div class="h-meter"><i class="${over?'over':''}" style="width:${pct}%;"></i></div>
-    <div class="h-foot"><span>of ${cap}h capacity today</span>${m.doneToday?`<span class="h-chip">${m.doneToday}h done</span>`:''}</div>
-    ${footer}
-  </div>`;
+/* "12-hour clock" for an {hour,minute} — e.g. {8,0} → "8:00 am". */
+function fmt12h(h, m){
+  const am = h < 12; let hh = h % 12; if(hh === 0) hh = 12;
+  return `${hh}:${String(m).padStart(2,'0')} ${am ? 'am' : 'pm'}`;
 }
-/* Deep-teal capacity card in the bento row — daily capacity + what's queued. */
+/* "busy until <time> · <date>" from the leave-aware clear moment. */
+function fmtBusyUntil(at){
+  if(!at || !at.date) return '';
+  return `${fmt12h(at.hour, at.minute)} · ${fmtDate(at.date)}`;
+}
+/* Feeds the "To do today" KPI-tile sub-line. The hero card was removed. */
+function renderTodayGauge(){
+  const m = _todayData && _todayData.me;
+  const sub = document.getElementById('myPendingHoursSub');
+  if(sub) sub.textContent = (m && m.pendingHours) ? `${m.pendingHours}h to clear` : (m && m.onLeaveToday ? 'on leave today' : '');
+}
+/* Deep-teal capacity card in the bento row — the person's normal daily
+   capacity, their queue, and (leave-aware) when it clears. */
 function renderCapacityCard(){
   const el = document.getElementById('capacityCard');
   if(!el) return;
   const m = _todayData && _todayData.me;
   if(!m){ el.innerHTML = ''; return; }
-  const daily = m.capacityToday || 0;
+  const daily = m.dailyCapacity || m.capacityToday || 0;
   const queue = m.backlogHours || 0;
   const meSub = dashSubject();
   const team = (meSub && meSub.team) ? meSub.team : 'Your queue';
+  const clearLine = queue <= 0
+    ? 'queue is clear'
+    : m.busyUntilAt
+      ? `in queue · busy until ${fmtBusyUntil(m.busyUntilAt)}`
+      : 'in queue';
   el.innerHTML = `<div class="dash-cap">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;">
       <div class="c-chip"></div>
       <span class="c-tag">CAPACITY</span>
     </div>
     <div>
-      <div class="c-big">${daily ? daily : '—'} h / day</div>
+      <div class="c-big">${daily ? daily : '—'} h / day${m.onLeaveToday ? ' · on leave today' : ''}</div>
       <div class="c-sub">${esc(String(team).toUpperCase())}</div>
     </div>
-    <div class="c-amt">${queue}h<small>${m.busyUntil ? 'in queue · clears ' + fmtDate(m.busyUntil) : 'queue is clear'}</small></div>
+    <div class="c-amt">${queue}h<small>${clearLine}</small></div>
   </div>`;
-}
-/* Work-delivered heatmap — hours signed off per day, last 6 weeks. Read-only,
-   computed from the tasks already loaded; hidden until there's something. */
-function renderWorkHeatmap(){
-  const panel = document.getElementById('workHeatPanel');
-  const wrap = document.getElementById('workHeatWrap');
-  if(!panel || !wrap) return;
-  const who = dashSubjectId();
-  const DAYS = 42;
-  const start = new Date(); start.setHours(0,0,0,0); start.setDate(start.getDate() - (DAYS - 1));
-  const byDay = {};
-  tasks.filter(t => t.assignedTo === who && t.status === 'completed' && t.completedAt)
-    .forEach(t => { const d = t.completedAt.slice(0,10); byDay[d] = (byDay[d]||0) + taskHrs(t); });
-  const cells = []; let totalH = 0, activeDays = 0;
-  for(let i = 0; i < DAYS; i++){
-    const d = new Date(start); d.setDate(start.getDate() + i);
-    const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const h = byDay[iso] || 0; totalH += h; if(h > 0) activeDays++;
-    const lvl = h <= 0 ? 0 : h < 2 ? 1 : h < 5 ? 2 : h < 8 ? 3 : 4;
-    cells.push(`<i class="${lvl ? 'l'+lvl : ''}" title="${iso}: ${h.toFixed(1)}h"${d.getDay()===0 ? ' style="opacity:.35;"' : ''}></i>`);
-  }
-  if(totalH < 0.1){ panel.style.display = 'none'; return; }
-  panel.style.display = '';
-  const sub = document.getElementById('workHeatSub');
-  if(sub) sub.textContent = `${totalH.toFixed(1)}h delivered over ${activeDays} day${activeDays===1?'':'s'} · last 6 weeks`;
-  wrap.innerHTML = `<div class="heat-grid">${cells.join('')}</div>
-    <div class="heat-foot">Less
-      <i style="background:var(--panel-2);"></i>
-      <i style="background:var(--mint-soft);"></i>
-      <i style="background:color-mix(in srgb, var(--mint) 55%, var(--panel));"></i>
-      <i style="background:var(--mint-deep);"></i>
-      <i style="background:var(--teal);"></i>
-      More</div>`;
 }
 function renderTodayTeam(){
   const wrap = document.getElementById('todayTeamWrap');
@@ -3673,7 +3605,7 @@ function renderTodayTeam(){
     <div class="to-main">
       <b>${esc(r.name)}</b>
       <span class="badge ${r.status==='over'?'overdue':r.status==='light'?'awaiting':'completed'} dot" style="font-size:10px;">${pill(r.status)}</span>
-      <div style="font-size:12px;color:var(--text-faint);">${r.onLeaveToday?'on leave today':`${r.pendingHours}h pending · ${r.capacityToday}h capacity${r.doneToday?` · ${r.doneToday}h done`:''}${r.busyUntil?` · booked to ${fmtDate(r.busyUntil)}`:''}`}</div>
+      <div style="font-size:12px;color:var(--text-faint);">${r.onLeaveToday?'on leave today':`${r.pendingHours}h pending · ${r.capacityToday}h capacity${r.doneToday?` · ${r.doneToday}h done`:''}${r.busyUntil?` · busy until ${r.busyUntilAt?fmtBusyUntil(r.busyUntilAt):fmtDate(r.busyUntil)}`:''}`}</div>
       <div style="max-width:240px;margin-top:5px;">${r.onLeaveToday?'':tgBar(r.pendingHours, r.capacityToday)}</div>
     </div>
     ${r.status==='over'?`<button class="btn-ghost btn-sm" onclick="openAssignModal('team')">Reassign</button>`:''}
@@ -4760,10 +4692,11 @@ function renderMyTeamPanel(){
 function renderManagerStatics(){
   const lbWrap = document.getElementById('leaderboardWrap');
   if(!lbWrap) return;
-  // The Manager Dashboard is ALWAYS just your own team — nobody, not even a
-  // superadmin, sees the whole firm here. Firm-wide oversight is the
-  // Founder Dashboard.
-  const mineOnly = true;
+  // For a manager (admin) the Manager Dashboard is just their own team. A
+  // founder / superadmin gets the whole firm here too — sliced by team or
+  // person from the scope picker — so they don't have to bounce to the
+  // Founder Dashboard for the same view.
+  const mineOnly = !mgFirmWide();
   renderMyTeamPanel();
 
   // ---- scope bar ----
@@ -5642,7 +5575,7 @@ function filterModalRows(q){
 }
 function openMgTileList(key){
   const meta = MG_TILE_META[key]; if(!meta) return;
-  taskListModal(meta.title, `${dashScopeLabel('mg', !isSuperAdmin)} · ${dashPeriodLabel('mg')}`, mgTileData[key] || [], { empty: meta.empty });
+  taskListModal(meta.title, `${dashScopeLabel('mg', !mgFirmWide())} · ${dashPeriodLabel('mg')}`, mgTileData[key] || [], { empty: meta.empty });
 }
 // Superadmin: wipe every task for a clean demo. Employees, clients, teams
 // and the org chart are untouched. Two-step confirm.

@@ -435,13 +435,37 @@ function queueHours(state, empId) {
   return state.tasks.filter(t => t.assignedTo === empId && !['completed'].includes(t.status))
     .reduce((s, t) => s + remainingHours(t), 0);
 }
+// The working day starts at 08:00 — the reference point for "busy until <time>".
+const WORK_START_HOUR = 8;
+// Walk forward from today over working days, burning down `backlog` at each
+// day's REAL capacity — which is 0 on an approved-leave day or a public
+// holiday, so leave pushes the finish out instead of being ignored. Returns
+// the moment the queue is exhausted as { date, hour, minute } (finish time =
+// 08:00 + hours worked on the final day), or null if nothing is queued.
+function queueClearMoment(state, emp, backlog) {
+  if (!(backlog > 0.01)) return null;
+  let remaining = backlog;
+  let cur = todayISO();
+  for (let guard = 0; guard < 800; guard++) {
+    const capThatDay = cal.isWorkingDay(cur) ? dayCapacity(state, emp, cur) : 0;
+    if (capThatDay > 0) {
+      if (remaining <= capThatDay + 1e-9) {
+        const mins = Math.round((WORK_START_HOUR * 60) + (remaining * 60));
+        return { date: cur, hour: Math.floor(mins / 60), minute: mins % 60 };
+      }
+      remaining -= capThatDay;
+    }
+    cur = cal.addWorkingDays(cur, 1);
+  }
+  return { date: cur, hour: WORK_START_HOUR, minute: 0 };
+}
 // When does this person's current queue clear, and how much slack do they
-// have in the next 5 working days?
+// have in the next 5 working days? The clear date is leave-aware.
 function availabilityOf(state, emp) {
   const cap = capacityOf(emp);
   const backlog = queueHours(state, emp.id);
-  const daysToClear = cap > 0 ? Math.ceil(backlog / cap) : 0;
-  const committedThrough = daysToClear > 0 ? cal.addWorkingDays(todayISO(), daysToClear) : todayISO();
+  const clearsAt = queueClearMoment(state, emp, backlog);
+  const committedThrough = clearsAt ? clearsAt.date : todayISO();
   const cap5 = capacityNextWorkingDays(state, emp, 5);
   const freeNext5wd = Math.max(0, cap5 - backlog);
   return {
@@ -449,6 +473,7 @@ function availabilityOf(state, emp) {
     baseHoursPerDay: Number(emp.baseHoursPerDay) > 0 ? Number(emp.baseHoursPerDay) : null,
     backlogHours: Math.round(backlog * 100) / 100,
     committedThrough,
+    clearsAt,
     capacityNext5wd: cap5,
     freeCapacityNext5wd: Math.round(freeNext5wd * 100) / 100,
     dayCapacityToday: dayCapacity(state, emp, todayISO()),
@@ -2434,6 +2459,7 @@ app.get('/api/busy-board', requireAuth, (req, res) => {
       queueHours: av.backlogHours,
       dayCapacity: dayCapacity(state, e, today),
       busyUntil: av.committedThrough && av.committedThrough > today ? av.committedThrough : null,
+      busyUntilAt: av.clearsAt,
       onLeaveToday: !!approvedLeaveOn(state, e.id, today),
     };
   }).filter(r => r.openTasks > 0 || r.onLeaveToday)
@@ -2499,7 +2525,9 @@ app.get('/api/today', requireAuth, (req, res) => {
       onLeaveToday: !!approvedLeaveOn(state, subject.id, today),
       status: statusOf(mine.pendingHours, capToday),
       busyUntil: avail.committedThrough && avail.committedThrough > today ? avail.committedThrough : null,
+      busyUntilAt: avail.clearsAt,
       backlogHours: avail.backlogHours,
+      dailyCapacity: avail.effectiveCapacity,
     },
   };
 
@@ -2515,6 +2543,7 @@ app.get('/api/today', requireAuth, (req, res) => {
         onLeaveToday: !!approvedLeaveOn(state, e.id, today),
         status: statusOf(p.pendingHours, cap),
         busyUntil: av.committedThrough && av.committedThrough > today ? av.committedThrough : null,
+        busyUntilAt: av.clearsAt,
       };
     }).sort((a, b) => b.pendingHours - a.pendingHours);
     out.teamPendingHours = r2(out.team.reduce((s, x) => s + x.pendingHours, 0));
