@@ -322,7 +322,7 @@
   /* segmented status bar */
   #view-dashboard .seg{ display:flex; height:12px; border-radius:6px; overflow:hidden; margin:2px 0 14px; background:var(--panel-2); }
   #view-dashboard .seg i{ display:block; }
-  #view-dashboard .seg-key{ display:flex; flex-direction:column; gap:9px; margin-top:auto; }
+  #view-dashboard .seg-key{ display:flex; flex-direction:column; gap:9px; }
   #view-dashboard .seg-key .k{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; color:var(--text-dim); }
   #view-dashboard .seg-key .k b{ color:var(--text); font-family:var(--font-display); font-weight:700; }
   #view-dashboard .seg-key .k i{ width:8px; height:8px; border-radius:3px; display:inline-block; margin-right:8px; vertical-align:1px; }
@@ -993,10 +993,8 @@
           <summary>
             <h2>To do — by date</h2>
             <span class="fold-hint" id="todoFoldHint">click to open</span>
+            <button class="btn primary small" id="dashAddTaskBtn" style="margin-left:auto;" onclick="event.preventDefault(); event.stopPropagation(); openAssignModal('me')">+ Add a task</button>
           </summary>
-          <div class="panel-head-actions" style="margin:2px 0 12px;">
-            <button class="btn primary small" id="dashAddTaskBtn" onclick="event.stopPropagation(); openAssignModal('me')">+ Add a task</button>
-          </div>
           <div id="myDayWrap"></div>
         </details>
 
@@ -3575,11 +3573,13 @@ function renderCapacityCard(){
   const queue = m.backlogHours || 0;
   const meSub = dashSubject();
   const team = (meSub && meSub.team) ? meSub.team : 'Your queue';
+  // Only show a "busy until <time>" when the queue actually spills past today
+  // (m.busyUntil is the future-only date); if it clears today, say so.
   const clearLine = queue <= 0
     ? 'queue is clear'
-    : m.busyUntilAt
+    : (m.busyUntil && m.busyUntilAt)
       ? `in queue · busy until ${fmtBusyUntil(m.busyUntilAt)}`
-      : 'in queue';
+      : 'in queue · clears today';
   el.innerHTML = `<div class="dash-cap">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;">
       <div class="c-chip"></div>
