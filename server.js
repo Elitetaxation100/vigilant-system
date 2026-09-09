@@ -474,6 +474,31 @@ function logEvent(state, empId, text, meta) {
   if (state.activityLog.length > 300) state.activityLog.shift();
 }
 
+// In-app notification for one person. `text` is plain (no HTML). Deduped so a
+// repeated event of the same type on the same task doesn't stack while still
+// unread. Returns the row (or the existing unread one).
+function notify(state, empId, type, text, taskId) {
+  if (!empId) return null;
+  if (!Array.isArray(state.notifications)) state.notifications = [];
+  const dupe = state.notifications.find(n => n.empId === empId && n.type === type && n.taskId === (taskId || null) && !n.seenAt);
+  if (dupe) { dupe.text = text; dupe.at = new Date().toISOString(); return dupe; }
+  const row = {
+    id: 'n-' + (state.notificationSeq = (state.notificationSeq || 0) + 1),
+    empId, type, text: String(text).slice(0, 300), taskId: taskId || null,
+    at: new Date().toISOString(), seenAt: null,
+  };
+  state.notifications.push(row);
+  if (state.notifications.length > 4000) state.notifications.splice(0, state.notifications.length - 4000);
+  return row;
+}
+// what a manager sees about whether a person has opened their alerts for a task
+function taskNotifyStatus(state, taskId, empId) {
+  const ns = (state.notifications || []).filter(n => n.taskId === taskId && n.empId === empId);
+  if (!ns.length) return null;
+  const latest = ns.reduce((a, b) => (a.at > b.at ? a : b));
+  return { at: latest.at, seen: !!latest.seenAt, seenAt: latest.seenAt || null, unseen: ns.filter(n => !n.seenAt).length };
+}
+
 function todayISO() { return new Date().toISOString().slice(0, 10); }
 
 // ---------------------------------------------------------------------------
@@ -518,6 +543,7 @@ function sweepAutoReminders(state) {
     const why = t.internalDeadline < today ? 'overdue and not started' : 'due soon and not started';
     db.logTaskEvent(state, t.id, 'reminded', null, { channel: 'auto', note: why });
     logEvent(state, t.assignedTo, `Reminder — "${escHtml(t.name)}" is ${why}.`);
+    notify(state, t.assignedTo, 'due', `"${t.name}" is ${why}.`, t.id);
     maybeEscalateChase(state, t);
     remindedToday.add(t.id);
     n += 1;
@@ -890,6 +916,7 @@ app.post('/api/tasks/:id/nudge', requireAuth, (req, res) => {
   db.logTaskEvent(state, t.id, 'reminded', me.id, { channel: 'manual', note: note || null });
   logEvent(state, t.assignedTo, `${escHtml(me.name)} nudged you about "${escHtml(t.name)}"${note ? ' — ' + escHtml(note) : ''}.`);
   logEvent(state, me.id, `Nudged ${escHtml((findEmployee(state, t.assignedTo) || {}).name || 'the assignee')} about "${escHtml(t.name)}".`);
+  notify(state, t.assignedTo, 'nudge', `${me.name} nudged you about "${t.name}"${note ? ' — ' + note : ''}.`, t.id);
   maybeEscalateChase(state, t);
   db.save();
   res.json({ task: taskForClient(t), reminderCount: remindersFor(state, t.id).length });
@@ -935,6 +962,18 @@ app.get('/api/tasks/:id/hold-screenshot', requireAuth, (req, res) => {
     isAdminRole(req.employee.accessRole) && (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo));
   if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
   res.json({ screenshot: t.holdScreenshot });
+});
+
+// Has the assignee opened their in-app alerts for this task? For a manager
+// checking whether a nudge / new assignment landed. Computed on demand.
+app.get('/api/tasks/:id/notify-status', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const allowed = req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo)
+    || t.assignedBy === req.employee.id || t.assignedTo === req.employee.id;
+  if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
+  res.json({ status: t.assignedTo ? taskNotifyStatus(state, t.id, t.assignedTo) : null, assignee: t.assignedTo });
 });
 
 app.post('/api/tasks', requireAuth, (req, res) => {
@@ -1017,6 +1056,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     logEvent(state, assignee, `New task assigned — <b>${assigneeEmp ? escHtml(assigneeEmp.name) : '—'}</b>, awaiting acceptance.`, {
       client: task.clientName, clientDate: task.clientDate, internalDeadline: task.internalDeadline
     });
+    notify(state, assignee, 'assigned', `${req.employee.name} assigned you "${task.name}" — accept it or propose a new window.`, task.id);
   }
   db.save();
   res.status(201).json({ task: taskForClient(task) });
@@ -1266,6 +1306,7 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   t.reviewerId = reviewerId;
   logEvent(state, t.assignedTo, `Marked "${escHtml(t.name)}" complete — ${t.logged.toFixed(2)} hrs actual vs ${t.tat} hrs agreed.`, { points: t.points });
   logEvent(state, reviewerId, `<b>${escHtml(findEmployee(state, t.assignedTo)?.name || 'Someone')}</b> asked you to review "${escHtml(t.name)}".`);
+  notify(state, reviewerId, 'review', `${findEmployee(state, t.assignedTo)?.name || 'Someone'} asked you to review "${t.name}".`, t.id);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -1397,6 +1438,7 @@ app.post('/api/tasks/:id/set-owner', requireAuth, requireAdmin, (req, res) => {
   if (!t.assignedBy) t.assignedBy = req.employee.id;
   t.assignedAt = new Date().toISOString();
   logEvent(state, emp.id, `"${escHtml(t.name)}" assigned to you by <b>${escHtml(req.employee.name)}</b>.`, { source: t.source });
+  notify(state, emp.id, 'assigned', `${req.employee.name} assigned you "${t.name}".`, t.id);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -1440,6 +1482,7 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     t.reworkCount = (t.reworkCount || 0) + 1;
     t.faultType = faultType;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for rework — error found. Accept it (or propose a new window) to start fixing it. ${note ? 'Note: ' + escHtml(note) : ''}`);
+    notify(state, t.assignedTo, 'rework', `"${t.name}" was sent back for rework${note ? ' — ' + note : ''}. Accept it to start fixing.`, t.id);
   } else {
     // A client task then asks "send it to the client?"; an internal task
     // (training, admin) has no client, so a clean review just closes it.
@@ -1549,6 +1592,7 @@ app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
   t.timerStartedAt = null; // not running — Start begins the clock
 
   logEvent(state, req.employee.id, `Approved the proposed window for "${escHtml(t.name)}" — now due ${t.internalDeadline}.`);
+  notify(state, t.assignedTo, 'window', `${req.employee.name} approved your new window for "${t.name}" — now due ${t.internalDeadline}.`, t.id);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -1572,6 +1616,7 @@ app.post('/api/tasks/:id/reject-window', requireAuth, (req, res) => {
   t.timerStartedAt = null; // not running — Start begins the clock
 
   logEvent(state, req.employee.id, `Rejected the proposed window for "${escHtml(t.name)}" — original deadline stands.`);
+  notify(state, t.assignedTo, 'window', `${req.employee.name} rejected your proposed window for "${t.name}" — the original deadline (${t.internalDeadline || 'as agreed'}) stands.`, t.id);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -1704,6 +1749,7 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   t.reworkStartedAt = null;
   t.timerStartedAt = null;
   const reworkNote = t.reviewStatus === 'error' ? ' This task is flagged for rework — the new assignee will see the reviewer\'s note.' : '';
+  notify(state, newAssigneeId, 'assigned', `${req.employee.name} reassigned "${t.name}" to you — accept it or propose a new window.`, t.id);
   logEvent(state, newAssigneeId, `Task "${escHtml(t.name)}" reassigned from <b>${fromEmp ? escHtml(fromEmp.name) : '—'}</b> to <b>${escHtml(newEmp.name)}</b> — approval needed before the clock starts.${reworkNote}${reason ? ' Reason: ' + escHtml(reason) : ''}`, {
     client: t.clientName, clientDate: t.clientDate, internalDeadline: t.internalDeadline, reassignReason: reason || null
   });
@@ -2433,6 +2479,34 @@ app.get('/api/activity', requireAuth, (req, res) => {
     visible = state.activityLog.filter(a => a.empId === me.id);
   }
   res.json({ activity: visible.slice(-60).reverse() });
+});
+
+// ---------------------------------------------------------------------------
+// IN-APP NOTIFICATIONS — a persistent, read-tracked inbox per person. The
+// point: a task alert can't be "missed" silently — delivery and whether it
+// was opened are both on the record.
+// ---------------------------------------------------------------------------
+app.get('/api/notifications', requireAuth, (req, res) => {
+  const state = db.get();
+  const mine = (state.notifications || []).filter(n => n.empId === req.employee.id)
+    .sort((a, b) => (a.at < b.at ? 1 : -1));
+  res.json({
+    notifications: mine.slice(0, 80),
+    unread: mine.filter(n => !n.seenAt).length,
+  });
+});
+app.post('/api/notifications/read', requireAuth, (req, res) => {
+  const state = db.get();
+  const id = (req.body || {}).id;
+  const now = new Date().toISOString();
+  let n = 0;
+  (state.notifications || []).forEach(x => {
+    if (x.empId !== req.employee.id || x.seenAt) return;
+    if (id && x.id !== id) return;
+    x.seenAt = now; n += 1;
+  });
+  if (n) db.save();
+  res.json({ ok: true, marked: n });
 });
 
 // ---------------------------------------------------------------------------

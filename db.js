@@ -301,6 +301,11 @@ function runMigrations(state) {
   // { id, employeeId, weekStart, reasonCode, note, byId, at }
   if (!Array.isArray(state.allocationNotes)) state.allocationNotes = [];
   if (typeof state.allocationNoteSeq !== 'number') state.allocationNoteSeq = 0;
+  // In-app notification inbox — one row per (person, event). Persistent and
+  // read-tracked so a manager can see a task alert was delivered and whether
+  // it's been opened. { id, empId, type, text, taskId, at, seenAt }
+  if (!Array.isArray(state.notifications)) state.notifications = [];
+  if (typeof state.notificationSeq !== 'number') state.notificationSeq = 0;
   // calls-into-tasks Phase 5: the connector's call log moves off the Google
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];

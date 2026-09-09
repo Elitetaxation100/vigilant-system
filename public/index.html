@@ -146,7 +146,16 @@
   .topbar .sub{ font-size:14px; color:var(--text-faint); margin-top:2px; }
   .topbar-right{ display:flex; align-items:center; gap:16px; }
   .bell{ width:34px; height:34px; border-radius:50%; background:var(--panel); border:1px solid var(--panel-border); display:flex; align-items:center; justify-content:center; position:relative; font-size:17px; cursor:pointer;}
-  .bell.has-alert::after{ content:''; position:absolute; top:8px; right:9px; width:6px; height:6px; border-radius:50%; background:var(--coral); box-shadow:0 0 0 2px #FFFFFF; }
+  .bell.has-alert::after{ content:''; position:absolute; top:8px; right:9px; width:6px; height:6px; border-radius:50%; background:var(--coral); box-shadow:0 0 0 2px var(--panel); }
+  .notif-badge{ position:absolute; top:-5px; right:-5px; min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:var(--coral); color:#fff; font-size:10.5px; font-weight:700; font-family:var(--font-mono); display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 2px var(--panel); }
+  .notif-row{ display:flex; gap:10px; padding:11px 4px; border-bottom:1px solid var(--line); font-size:14px; cursor:pointer; }
+  .notif-row:hover{ background:var(--panel-2); }
+  .notif-row.unseen{ background:var(--purple-dim); }
+  .notif-row .nr-ic{ flex:none; }
+  .notif-row .nr-tx{ flex:1; color:var(--text-dim); line-height:1.45; }
+  .notif-row .nr-tm{ flex:none; font-size:11px; color:var(--text-faint); white-space:nowrap; }
+  .notif-seen-line{ font-size:11.5px; color:var(--text-faint); margin-top:3px; }
+  .notif-seen-line.unseen{ color:var(--coral); font-weight:600; }
   .user-pill{ display:flex; align-items:center; gap:9px; }
   .avatar{ width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#7C6CF6,#F0603E); display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; font-size:14.5px; }
   .user-pill .name{ font-size:14.5px; font-weight:600; }
@@ -830,7 +839,7 @@
       </div>
       <div class="topbar-right">
         <button class="bell" id="themeToggle" title="Switch light / dark" onclick="toggleTheme()" style="border:none;background:transparent;">🌙</button>
-        <div class="bell" id="bellIcon" onclick="openNotifications()">🔔</div>
+        <div class="bell" id="bellIcon" onclick="openNotifications()">🔔<span class="notif-badge" id="notifBadge" hidden>0</span></div>
         <div class="user-pill">
           <div class="avatar" id="topAvatar">HR</div>
           <div>
@@ -2753,29 +2762,63 @@ function renderDeadlineBanner(){
   wrap.innerHTML = banners.join('');
   bell.classList.toggle('has-alert', banners.length > 0);
 }
+/* In-app notification inbox — persistent + read-tracked (server-side), so a
+   task alert can't be missed silently. Polled alongside tasks. */
+let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
+const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓' };
+async function refreshNotifications(opts){
+  opts = opts || {};
+  if(!session) return;
+  try {
+    const d = await api('/api/notifications');
+    _notifs = d.notifications || [];
+    _notifUnread = d.unread || 0;
+    renderNotifBadge();
+    // toast the genuinely-new unread ones on the background poll
+    if(opts.notify && _notifPrevIds){
+      const fresh = _notifs.filter(n => !n.seenAt && !_notifPrevIds.has(n.id)).slice(0, 3);
+      fresh.forEach(n => showToast('info', 'New task alert', n.text));
+    }
+    _notifPrevIds = new Set(_notifs.map(n => n.id));
+  } catch(e){ /* non-fatal */ }
+}
+function renderNotifBadge(){
+  const b = document.getElementById('notifBadge');
+  const bell = document.getElementById('bellIcon');
+  if(!b) return;
+  if(_notifUnread > 0){ b.textContent = _notifUnread > 99 ? '99+' : _notifUnread; b.hidden = false; }
+  else b.hidden = true;
+  if(bell) bell.classList.toggle('has-alert', _notifUnread > 0);
+}
+async function markNotifsRead(id){
+  try { await api('/api/notifications/read', { method:'POST', body: JSON.stringify(id ? { id } : {}) }); }
+  catch(e){}
+  await refreshNotifications();
+}
+function _relTime(iso){
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if(s < 60) return 'just now';
+  if(s < 3600) return Math.floor(s/60) + 'm ago';
+  if(s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
 function openNotifications(){
-  const items = [];
-  const awaitingMine = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'awaiting_acceptance');
-  awaitingMine.forEach(t => {
-    const flagged = isReworkFlagged(t);
-    items.push({icon: flagged ? '⚠' : '📥', text: flagged
-      ? `Sent back for rework — <b style="color:var(--text);">${esc(t.name)}</b>${t.reviewNote ? ': ' + esc(t.reviewNote) : ''}. Accept it to start fixing, or propose a new window.`
-      : `New task assigned — <b style="color:var(--text);">${esc(t.name)}</b> (${esc(t.scope)}). Accept or propose a new window.`});
-  });
-  const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed'].includes(t.status));
-  dueToday.forEach(t => items.push({icon:'⏰', text:`Deadline today — <b style="color:var(--text);">${esc(t.name)}</b> (${esc(t.scope)})`}));
-  if(isAdmin){
-    tasks.filter(t => t.status === 'window_proposed').forEach(t => {
-      const emp = empById(t.assignedTo);
-      items.push({icon:'🗓', text:`<b style="color:var(--text);">${emp ? esc(emp.name) : '—'}</b> proposed a new window for "${esc(t.name)}"`});
-    });
-  }
+  const rows = _notifs.length ? _notifs.map(n => {
+    const go = n.taskId ? ` onclick="closeModal(); markNotifsRead('${n.id}'); openTaskTrailModal('${n.taskId}')"` : ` onclick="markNotifsRead('${n.id}')"`;
+    return `<div class="notif-row ${n.seenAt ? '' : 'unseen'}"${go}>
+      <span class="nr-ic">${NOTIF_ICON[n.type] || '🔔'}</span>
+      <span class="nr-tx">${esc(n.text)}</span>
+      <span class="nr-tm">${_relTime(n.at)}</span>
+    </div>`;
+  }).join('') : '<p style="font-size:13.5px;color:var(--text-faint);padding:16px 4px;">No notifications yet.</p>';
   document.getElementById('modalBox').innerHTML = `
-    <h3>🔔 Notifications</h3>
-    <div class="modal-sub">${items.length === 0 ? "You're all caught up." : items.length + ' item' + (items.length>1?'s':'') + ' need your attention.'}</div>
-    ${items.length > 0 ? `<div style="max-height:340px; overflow-y:auto;">${items.map(i => `<div style="display:flex; gap:10px; padding:11px 0; border-bottom:1px solid var(--line); font-size:14.5px; color:var(--text-dim);"><span>${i.icon}</span><span>${i.text}</span></div>`).join('')}</div>` : ''}
-    <div class="modal-actions"><button class="btn primary" onclick="closeModal()">Close</button></div>
-  `;
+    <h3>🔔 Notifications ${_notifUnread ? `<span style="font-size:13px;color:var(--coral);">· ${_notifUnread} unread</span>` : ''}</h3>
+    <div class="modal-sub">Every task assigned or nudged to you shows here — and stays until you've opened it.</div>
+    <div style="max-height:360px;overflow-y:auto;">${rows}</div>
+    <div class="modal-actions">
+      ${_notifUnread ? `<button class="btn" onclick="markNotifsRead()">Mark all read</button>` : ''}
+      <button class="btn primary" onclick="closeModal()">Close</button>
+    </div>`;
   openModal();
 }
 
@@ -6268,10 +6311,21 @@ function openTaskTrailModal(id){
   document.getElementById('modalBox').innerHTML = `
     <h3>Task history — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${t.id} · now: <b>${esc(stateNow)}</b></div>
+    <div id="ttNotifyStatus"></div>
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
   `;
   openModal();
+  // did the assignee open their alerts for this? (manager / assigner view)
+  if(t.assignedTo && (isAdmin || t.assignedBy === currentViewerId || t.assignedTo === currentViewerId)){
+    api(`/api/tasks/${encodeURIComponent(id)}/notify-status`).then(d => {
+      const el = document.getElementById('ttNotifyStatus'); if(!el || !d.status) return;
+      const who = esc((empById(t.assignedTo)||{}).name || 'the assignee');
+      el.innerHTML = d.status.seen
+        ? `<div class="notif-seen-line">🔔 ${who} opened their alert ${_relTime(d.status.seenAt)}.</div>`
+        : `<div class="notif-seen-line unseen">🔔 ${who} has <b>not opened</b> the alert for this task yet (sent ${_relTime(d.status.at)}).</div>`;
+    }).catch(()=>{});
+  }
 }
 /* =========================================================================
    REWORK — a task the manager flagged with an error, sent back to the
@@ -7090,6 +7144,7 @@ async function onLoginComplete(){
   await refreshTeams();
   await refreshTasks();
   await refreshActivity();
+  await refreshNotifications();
   await loadPunchState();
 
   if(isAdmin){
@@ -7117,6 +7172,7 @@ function logoutSession(){
   authToken = null;
   localStorage.removeItem('governanceOsToken');
   session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null; _dashMirror = null;
+  _notifs = []; _notifUnread = 0; _notifPrevIds = null; renderNotifBadge();
   seenAwaitingIds = null;
   stopPolling();
   if(clockInterval){ clearInterval(clockInterval); clockInterval = null; }
@@ -7164,6 +7220,7 @@ function startPolling(){
     if(!session) return;
     await refreshTasks();
     await refreshActivity({ notify: true });
+    await refreshNotifications({ notify: true });
     await refreshEmployees();
     await refreshClients();
   }, 8000);
