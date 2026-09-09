@@ -10,6 +10,58 @@ const db = require('./db');
 const cal = require('./calendar');
 
 // ---------------------------------------------------------------------------
+// WEB PUSH — browser notifications that fire even when the app isn't open.
+// VAPID keys: from env if set, else generated once and persisted in the DB
+// (same trust level as the JWT secret). Degrades quietly if the library or
+// keys are unavailable.
+// ---------------------------------------------------------------------------
+let webpush = null;
+try { webpush = require('web-push'); } catch (e) { console.warn('[push] web-push not installed — desktop alerts disabled'); }
+let PUSH_READY = false;
+function initPush() {
+  if (!webpush) return;
+  const state = db.get();
+  let pub = process.env.VAPID_PUBLIC_KEY, priv = process.env.VAPID_PRIVATE_KEY;
+  if (!pub || !priv) {
+    if (!state._vapid || !state._vapid.publicKey) {
+      state._vapid = webpush.generateVAPIDKeys();
+      db.save();
+      console.log('[push] generated a VAPID keypair (persisted)');
+    }
+    pub = state._vapid.publicKey; priv = state._vapid.privateKey;
+  }
+  try {
+    webpush.setVapidDetails('mailto:info@elitetaxation.co.nz', pub, priv);
+    PUSH_READY = true;
+  } catch (e) { console.warn('[push] VAPID setup failed:', e.message); }
+}
+function vapidPublicKey() {
+  if (process.env.VAPID_PUBLIC_KEY) return process.env.VAPID_PUBLIC_KEY;
+  const v = db.get()._vapid;
+  return v && v.publicKey ? v.publicKey : null;
+}
+// Fire a push to every device a person has registered. Prunes dead
+// subscriptions (410/404). Never throws.
+async function sendPush(state, empId, payload) {
+  if (!PUSH_READY || !webpush || !empId) return;
+  const subs = (state.pushSubs && state.pushSubs[empId]) || [];
+  if (!subs.length) return;
+  const body = JSON.stringify(payload);
+  const dead = [];
+  await Promise.all(subs.map(async s => {
+    try {
+      await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, body, { TTL: 86400, urgency: 'high' });
+    } catch (err) {
+      if (err && (err.statusCode === 404 || err.statusCode === 410)) dead.push(s.endpoint);
+    }
+  }));
+  if (dead.length) {
+    state.pushSubs[empId] = subs.filter(s => !dead.includes(s.endpoint));
+    db.save();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // HOLD REASON TAXONOMY (Query-Aware Delivery, Phase 1). Every hold picks one.
 // `exempting` codes freeze the client commitment clock (Phase 2); the rest
 // are internal and keep it running. `needsDetail` requires free text.
@@ -489,6 +541,17 @@ function notify(state, empId, type, text, taskId) {
   };
   state.notifications.push(row);
   if (state.notifications.length > 4000) state.notifications.splice(0, state.notifications.length - 4000);
+  // also push to the person's devices — even if the app isn't open. Fire and
+  // forget; the in-app inbox is the source of truth.
+  const emp = findEmployee(state, empId);
+  const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
+    rework: 'Task sent back', due: 'Task due', window: 'Window decision' };
+  setImmediate(() => sendPush(state, empId, {
+    title: (titles[type] || 'Task alert') + (emp ? '' : ''),
+    body: String(text).slice(0, 180),
+    tag: taskId ? 'task-' + taskId : 'n-' + row.id,
+    url: '/',
+  }).catch(() => {}));
   return row;
 }
 // what a manager sees about whether a person has opened their alerts for a task
@@ -2509,6 +2572,44 @@ app.post('/api/notifications/read', requireAuth, (req, res) => {
   res.json({ ok: true, marked: n });
 });
 
+// --- Web Push: browser desktop alerts (fire even when the app is closed) ---
+app.get('/api/push/key', requireAuth, (req, res) => {
+  const key = vapidPublicKey();
+  res.json({ publicKey: key || null, enabled: !!(PUSH_READY && key) });
+});
+app.post('/api/push/subscribe', requireAuth, (req, res) => {
+  const sub = req.body || {};
+  if (!sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    return res.status(400).json({ error: 'Invalid push subscription.' });
+  }
+  const state = db.get();
+  if (!state.pushSubs || typeof state.pushSubs !== 'object') state.pushSubs = {};
+  const list = state.pushSubs[req.employee.id] || [];
+  const without = list.filter(s => s.endpoint !== sub.endpoint);
+  without.push({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },
+    ua: String(req.headers['user-agent'] || '').slice(0, 120), at: new Date().toISOString() });
+  state.pushSubs[req.employee.id] = without.slice(-8); // cap devices per person
+  db.save();
+  res.json({ ok: true, devices: state.pushSubs[req.employee.id].length });
+});
+app.post('/api/push/unsubscribe', requireAuth, (req, res) => {
+  const endpoint = (req.body || {}).endpoint;
+  const state = db.get();
+  const list = (state.pushSubs && state.pushSubs[req.employee.id]) || [];
+  if (endpoint) state.pushSubs[req.employee.id] = list.filter(s => s.endpoint !== endpoint);
+  else if (state.pushSubs) state.pushSubs[req.employee.id] = [];
+  db.save();
+  res.json({ ok: true });
+});
+// Send a test push to yourself — the "is it working?" button.
+app.post('/api/push/test', requireAuth, async (req, res) => {
+  const state = db.get();
+  const subs = (state.pushSubs && state.pushSubs[req.employee.id]) || [];
+  if (!subs.length) return res.status(400).json({ error: 'No device registered on this account.' });
+  await sendPush(state, req.employee.id, { title: 'Desktop alerts are on ✓', body: 'This is how a task alert will look.', tag: 'push-test', url: '/' });
+  res.json({ ok: true, devices: subs.length });
+});
+
 // ---------------------------------------------------------------------------
 // TIME CLOCK / DAILY ATTENDANCE — server-authoritative. The server owns
 // "now", not the browser, so punch times can't be faked or drift across
@@ -3046,8 +3147,9 @@ const PORT = process.env.PORT || 3000;
 // JSON file) and runs migrations before the first request can arrive.
 db.init()
   .then(() => {
+    initPush();
     app.listen(PORT, () => {
-      console.log(`Elite Taxation Governance OS running at http://localhost:${PORT} — storage: ${db._mode()}`);
+      console.log(`Elite Taxation Governance OS running at http://localhost:${PORT} — storage: ${db._mode()} — push: ${PUSH_READY ? 'on' : 'off'}`);
     });
   })
   .catch((err) => {

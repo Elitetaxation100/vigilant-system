@@ -2795,6 +2795,53 @@ async function markNotifsRead(id){
   catch(e){}
   await refreshNotifications();
 }
+
+/* ---- Web Push: desktop/phone alerts that fire even when the app is closed ---- */
+let _pushReg = null, _pushKey = null;
+function _b64ToU8(b64){
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const s = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(s); const out = new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+async function initPushClient(){
+  if(!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    _pushReg = await navigator.serviceWorker.register('/sw.js');
+    const { publicKey } = await api('/api/push/key');
+    _pushKey = publicKey;
+    // if we're already subscribed, refresh the server's copy (endpoints rotate)
+    const sub = await _pushReg.pushManager.getSubscription();
+    if(sub && _pushKey) await api('/api/push/subscribe', { method:'POST', body: JSON.stringify(sub) });
+  } catch(e){ /* non-fatal */ }
+}
+function pushSupported(){ return ('serviceWorker' in navigator) && ('PushManager' in window) && !!_pushKey; }
+async function pushIsOn(){
+  if(!_pushReg) return false;
+  try { return !!(await _pushReg.pushManager.getSubscription()) && Notification.permission === 'granted'; }
+  catch(e){ return false; }
+}
+async function enablePush(){
+  if(!pushSupported()){ showToast('error', 'Not supported', 'This browser can\'t show desktop alerts.'); return; }
+  const perm = await Notification.requestPermission();
+  if(perm !== 'granted'){ showToast('error', 'Blocked', 'Allow notifications for this site in your browser, then try again.'); openNotifications(); return; }
+  try {
+    const sub = await _pushReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: _b64ToU8(_pushKey) });
+    await api('/api/push/subscribe', { method:'POST', body: JSON.stringify(sub) });
+    await api('/api/push/test', { method:'POST' });
+    showToast('success', 'Desktop alerts on', 'You\'ll get a screen notification for every task — sent a test one just now.');
+  } catch(e){ showToast('error', 'Could not turn on alerts', e.message); }
+  openNotifications();
+}
+async function disablePush(){
+  try {
+    const sub = _pushReg && await _pushReg.pushManager.getSubscription();
+    if(sub){ await api('/api/push/unsubscribe', { method:'POST', body: JSON.stringify({ endpoint: sub.endpoint }) }); await sub.unsubscribe(); }
+    showToast('info', 'Desktop alerts off', 'You\'ll still see the bell inside the app.');
+  } catch(e){}
+  openNotifications();
+}
 function _relTime(iso){
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
   if(s < 60) return 'just now';
@@ -2814,12 +2861,25 @@ function openNotifications(){
   document.getElementById('modalBox').innerHTML = `
     <h3>🔔 Notifications ${_notifUnread ? `<span style="font-size:13px;color:var(--coral);">· ${_notifUnread} unread</span>` : ''}</h3>
     <div class="modal-sub">Every task assigned or nudged to you shows here — and stays until you've opened it.</div>
-    <div style="max-height:360px;overflow-y:auto;">${rows}</div>
+    <div id="pushToggleRow" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:var(--panel-2);border:1px solid var(--panel-border);border-radius:10px;margin:4px 0 12px;font-size:13px;">
+      <span>📲 <b>Desktop alerts</b> — a screen notification even when this app isn't open.</span>
+      <span id="pushToggleBtn" style="color:var(--text-faint);">…</span>
+    </div>
+    <div style="max-height:340px;overflow-y:auto;">${rows}</div>
     <div class="modal-actions">
       ${_notifUnread ? `<button class="btn" onclick="markNotifsRead()">Mark all read</button>` : ''}
       <button class="btn primary" onclick="closeModal()">Close</button>
     </div>`;
   openModal();
+  // fill in the desktop-alert toggle state
+  (async () => {
+    const el = document.getElementById('pushToggleBtn'); if(!el) return;
+    if(!pushSupported()){ el.textContent = 'not supported here'; return; }
+    const on = await pushIsOn();
+    el.innerHTML = on
+      ? `<button class="btn small" onclick="disablePush()">Turn off</button>`
+      : `<button class="btn small primary" onclick="enablePush()">Turn on</button>`;
+  })();
 }
 
 /* =========================================================================
@@ -7145,6 +7205,7 @@ async function onLoginComplete(){
   await refreshTasks();
   await refreshActivity();
   await refreshNotifications();
+  initPushClient();
   await loadPunchState();
 
   if(isAdmin){

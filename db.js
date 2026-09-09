@@ -306,6 +306,11 @@ function runMigrations(state) {
   // it's been opened. { id, empId, type, text, taskId, at, seenAt }
   if (!Array.isArray(state.notifications)) state.notifications = [];
   if (typeof state.notificationSeq !== 'number') state.notificationSeq = 0;
+  // Web Push — browser desktop/phone notifications that fire even when the
+  // app isn't open. { empId: [ {endpoint, keys:{p256dh,auth}, ua, at} ] }.
+  // VAPID keypair persisted here (generated once) unless set via env.
+  if (!state.pushSubs || typeof state.pushSubs !== 'object' || Array.isArray(state.pushSubs)) state.pushSubs = {};
+  if (!state._vapid || !state._vapid.publicKey) state._vapid = null;
   // calls-into-tasks Phase 5: the connector's call log moves off the Google
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];
