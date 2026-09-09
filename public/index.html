@@ -4751,7 +4751,10 @@ function fiscalYearStartDate(ref){
 }
 function _prodRange(){
   const p = (document.getElementById('prodPeriod')||{}).value || 'month';
-  const now = new Date(); const iso = d => d.toISOString().slice(0,10);
+  const now = new Date();
+  // format in LOCAL time — toISOString() shifts NZ dates back a day, which
+  // was making "This month" start on 31 Aug instead of 1 Sept
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   document.getElementById('prodCustom').style.display = p === 'custom' ? '' : 'none';
   if(p === 'custom'){
     return { from: (document.getElementById('prodFrom')||{}).value || iso(new Date(now-30*864e5)),
@@ -4860,14 +4863,18 @@ async function saveWeights(team, gridId, reset){
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
   if(!body) return;
-  const { from, to } = _prodRange();
+  const { from: reqFrom, to } = _prodRange();
   let data;
-  try { data = await api(`/api/productivity?from=${from}&to=${to}`); }
+  try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}`); }
   catch(e){ body.innerHTML = `<tr><td colspan="13" style="color:var(--text-faint);padding:20px;text-align:center;">${esc(e.message)}</td></tr>`; return; }
   const T = data.totals;
+  // the server floors every window at go-live (7 Sept 2026) — no real data
+  // before then. Show the range the numbers were actually computed over.
+  const from = data.from || reqFrom;
+  const rangeLbl = `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}${data.goLiveApplied ? ' · from go-live' : ''}`;
   const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}</div>`;
   _prodWeights = data.weights || _prodWeights;
-  document.getElementById('prodScoreCard').innerHTML = scoreCardHtml(T.productivityScore, T.factors, data.weights, `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}`);
+  document.getElementById('prodScoreCard').innerHTML = scoreCardHtml(T.productivityScore, T.factors, data.weights, rangeLbl);
   renderWeightsEditor();
   // second score — coverage measured against FULL capacity, not just the
   // work that was allocated. The gap to the delivery score above, and the
@@ -4878,10 +4885,10 @@ async function renderProductivityView(){
     tile('Worked hours', T.workedHours.toFixed(1), `of ${T.allocatedHours.toFixed(1)} allocated`) +
     tile('Utilisation', T.utilisationPct==null?'—':T.utilisationPct+'%', `vs ${T.capacityHours.toFixed(0)}h capacity`) +
     tile('Efficiency', T.efficiency==null?'—':T.efficiency.toFixed(2)+'×', T.efficiency>=1?'under budget':'over budget') +
-    tile('Tasks delivered', T.tasks, `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}`) +
+    tile('Tasks delivered', T.tasks, rangeLbl) +
     tile('Fiscal YTD', T.cumulativeYtdWorked.toFixed(0)+'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`) +
     tile('Capacity score', T.capacityScore==null?'—':T.capacityScore+'/100',
-      `${capGap!=null && capGap>0 ? `${capGap} pts below the delivery score` : 'in line with the delivery score'} · managers left <b>${unalloc.toFixed(0)}h</b> of capacity unallocated`);
+      `${capGap!=null && capGap>0 ? `${capGap} pts below the delivery score` : 'in line with the delivery score'} · managers left <b>${unalloc.toFixed(0)}h</b> of ${T.capacityHours.toFixed(0)}h capacity unallocated`);
 
   const rows = data.people.slice().sort((a,b)=>(b.productivityScore??-1)-(a.productivityScore??-1) || b.workedHours-a.workedHours);
   body.innerHTML = rows.length ? rows.map(p => `<tr>
