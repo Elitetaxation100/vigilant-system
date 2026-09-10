@@ -13,30 +13,30 @@
     /* LIGHT is the default. Dark is opt-in via [data-theme="dark"]. Every
        component styles through these tokens, so switching themes only
        redefines the block below. */
-    --bg-deep:      #E7EEE9;
+    --bg-deep:      #EDF1F8;
     --panel:        #FFFFFF;
-    --panel-2:      #F1F6F1;
-    --panel-border: #DCE6DE;
-    --line:         #E8F0EA;
-    --text:         #14332B;
-    --text-dim:     #55685F;
-    --text-faint:   #869C92;
+    --panel-2:      #F3F6FB;
+    --panel-border: #DBE3EF;
+    --line:         #E8EDF6;
+    --text:         #172236;
+    --text-dim:     #54627B;
+    --text-faint:   #8792A9;
     /* accents double as saturated fills AND as text — these light values
        stay legible on white; the dark theme swaps in brighter ones below.
-       --purple is the deep-teal primary; --teal is the success green. */
-    --purple:       #0F6E63;
-    --purple-dim: #DEEDEA;
-    --teal:         #1E8A57;
-    --teal-dim:   #DCF1E3;
-    --amber:        #B9791A;
-    --amber-dim:  #FBEFD7;
+       --purple is the primary blue; --teal is the success green. */
+    --purple:       #1E5FAE;
+    --purple-dim: #E1EBF8;
+    --teal:         #0E7E93;
+    --teal-dim:   #DBEFF3;
+    --amber:        #B0741A;
+    --amber-dim:  #F9EFD9;
     --coral:        #CF4A2C;
-    --coral-dim:  #FAE7E0;
+    --coral-dim:  #FAE7E1;
     --flag:       #B84318;
-    --mint:       #BFE586;
-    --mint-deep:  #8FCF57;
-    --mint-soft:  #E2F2C8;
-    --ink-teal:   #0E3A32;
+    --mint:       #7FB5E8;
+    --mint-deep:  #3E86D4;
+    --mint-soft:  #E3EDFA;
+    --ink-teal:   #12243F;
     --shadow-1: 0 1px 2px rgba(20,24,40,.06), 0 1px 3px rgba(20,24,40,.05);
     --radius-s: 8px;
     --radius-m: 12px;
@@ -46,30 +46,30 @@
     --font-mono: 'JetBrains Mono', monospace;
   }
   :root[data-theme="dark"]{
-    --bg-deep:      #0A211C;
-    --panel:        #12332B;
-    --panel-2:      #0F2C25;
-    --panel-border: #244A3F;
-    --line:         #1E453A;
-    --text:         #E3F1E9;
-    --text-dim:     #9EBEB2;
-    --text-faint:   #6F9286;
-    --purple:       #3BC0B0;
-    --teal:         #3FC98A;
+    --bg-deep:      #0A1220;
+    --panel:        #131F33;
+    --panel-2:      #0F1A2C;
+    --panel-border: #27364F;
+    --line:         #1F2C43;
+    --text:         #E4EAF4;
+    --text-dim:     #9BA9C1;
+    --text-faint:   #6A7A97;
+    --purple:       #5CA0E6;
+    --teal:         #3BB7CC;
     --amber:        #F0B93E;
     --coral:        #F0603E;
     --flag:       #F0603E;
-    --mint:       #BFE586;
-    --mint-deep:  #8FCF57;
-    --mint-soft:  #1E3F2A;
-    --ink-teal:   #0E3A32;
+    --mint:       #8FBEF0;
+    --mint-deep:  #4E93DE;
+    --mint-soft:  #182741;
+    --ink-teal:   #0E1B30;
     --shadow-1: 0 1px 3px rgba(0,0,0,.4);
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
     background:
-      radial-gradient(1200px 500px at 90% -10%, #0F6E6314, transparent 60%),
-      radial-gradient(900px 500px at -10% 110%, #8FCF5714, transparent 60%),
+      radial-gradient(1200px 500px at 90% -10%, #1E5FAE14, transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, #3E86D414, transparent 60%),
       var(--bg-deep);
     color:var(--text);
     font-family:var(--font-body);
@@ -103,10 +103,10 @@
   .brand-mark{
     width:34px; height:34px; border-radius:9px;
     background:linear-gradient(135deg, var(--mint-deep), var(--ink-teal));
-    color:#0E3A32;
+    color:#fff;
     display:flex; align-items:center; justify-content:center;
     font-family:var(--font-display); font-weight:700; font-size:17.5px;
-    box-shadow:0 4px 16px #0F6E6340;
+    box-shadow:0 4px 16px #1E5FAE40;
   }
   .brand-text .t1{ font-family:var(--font-display); font-weight:700; font-size:16.5px; letter-spacing:.2px;}
   .brand-text .t2{ font-size:11px; color:var(--text-faint); letter-spacing:.6px; text-transform:uppercase; margin-top:1px;}
@@ -116,17 +116,17 @@
   .clock-time{ font-family:var(--font-mono); font-size:25px; font-weight:600; letter-spacing:.5px; margin-bottom:12px; color:var(--text); font-variant-numeric:tabular-nums;}
   .btn-punch{
     width:100%; border:none; border-radius:var(--radius-s); padding:9px 0;
-    background:linear-gradient(135deg, var(--teal), #159a78); color:#052015; font-weight:700; font-size:14.5px;
+    background:linear-gradient(135deg, var(--purple), #164C8C); color:#fff; font-weight:700; font-size:14.5px;
     letter-spacing:.3px; transition:transform .15s ease, box-shadow .15s ease;
   }
-  .btn-punch:hover{ transform:translateY(-1px); box-shadow:0 6px 18px #22C99E44; }
-  .btn-punch.active{ background:linear-gradient(135deg, var(--coral), #b8431f); color:#2a0e04; }
+  .btn-punch:hover{ transform:translateY(-1px); box-shadow:0 6px 18px #1E5FAE44; }
+  .btn-punch.active{ background:linear-gradient(135deg, var(--coral), #b8431f); color:#fff; }
 
   .status-row{ display:flex; align-items:center; justify-content:space-between; margin:14px 2px 6px; }
   .status-label{ font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--text-faint); }
   .status-toggle{ display:flex; background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:20px; padding:2px; }
   .status-toggle button{ border:none; background:transparent; color:var(--text-faint); font-size:13px; font-weight:600; padding:5px 11px; border-radius:16px; transition:all .15s ease; }
-  .status-toggle button.on{ background:var(--teal); color:#052015; }
+  .status-toggle button.on{ background:var(--teal); color:#fff; }
 
   .viewas{ margin-bottom:14px; }
   .viewas label{ font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--text-faint); display:block; margin-bottom:6px; }
@@ -167,7 +167,7 @@
   .notif-seen-line{ font-size:11.5px; color:var(--text-faint); margin-top:3px; }
   .notif-seen-line.unseen{ color:var(--coral); font-weight:600; }
   .user-pill{ display:flex; align-items:center; gap:9px; }
-  .avatar{ width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--mint-deep),var(--purple)); color:#0E3A32; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; font-size:14.5px; }
+  .avatar{ width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--mint-deep),var(--purple)); color:#fff; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; font-size:14.5px; }
   .user-pill .name{ font-size:14.5px; font-weight:600; }
   .user-pill .role{ font-size:12.5px; color:var(--text-faint); }
 
@@ -289,8 +289,8 @@
   .donut-tile .donut-legend{ gap:6px; flex:1; min-width:0; }
   .donut-tile .donut-legend-item{ font-size:11.5px; white-space:nowrap; }
   .donut-tile .donut-legend-item b{ margin-left:auto; padding-left:10px; font-weight:600; }
-  .circle-btn{ width:36px; height:36px; border-radius:50%; flex-shrink:0; background:var(--teal); border:none; color:#052015; font-size:14px; display:flex; align-items:center; justify-content:center; transition:transform .15s ease, box-shadow .15s ease; }
-  .circle-btn:hover{ transform:translateY(-1px); box-shadow:0 6px 16px #2FBE9344; }
+  .circle-btn{ width:36px; height:36px; border-radius:50%; flex-shrink:0; background:var(--purple); border:none; color:#fff; font-size:14px; display:flex; align-items:center; justify-content:center; transition:transform .15s ease, box-shadow .15s ease; }
+  .circle-btn:hover{ transform:translateY(-1px); box-shadow:0 6px 16px #1E5FAE44; }
   .today-row-right{ flex-shrink:0; }
 
   /* ================= DASHBOARD REDESIGN — green, card-based ================= */
@@ -327,15 +327,15 @@
   #view-dashboard .seg-key .k b{ color:var(--text); font-family:var(--font-display); font-weight:700; }
   #view-dashboard .seg-key .k i{ width:8px; height:8px; border-radius:3px; display:inline-block; margin-right:8px; vertical-align:1px; }
 
-  /* deep-teal capacity card */
-  #view-dashboard .dash-cap{ background:var(--ink-teal); color:#dcefe4; border-radius:var(--radius-l); padding:18px; display:flex; flex-direction:column; justify-content:space-between; gap:12px; min-height:150px; box-shadow:var(--shadow-1); position:relative; overflow:hidden; }
-  #view-dashboard .dash-cap::after{ content:""; position:absolute; right:-38px; top:-38px; width:140px; height:140px; border-radius:50%; background:rgba(191,229,134,.13); }
-  #view-dashboard .dash-cap .c-tag{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:.16em; color:#90b6a9; }
-  #view-dashboard .dash-cap .c-chip{ width:30px; height:22px; border-radius:6px; background:linear-gradient(135deg,#cde9a6,var(--mint-deep)); }
+  /* navy capacity card */
+  #view-dashboard .dash-cap{ background:var(--ink-teal); color:#dce6f5; border-radius:var(--radius-l); padding:18px; display:flex; flex-direction:column; justify-content:space-between; gap:12px; min-height:150px; box-shadow:var(--shadow-1); position:relative; overflow:hidden; }
+  #view-dashboard .dash-cap::after{ content:""; position:absolute; right:-38px; top:-38px; width:140px; height:140px; border-radius:50%; background:rgba(127,181,232,.14); }
+  #view-dashboard .dash-cap .c-tag{ font-family:var(--font-mono); font-size:10.5px; letter-spacing:.16em; color:#8ea6c9; }
+  #view-dashboard .dash-cap .c-chip{ width:30px; height:22px; border-radius:6px; background:linear-gradient(135deg,#bcd6f4,var(--mint-deep)); }
   #view-dashboard .dash-cap .c-hero{ font-family:var(--font-display); font-weight:700; font-size:27px; line-height:1; color:var(--mint); letter-spacing:-.01em; }
-  #view-dashboard .dash-cap .c-hero small{ font-family:var(--font-body); font-size:12px; font-weight:600; color:#a9c9bd; display:block; margin-top:6px; letter-spacing:0; }
-  #view-dashboard .dash-cap .c-foot{ font-family:var(--font-display); font-weight:600; font-size:13.5px; color:#dcefe4; }
-  #view-dashboard .dash-cap .c-foot span{ font-family:var(--font-mono); font-weight:500; font-size:10.5px; letter-spacing:.12em; color:#90b6a9; display:block; margin-top:3px; }
+  #view-dashboard .dash-cap .c-hero small{ font-family:var(--font-body); font-size:12px; font-weight:600; color:#9db4d7; display:block; margin-top:6px; letter-spacing:0; }
+  #view-dashboard .dash-cap .c-foot{ font-family:var(--font-display); font-weight:600; font-size:13.5px; color:#dce6f5; }
+  #view-dashboard .dash-cap .c-foot span{ font-family:var(--font-mono); font-weight:500; font-size:10.5px; letter-spacing:.12em; color:#8ea6c9; display:block; margin-top:3px; }
 
   /* to-do rows → transaction style */
   #view-dashboard .today-list{ gap:0; margin-bottom:6px; }
@@ -364,14 +364,14 @@
   .panel{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:20px 22px; margin-bottom:20px; box-shadow:0 1px 2px #10182804, 0 8px 24px -6px #10182812; }
   .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;}
   .panel-head h2{ font-family:var(--font-display); font-size:18px; font-weight:700; letter-spacing:-.1px; }
-  .panel-head h2::before{ content:''; display:inline-block; width:4px; height:15px; border-radius:2px; background:linear-gradient(180deg,var(--purple),var(--teal)); margin-right:9px; vertical-align:-2px; }
+  .panel-head h2::before{ content:''; display:inline-block; width:4px; height:15px; border-radius:2px; background:linear-gradient(180deg,var(--purple),var(--mint-deep)); margin-right:9px; vertical-align:-2px; }
   .panel-head-actions{ display:flex; gap:10px; }
   .btn{ display:flex; align-items:center; gap:7px; background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text); font-size:14px; font-weight:600; padding:8px 14px; border-radius:var(--radius-s); transition:.15s;}
   .btn:hover{ border-color:var(--purple); color:var(--purple); }
   .btn:active{ transform:scale(.96); }
   .btn.primary{ background:linear-gradient(135deg, var(--purple), var(--ink-teal)); border-color:transparent; color:#fff; }
   .btn.primary:hover{ box-shadow:0 6px 18px color-mix(in srgb, var(--purple) 45%, transparent); color:#fff; }
-  .btn.teal{ background:linear-gradient(135deg, var(--teal), #159a78); border-color:transparent; color:#052015; }
+  .btn.teal{ background:linear-gradient(135deg, var(--teal), #0a6273); border-color:transparent; color:#fff; }
   .btn.coral{ background:linear-gradient(135deg, var(--coral), #b8431f); border-color:transparent; color:#fff; }
   .btn.small{ padding:6px 11px; font-size:13px; }
   .btn:disabled{ opacity:.4; cursor:not-allowed; }
@@ -403,13 +403,13 @@
   .assignee{ display:flex; align-items:center; gap:8px; }
   .mini-avatar{ width:22px; height:22px; border-radius:50%; background:var(--panel-2); border:1px solid var(--panel-border); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:var(--text-dim); flex-shrink:0;}
   .logged{ font-family:var(--font-mono); font-size:14.5px; }
-  .logged b{ color:#0D9488; }
+  .logged b{ color:var(--teal); }
   .clientcell{ font-size:14px; }
   .clientcell .cdate{ font-family:var(--font-mono); font-size:13px; color:var(--text-faint); margin-top:2px;}
   .deadline-today{ color:#C2410C !important; font-weight:700; }
 
   .badge{ display:inline-flex; align-items:center; gap:5px; font-size:12.5px; font-weight:700; letter-spacing:.3px; padding:4px 10px; border-radius:20px; text-transform:uppercase; white-space:nowrap;}
-  .badge.completed{ background:var(--teal-dim); color:#0D9488; }
+  .badge.completed{ background:var(--teal-dim); color:var(--teal); }
   .badge.pending{ background:var(--amber-dim); color:#B45309; }
   .badge.overdue{ background:var(--coral-dim); color:#C2410C; }
   .badge.paused{ background:var(--coral-dim); color:#C2410C; }
@@ -428,7 +428,7 @@
   .action-stack{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .verify-btn{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; padding:6px 10px; border-radius:7px; transition:.15s; }
   .act-muted{ font-size:12px; color:var(--text-faint); }
-  .verify-btn:hover{ border-color:var(--teal); color:#0D9488; }
+  .verify-btn:hover{ border-color:var(--teal); color:var(--teal); }
   .verify-btn:active{ transform:scale(.95); }
   .ss-thumb{ width:34px; height:34px; border-radius:6px; object-fit:cover; border:1px solid var(--panel-border); cursor:pointer; }
 
@@ -461,10 +461,10 @@
   .sla-toggle-label{ font-size:13px; color:var(--text-dim); }
   .toggle-switch{ position:relative; width:40px; height:22px; border-radius:999px; background:var(--panel-2); border:1px solid var(--panel-border); cursor:pointer; flex-shrink:0; transition:background .15s ease; }
   .toggle-switch::after{ content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--text-faint); transition:transform .15s ease, background .15s ease; }
-  .toggle-switch.on{ background:#22C99E33; border-color:var(--teal); }
-  .toggle-switch.on::after{ transform:translateX(18px); background:#22C99E; }
+  .toggle-switch.on{ background:#1E5FAE33; border-color:var(--teal); }
+  .toggle-switch.on::after{ transform:translateX(18px); background:var(--teal); }
   .sla-status-chip{ font-size:11.5px; font-family:var(--font-mono); padding:3px 9px; border-radius:999px; border:1px solid var(--panel-border); color:var(--text-faint); }
-  .sla-status-chip.live{ color:#0D9488; border-color:var(--teal); }
+  .sla-status-chip.live{ color:var(--teal); border-color:var(--teal); }
   .sla-chart-wrap{ margin-top:16px; }
   .sla-chart-note{ font-size:12.5px; color:var(--text-faint); margin-top:10px; line-height:1.5; }
   .bars{ display:flex; align-items:flex-end; gap:14px; height:130px; margin-top:14px; padding:0 4px; }
@@ -482,7 +482,7 @@
   .cap-bar-fill{ height:100%; border-radius:4px; transition:width .2s ease; }
   .cap-sub{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:9px; font-size:12.5px; color:var(--text-dim); }
   .cap-tag{ font-size:11px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; padding:3px 9px; border-radius:20px; white-space:nowrap; }
-  .cap-tag.free{ background:var(--teal-dim); color:#0D9488; }
+  .cap-tag.free{ background:var(--teal-dim); color:var(--teal); }
   .cap-tag.busy{ background:var(--coral-dim); color:#C2410C; }
   /* My Team panel */
   .mt-list{ display:flex; flex-direction:column; gap:8px; }
@@ -592,11 +592,42 @@
     .mgr-grid{ grid-template-columns:1fr; }
     .feature-grid{ grid-template-columns:1fr; }
   }
-  @media (max-width: 760px){
-    .sidebar{ display:none; }
-    .stat-grid{ grid-template-columns:repeat(2,1fr); }
-    .content{ padding:20px 16px; }
+  /* ---- mobile: sidebar becomes a slide-out drawer ---- */
+  .nav-toggle{ display:none; }
+  .nav-backdrop{ display:none; }
+  @media (max-width: 860px){
+    .sidebar{
+      position:fixed; top:0; left:0; bottom:0; height:100%;
+      width:284px; max-width:84vw; z-index:220;
+      transform:translateX(-102%);
+      transition:transform .24s cubic-bezier(.3,.8,.4,1);
+      will-change:transform;
+    }
+    .app.nav-open .sidebar{ transform:translateX(0); box-shadow:10px 0 44px rgba(6,12,26,.42); }
+    .nav-backdrop{ position:fixed; inset:0; z-index:210; background:rgba(8,14,28,.5);
+      opacity:0; pointer-events:none; transition:opacity .2s ease; }
+    .app.nav-open .nav-backdrop{ display:block; opacity:1; pointer-events:auto; }
+    .nav-toggle{
+      display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;
+      width:38px; height:38px; border-radius:10px; margin-right:2px;
+      background:var(--panel); border:1px solid var(--panel-border); color:var(--text); font-size:18px;
+    }
+    .topbar{ padding:12px 14px; gap:10px; }
+    .topbar h1{ font-size:16.5px; }
+    .topbar .sub{ display:none; }
+    .topbar-right{ gap:8px; }
+    .user-pill > div{ display:none; }
+    .content{ padding:18px 14px 60px; }
+    .stat-grid{ grid-template-columns:repeat(2,1fr) !important; }
     table{ font-size:13px; }
+    .panel, .deliv, .dash-card{ overflow-x:auto; }
+    .dscope{ flex-direction:column; align-items:stretch; }
+    .dscope .dcrumb{ margin-left:0; }
+  }
+  @media (max-width: 480px){
+    #view-dashboard .top-grid{ grid-template-columns:repeat(2,1fr); }
+    .stat-grid{ grid-template-columns:1fr 1fr !important; }
+    #view-dashboard .dash-bento{ grid-template-columns:1fr; }
   }
 
   /* custom scrollbar — the default one clashes with the dark theme */
@@ -640,9 +671,9 @@
   /* ============ COMMAND CENTER — a deliberately dark ops console; it
      stays dark in both themes, so it re-declares the tokens locally ====== */
   .cc{
-    --panel:#131826; --panel-2:#161C29; --panel-border:#232838; --line:#1E2330;
-    --text:#E7EAF2; --text-dim:#9BA3BC; --text-faint:#6B7390; --bg-deep:#0B0E14;
-    --purple:#7C6CF6; --teal:#2FBE93; --amber:#F0B93E; --coral:#F0603E;
+    --panel:#131F33; --panel-2:#0F1A2C; --panel-border:#27364F; --line:#1F2C43;
+    --text:#E4EAF4; --text-dim:#9BA9C1; --text-faint:#6A7A97; --bg-deep:#0A1220;
+    --purple:#5CA0E6; --teal:#3BB7CC; --amber:#F0B93E; --coral:#F0603E;
     background:var(--bg-deep); border-radius:20px; padding:26px 28px 32px; margin:-4px 0 4px;
     color:var(--text); font-family:var(--font-body);
     box-shadow:0 20px 50px -20px #00000055;
@@ -651,13 +682,13 @@
   .cc-header-left{ display:flex; align-items:center; gap:14px; }
   .cc-logo-mark{
     width:42px; height:42px; border-radius:11px; flex-shrink:0;
-    background:linear-gradient(135deg, #2FBE93, #17876a); color:#04120C;
+    background:linear-gradient(135deg, #5CA0E6, #2C5FA8); color:#fff;
     display:flex; align-items:center; justify-content:center;
     font-family:var(--font-display); font-weight:800; font-size:16.5px;
-    box-shadow:0 4px 18px #2FBE9344;
+    box-shadow:0 4px 18px #5CA0E644;
   }
   .cc-title{ font-family:var(--font-display); font-weight:700; font-size:20px; color:#F5F7FA; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .cc-live-dot{ font-size:11px; font-weight:700; letter-spacing:.6px; color:var(--teal); background:#2FBE9318; border:1px solid #2FBE9355; padding:3px 8px; border-radius:20px; }
+  .cc-live-dot{ font-size:11px; font-weight:700; letter-spacing:.6px; color:var(--teal); background:#0E7E9318; border:1px solid #0E7E9355; padding:3px 8px; border-radius:20px; }
   .cc-subtitle{ font-size:12.5px; color:#8A93AE; margin-top:2px; }
   .cc-header-right{ text-align:right; }
   .cc-clock{ font-family:var(--font-mono); font-size:22px; font-weight:600; color:#F5F7FA; font-variant-numeric:tabular-nums; }
@@ -667,10 +698,10 @@
   .cc-toolbar-group{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
   .cc-toolbar-label{ font-size:11px; letter-spacing:.8px; color:var(--text-faint); margin-right:4px; }
   .cc-window-tab{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; font-weight:600; padding:6px 13px; border-radius:20px; transition:all .15s ease; }
-  .cc-window-tab.on{ background:var(--teal); color:#04120C; border-color:var(--teal); }
-  .cc-window-tab:hover:not(.on){ border-color:#2FBE9377; color:var(--text); }
-  .cc-excel-btn{ background:var(--panel-2); border:1px solid #2FBE9355; color:var(--teal); font-size:13.5px; font-weight:700; padding:8px 16px; border-radius:10px; }
-  .cc-excel-btn:hover{ background:#2FBE9318; }
+  .cc-window-tab.on{ background:var(--teal); color:#fff; border-color:var(--teal); }
+  .cc-window-tab:hover:not(.on){ border-color:#0E7E9377; color:var(--text); }
+  .cc-excel-btn{ background:var(--panel-2); border:1px solid #0E7E9355; color:var(--teal); font-size:13.5px; font-weight:700; padding:8px 16px; border-radius:10px; }
+  .cc-excel-btn:hover{ background:#0E7E9318; }
 
   .cc-stat-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:14px; margin-bottom:22px; }
   .cc-stat-card{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; position:relative; overflow:hidden; }
@@ -700,7 +731,7 @@
 
   /* ===== Admin space + task source tags (calls-into-tasks, Phase 1) ===== */
   .src-tag{ display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600; font-family:var(--font-mono); padding:2px 7px; border-radius:6px; white-space:nowrap; letter-spacing:.2px; }
-  .src-tag.call{ background:#2FBE9316; color:#0D9488; }
+  .src-tag.call{ background:#0E7E9316; color:var(--teal); }
   .src-tag.slack{ background:#7C6CF616; color:#5B4FCF; }
   .src-tag.manual{ background:#00000008; color:var(--text-faint); border:1px solid var(--panel-border); }
   .src-subtabs{ display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
@@ -725,7 +756,7 @@
 
   .stat-grid.g8{ grid-template-columns:repeat(4,1fr); }
   .stat-card .delta{ font-size:11.5px; color:var(--text-faint); margin-top:5px; font-family:var(--font-mono); }
-  .stat-card .delta .up{ color:#C2410C; } .stat-card .delta .dn{ color:#0D9488; }
+  .stat-card .delta .up{ color:#C2410C; } .stat-card .delta .dn{ color:var(--teal); }
 
   .dgrid-2{ display:grid; grid-template-columns:1.4fr 1fr; gap:20px; margin-bottom:20px; align-items:start; }
   .dgrid-2e{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; align-items:start; }
@@ -825,6 +856,8 @@
 <body>
 <div class="app">
 
+  <div class="nav-backdrop" id="navBackdrop" onclick="closeMobileNav()"></div>
+
   <!-- ============ SIDEBAR ============ -->
   <aside class="sidebar">
     <div class="brand">
@@ -902,7 +935,10 @@
     </div>
 
     <div class="admin-box">
-      <button class="admin-btn" id="adminLoginBtn" onclick="openAdminLogin()">🔒 Account</button>
+      <div style="display:flex; gap:8px;">
+        <button class="admin-btn" id="adminLoginBtn" style="flex:1;" onclick="openAdminLogin()">🔒 Account</button>
+        <button class="admin-btn" style="flex:0 0 auto; border-color:color-mix(in srgb, var(--coral) 40%, transparent); color:var(--coral);" onclick="logoutSession()">Log out</button>
+      </div>
       <div class="admin-status" id="adminStatus" style="display:none;">✓ Admin unlocked</div>
     </div>
   </aside>
@@ -910,7 +946,8 @@
   <!-- ============ MAIN ============ -->
   <main class="main">
     <div class="topbar">
-      <div>
+      <button class="nav-toggle" id="navToggle" onclick="toggleMobileNav()" aria-label="Open menu">☰</button>
+      <div style="flex:1;min-width:0;">
         <h1 id="pageTitle">Commitment Dashboard</h1>
         <div class="sub" id="pageSub">Verification matrix & live task tracking</div>
       </div>
@@ -1213,16 +1250,16 @@
                   <path id="ccStampArcTop" d="M 15,60 A 45,45 0 0 1 105,60"></path>
                   <path id="ccStampArcBottom" d="M 105,62 A 45,45 0 0 1 15,62"></path>
                 </defs>
-                <circle cx="60" cy="60" r="56" fill="none" stroke="#2FBE93" stroke-width="1.4"></circle>
-                <circle cx="60" cy="60" r="47" fill="none" stroke="#2FBE93" stroke-width="1" stroke-dasharray="2,3"></circle>
-                <text font-size="8.4" letter-spacing="1.6" fill="#2FBE93" font-family="'Space Grotesk',sans-serif" font-weight="700">
+                <circle cx="60" cy="60" r="56" fill="none" stroke="#1E5FAE" stroke-width="1.4"></circle>
+                <circle cx="60" cy="60" r="47" fill="none" stroke="#1E5FAE" stroke-width="1" stroke-dasharray="2,3"></circle>
+                <text font-size="8.4" letter-spacing="1.6" fill="#1E5FAE" font-family="'Space Grotesk',sans-serif" font-weight="700">
                   <textPath href="#ccStampArcTop" startOffset="50%" text-anchor="middle">ELITE TAXATION</textPath>
                 </text>
-                <text font-size="6.6" letter-spacing="1.1" fill="#2FBE93" font-family="Inter,sans-serif">
+                <text font-size="6.6" letter-spacing="1.1" fill="#1E5FAE" font-family="Inter,sans-serif">
                   <textPath href="#ccStampArcBottom" startOffset="50%" text-anchor="middle">AUCKLAND · NEW ZEALAND</textPath>
                 </text>
-                <text x="60" y="57" font-size="9.5" fill="#2FBE93" font-family="'Space Grotesk',sans-serif" font-weight="700" text-anchor="middle">VERIFIED</text>
-                <text x="60" y="70" font-size="6.2" fill="#2FBE93" font-family="'JetBrains Mono',monospace" text-anchor="middle">ATAINZ 11977</text>
+                <text x="60" y="57" font-size="9.5" fill="#1E5FAE" font-family="'Space Grotesk',sans-serif" font-weight="700" text-anchor="middle">VERIFIED</text>
+                <text x="60" y="70" font-size="6.2" fill="#1E5FAE" font-family="'JetBrains Mono',monospace" text-anchor="middle">ATAINZ 11977</text>
               </svg>
             </div>
           </div>
@@ -1413,7 +1450,7 @@
           </p>
           <div class="tat-strip">
             <div class="num">3.0 hrs</div>
-            <div style="font-size:14.5px; color:var(--text-dim);">Standard GST Filing turnaround &nbsp;·&nbsp; <span style="color:#0D9488;">40–45 min</span> fast-track benchmark</div>
+            <div style="font-size:14.5px; color:var(--text-dim);">Standard GST Filing turnaround &nbsp;·&nbsp; <span style="color:var(--teal);">40–45 min</span> fast-track benchmark</div>
           </div>
           <div class="feature-grid">
             <div class="feature-card"><div class="ico">📋</div><h3>Granular Work Allocation</h3><p>Customizable point weights per task type — every role is measured on the work that actually defines it.</p></div>
@@ -1655,7 +1692,7 @@
             <svg width="150" height="150" viewBox="0 0 150 150">
               <circle cx="75" cy="75" r="64" fill="none" stroke="#E6E9F1" stroke-width="12"/>
               <circle cx="75" cy="75" r="64" fill="none" stroke="url(#g1)" stroke-width="12" stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402" id="rcRing" />
-              <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F0A93E"/><stop offset="100%" stop-color="#22C99E"/></linearGradient></defs>
+              <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F0A93E"/><stop offset="100%" stop-color="#1E5FAE"/></linearGradient></defs>
             </svg>
             <div class="ring-center"><div class="pct" id="rcPct">—</div><div class="lbl" id="rcRingLbl">Score</div></div>
           </div>
@@ -1663,10 +1700,10 @@
             <h2 id="rcName">—</h2>
             <div class="role" id="rcRole">—</div>
             <div class="rc-stats">
-              <div class="rc-stat"><div class="v" id="rcOnTime" style="color:#0D9488;">—</div><div class="l">On-time</div></div>
+              <div class="rc-stat"><div class="v" id="rcOnTime" style="color:var(--teal);">—</div><div class="l">On-time</div></div>
               <div class="rc-stat"><div class="v" id="rcUtil" style="color:#5B4FCF;">—</div><div class="l">Utilisation</div></div>
               <div class="rc-stat"><div class="v" id="rcEff" style="color:#B45309;">—</div><div class="l">Efficiency</div></div>
-              <div class="rc-stat"><div class="v" id="rcCommitment" style="color:#0D9488;">—</div><div class="l">Commitment Met</div></div>
+              <div class="rc-stat"><div class="v" id="rcCommitment" style="color:var(--teal);">—</div><div class="l">Commitment Met</div></div>
               <div class="rc-stat"><div class="v" id="rcStreak" style="color:#C2410C;">—</div><div class="l">Best Streak</div></div>
             </div>
             <div class="badges-row" id="badgesRow"></div>
@@ -2261,7 +2298,16 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
 };
 const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees'];
+/* Mobile: the sidebar is an off-canvas drawer under 860px. */
+function toggleMobileNav(){ document.querySelector('.app').classList.toggle('nav-open'); }
+function closeMobileNav(){ document.querySelector('.app').classList.remove('nav-open'); }
+document.addEventListener('DOMContentLoaded', () => {
+  const sb = document.querySelector('.sidebar');
+  if(sb) sb.addEventListener('click', e => { if(e.target.closest('.nav-item, .admin-btn, .btn-punch')) closeMobileNav(); });
+  document.addEventListener('keydown', e => { if(e.key === 'Escape') closeMobileNav(); });
+});
 function showView(id, el){
+  closeMobileNav();
   // hard gate — these screens are superadmin-only (nav is hidden too, this
   // catches a stale link or a programmatic call)
   if(SUPERADMIN_ONLY_VIEWS.includes(id) && !isSuperAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
@@ -2355,7 +2401,7 @@ function renderAdminView(){
     let actions = '';
     if(isIntegration && t.status !== 'completed'){
       if(isAdmin || t.assignedTo === currentViewerId){
-        actions += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="markIntegrationTaskDone('${t.id}')">✓ Done</button>`;
+        actions += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="markIntegrationTaskDone('${t.id}')">✓ Done</button>`;
       }
       if(isAdmin && !t.assignedTo){
         actions += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openSetOwnerModal('${t.id}')">Assign</button>`;
@@ -2519,7 +2565,7 @@ async function markDoneNoReview(id){
       <input type="number" id="mdActualHours" min="0" step="0.25" placeholder="${tracked >= 0.05 ? tracked.toFixed(2) : (t ? t.tat : '')}"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" style="background:var(--teal,#0D9488);" onclick="doMarkDoneNoReview('${id}')">Mark Done</button>
+      <button class="btn primary" style="background:var(--teal,var(--teal));" onclick="doMarkDoneNoReview('${id}')">Mark Done</button>
     </div>`;
   openModal();
 }
@@ -2782,10 +2828,10 @@ function openUnacceptedBlockModal(list){
     const flagged = isReworkFlagged(t);
     let actions = '';
     if(t.status === 'awaiting_acceptance'){
-      actions = `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="acceptTaskFromBlock('${t.id}')">Accept</button>
+      actions = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTaskFromBlock('${t.id}')">Accept</button>
                  <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>`;
     } else if(t.status === 'rework'){
-      actions = `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>`;
+      actions = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>`;
     } else if(t.status === 'window_proposed'){
       actions = `<span style="font-size:12.5px;color:var(--text-faint);">Waiting on your manager's decision — or put it on hold.</span>`;
     } else {
@@ -3075,7 +3121,7 @@ function actionCell(t){
       if(t.status === 'on_hold'){
         html += holdControlsHtml(t);
       } else if(isMine || isAdmin){
-        html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="markDoneNoReview('${t.id}')">✓ Mark Done</button>`;
+        html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="markDoneNoReview('${t.id}')">✓ Mark Done</button>`;
         if(t.assignedTo) html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')" title="Send it to someone to check first">Send for Review</button>`;
         html += holdControlsHtml(t);
       }
@@ -3095,7 +3141,7 @@ function actionCell(t){
   }
   if(t.status === 'pending_approval'){
     if(iCanApproveAssignment(t)){
-      html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="approveAssignment('${t.id}')">Approve</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="approveAssignment('${t.id}')">Approve</button>`;
       html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="declineAssignment('${t.id}')">Decline</button>`;
     } else if(isMine){
       html += `<span style="font-size:12.5px;color:var(--text-faint);">Waiting for your manager to approve</span>`;
@@ -3104,12 +3150,12 @@ function actionCell(t){
     }
   } else if(t.status === 'awaiting_acceptance' && isMine){
     if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back for rework — accept to start fixing it</span>`;
-    html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="acceptTask('${t.id}')">Accept</button>`;
+    html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Accept</button>`;
     html += `<button class="verify-btn" onclick="openProposeModal('${t.id}')">Propose Window</button>`;
   } else if(t.status === 'window_proposed'){
     if(isAdmin){
       if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;">⚠ Rework — window proposed instead of starting the fix</span>`;
-      html += `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="approveProposal('${t.id}')">Approve</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="approveProposal('${t.id}')">Approve</button>`;
       html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
     } else {
       html += `<span style="font-size:13px;color:var(--text-faint);">Awaiting manager approval</span>`;
@@ -3122,8 +3168,8 @@ function actionCell(t){
       // Mark Complete are always available — you don't have to run the clock.
       html += t.timerStartedAt
         ? `<button class="verify-btn" onclick="pauseTask('${t.id}')" title="Pause the clock">⏸ Pause</button>`
-        : `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="resumeTask('${t.id}')" title="${t.startedAt ? 'Resume the clock' : 'Optional — track the actual time on this task'}">▶ ${t.startedAt ? 'Resume' : 'Start Work'}</button>`;
-      html += `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="markDoneNoReview('${t.id}')" title="Close it now — no reviewer needed">✓ Mark Done</button>`;
+        : `<button class="verify-btn" style="border-color:var(--teal,var(--teal));color:var(--teal);" onclick="resumeTask('${t.id}')" title="${t.startedAt ? 'Resume the clock' : 'Optional — track the actual time on this task'}">▶ ${t.startedAt ? 'Resume' : 'Start Work'}</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--teal,var(--teal));color:var(--teal);" onclick="markDoneNoReview('${t.id}')" title="Close it now — no reviewer needed">✓ Mark Done</button>`;
       html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')" title="Send it to someone to check first">Mark Complete &amp; Review</button>`;
       html += holdControlsHtml(t);
     }
@@ -3399,7 +3445,7 @@ function isTodaysWork(t){
 }
 /* miniState / dueBucket — shared by the To-do view and the modals. */
 function miniState(t){
-  if(t.timerStartedAt) return `<b style="color:#0D9488;">● In progress</b>`;
+  if(t.timerStartedAt) return `<b style="color:var(--teal);">● In progress</b>`;
   if(t.status === 'accepted' && t.startedAt) return `<b style="color:#C2410C;">⏸ Paused</b>`;
   if(t.status === 'accepted') return `<b style="color:var(--purple);">Yet to start</b>`;
   if(t.status === 'awaiting_acceptance') return `<b style="color:#B45309;">Awaiting acceptance</b>`;
@@ -3574,7 +3620,7 @@ function tgBar(pending, capacity){
   const pct = Math.min(100, Math.round(pending / cap * 100));
   const over = pending > capacity && capacity > 0;
   return `<div style="height:8px;border-radius:999px;background:var(--panel-border);overflow:hidden;">
-    <div style="height:100%;width:${pct}%;border-radius:999px;background:${over?'#F0603E':'#2FBE93'};"></div>
+    <div style="height:100%;width:${pct}%;border-radius:999px;background:${over?'#F0603E':'var(--teal)'};"></div>
   </div>`;
 }
 /* "12-hour clock" for an {hour,minute} — e.g. {8,0} → "8:00 am". */
@@ -3860,7 +3906,7 @@ function openNewAssignmentModal(){
           <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)}${flagged && t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
           <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${flagged ? ' · Sent back for rework' + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') : ''}</div>
           <div style="display:flex; gap:8px;">
-            <button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="acceptTaskFromNewAssignment('${t.id}')">Accept</button>
+            <button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTaskFromNewAssignment('${t.id}')">Accept</button>
             <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>
           </div>
         </div>`;
@@ -3941,7 +3987,7 @@ function queryDetailHtml(t){
 function holdControlsHtml(t){
   if(!iCanHold(t)) return '';
   if(t.status === 'on_hold'){
-    let h = `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="unholdTask('${t.id}')">Resume</button>`;
+    let h = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="unholdTask('${t.id}')">Resume</button>`;
     const q = openQuery(t);
     if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log client reply</button>`;
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
@@ -3992,7 +4038,7 @@ function openHoldModal(id){
     <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
       <textarea id="holdReason" rows="2" placeholder="e.g. asked which entity owns the vehicle for GST"></textarea></div>
     <div id="holdExemptBox" style="display:none;">
-      <div style="font-size:12.5px;color:#0D9488;margin:-4px 0 10px;">✓ The client commitment date pauses now, and moves forward by the working days spent waiting for the reply.</div>
+      <div style="font-size:12.5px;color:var(--teal);margin:-4px 0 10px;">✓ The client commitment date pauses now, and moves forward by the working days spent waiting for the reply.</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <div class="field" style="flex:1;min-width:150px;"><label>How was it raised?</label>
           <select id="qSource"><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
@@ -4083,7 +4129,7 @@ function openHoldDetailModal(id){
     <h3>On hold — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName)||'—'} · Held ${t.holdCount || 1} time${(t.holdCount||1) > 1 ? 's' : ''} · Agreed ${t.tat} hrs, ${displayedLogged(t).toFixed(1)} hrs logged so far</div>
     <div style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;margin:12px 0;font-size:13.5px;line-height:1.6;">
-      <b style="color:var(--text);">${esc(holdReasonLabel(t))}</b>${(HOLD_REASONS[t.holdReasonCode]||{}).exempting ? ' <span style="color:#0D9488;font-size:12px;">· client commitment clock paused</span>' : ''}
+      <b style="color:var(--text);">${esc(holdReasonLabel(t))}</b>${(HOLD_REASONS[t.holdReasonCode]||{}).exempting ? ' <span style="color:var(--teal);font-size:12px;">· client commitment clock paused</span>' : ''}
       ${t.holdReason && t.holdReason !== (HOLD_REASONS[t.holdReasonCode]||{}).label ? `<div style="margin-top:4px;color:var(--text-dim);">${esc(t.holdReason)}</div>` : ''}
       <div id="holdShotHolder" style="margin-top:10px;">${t.hasHoldScreenshot ? '<span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span>' : ''}</div>
     </div>
@@ -4145,7 +4191,7 @@ function openCompleteModal(id){
   <div class="modal-error" id="cmpError"></div>
   <div class="modal-actions" style="flex-wrap:wrap;">
   <button class="btn" onclick="closeModal()">Cancel</button>
-  <button class="btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="doMarkDoneNoReview('${id}')" title="Close it now without a reviewer">Done — no review</button>
+  <button class="btn" style="border-color:var(--teal,var(--teal));color:var(--teal);" onclick="doMarkDoneNoReview('${id}')" title="Close it now without a reviewer">Done — no review</button>
   ${reviewers.length ? `<button class="btn primary" onclick="submitComplete('${id}')">Send for Review</button>` : ''}
   </div>
   `;
@@ -4928,7 +4974,7 @@ function ccInWindow(iso){
 }
 function ccDonut(pct, label, sub){
   const p = Math.max(0, Math.min(100, pct));
-  const color = p >= 70 ? '#2FBE93' : p >= 40 ? '#F0B93E' : '#F0603E';
+  const color = p >= 70 ? 'var(--teal)' : p >= 40 ? '#F0B93E' : '#F0603E';
   return `<div class="cc-donut-card">
       <div class="cc-donut" style="background:conic-gradient(${color} ${p*3.6}deg, #232838 0deg);">
         <div class="cc-donut-hole">${p}%</div>
@@ -4979,7 +5025,7 @@ function renderAllocationPanel(a){
   </div>`;
   const rows = a.rows.map(r => {
     const load = r.loadPct==null?0:Math.min(140, r.loadPct);
-    const barCol = r.status==='over' ? '#F0603E' : r.status==='light' ? '#E8A33D' : '#2FBE93';
+    const barCol = r.status==='over' ? '#F0603E' : r.status==='light' ? '#E8A33D' : 'var(--teal)';
     const untag = (r.untaggedWeeks||[]).length;
     const tagBtn = untag>0 ? `<button class="btn-ghost btn-sm" onclick="openAllocTag('${r.id}')">Tag ${untag} week${untag===1?'':'s'}</button>` : '';
     const tagged = r.weeks.filter(w=>w.reasonCode);
@@ -5119,7 +5165,7 @@ async function renderCommandCenter(){
         <td style="font-family:var(--font-mono);">${r.reworkHoursTotal ? r.reworkHoursTotal.toFixed(2)+'h' : '—'}</td>
         <td style="font-family:var(--font-mono);">${r.shiftHours ? r.shiftHours.toFixed(1)+'h' : '—'}</td>
         <td>${r.productivityPct===null?'—':r.productivityPct+'%'}</td>
-        <td><b style="color:${r.rating===null?'var(--text-faint)':(r.rating>=4?'#2FBE93':r.rating>=2.5?'#F0B93E':'#F0603E')};">${r.rating===null?'—':r.rating+' / 5'}</b></td>
+        <td><b style="color:${r.rating===null?'var(--text-faint)':(r.rating>=4?'var(--teal)':r.rating>=2.5?'#F0B93E':'#F0603E')};">${r.rating===null?'—':r.rating+' / 5'}</b></td>
       </tr>`).join('');
   } else {
     rcWrap.style.display = 'none';
@@ -5141,7 +5187,7 @@ async function renderTrash(){
     <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
       <div><div style="font-weight:600;color:var(--text);">${esc(title)}</div>
         <div style="font-size:12px;color:var(--text-faint);">${esc(sub)} · removed ${esc(when)}${who ? ' by ' + esc(who) : ''}</div></div>
-      <button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="${restoreCall}">↩ Restore</button>
+      <button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="${restoreCall}">↩ Restore</button>
     </div>`;
   let html = '';
   if(tasks.length){
@@ -5382,7 +5428,7 @@ function pwSum(gridId){
   const g = document.getElementById(gridId); if(!g) return;
   let s=0; g.querySelectorAll('input[data-k]').forEach(i=>{ if(['E','T','R','N','C'].includes(i.dataset.k)) s+=parseFloat(i.value)||0; });
   const el = document.getElementById(gridId+'_sum');
-  if(el){ const ok=Math.abs(s-1)<0.001; el.textContent = `Σ = ${s.toFixed(2)}`; el.style.color = ok ? '#2FBE93' : '#F0603E'; }
+  if(el){ const ok=Math.abs(s-1)<0.001; el.textContent = `Σ = ${s.toFixed(2)}`; el.style.color = ok ? 'var(--teal)' : '#F0603E'; }
 }
 async function saveWeights(team, gridId, reset){
   const body = { team: team==='_default' ? null : team };
@@ -5455,11 +5501,11 @@ async function renderProductivityView(){
   const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
   const monthLbl = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
   document.getElementById('prodTrend').innerHTML = series.length ? `
-    <div class="label" style="margin-bottom:8px;">Monthly — <span style="color:var(--teal,#0D9488);">worked</span> vs <span style="color:var(--text-faint);">allocated</span></div>
+    <div class="label" style="margin-bottom:8px;">Monthly — <span style="color:var(--teal,var(--teal));">worked</span> vs <span style="color:var(--text-faint);">allocated</span></div>
     <div style="display:flex;gap:12px;align-items:flex-end;height:120px;overflow-x:auto;padding-bottom:4px;">
       ${series.map(s => `<div style="flex:0 0 54px;text-align:center;">
         <div style="height:100px;display:flex;gap:3px;align-items:flex-end;justify-content:center;">
-          <div style="width:16px;background:var(--teal,#0D9488);height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
+          <div style="width:16px;background:var(--teal,var(--teal));height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
           <div style="width:16px;background:var(--panel-border);height:${Math.round(s.allocated/max*100)}%;border-radius:2px 2px 0 0;" title="${s.allocated.toFixed(1)}h allocated"></div>
         </div>
         <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${monthLbl(s.monthStart)}</div>
@@ -5614,7 +5660,7 @@ function renderSlaChart(){
   }));
   const pathD = svgSmoothPath(points);
   const areaD = `${pathD} L ${points[n-1].x} ${padT + plotH} L ${points[0].x} ${padT + plotH} Z`;
-  const strokeColor = slaFeedOn ? '#22C99E' : '#8791A3';
+  const strokeColor = slaFeedOn ? '#1E5FAE' : '#8791A3';
 
   const gridLines = [0, 25, 50, 75, 100].map(v => {
     const y = padT + plotH - (v / 100) * plotH;
@@ -6181,7 +6227,7 @@ async function renderFounderView(){
     const rows = clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).slice(0, 12).map(c => {
       const owner = empById(c.ownerId);
       const open = tasks.filter(t => t.clientId === c.id && t.status !== 'completed').length;
-      return `<div class="flag-row" style="${owner?'':'color:#C2410C;'}"><span>${owner?'●':'⚠'}</span><span>${esc(c.name)}${open?` <span style="color:var(--text-faint);">· ${open} open</span>`:''}</span><span class="flag-count" style="${owner?'background:var(--teal-dim);color:#0D9488;':''}">${owner?esc(owner.name):'No owner'}</span></div>`;
+      return `<div class="flag-row" style="${owner?'':'color:#C2410C;'}"><span>${owner?'●':'⚠'}</span><span>${esc(c.name)}${open?` <span style="color:var(--text-faint);">· ${open} open</span>`:''}</span><span class="flag-count" style="${owner?'background:var(--teal-dim);color:var(--teal);':''}">${owner?esc(owner.name):'No owner'}</span></div>`;
     }).join('');
     co.innerHTML = (unowned.length ? `<div class="banner warn" style="margin-bottom:10px;font-size:13px;"><span>⚠</span><span><b>${unowned.length} without an owner:</b> ${unowned.map(c=>esc(c.name)).join(', ')}</span></div>` : `<div class="banner" style="margin-bottom:10px;font-size:13px;"><span>✓</span><span>Every client has an owner.</span></div>`) + rows;
   }
@@ -6267,7 +6313,7 @@ function renderClientOwnership(){
     return `<div class="flag-row" style="${owner ? '' : 'color:#C2410C;'}">
       <span>${owner ? '●' : '⚠'}</span>
       <span>${esc(c.name)}${openTasks ? ` <span style="color:var(--text-faint);">· ${openTasks} open task${openTasks>1?'s':''}</span>` : ''}</span>
-      <span class="flag-count" style="${owner ? 'background:var(--teal-dim); color:#0D9488;' : ''}">${owner ? esc(owner.name) : 'No owner'}</span>
+      <span class="flag-count" style="${owner ? 'background:var(--teal-dim); color:var(--teal);' : ''}">${owner ? esc(owner.name) : 'No owner'}</span>
     </div>`;
   }).join('');
   const summary = unowned.length > 0
@@ -6317,7 +6363,7 @@ function renderProductivity(){
     <div class="flag-row">
       <span>${esc(r.name)}</span>
       <span style="color:var(--text-faint); font-family:'JetBrains Mono',monospace; font-size:12.5px;">${r.worked.toFixed(1)}h worked / ${r.planned.toFixed(1)}h planned</span>
-      <span class="flag-count" style="${r.pct !== null && r.pct <= 100 ? 'background:var(--teal-dim); color:#0D9488;' : ''}">${r.pct === null ? '—' : r.pct + '%'}</span>
+      <span class="flag-count" style="${r.pct !== null && r.pct <= 100 ? 'background:var(--teal-dim); color:var(--teal);' : ''}">${r.pct === null ? '—' : r.pct + '%'}</span>
     </div>`).join('');
 }
 
@@ -6343,7 +6389,7 @@ function renderCommitment(){
   }).filter(Boolean);
   wrap.innerHTML = `
     <div class="banner"><span>🎯</span><span><b>${overallPct}%</b> of completed work delivered on or before the client's agreed date (${overallMet}/${completedWithDate.length}).</span></div>
-    ${perEmp.map(r => `<div class="flag-row"><span>${esc(r.name)}</span><span style="color:var(--text-faint); font-size:12.5px;">${r.met}/${r.total} on time</span><span class="flag-count" style="${r.pct>=90?'background:var(--teal-dim); color:#0D9488;':''}">${r.pct}%</span></div>`).join('')}
+    ${perEmp.map(r => `<div class="flag-row"><span>${esc(r.name)}</span><span style="color:var(--text-faint); font-size:12.5px;">${r.met}/${r.total} on time</span><span class="flag-count" style="${r.pct>=90?'background:var(--teal-dim); color:var(--teal);':''}">${r.pct}%</span></div>`).join('')}
   `;
 }
 
@@ -6367,7 +6413,7 @@ function renderAccuracy(){
     }).filter(Boolean);
     wrap.innerHTML = `
       <div class="banner"><span>✔</span><span><b>${pct}%</b> error-free (${clean}/${reviewed.length} returns reviewed).</span></div>
-      ${perEmp.map(r => `<div class="flag-row"><span>${esc(r.name)}</span><span style="color:var(--text-faint); font-size:12.5px;">${r.clean}/${r.total} clean</span><span class="flag-count" style="${r.pct>=90?'background:var(--teal-dim); color:#0D9488;':'background:var(--coral-dim); color:#C2410C;'}">${r.pct}%</span></div>`).join('')}
+      ${perEmp.map(r => `<div class="flag-row"><span>${esc(r.name)}</span><span style="color:var(--text-faint); font-size:12.5px;">${r.clean}/${r.total} clean</span><span class="flag-count" style="${r.pct>=90?'background:var(--teal-dim); color:var(--teal);':'background:var(--coral-dim); color:#C2410C;'}">${r.pct}%</span></div>`).join('')}
     `;
   }
   renderPendingReview();
@@ -6407,7 +6453,7 @@ function renderNeedsRework(){
     if(t.status === 'rework') stageLabel = t.reworkElapsedHours != null ? 'In rework ' + fmtHrsMins(t.reworkElapsedHours) : 'In rework';
     else if(t.status === 'window_proposed'){
       stageLabel = 'Proposed: ' + fmtDate(t.proposedDate);
-      if(isAdmin) action = `<button class="verify-btn" style="border-color:var(--teal);color:#0D9488;" onclick="approveProposal('${t.id}')">Approve</button> <button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
+      if(isAdmin) action = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="approveProposal('${t.id}')">Approve</button> <button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
     }
     else stageLabel = 'Awaiting acceptance';
     return `<div class="flag-row" style="align-items:center;">
@@ -6445,7 +6491,7 @@ function openReviewFormModal(id){
       <div><b style="color:var(--text);">Hours logged:</b> ${t.logged.toFixed(2)} / ${t.tat} hrs estimated</div>
       <div><b style="color:var(--text);">Completed on:</b> ${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</div>
       <div><b style="color:var(--text);">Client committed date:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
-      <div><b style="color:var(--text);">Commitment:</b> ${cs === 'met' ? '<span style="color:#0D9488;">✓ Met</span>' : cs === 'missed' ? '<span style="color:#C2410C;">✗ Missed</span>' : '—'}</div>
+      <div><b style="color:var(--text);">Commitment:</b> ${cs === 'met' ? '<span style="color:var(--teal);">✓ Met</span>' : cs === 'missed' ? '<span style="color:#C2410C;">✗ Missed</span>' : '—'}</div>
     </div>
     <div class="field">
       <label>Review checklist</label>
@@ -6529,7 +6575,7 @@ function openReviewViewModal(id){
       <div><b style="color:var(--text);">Reviewed by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
       <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(t.reviewedAt.slice(0,10)) : '—'}</div>
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
-      <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision ? '<span style="color:#B45309;">Awaiting decision on sending to client</span>' : t.sentToClient === true ? '<span style="color:#0D9488;">✓ Sent directly to client</span>' : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>' : '<span style="color:var(--text-faint);">—</span>'}</div>
+      <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision ? '<span style="color:#B45309;">Awaiting decision on sending to client</span>' : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>' : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>' : '<span style="color:var(--text-faint);">—</span>'}</div>
     </div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
   `;
@@ -6849,11 +6895,11 @@ async function renderReportCard(){
   const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
   const monthLbl = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
   document.getElementById('rcTrend').innerHTML = series.length ? `
-    <div class="label" style="margin-bottom:8px;"><span style="color:var(--teal,#0D9488);">worked</span> vs <span style="color:var(--text-faint);">allocated</span>, per month</div>
+    <div class="label" style="margin-bottom:8px;"><span style="color:var(--teal,var(--teal));">worked</span> vs <span style="color:var(--text-faint);">allocated</span>, per month</div>
     <div style="display:flex;gap:14px;align-items:flex-end;height:130px;overflow-x:auto;padding-bottom:4px;">
       ${series.map(s => `<div style="flex:0 0 56px;text-align:center;">
         <div style="height:104px;display:flex;gap:4px;align-items:flex-end;justify-content:center;">
-          <div style="width:17px;background:var(--teal,#0D9488);height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
+          <div style="width:17px;background:var(--teal,var(--teal));height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
           <div style="width:17px;background:var(--panel-border);height:${Math.round(s.allocated/max*100)}%;border-radius:2px 2px 0 0;" title="${s.allocated.toFixed(1)}h allocated"></div>
         </div>
         <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${monthLbl(s.monthStart)}</div>
