@@ -498,6 +498,36 @@ function computeCommitmentDates(state, emp, allocatedHours, requestedStartISO) {
   const clientDate = cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD);
   return { startDay, internalDeadline, clientDate, taskDays, backlogHours: Math.round(backlog * 100) / 100, effectiveCapacity: cap };
 }
+// Working hours `emp` can still absorb by `byISO` (inclusive) — their
+// leave-aware capacity over [today, byISO] minus the remaining effort of the
+// work already on their plate that's due on or before that date.
+function allocationRoom(state, emp, byISO) {
+  const today = todayISO();
+  const to = byISO && byISO >= today ? byISO : today;
+  const windowCapacity = capacityHoursBetween(state, emp, today, to);
+  const committedLoad = state.tasks
+    .filter(t => t.assignedTo === emp.id
+      && !['completed', 'pending_approval'].includes(t.status)
+      && t.internalDeadline && t.internalDeadline <= to)
+    .reduce((s, t) => s + remainingHours(t), 0);
+  return {
+    windowCapacity: Math.round(windowCapacity * 100) / 100,
+    committedLoad: Math.round(committedLoad * 100) / 100,
+    room: Math.round(Math.max(0, windowCapacity - committedLoad) * 100) / 100,
+  };
+}
+// Would a `hours`-hour task due `byISO` push `emp` past what they can fit?
+function overloadCheck(state, emp, hours, byISO) {
+  const r = allocationRoom(state, emp, byISO);
+  const overBy = Math.round(Math.max(0, hours - r.room) * 100) / 100;
+  const av = availabilityOf(state, emp);
+  return {
+    ...r, hours: Math.round(hours * 100) / 100, byDate: byISO, overBy,
+    over: overBy > 0.24,
+    busyUntil: av.committedThrough > todayISO() ? av.committedThrough : null,
+    clearsAt: av.clearsAt,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // WORKLOAD / AVAILABILITY — informational only. There is no capacity gate:
@@ -1035,7 +1065,13 @@ app.get('/api/tasks/plan', requireAuth, (req, res) => {
   refreshCapacity(state, emp);
   const hours = Math.max(0.25, parseFloat(req.query.hours) || 3);
   const start = (typeof req.query.start === 'string' && /^\d{4}-\d{2}-\d{2}/.test(req.query.start)) ? req.query.start.slice(0, 10) : null;
-  res.json({ assignee: emp.name, ...computeCommitmentDates(state, emp, hours, start), ...availabilityOf(state, emp) });
+  const by = (typeof req.query.by === 'string' && /^\d{4}-\d{2}-\d{2}/.test(req.query.by)) ? req.query.by.slice(0, 10) : null;
+  res.json({
+    assignee: emp.name,
+    ...computeCommitmentDates(state, emp, hours, start),
+    ...availabilityOf(state, emp),
+    overload: by ? overloadCheck(state, emp, hours, by) : null,
+  });
 });
 // The client commitment date for a given manager (internal) due date: the
 // dispatch buffer in working days on top, skipping Sundays, public holidays
@@ -1110,6 +1146,21 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   if (!(numTat > 0)) return res.status(400).json({ error: 'A task needs an estimated time in hours.' });
   if (!internalDeadline) return res.status(400).json({ error: 'A task needs a due date.' });
 
+  // Capacity is not a hard server-side gate (never has been). But if the work
+  // lands on someone already fully booked for that date, the task is stamped
+  // over-allocated so its hours surface as extra work — and the assign modal
+  // makes the assigner tick "assign anyway" before it gets here.
+  let overAllocated = null;
+  if (mode === 'team') {
+    const oc = overloadCheck(state, findEmployee(state, assignee), numTat, internalDeadline);
+    if (oc.over) {
+      overAllocated = {
+        overBy: oc.overBy, dueDate: internalDeadline, roomAtAssign: oc.room,
+        at: new Date().toISOString(), byId: req.employee.id, byName: req.employee.name,
+      };
+    }
+  }
+
   // No daily-hours cap and no self-assignment approval — anyone can hand
   // themselves (or someone they manage) work, whatever the day already holds.
   const status = mode === 'team' ? 'awaiting_acceptance' : 'accepted';
@@ -1146,7 +1197,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
-    holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [],
+    holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [], overAllocated,
     // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
     // app are 'manual'; the Slack connector will send 'call' / 'slack' later.
     source: 'manual', sourceRef: null,
@@ -1157,7 +1208,8 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     logEvent(state, assignee, `New task assigned — <b>${assigneeEmp ? escHtml(assigneeEmp.name) : '—'}</b>, awaiting acceptance.`, {
       client: task.clientName, clientDate: task.clientDate, internalDeadline: task.internalDeadline
     });
-    notify(state, assignee, 'assigned', `${req.employee.name} assigned you "${task.name}" — accept it or propose a new window.`, task.id);
+    const overNote = task.overAllocated ? ` This is ${task.overAllocated.overBy}h over your capacity for that date — it'll count as extra hours.` : '';
+    notify(state, assignee, 'assigned', `${req.employee.name} assigned you "${task.name}" — accept it or propose a new window.${overNote}`, task.id);
   }
   db.save();
   res.status(201).json({ task: taskForClient(task) });

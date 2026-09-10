@@ -381,6 +381,7 @@ function runMigrations(state) {
     if (t.clientDateOverride === undefined) t.clientDateOverride = false;
     if (t.dateHistory === undefined) t.dateHistory = []; // [{ at, by, from:{internal,client}, to:{internal,client}, note }]
     if (t.tatHistory === undefined) t.tatHistory = []; // [{ at, by, from, to, note }] — manager edits to the agreed estimate
+    if (t.overAllocated === undefined) t.overAllocated = null; // { overBy, dueDate, roomAtAssign, at, byId, byName } — assigned past capacity with "assign anyway"
     // Phase 2: query records freeze the client commitment clock.
     if (t.queries === undefined) t.queries = []; // [{ id, reasonCode, source, raisedBy, sentAt, replyAt, resumedAt, note }]
     // "Yet to start" vs "In progress": accepting no longer auto-starts the

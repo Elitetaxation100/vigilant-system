@@ -1718,6 +1718,7 @@ async function api(path, opts) {
   if (!res.ok) {
     const err = new Error((data && data.error) || ('Request failed: ' + res.status));
     err.status = res.status;
+    err.data = data || null;
     if (data && data.pendingTasks) err.pendingTasks = data.pendingTasks;
     if (data && data.pendingRework) err.pendingRework = data.pendingRework;
     if (data && data.code) err.code = data.code;
@@ -3035,6 +3036,11 @@ function commitmentBadge(t){
   if(s === 'rework')  return `<span class="badge overdue dot" title="Not counted toward commitment until fixed and resubmitted">⏳ Pending Rework</span>`;
   return '';
 }
+function overloadBadge(t){
+  const o = t.overAllocated;
+  if(!o) return '';
+  return `<span class="badge overdue dot" title="Assigned by ${esc(o.byName||'a manager')} for ${fmtDate(o.dueDate)} — ${o.overBy}h beyond capacity for that date. Counts as extra hours.">⚡ Over capacity +${o.overBy}h</span>`;
+}
 function actionCell(t){
   if(isMirroring()) return `<div class="action-stack">${statusBadge(t)}</div>`;
   const isMine = t.assignedTo === currentViewerId;
@@ -3435,8 +3441,8 @@ function renderMyDay(){
       <div class="tr-left">
         <span class="hrs-badge" title="estimated time for this task">⏱ ${t.tat}h</span>
         <div style="min-width:0;">
-          <div class="today-row-title">${esc(t.clientName ? t.clientName + ' — ' : '')}${esc(t.name || '')}</div>
-          <div class="today-row-sub">${miniState(t)} &middot; due ${t.internalDeadline ? fmtDate(t.internalDeadline) : 'no date'}${od ? ' <b style="color:#C2410C;">&middot; overdue</b>' : ''}${t.clientDate ? ' &middot; client ' + fmtDate(t.clientDate) : ''}</div>
+          <div class="today-row-title">${esc(t.clientName ? t.clientName + ' — ' : '')}${esc(t.name || '')}${t.overAllocated ? ' <span title="Assigned over capacity for '+fmtDate(t.overAllocated.dueDate)+' — counts as extra hours" style="color:var(--flag);font-weight:700;">⚡+'+t.overAllocated.overBy+'h</span>' : ''}</div>
+          <div class="today-row-sub">${miniState(t)} &middot; due ${t.internalDeadline ? fmtDate(t.internalDeadline) : 'no date'}${od ? ' <b style="color:var(--coral);">&middot; overdue</b>' : ''}${t.clientDate ? ' &middot; client ' + fmtDate(t.clientDate) : ''}</div>
         </div>
       </div>
       <div class="today-row-right">${actionButtonHtml(t)}</div>
@@ -3586,12 +3592,15 @@ function renderCapacityCard(){
     : (m.busyUntil && m.busyUntilAt)
       ? `in queue · busy until ${fmtBusyUntil(m.busyUntilAt)}`
       : 'in queue · clears today';
+  const overH = Math.round(tasks
+    .filter(t => t.assignedTo === dashSubjectId() && t.status !== 'completed' && t.overAllocated)
+    .reduce((s,t) => s + (t.overAllocated.overBy||0), 0) * 10) / 10;
   el.innerHTML = `<div class="dash-cap">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;">
       <div class="c-chip"></div>
       <span class="c-tag">CAPACITY</span>
     </div>
-    <div class="c-hero">${queue}h<small>${clearLine}</small></div>
+    <div class="c-hero">${queue}h<small>${clearLine}${overH > 0 ? ` · <b style="color:var(--mint);">${overH}h assigned over capacity</b>` : ''}</small></div>
     <div class="c-foot">${daily ? daily : '—'} h / day${m.onLeaveToday ? ' · on leave today' : ''}
       <span>${esc(String(team).toUpperCase())}</span>
     </div>
@@ -4349,15 +4358,23 @@ function openAssignModal(mode){
     <div class="field"><label id="atTatLabel">Estimated time (hours) <span class="req-mark">*</span></label><input type="number" id="atTat" value="3" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
     <div class="field"><label id="atDeadlineLabel">Manager due date (internal) <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}" onchange="atPlanPreview(); atSyncClientDate()"></div>
     <div class="field" id="atClientDateWrap"><label>Client commitment date <span style="font-weight:400;color:var(--text-faint);">— auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
+    <div id="atOverloadWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 35%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55;">
+      <div id="atOverloadText" style="color:var(--flag); font-weight:600;"></div>
+      <label style="display:flex; gap:8px; align-items:flex-start; margin-top:8px; font-weight:500; color:var(--text-dim); cursor:pointer;">
+        <input type="checkbox" id="atAcceptOverload" onchange="atRefreshSubmitBtn()" style="margin-top:2px;">
+        <span>Assign anyway — I understand it lands as extra hours on their plate that day.</span>
+      </label>
+    </div>
     <div class="modal-error" id="assignError">Please enter a task name.</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" onclick="submitAssign('${mode}')">${isTeam ? 'Send for Acceptance' : 'Create Task'}</button>
+      <button class="btn primary" id="atSubmitBtn" data-base="${isTeam ? 'Send for Acceptance' : 'Create Task'}" onclick="submitAssign('${mode}')">${isTeam ? 'Send for Acceptance' : 'Create Task'}</button>
     </div>
   `;
   openModal();
   window.__stickyModal = true;              // don't close on a click outside a half-filled form
   _atClientDateTouched = false;
+  _atOverload = null;
   setAssignKind(noClients ? 'internal' : 'client');
   if(isTeam) atPlanPreview();
   atSyncClientDate();
@@ -4385,6 +4402,7 @@ function atSyncClientDate(){
 // Live "when will this land?" preview for a team assignment, from the
 // assignee's real capacity + queue (Phase 5).
 let _atPlanTimer = null;
+let _atOverload = null;
 function atPlanPreview(){
   clearTimeout(_atPlanTimer);
   _atPlanTimer = setTimeout(async () => {
@@ -4392,14 +4410,39 @@ function atPlanPreview(){
     const sel = document.getElementById('atAssignee');
     if(!hint || !sel || !sel.value) return;
     const hours = parseFloat((document.getElementById('atTat')||{}).value) || 3;
+    const by = (document.getElementById('atDeadline')||{}).value || '';
     let p;
-    try { p = await api(`/api/tasks/plan?assignee=${encodeURIComponent(sel.value)}&hours=${hours}`); }
+    try { p = await api(`/api/tasks/plan?assignee=${encodeURIComponent(sel.value)}&hours=${hours}${by ? '&by=' + by : ''}`); }
     catch(e){ hint.textContent = ''; return; }
     const cap = `${p.effectiveCapacity}h/day${p.capacityAuto ? ' (measured)' : ''}`;
     const busy = p.committedThrough > todayISO() ? `committed through <b>${fmtDate(p.committedThrough)}</b>` : 'queue is clear';
     hint.innerHTML = `${esc(p.assignee.split(' ')[0])}: ${busy} · ${cap}. A ${hours}h task lands internally <b>${fmtDate(p.internalDeadline)}</b>, client <b>${fmtDate(p.clientDate)}</b>.
-      <a href="#" onclick="atUseComputedDates('${p.internalDeadline}','${p.clientDate}');return false;" style="color:var(--blue,#2D5B8E);">Use these dates</a>`;
+      <a href="#" onclick="atUseComputedDates('${p.internalDeadline}','${p.clientDate}');return false;" style="color:var(--purple);">Use these dates</a>`;
+    // over-allocation soft stop
+    _atOverload = (p.overload && p.overload.over) ? p.overload : null;
+    const warn = document.getElementById('atOverloadWarn');
+    const txt = document.getElementById('atOverloadText');
+    const cb = document.getElementById('atAcceptOverload');
+    if(_atOverload && warn){
+      const first = esc(p.assignee.split(' ')[0]);
+      const bookedLine = _atOverload.busyUntil ? `${first} is booked through ${fmtDate(_atOverload.busyUntil)}` : `${first} is fully booked`;
+      txt.textContent = `⚠ ${bookedLine}. Only ${_atOverload.room}h is free by ${fmtDate(by)}, so this ${hours}h task is ${_atOverload.overBy}h over capacity for that date.`;
+      warn.style.display = '';
+    } else if(warn){
+      warn.style.display = 'none';
+      if(cb) cb.checked = false;
+    }
+    atRefreshSubmitBtn();
   }, 250);
+}
+function atRefreshSubmitBtn(){
+  const btn = document.getElementById('atSubmitBtn');
+  if(!btn) return;
+  const ticked = !!(document.getElementById('atAcceptOverload')||{}).checked;
+  btn.disabled = !!(_atOverload && !ticked);
+  btn.textContent = _atOverload
+    ? (ticked ? 'Assign anyway' : 'Over capacity — tick to continue')
+    : (btn.dataset.base || 'Send for Acceptance');
 }
 function atUseComputedDates(internal, client){
   const d = document.getElementById('atDeadline'); if(d) d.value = internal;
@@ -4435,6 +4478,7 @@ async function submitAssign(mode){
   let team = (document.getElementById('atTeam') || {}).value || '';
   if(team === '__custom__') team = ((document.getElementById('atTeamCustom') || {}).value || '').trim();
   const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };
+  if((document.getElementById('atAcceptOverload')||{}).checked) payload.acceptOverload = true;
   if(isInternal){
     payload.kind = 'internal';
     const ref = (document.getElementById('atInternalRef')||{}).value.trim();
@@ -4464,16 +4508,18 @@ async function submitAssign(mode){
   async function submitTaskPayload(payload){
     try {
       await api('/api/tasks', { method:'POST', body: JSON.stringify(payload) });
-      closeModal();
-      showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
-      await refreshTasks();
-      await refreshActivity({ silent: true });
-      const assigneeName = payload.mode === 'team' ? (empById(payload.assignedTo)?.name || 'team member') : 'yourself';
-      showToast('success', payload.mode === 'team' ? 'Task assigned' : 'Task created', `${payload.name} — sent to ${assigneeName}.`);
     } catch(e){
       const errEl = document.getElementById('assignError');
       if(errEl){ errEl.textContent = e.message; errEl.style.display = 'block'; } else { showToast('error', 'Could not assign task', e.message); }
+      return;
     }
+    closeModal();
+    showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
+    await refreshTasks();
+    await refreshActivity({ silent: true });
+    const assigneeName = payload.mode === 'team' ? (empById(payload.assignedTo)?.name || 'team member') : 'yourself';
+    const over = _atOverload ? ` (${_atOverload.overBy}h over capacity — logged as extra hours)` : '';
+    showToast('success', payload.mode === 'team' ? 'Task assigned' : 'Task created', `${payload.name} — sent to ${assigneeName}${over}.`);
   }
 
 /* =========================================================================
@@ -6449,6 +6495,10 @@ function openTaskTrailModal(id){
     (t.assignedBy && t.assignedBy === t.assignedTo)
       ? `<b>${esc(assignedToName)}</b> self-assigned this task${srcLabel ? ' ('+srcLabel+')' : ''}.`
       : `<b>${esc(assignedByName||'—')}</b> assigned this to <b>${esc(assignedToName||'—')}</b>${srcLabel ? ' ('+srcLabel+')' : ''}.`);
+
+  if(t.overAllocated){
+    push(t.overAllocated.at, '⚡', `<b>${esc(t.overAllocated.byName||assignedByName||'—')}</b> assigned this over capacity — ${t.overAllocated.overBy}h beyond what ${esc(assignedToName||'they')} could fit by ${fmtDate(t.overAllocated.dueDate)} (only ${t.overAllocated.roomAtAssign}h was free). Counts as extra hours.`);
+  }
 
   (t.reassignHistory||[]).forEach(h => {
     push(h.at, '↔', `<b>${esc(nm(h.by)||'—')}</b> reassigned it from <b>${esc(nm(h.from)||'—')}</b> to <b>${esc(nm(h.to)||'—')}</b>${h.reason ? ' — “'+esc(h.reason)+'”' : ''}.`);
