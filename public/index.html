@@ -346,6 +346,20 @@
   #view-dashboard .today-row-title{ font-size:13.5px; }
   #view-dashboard #todoPanel > summary{ cursor:pointer; }
 
+  /* delivery — today & yesterday */
+  .deliv{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:16px 18px; box-shadow:var(--shadow-1); margin-bottom:20px; }
+  .deliv .d-hd{ font-size:11.5px; text-transform:uppercase; letter-spacing:.7px; color:var(--text-faint); font-weight:600; margin-bottom:12px; }
+  .deliv .d-row{ display:flex; align-items:center; gap:14px; padding:9px 0; border-top:1px solid var(--line); flex-wrap:wrap; }
+  .deliv .d-row:first-of-type{ border-top:none; }
+  .deliv .d-when{ font-family:var(--font-display); font-weight:700; font-size:13.5px; width:88px; flex:none; }
+  .deliv .d-when small{ display:block; font-family:var(--font-body); font-weight:500; font-size:10.5px; color:var(--text-faint); }
+  .deliv .d-stat{ display:flex; align-items:baseline; gap:5px; font-size:12.5px; color:var(--text-dim); cursor:pointer; }
+  .deliv .d-stat b{ font-family:var(--font-display); font-size:15px; color:var(--text); }
+  .deliv .d-stat:hover b{ text-decoration:underline; }
+  .deliv .d-stat.miss b{ color:var(--coral); }
+  .deliv .d-stat.good b{ color:var(--teal); }
+  .deliv .d-empty{ font-size:12.5px; color:var(--text-faint); }
+
 
   .panel{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:20px 22px; margin-bottom:20px; box-shadow:0 1px 2px #10182804, 0 8px 24px -6px #10182812; }
   .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px;}
@@ -989,6 +1003,8 @@
           <div id="capacityCard"></div>
         </div>
 
+        <div id="deliveryStrip"></div>
+
         <details class="panel panel-fold" id="todoPanel">
           <summary>
             <h2>To do — by date</h2>
@@ -1453,6 +1469,8 @@
           <label class="dcmp"><input type="checkbox" id="mgCmp" checked onchange="onDashScope('mg')"> vs previous period</label>
           <span class="dcrumb" id="mgCrumb"><b>Scope:</b> —</span>
         </div>
+
+        <div id="mgDeliveryStrip"></div>
 
         <div class="stat-grid g8">
           <div class="stat-card mg-tile" onclick="openMgTileList('active')"><div class="label">Active Tasks</div><div class="value purple" id="statActiveTasks">0</div><div class="delta" id="mgActiveSub">—</div></div>
@@ -3340,6 +3358,7 @@ function renderEmployeeStats(){
   // On-time and Accuracy live on the Productivity page and the Report Card
   // now — not on the Commitment Dashboard.
   renderMirrorBanner();
+  renderDeliveryStrip('deliveryStrip', mine, isMirroring() ? (me.name || '') : null);
 }
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
@@ -3605,6 +3624,44 @@ function renderCapacityCard(){
       <span>${esc(String(team).toUpperCase())}</span>
     </div>
   </div>`;
+}
+/* "Delivery — today & yesterday": of the work DUE today / DUE yesterday,
+   how much was delivered and how much wasn't. `pool` is an already-scoped
+   task array; `scopeName` labels the modal. Works on the Commitment
+   Dashboard (one person) and the Manager Dashboard (the scoped team). */
+window._delivLists = {};
+function renderDeliveryStrip(wrapId, pool, scopeName){
+  const wrap = document.getElementById(wrapId);
+  if(!wrap) return;
+  const today = todayISO();
+  const yst = addDaysISO(-1);
+  const rowFor = (iso, label, sub, past) => {
+    const list = pool.filter(t => t.internalDeadline === iso);
+    if(!list.length) return `<div class="d-row"><div class="d-when">${label}<small>${sub}</small></div><div class="d-empty">nothing due</div></div>`;
+    const done = list.filter(t => t.status === 'completed');
+    const open = list.filter(t => t.status !== 'completed');
+    const late = done.filter(t => dayOf(t.completedAt) > iso);
+    const key = wrapId + '_' + iso;
+    _delivLists[key + '_all'] = list;
+    _delivLists[key + '_done'] = done;
+    _delivLists[key + '_open'] = open;
+    const stat = (n, txt, cls, k) => `<span class="d-stat ${cls}" onclick="_delivOpen('${key}_${k}','${esc(label + ' — ' + txt)}')"><b>${n}</b> ${txt}</span>`;
+    return `<div class="d-row">
+      <div class="d-when">${label}<small>${sub}</small></div>
+      ${stat(list.length, 'due', '', 'all')}
+      ${stat(done.length, 'delivered' + (late.length ? ` (${late.length} late)` : ''), done.length ? 'good' : '', 'done')}
+      ${stat(open.length, past ? 'not delivered' : 'to go', open.length && past ? 'miss' : '', 'open')}
+    </div>`;
+  };
+  wrap.innerHTML = `<div class="deliv">
+    <div class="d-hd">Delivery${scopeName ? ' · ' + esc(scopeName) : ''}</div>
+    ${rowFor(today, 'Today', fmtDate(today).replace(/ \d{4}$/, ''), false)}
+    ${rowFor(yst, 'Yesterday', fmtDate(yst).replace(/ \d{4}$/, ''), true)}
+  </div>`;
+}
+function _delivOpen(key, title){
+  const list = (window._delivLists || {})[key] || [];
+  taskListModal(title, `${list.length} task${list.length===1?'':'s'}`, list, { empty: 'None.' });
 }
 function renderTodayTeam(){
   const wrap = document.getElementById('todayTeamWrap');
@@ -4799,6 +4856,7 @@ function renderManagerStatics(){
   const empIds = new Set(scopedEmps.map(e => e.id));
   const scopedTasks = tasks.filter(t => (t.assignedTo && empIds.has(t.assignedTo)) || (!mineOnly && dashScope.mg.view === 'firm' && !t.assignedTo));
   mgScopeIds = { emps: empIds, tasks: new Set(scopedTasks.map(t => t.id)) };
+  renderDeliveryStrip('mgDeliveryStrip', scopedTasks, dashScopeLabel('mg', mineOnly));
   const r = dashPeriod('mg');
   const lt = document.getElementById('mgLeaderTitle');
   if(lt) lt.textContent = 'Leaderboard · ' + dashPeriodLabel('mg');
