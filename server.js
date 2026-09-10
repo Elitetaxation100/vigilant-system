@@ -1486,6 +1486,12 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'This task can\'t be marked done from its current state.' });
   }
   if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+  // Optional: a single "actual hours" figure entered on the Mark Done
+  // dialog, for people who don't run the Start/Pause clock. It's
+  // authoritative when given; blank leaves whatever the clock caught (0 →
+  // the estimate is used downstream).
+  const ah = Number((req.body || {}).actualHours);
+  if (ah > 0) t.logged = Math.round(ah * 100) / 100;
   if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed';
   t.completedAt = new Date().toISOString();

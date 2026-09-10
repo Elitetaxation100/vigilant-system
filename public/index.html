@@ -2511,9 +2511,12 @@ async function markIntegrationTaskDone(id){
 // Mark a manual task done with no reviewer — for work that doesn't need checking.
 async function markDoneNoReview(id){
   const t = findTask(id);
+  const tracked = t && (t.displayedLogged || t.logged || 0);
   document.getElementById('modalBox').innerHTML = `
     <h3>Mark done — ${esc((t&&t.name)||'')}</h3>
     <div class="modal-sub">This closes the task now with <b>no review</b>. Only do this for work that genuinely doesn't need a second pair of eyes. Use <b>Mark Complete &amp; Review</b> if it should be checked.</div>
+    <div class="field"><label>Actual hours <span style="font-weight:400;color:var(--text-faint);">— optional; blank ${tracked >= 0.05 ? `keeps the ${tracked.toFixed(2)}h you tracked` : `uses the ${t ? t.tat : '?'}h estimate`}</span></label>
+      <input type="number" id="mdActualHours" min="0" step="0.25" placeholder="${tracked >= 0.05 ? tracked.toFixed(2) : (t ? t.tat : '')}"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn primary" style="background:var(--teal,#0D9488);" onclick="doMarkDoneNoReview('${id}')">Mark Done</button>
@@ -2522,7 +2525,8 @@ async function markDoneNoReview(id){
 }
 async function doMarkDoneNoReview(id){
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/done`, { method:'POST' });
+    const ah = parseFloat((document.getElementById('mdActualHours')||{}).value);
+    await api(`/api/tasks/${encodeURIComponent(id)}/done`, { method:'POST', body: JSON.stringify(ah > 0 ? { actualHours: ah } : {}) });
     closeModal();
     await refreshTasks(); await refreshActivity({ silent:true });
     if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
@@ -3114,16 +3118,13 @@ function actionCell(t){
     html += holdControlsHtml(t);
   } else if(t.status === 'accepted' || t.status === 'pending'){
     if(t.status === 'accepted' && isMine){
-      const started = t.timerStartedAt || t.startedAt;
-      if(!started){
-        html += `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="resumeTask('${t.id}')" title="Begin working — starts the clock">▶ Start Work</button>`;
-      } else {
-        html += t.timerStartedAt
-          ? `<button class="verify-btn" onclick="pauseTask('${t.id}')" title="Pause the clock">⏸ Pause</button>`
-          : `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="resumeTask('${t.id}')" title="Resume the clock">▶ Resume</button>`;
-        html += `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="markDoneNoReview('${t.id}')" title="Close it now — no reviewer needed">✓ Mark Done</button>`;
-        html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')" title="Send it to someone to check first">Mark Complete &amp; Review</button>`;
-      }
+      // Start/Pause/Resume is the optional actual-time clock. Mark Done and
+      // Mark Complete are always available — you don't have to run the clock.
+      html += t.timerStartedAt
+        ? `<button class="verify-btn" onclick="pauseTask('${t.id}')" title="Pause the clock">⏸ Pause</button>`
+        : `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="resumeTask('${t.id}')" title="${t.startedAt ? 'Resume the clock' : 'Optional — track the actual time on this task'}">▶ ${t.startedAt ? 'Resume' : 'Start Work'}</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--teal,#0D9488);color:#0D9488;" onclick="markDoneNoReview('${t.id}')" title="Close it now — no reviewer needed">✓ Mark Done</button>`;
+      html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')" title="Send it to someone to check first">Mark Complete &amp; Review</button>`;
       html += holdControlsHtml(t);
     }
   } else if(t.status === 'rework'){
@@ -3262,11 +3263,10 @@ function actionButtonHtml(t){
   const isMine = t.assignedTo === currentViewerId;
   let out = '';
   if(ta) out += `<button class="circle-btn" style="background:${t.timerStartedAt ? 'var(--amber)' : 'var(--teal)'};" title="${esc(ta.label)}" aria-label="${esc(ta.label)}" onclick="${ta.fn}">${ta.icon}</button>`;
-  // A manual task that's actually been started gets both quick closers:
-  // "done, no review" and the review path. A not-yet-started task just
-  // shows Start (the timer button above) — nothing to close yet.
-  const started = t.timerStartedAt || t.startedAt;
-  if(isMine && t.status === 'accepted' && started && (t.source || 'manual') === 'manual'){
+  // Every accepted manual task on your plate gets the two closers — "done,
+  // no review" and the review path — whether or not you ran the clock. The
+  // Start button above stays optional (it's only for tracking actual time).
+  if(isMine && t.status === 'accepted' && (t.source || 'manual') === 'manual'){
     out += `<button class="circle-btn" style="background:var(--teal);" title="Mark done — no review" aria-label="Mark done, no review" onclick="markDoneNoReview('${t.id}')">&#10003;</button>`;
     out += `<button class="circle-btn" title="Mark complete &amp; send for review" aria-label="Mark complete and send for review" onclick="openCompleteModal('${t.id}')">&#128221;</button>`;
     return out;
