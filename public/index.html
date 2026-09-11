@@ -378,7 +378,7 @@
   .btn.primary{ background:linear-gradient(135deg, var(--purple), var(--ink-teal)); border-color:transparent; color:#fff; box-shadow:0 2px 9px -2px color-mix(in srgb, var(--purple) 34%, transparent); }
   .btn.primary:hover{ box-shadow:var(--glow); color:#fff; transform:translateY(-1px); }
   /* a segmented "kind of task" picker: the chosen side glows */
-  .btn.small.atKindBtn.primary, .btn.small.bkKindBtn.primary{ box-shadow:var(--glow); transform:translateY(-1px); }
+  .btn.small.atKindBtn.primary, .btn.small.bkKindBtn.primary, .btn.small.rtKindBtn.primary{ box-shadow:var(--glow); transform:translateY(-1px); }
   .btn.teal{ background:linear-gradient(135deg, var(--teal), #0a6273); border-color:transparent; color:#fff; }
   .btn.coral{ background:linear-gradient(135deg, var(--coral), #b8431f); border-color:transparent; color:#fff; }
   .btn.small{ padding:6px 11px; font-size:13px; }
@@ -1055,7 +1055,8 @@
           <summary>
             <h2>To do — by date</h2>
             <span class="fold-hint" id="todoFoldHint">click to open</span>
-            <button class="btn primary small" id="dashAddTaskBtn" style="margin-left:auto;" onclick="event.preventDefault(); event.stopPropagation(); openAssignModal('me')">+ Add a task</button>
+            <button class="btn small" style="margin-left:auto;" onclick="event.preventDefault(); event.stopPropagation(); openRecurringModal()">🔁 Daily tasks</button>
+            <button class="btn primary small" id="dashAddTaskBtn" onclick="event.preventDefault(); event.stopPropagation(); openAssignModal('me')">+ Add a task</button>
           </summary>
           <div id="myDayWrap"></div>
         </details>
@@ -2212,6 +2213,16 @@ function taskHrs(t){
 // because it went on hold (query / client delay) isn't counted against the
 // person — the overrun is external, not inefficiency.
 function withinAgreedHours(t){ return t.logged <= t.tat || (t.holdCount || 0) > 0; }
+// Reviewing someone else's work takes time too — hours logged on the Review
+// Form (t.reviewHours) count toward the REVIEWER's own day, mirroring the
+// server's hoursDoneOnDate.
+function reviewHoursDoneOnDate(who, date){
+  return tasks.filter(t => t.reviewedBy === who && Number(t.reviewHours) > 0 && dayOf(t.reviewedAt) === date)
+    .reduce((s,t) => s + Number(t.reviewHours), 0);
+}
+function reviewedByCount(who){
+  return tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus)).length;
+}
 
 /* Is `emp` a manager/admin responsible for `assigneeId` (or a superadmin)?
    Used for self-assignment approval and as one of the two ways to review. */
@@ -2227,12 +2238,13 @@ function selfEditActive(){
   return !!(me && me.selfEditUntil && Date.now() < Date.parse(me.selfEditUntil));
 }
 // Can the current viewer edit this task's estimate / due date? A manager over
-// the assignee always can; the assignee can too, but only for a task they
-// gave themselves, while their self-edit grant is live, and before it's done.
+// the assignee always can; the assignee can too — on anything assigned to
+// them, whoever assigned it — while their self-edit grant is live and the
+// task isn't done/in review yet.
 function canEditTaskTiming(t){
   if(!t) return false;
   if(empManagesWork(currentViewer(), t.assignedTo)) return true;
-  return t.assignedTo === currentViewerId && t.assignedBy === currentViewerId
+  return t.assignedTo === currentViewerId
     && !['completed','pending_approval'].includes(t.status)
     && selfEditActive();
 }
@@ -2909,6 +2921,20 @@ function setStatus(online){
 /* =========================================================================
    NOTIFICATIONS
    ========================================================================= */
+let _bannerLists = {};
+function openBannerList(key){
+  const cfg = _bannerLists[key];
+  if(!cfg) return;
+  taskListModal(cfg.title, cfg.subtitle, cfg.list, cfg.opts || {});
+}
+// Short "N things — first name, +M more · see list" line instead of dumping
+// every task name inline — a banner is a heads-up, not a report.
+function bannerRef(list, max=1){
+  const names = list.slice(0, max).map(t => esc(t.name));
+  let s = names.join(', ');
+  if(list.length > max) s += ` +${list.length - max} more`;
+  return s;
+}
 function renderDeadlineBanner(){
   const wrap = document.getElementById('deadlineBannerWrap');
   const bell = document.getElementById('bellIcon');
@@ -2917,19 +2943,24 @@ function renderDeadlineBanner(){
   const awaitingNew = awaitingMine.filter(t => !isReworkFlagged(t));
   const awaitingRework = awaitingMine.filter(isReworkFlagged);
   let banners = [];
+  _bannerLists = {};
+  const seeList = key => `<a href="#" onclick="event.preventDefault(); openBannerList('${key}');" style="text-decoration:underline;font-weight:600;">see list</a>`;
   if(awaitingNew.length > 0){
-    banners.push(`<div class="banner"><span>📥</span><span><b>${awaitingNew.length} new task${awaitingNew.length>1?'s':''} assigned to you:</b> ${awaitingNew.map(t => esc(t.name) + ' — ' + esc(t.scope)).join(' · ')} — Accept or propose a new window from the dashboard below.</span></div>`);
+    _bannerLists.awaitingNew = { title: 'New tasks assigned to you', subtitle: 'Accept or propose a new window', list: awaitingNew };
+    banners.push(`<div class="banner"><span>📥</span><span><b>${awaitingNew.length} new task${awaitingNew.length>1?'s':''}</b> assigned to you — ${bannerRef(awaitingNew)} · ${seeList('awaitingNew')}</span></div>`);
   }
   if(awaitingRework.length > 0){
-    banners.push(`<div class="banner warn"><span>⚠</span><span><b>${awaitingRework.length} task${awaitingRework.length>1?'s':''} sent back for rework:</b> ${awaitingRework.map(t => esc(t.name)).join(' · ')} — Accept it to start fixing, or propose a new window, from the dashboard below.</span></div>`);
+    _bannerLists.awaitingRework = { title: 'Sent back for rework', subtitle: 'Accept to start fixing, or propose a new window', list: awaitingRework };
+    banners.push(`<div class="banner warn"><span>⚠</span><span><b>${awaitingRework.length} task${awaitingRework.length>1?'s':''}</b> sent back for rework — ${bannerRef(awaitingRework)} · ${seeList('awaitingRework')}</span></div>`);
   }
   if(dueToday.length > 0){
-    banners.push(`<div class="banner warn"><span>⏰</span><span><b>Deadline today:</b> ${dueToday.map(t => esc(t.name) + ' — ' + esc(t.scope)).join(' · ')}</span></div>`);
+    _bannerLists.dueToday = { title: 'Deadline today', subtitle: null, list: dueToday };
+    banners.push(`<div class="banner warn"><span>⏰</span><span><b>Deadline today:</b> ${dueToday.length} task${dueToday.length>1?'s':''} — ${bannerRef(dueToday)} · ${seeList('dueToday')}</span></div>`);
   }
   if(isAdmin){
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
     if(proposedOrg.length > 0){
-      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed:</b> ${proposedOrg.map(t => esc(empById(t.assignedTo)?.name||'—') + ' — ' + esc(t.name)).join(' · ')} — <a href="#" onclick="showView('manager', document.querySelector('.nav-item[data-view=&quot;manager&quot;]')); return false;" style="color:#6D28D9; text-decoration:underline;">review on Manager Dashboard</a></span></div>`);
+      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed</b> — <a href="#" onclick="showView('manager', document.querySelector('.nav-item[data-view=&quot;manager&quot;]')); return false;" style="color:#6D28D9; text-decoration:underline;">review on Manager Dashboard</a></span></div>`);
     }
   }
   wrap.innerHTML = banners.join('');
@@ -3409,8 +3440,13 @@ function renderEmployeeStats(){
   const doneAll  = mine.filter(t => t.status === 'completed' && ['clean','done'].includes(t.reviewStatus));
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
   const openN = mine.filter(t => t.status !== 'completed').length;
-  setV('myTotalTasks', mine.length);
-  setV('myTotalSub', mine.length ? `${openN} open · ${mine.length - openN} finished` : '');
+  // Reviewing other people's work is real work too — folded into the total
+  // so it isn't invisible next to tasks assigned straight to you.
+  const reviewedN = reviewedByCount(dashSubjectId());
+  setV('myTotalTasks', mine.length + reviewedN);
+  setV('myTotalSub', mine.length || reviewedN
+    ? `${openN} open · ${mine.length - openN} finished${reviewedN ? ' · ' + reviewedN + ' reviewed' : ''}`
+    : '');
   setV('myTasksToday', myTodaysWork.length);
   setV('myToReview', myReviewTasks().length);
   setV('myInReview', inReview.length);
@@ -3447,9 +3483,10 @@ function renderGreeting(){
   const dueThisWeek = mineOpen.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= weekEnd).length;
   const doneTodayHrs = tasks
     .filter(t => t.assignedTo === who && t.status === 'completed' && dayOf(t.completedAt) === today)
-    .reduce((s,t) => s + taskHrs(t), 0);
+    .reduce((s,t) => s + taskHrs(t), 0)
+    + reviewHoursDoneOnDate(who, today);
   const seNote = (!mirror && selfEditActive())
-    ? `<div class="greeting-sub" style="color:var(--purple);">✎ Self-edit is on until ${fmtDate(currentViewer().selfEditUntil.slice(0,10))} — tap the <b>⏱ hours</b> badge (or "edit estimate") on any task you gave yourself to change its estimate &amp; due date.</div>` : '';
+    ? `<div class="greeting-sub" style="color:var(--purple);">✎ Self-edit is on until ${fmtDate(currentViewer().selfEditUntil.slice(0,10))} — tap the <b>⏱ hours</b> badge (or "edit estimate") on any of your tasks to change its estimate, due date &amp; client commitment date.</div>` : '';
   wrap.innerHTML = `<div class="greeting-block">
     <div>
       <h1>${mirror ? esc(me.name) + "'s dashboard" : greeting + (firstName ? ', ' + esc(firstName) : '')}</h1>
@@ -4306,6 +4343,135 @@ async function rejectProposal(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/reject-window`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
   catch(e){ showToast('error', 'Could not reject window', e.message); }
 }
+/* =========================================================================
+   RECURRING DAILY TASKS — a template for something someone does every
+   (working) day, e.g. "review rideshare clients, 30 mins". Materialized
+   server-side into a normal task once per NZ day — this panel just manages
+   the templates: create, pause/resume, delete.
+   ========================================================================= */
+let _recurringCache = [];
+async function openRecurringModal(){
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Daily tasks</h3>
+    <div class="modal-sub">Work someone does every working day — set it up once and it lands on their to-do list automatically.</div>
+    <div id="recurringListWrap" style="margin:12px 0;">Loading…</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn primary" onclick="openRecurringFormModal()">+ New daily task</button>
+    </div>`;
+  openModal();
+  try {
+    const r = await api('/api/recurring-tasks');
+    _recurringCache = r.recurringTasks || [];
+  } catch(e) { _recurringCache = []; }
+  renderRecurringList();
+}
+function renderRecurringList(){
+  const wrap = document.getElementById('recurringListWrap');
+  if(!wrap) return;
+  if(!_recurringCache.length){
+    wrap.innerHTML = `<p style="font-size:13.5px;color:var(--text-faint);">No daily tasks set up yet.</p>`;
+    return;
+  }
+  wrap.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;">${_recurringCache.map(rt => {
+    const who = empById(rt.assignedTo);
+    return `<div style="display:flex;align-items:center;gap:10px;border:1px solid var(--panel-border);border-radius:10px;padding:10px 12px;${rt.active ? '' : 'opacity:.55;'}">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:13.5px;">${esc(rt.name)}${rt.active ? '' : ' <span style="font-weight:400;color:var(--text-faint);">(paused)</span>'}</div>
+        <div style="font-size:12px;color:var(--text-faint);">${esc(who ? who.name : '—')} · ⏱ ${rt.tat}h · every ${rt.weekdaysOnly ? 'working day' : 'day'}</div>
+      </div>
+      <button class="btn small" onclick="toggleRecurring('${rt.id}', ${!rt.active})">${rt.active ? 'Pause' : 'Resume'}</button>
+      <button class="btn small coral" onclick="deleteRecurring('${rt.id}')">Delete</button>
+    </div>`;
+  }).join('')}</div>`;
+}
+async function toggleRecurring(id, active){
+  try {
+    await api(`/api/recurring-tasks/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({ active }) });
+    const r = await api('/api/recurring-tasks');
+    _recurringCache = r.recurringTasks || [];
+    renderRecurringList();
+    if(active){ await refreshTasks(); showToast('success', 'Resumed', "Today's task will appear if it hasn't already."); }
+  } catch(e){ showToast('error', 'Could not update', e.message); }
+}
+async function deleteRecurring(id){
+  if(!confirm('Remove this daily task? Tasks already created from it stay as they are.')) return;
+  try {
+    await api(`/api/recurring-tasks/${encodeURIComponent(id)}`, { method:'DELETE' });
+    _recurringCache = _recurringCache.filter(rt => rt.id !== id);
+    renderRecurringList();
+  } catch(e){ showToast('error', 'Could not remove', e.message); }
+}
+function openRecurringFormModal(){
+  const canTeam = assignableEmployees().length > 0;
+  const noClients = clients.length === 0;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>New daily task</h3>
+    <div class="modal-sub">Repeats automatically — no need to re-add it each morning.</div>
+    ${canTeam ? `<div class="field"><label>Who does this</label>
+      <select id="rtAssignee">
+        <option value="__me">Me</option>
+        ${assignableEmployees().map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+      </select></div>` : ''}
+    <div class="field"><label>Kind of task</label>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn small rtKindBtn primary" data-kind="internal" onclick="setRecurringKind('internal')">Internal task</button>
+        <button type="button" class="btn small rtKindBtn" data-kind="client" onclick="setRecurringKind('client')"${noClients ? ' disabled title="Add a client first"' : ''}>Client work</button>
+      </div>
+    </div>
+    <div id="rtClientBlock" style="display:none;">
+      <div class="field"><label>Client</label>
+        <input type="text" id="rtClientId" list="atClientList" placeholder="Start typing a client name…" autocomplete="off" spellcheck="false">
+        <datalist id="atClientList">${clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>`<option value="${esc(c.name)}"></option>`).join('')}</datalist>
+      </div>
+    </div>
+    <div class="field"><label>Task name</label><input type="text" id="rtName" placeholder="e.g. Review rideshare clients"></div>
+    <div class="field"><label>Time it takes (hours)</label><input type="number" id="rtTat" value="0.5" min="0.05" step="0.05"></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;"><input type="checkbox" id="rtWeekdaysOnly" checked style="width:auto;"> Skip Sundays &amp; public holidays</label></div>
+    <div class="modal-error" id="rtErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openRecurringModal()">Back</button>
+      <button class="btn primary" onclick="submitRecurring()">Create daily task</button>
+    </div>`;
+  openModal();
+  window.__stickyModal = true;
+  setRecurringKind('internal');
+}
+function setRecurringKind(kind){
+  document.querySelectorAll('.rtKindBtn').forEach(b => b.classList.toggle('primary', b.dataset.kind === kind));
+  const cb = document.getElementById('rtClientBlock');
+  if(cb) cb.style.display = kind === 'client' ? '' : 'none';
+  window._rtKind = kind;
+}
+async function submitRecurring(){
+  const errEl = document.getElementById('rtErr');
+  errEl.style.display = 'none';
+  const name = (document.getElementById('rtName').value || '').trim();
+  if(!name){ errEl.textContent = 'Give this daily task a name.'; errEl.style.display = 'block'; return; }
+  const tat = parseFloat(document.getElementById('rtTat').value);
+  if(!(tat > 0)){ errEl.textContent = 'Give it an estimated time in hours.'; errEl.style.display = 'block'; return; }
+  const kind = window._rtKind || 'internal';
+  const body = {
+    name, tat, kind,
+    weekdaysOnly: document.getElementById('rtWeekdaysOnly').checked,
+  };
+  const assigneeSel = document.getElementById('rtAssignee');
+  if(assigneeSel && assigneeSel.value !== '__me'){ body.mode = 'team'; body.assignedTo = assigneeSel.value; }
+  if(kind === 'client'){
+    const typed = (document.getElementById('rtClientId').value || '').trim().toLowerCase();
+    const match = clients.find(c => c.name.toLowerCase() === typed);
+    if(!match){ errEl.textContent = 'Pick a client from the list.'; errEl.style.display = 'block'; return; }
+    body.clientId = match.id;
+  }
+  try {
+    await api('/api/recurring-tasks', { method:'POST', body: JSON.stringify(body) });
+    window.__stickyModal = false;
+    showToast('success', 'Daily task created', "It'll appear on the to-do list automatically each working day.");
+    await refreshTasks();
+    openRecurringModal();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+
 // Manager changes the dates directly (Phase 1). Internal due date drives the
 // client commitment date = internal + 3 working days, unless overridden.
 function openSetDatesModal(id){
@@ -4315,14 +4481,14 @@ function openSetDatesModal(id){
   const isSelfEdit = !empManagesWork(currentViewer(), t.assignedTo);
   const me = currentViewer();
   const expiryNote = (isSelfEdit && me && me.selfEditUntil)
-    ? `<div class="modal-sub" style="color:var(--purple);margin-top:2px;">Self-edit access — expires ${fmtDate(me.selfEditUntil.slice(0,10))}. The client commitment date isn't yours to move.</div>` : '';
+    ? `<div class="modal-sub" style="color:var(--purple);margin-top:2px;">Self-edit access — expires ${fmtDate(me.selfEditUntil.slice(0,10))}.</div>` : '';
   document.getElementById('modalBox').innerHTML = `
     <h3>${isSelfEdit ? 'Edit my estimate &amp; due date' : 'Edit dates &amp; estimate'} — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName)||'Internal'} · ${esc(empById(t.assignedTo)?.name || '—')}</div>
     ${expiryNote}
     <div class="field"><label>Internal due date <span style="color:var(--text-faint);">— ${isSelfEdit ? 'when you plan to have it done' : 'what you hold ' + esc((empById(t.assignedTo)?.name||'the assignee').split(' ')[0]) + ' to'}</span></label>
       <input type="date" id="sdInternal" value="${esc(t.internalDeadline || todayISO())}" onchange="_sdRecalc()"></div>
-    ${(isInternalTask || isSelfEdit) ? '' : `
+    ${isInternalTask ? '' : `
     <div class="field"><label>Client commitment date</label>
       <input type="date" id="sdClient" value="${esc(t.clientDate || '')}" onchange="_sdClientTouched=true">
       <div id="sdClientHint" style="font-size:12px;color:var(--text-faint);margin-top:4px;"></div></div>`}
@@ -6536,6 +6702,10 @@ function openReviewFormModal(id){
       </div>
     </div>
     <div class="field"><label>Review notes ${''}<span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required if flagging an error)</span></label><textarea id="reviewFormNote" placeholder="e.g. Figures reconciled, no issues found"></textarea></div>
+    <div class="field"><label>Time spent reviewing <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional — hours)</span></label>
+      <input type="number" id="reviewFormHours" min="0.05" step="0.05" placeholder="e.g. 0.5">
+      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Reviewing takes time too — logging it counts toward your own hours today.</div>
+    </div>
     <div class="field"><label>What caused it? <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required if flagging an error)</span></label>
       <select id="reviewFaultType">
         <option value="">Select one…</option>
@@ -6568,8 +6738,10 @@ async function submitReviewForm(id, decision){
   }
   const checklistLine = checked.length ? `Checklist confirmed: ${checked.join('; ')}.` : '';
   const note = [noteInput, checklistLine].filter(Boolean).join(' ') || undefined;
+  const hoursEl = document.getElementById('reviewFormHours');
+  const reviewHours = hoursEl && hoursEl.value !== '' ? parseFloat(hoursEl.value) : undefined;
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({ status: decision, note, faultType: decision === 'error' ? faultType : undefined }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({ status: decision, note, faultType: decision === 'error' ? faultType : undefined, reviewHours }) });
     closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
@@ -6610,6 +6782,7 @@ function openReviewViewModal(id){
     <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:14px 16px; margin:14px 0; font-size:13.5px; color:var(--text-dim); line-height:1.8;">
       <div><b style="color:var(--text);">Reviewed by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
       <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(t.reviewedAt.slice(0,10)) : '—'}</div>
+      ${Number(t.reviewHours) > 0 ? `<div><b style="color:var(--text);">Time spent reviewing:</b> ${Number(t.reviewHours).toFixed(2)}h</div>` : ''}
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
       <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision ? '<span style="color:#B45309;">Awaiting decision on sending to client</span>' : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>' : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>' : '<span style="color:var(--text-faint);">—</span>'}</div>
     </div>

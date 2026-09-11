@@ -198,15 +198,16 @@ function canManageEmployee(state, actor, employeeId) {
   return !!target && !!myTeam && typeof target.team === 'string' &&
     target.team.trim() === myTeam && target.id !== actor.id;
 }
-// Time-boxed self-edit grant: while it's live, `emp` may change the estimate
-// and internal due date on a task they created for themselves (and haven't
-// finished). Not the client commitment date — that stays a manager's call.
+// Time-boxed self-edit grant: while it's live, `emp` may change the estimate,
+// internal due date AND the client commitment date on any task assigned to
+// them — theirs to begin with or handed to them by someone else — as long as
+// it isn't finished/in review yet.
 function selfEditActive(emp) {
   return !!(emp && emp.selfEditUntil && Date.now() < Date.parse(emp.selfEditUntil));
 }
 function canSelfEditTask(emp, t) {
   return !!emp && !!t
-    && t.assignedTo === emp.id && t.assignedBy === emp.id
+    && t.assignedTo === emp.id
     && !['completed', 'pending_approval'].includes(t.status)
     && selfEditActive(emp);
 }
@@ -576,14 +577,84 @@ function taskHours(t) {
 // Actual hours of work a person finished on `date` — the "how much did they
 // get through today" figure the dashboards and the assign picker show. This
 // is informational only; there is no cap on how much work can be assigned.
+// Reviewing someone else's task is real work too, so time logged against a
+// review (see /api/tasks/:id/review) counts on the reviewer's date, on top
+// of whatever they closed out themselves.
 function hoursDoneOnDate(state, employeeId, date) {
-  return state.tasks
+  const ownWork = state.tasks
     .filter(t => t.assignedTo === employeeId && t.status === 'completed'
       && nzDay(t.completedAt) === date)
     .reduce((sum, t) => sum + taskHours(t), 0);
+  const reviewWork = state.tasks
+    .filter(t => t.reviewedBy === employeeId && Number(t.reviewHours) > 0
+      && nzDay(t.reviewedAt) === date)
+    .reduce((sum, t) => sum + Number(t.reviewHours), 0);
+  return ownWork + reviewWork;
 }
 function hoursDoneToday(state, employeeId) {
   return hoursDoneOnDate(state, employeeId, todayISO());
+}
+
+// ---------------------------------------------------------------------------
+// RECURRING TASKS — a template for something someone does every (working)
+// day, e.g. "review rideshare clients, 30 mins". Materialized into a normal
+// task once per NZ calendar day so it just shows up on the To-Do list like
+// anything else — no separate surface to remember to check. Idempotent per
+// template per day via rt.lastGeneratedDate; state.recurringLastRun is a
+// cheap top-level guard so a busy day of polling doesn't re-scan the list
+// on every request.
+// ---------------------------------------------------------------------------
+function canManageRecurring(state, actor, rt) {
+  if (!actor || !rt) return false;
+  if (rt.assignedTo === actor.id || rt.assignedBy === actor.id) return true;
+  return canManageEmployee(state, actor, rt.assignedTo);
+}
+function buildRecurringInstance(state, rt, dateISO) {
+  state.taskSeq += 1;
+  const assigneeEmp = findEmployee(state, rt.assignedTo);
+  return {
+    id: '#' + (100000000000 + state.taskSeq),
+    name: rt.name, scope: rt.scope || '—',
+    kind: rt.kind,
+    team: (assigneeEmp || {}).team || null,
+    clientId: rt.clientId || null,
+    clientName: rt.clientName || (rt.kind === 'internal' ? 'Internal' : ''),
+    internalRef: rt.internalRef || null,
+    clientDate: null, clientDateOverride: false,
+    internalDeadline: dateISO,
+    points: 0, assignedTo: rt.assignedTo, assignedBy: rt.assignedBy,
+    assignedAt: new Date().toISOString(), reassignHistory: [],
+    // A recurring task is routine, agreed-to work — it lands straight in
+    // 'accepted' every morning rather than sitting in an accept queue.
+    status: 'accepted',
+    logged: 0, tat: rt.tat,
+    acceptedAt: new Date().toISOString(),
+    timerStartedAt: null, startedAt: null,
+    completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
+    reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    reworkStartedAt: null, faultType: null, reworkHistory: [],
+    holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
+    source: 'recurring', sourceRef: rt.id, recurringTemplateId: rt.id,
+  };
+}
+function materializeRecurringTasks(state, opts = {}) {
+  const today = todayISO();
+  if (!opts.force && state.recurringLastRun === today) return;
+  let changed = false;
+  (state.recurringTasks || []).forEach(rt => {
+    if (!rt.active || rt.lastGeneratedDate === today) return;
+    if (rt.weekdaysOnly !== false && !cal.isWorkingDay(today)) { rt.lastGeneratedDate = today; return; }
+    if (!findEmployee(state, rt.assignedTo)) return; // assignee gone — leave the template, generate nothing
+    const leave = approvedLeaveOn(state, rt.assignedTo, today);
+    if (leave && !leave.halfDay) { rt.lastGeneratedDate = today; return; } // full day off — skip today
+    const already = state.tasks.some(t => t.recurringTemplateId === rt.id && t.internalDeadline === today);
+    rt.lastGeneratedDate = today;
+    if (already) return;
+    state.tasks.unshift(buildRecurringInstance(state, rt, today));
+    changed = true;
+  });
+  state.recurringLastRun = today;
+  if (changed) db.save();
 }
 // Escapes user-controlled text (names, task titles, notes) before it's
 // embedded in an activity-log entry that already carries deliberate HTML
@@ -708,6 +779,7 @@ function requireAuth(req, res, next) {
     const emp = findEmployee(state, payload.id);
     if (!emp) return res.status(401).json({ error: 'Account no longer exists.' });
     req.employee = emp;
+    materializeRecurringTasks(state); // once-a-day, cheap no-op after the first hit
     next();
   } catch (e) {
     return res.status(401).json({ error: 'Session expired — please sign in again.' });
@@ -804,7 +876,7 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   if (typeof req.body.isFounder === 'boolean') emp.isFounder = req.body.isFounder;
   // Read-only firm-wide Commitment Dashboard observer — no other powers.
   if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
-  // Time-boxed self-edit grant (estimate + own due date on self-assigned tasks).
+  // Time-boxed self-edit grant (estimate, due date & client date on their own tasks).
   if (req.body.selfEditUntil !== undefined) {
     const v = req.body.selfEditUntil;
     emp.selfEditUntil = (typeof v === 'string' && !Number.isNaN(Date.parse(v)) && Date.parse(v) > Date.now())
@@ -1232,6 +1304,91 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   db.save();
   res.status(201).json({ task: taskForClient(task) });
 });
+
+// Recurring daily tasks — see materializeRecurringTasks() above.
+app.get('/api/recurring-tasks', requireAuth, (req, res) => {
+  const state = db.get();
+  const mine = (state.recurringTasks || []).filter(rt => canManageRecurring(state, req.employee, rt));
+  res.json({ recurringTasks: mine });
+});
+app.post('/api/recurring-tasks', requireAuth, (req, res) => {
+  const state = db.get();
+  const { mode, name, scope, assignedTo, clientId, kind, tat, internalRef, weekdaysOnly } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Give this daily task a name.' });
+  const numTat = parseFloat(tat);
+  if (!(numTat > 0)) return res.status(400).json({ error: 'Give it an estimated time in hours (e.g. 0.5).' });
+  const isInternal = kind !== 'client';
+  let client = null;
+  if (!isInternal) {
+    client = state.clients.find(c => c.id === clientId);
+    if (!client) return res.status(400).json({ error: 'Client not found.' });
+  }
+  let assignee = req.employee.id;
+  if (mode === 'team') {
+    assignee = assignedTo;
+    const allowed = assignableEmployees(state, req.employee).some(e => e.id === assignee);
+    if (!allowed) return res.status(403).json({ error: "You're not authorized to assign work to this person." });
+  }
+  if (!findEmployee(state, assignee)) return res.status(400).json({ error: 'Assignee not found.' });
+  state.recurringSeq = (state.recurringSeq || 0) + 1;
+  const rt = {
+    id: 'rt' + (100000 + state.recurringSeq),
+    name: String(name).trim(),
+    scope: scope ? String(scope).trim() : '—',
+    kind: isInternal ? 'internal' : 'client',
+    clientId: client ? client.id : null,
+    clientName: client ? client.name : (isInternal ? 'Internal' : ''),
+    internalRef: internalRef ? String(internalRef).trim() : null,
+    tat: numTat,
+    assignedTo: assignee, assignedBy: req.employee.id,
+    weekdaysOnly: weekdaysOnly !== false,
+    active: true,
+    createdAt: new Date().toISOString(),
+    lastGeneratedDate: null,
+  };
+  state.recurringTasks.push(rt);
+  logEvent(state, assignee, `Daily recurring task set up — <b>${escHtml(rt.name)}</b> (${rt.tat}h, every ${rt.weekdaysOnly ? 'working day' : 'day'}).`);
+  db.save();
+  materializeRecurringTasks(state, { force: true }); // don't make them wait until tomorrow for today's instance
+  res.status(201).json({ recurringTask: rt });
+});
+app.patch('/api/recurring-tasks/:id', requireAuth, (req, res) => {
+  const state = db.get();
+  const rt = (state.recurringTasks || []).find(r => r.id === req.params.id);
+  if (!rt) return res.status(404).json({ error: 'Not found.' });
+  if (!canManageRecurring(state, req.employee, rt)) return res.status(403).json({ error: "You're not authorized to change this." });
+  const body = req.body || {};
+  if (body.name !== undefined) {
+    const n = String(body.name).trim();
+    if (!n) return res.status(400).json({ error: 'Name cannot be empty.' });
+    rt.name = n;
+  }
+  if (body.scope !== undefined) rt.scope = String(body.scope).trim() || '—';
+  if (body.tat !== undefined) {
+    const nt = parseFloat(body.tat);
+    if (!(nt > 0)) return res.status(400).json({ error: 'The estimate must be a positive number of hours.' });
+    rt.tat = nt;
+  }
+  if (body.weekdaysOnly !== undefined) rt.weekdaysOnly = !!body.weekdaysOnly;
+  let reactivated = false;
+  if (body.active !== undefined) {
+    reactivated = !rt.active && !!body.active;
+    rt.active = !!body.active;
+  }
+  db.save();
+  if (reactivated) materializeRecurringTasks(state, { force: true });
+  res.json({ recurringTask: rt });
+});
+app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
+  const state = db.get();
+  const rt = (state.recurringTasks || []).find(r => r.id === req.params.id);
+  if (!rt) return res.status(404).json({ error: 'Not found.' });
+  if (!canManageRecurring(state, req.employee, rt)) return res.status(403).json({ error: "You're not authorized to remove this." });
+  state.recurringTasks = state.recurringTasks.filter(r => r.id !== rt.id);
+  db.save();
+  res.json({ ok: true });
+});
+
   app.post('/api/tasks/:id/pause', requireAuth, (req, res) => {
     const state = db.get();
     const t = findTask(state, req.params.id);
@@ -1647,15 +1804,20 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
   if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
-  const { status, note, faultType } = req.body || {};
+  const { status, note, faultType, reviewHours } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
   if (status === 'error' && !['processor', 'sop'].includes(faultType)) {
     return res.status(400).json({ error: 'Choose whether this was a processor fault or an SOP/manager fault.' });
   }
+  const rh = Number(reviewHours);
   t.reviewStatus = status;
   t.reviewedBy = req.employee.id;
   t.reviewNote = note || null;
   t.reviewedAt = new Date().toISOString();
+  // Optional: how long the review itself took — real work, so it counts
+  // toward the reviewer's own hours (see hoursDoneOnDate) and shows on the
+  // task alongside the assignee's logged hours.
+  t.reviewHours = rh > 0 ? Math.round(rh * 100) / 100 : null;
   if (status === 'error') {
     t.status = 'awaiting_acceptance';
     t.reworkCount = (t.reworkCount || 0) + 1;
@@ -1812,18 +1974,15 @@ app.post('/api/tasks/:id/set-dates', requireAuth, (req, res) => {
   const asManager = isAdminRole(req.employee.accessRole) && canManageEmployee(state, req.employee, t.assignedTo);
   const asSelf = !asManager && canSelfEditTask(req.employee, t);
   if (!asManager && !asSelf) {
-    const ownSelfAssigned = t.assignedTo === req.employee.id && t.assignedBy === req.employee.id
-      && !['completed', 'pending_approval'].includes(t.status);
+    const ownTask = t.assignedTo === req.employee.id && !['completed', 'pending_approval'].includes(t.status);
     return res.status(403).json({
-      error: ownSelfAssigned
+      error: ownTask
         ? 'Self-edit access isn’t active — ask a manager to turn it on (or extend it).'
         : "You're not authorized to change this task's dates.",
-      code: ownSelfAssigned ? 'SELF_EDIT_OFF' : undefined,
+      code: ownTask ? 'SELF_EDIT_OFF' : undefined,
     });
   }
   const body = req.body || {};
-  // A self-editor can't move the client-facing commitment date.
-  if (asSelf) { delete body.clientDate; body.recalcClient = true; }
   const iso = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
   const newInternal = iso(body.internalDeadline);
   if (!newInternal) return res.status(400).json({ error: 'Give a valid internal due date (YYYY-MM-DD).' });

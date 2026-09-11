@@ -80,6 +80,7 @@ function seedData() {
     punchLog: {}, // { [employeeId]: { date, punchedOut, seconds } } — today's live ticking state
     attendance: {}, // { [employeeId]: { [dateISO]: { loginAt, logoutAt, secondsWorked } } } — full daily history
     taskSeq: 100,
+    recurringTasks: [], recurringSeq: 0, recurringLastRun: null,
     createdAt: now,
   };
 }
@@ -324,6 +325,12 @@ function runMigrations(state) {
   // hard-deleted through the app any more.
   if (!Array.isArray(state.deletedTasks)) state.deletedTasks = [];
   if (!Array.isArray(state.deletedClients)) state.deletedClients = [];
+  // Recurring daily tasks — a template ("Simran reviews rideshare clients,
+  // 30 mins, every working day") materialized into a normal task once per
+  // NZ calendar day. See materializeRecurringTasks() in server.js.
+  if (!Array.isArray(state.recurringTasks)) state.recurringTasks = [];
+  if (typeof state.recurringSeq !== 'number') state.recurringSeq = 0;
+  if (state.recurringLastRun === undefined) state.recurringLastRun = null;
   if (!state.connectorDigest || typeof state.connectorDigest !== 'object') state.connectorDigest = { lastSlot: null };
   // Name-spelling fix: existing databases seeded before this correction still
   // have the old spelling — seedData()/ensureOrgChart() only add missing
@@ -341,6 +348,7 @@ function runMigrations(state) {
     if (t.reviewedBy === undefined) t.reviewedBy = null;
     if (t.reviewNote === undefined) t.reviewNote = null;
     if (t.reviewedAt === undefined) t.reviewedAt = null;
+    if (t.reviewHours === undefined) t.reviewHours = null;
     if (t.completedAt === undefined) t.completedAt = null;
     if (t.clientId === undefined) t.clientId = null;
     if (t.reworkCount === undefined) t.reworkCount = 0;
