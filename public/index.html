@@ -3449,7 +3449,7 @@ function renderGreeting(){
     .filter(t => t.assignedTo === who && t.status === 'completed' && dayOf(t.completedAt) === today)
     .reduce((s,t) => s + taskHrs(t), 0);
   const seNote = (!mirror && selfEditActive())
-    ? `<div class="greeting-sub" style="color:var(--purple);">✎ You can adjust the estimate &amp; due date on your own tasks until ${fmtDate(currentViewer().selfEditUntil.slice(0,10))} — use "Edit my estimate" on a task.</div>` : '';
+    ? `<div class="greeting-sub" style="color:var(--purple);">✎ Self-edit is on until ${fmtDate(currentViewer().selfEditUntil.slice(0,10))} — tap the <b>⏱ hours</b> badge (or "edit estimate") on any task you gave yourself to change its estimate &amp; due date.</div>` : '';
   wrap.innerHTML = `<div class="greeting-block">
     <div>
       <h1>${mirror ? esc(me.name) + "'s dashboard" : greeting + (firstName ? ', ' + esc(firstName) : '')}</h1>
@@ -3529,12 +3529,16 @@ function renderMyDay(){
   };
   const row = t => {
     const od = dueBucket(t) === 'overdue';
+    const editable = canEditTaskTiming(t);
+    const hrsBadge = editable
+      ? `<button class="hrs-badge" style="cursor:pointer;border-color:var(--purple);color:var(--purple);" title="Edit your estimate & due date" onclick="event.stopPropagation(); openSetDatesModal('${t.id}')">⏱ ${t.tat}h ✎</button>`
+      : `<span class="hrs-badge" title="estimated time for this task">⏱ ${t.tat}h</span>`;
     return `<div class="today-row">
       <div class="tr-left">
-        <span class="hrs-badge" title="estimated time for this task">⏱ ${t.tat}h</span>
+        ${hrsBadge}
         <div style="min-width:0;">
           <div class="today-row-title">${esc(t.clientName ? t.clientName + ' — ' : '')}${esc(t.name || '')}${t.overAllocated ? ' <span title="Assigned over capacity for '+fmtDate(t.overAllocated.dueDate)+' — counts as extra hours" style="color:var(--flag);font-weight:700;">⚡+'+t.overAllocated.overBy+'h</span>' : ''}</div>
-          <div class="today-row-sub">${miniState(t)} &middot; due ${t.internalDeadline ? fmtDate(t.internalDeadline) : 'no date'}${od ? ' <b style="color:var(--coral);">&middot; overdue</b>' : ''}${t.clientDate ? ' &middot; client ' + fmtDate(t.clientDate) : ''}</div>
+          <div class="today-row-sub">${miniState(t)} &middot; due ${t.internalDeadline ? fmtDate(t.internalDeadline) : 'no date'}${od ? ' <b style="color:var(--coral);">&middot; overdue</b>' : ''}${t.clientDate ? ' &middot; client ' + fmtDate(t.clientDate) : ''}${editable ? ` &middot; <a href="#" onclick="event.stopPropagation(); openSetDatesModal('${t.id}'); return false;" style="color:var(--purple);">edit estimate</a>` : ''}</div>
         </div>
       </div>
       <div class="today-row-right">${actionButtonHtml(t)}</div>
