@@ -221,6 +221,10 @@ function ensureExtendedFields(state) {
     // any of the other admin/superadmin powers. Set from Employees → Manage
     // access. Superadmins already have this implicitly.
     if (e.dashObserver === undefined) e.dashObserver = false;
+    // A time-boxed grant: while `now < selfEditUntil`, this person may edit
+    // the estimate + internal due date on tasks they assigned to THEMSELVES.
+    // Set from Employees → Manage access; lapses on its own.
+    if (e.selfEditUntil === undefined) e.selfEditUntil = null;
     if (e.capacityAuto === undefined) e.capacityAuto = false;
     if (e.capacityEstimatedAt === undefined) e.capacityEstimatedAt = null;
     // One-time: bump the old 6h seed to the 8h working day (only for people

@@ -198,6 +198,18 @@ function canManageEmployee(state, actor, employeeId) {
   return !!target && !!myTeam && typeof target.team === 'string' &&
     target.team.trim() === myTeam && target.id !== actor.id;
 }
+// Time-boxed self-edit grant: while it's live, `emp` may change the estimate
+// and internal due date on a task they created for themselves (and haven't
+// finished). Not the client commitment date — that stays a manager's call.
+function selfEditActive(emp) {
+  return !!(emp && emp.selfEditUntil && Date.now() < Date.parse(emp.selfEditUntil));
+}
+function canSelfEditTask(emp, t) {
+  return !!emp && !!t
+    && t.assignedTo === emp.id && t.assignedBy === emp.id
+    && !['completed', 'pending_approval'].includes(t.status)
+    && selfEditActive(emp);
+}
 /**
  * Can `actor` ACT on the review of task `t` (mark clean / error, decide
  * send-to-client)? The reviewer the assignee nominated on completion, OR a
@@ -792,6 +804,12 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   if (typeof req.body.isFounder === 'boolean') emp.isFounder = req.body.isFounder;
   // Read-only firm-wide Commitment Dashboard observer — no other powers.
   if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
+  // Time-boxed self-edit grant (estimate + own due date on self-assigned tasks).
+  if (req.body.selfEditUntil !== undefined) {
+    const v = req.body.selfEditUntil;
+    emp.selfEditUntil = (typeof v === 'string' && !Number.isNaN(Date.parse(v)) && Date.parse(v) > Date.now())
+      ? new Date(v).toISOString() : null;
+  }
   if (req.body.slackUserId !== undefined) emp.slackUserId = req.body.slackUserId ? String(req.body.slackUserId).trim() : null;
   if (req.body.aircallAgentId !== undefined) emp.aircallAgentId = req.body.aircallAgentId ? String(req.body.aircallAgentId).trim() : null;
 
@@ -1787,14 +1805,25 @@ app.post('/api/tasks/:id/reject-window', requireAuth, (req, res) => {
 // internal + 3 working days unless the manager passes an explicit clientDate
 // (a date already promised), which is stored with an override flag so the
 // buffer isn't silently re-applied later.
-app.post('/api/tasks/:id/set-dates', requireAuth, requireAdmin, (req, res) => {
+app.post('/api/tasks/:id/set-dates', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: "You're not authorized to change this employee's dates." });
+  const asManager = isAdminRole(req.employee.accessRole) && canManageEmployee(state, req.employee, t.assignedTo);
+  const asSelf = !asManager && canSelfEditTask(req.employee, t);
+  if (!asManager && !asSelf) {
+    const ownSelfAssigned = t.assignedTo === req.employee.id && t.assignedBy === req.employee.id
+      && !['completed', 'pending_approval'].includes(t.status);
+    return res.status(403).json({
+      error: ownSelfAssigned
+        ? 'Self-edit access isn’t active — ask a manager to turn it on (or extend it).'
+        : "You're not authorized to change this task's dates.",
+      code: ownSelfAssigned ? 'SELF_EDIT_OFF' : undefined,
+    });
   }
   const body = req.body || {};
+  // A self-editor can't move the client-facing commitment date.
+  if (asSelf) { delete body.clientDate; body.recalcClient = true; }
   const iso = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
   const newInternal = iso(body.internalDeadline);
   if (!newInternal) return res.status(400).json({ error: 'Give a valid internal due date (YYYY-MM-DD).' });
@@ -1839,16 +1868,16 @@ app.post('/api/tasks/:id/set-dates', requireAuth, requireAdmin, (req, res) => {
       at: new Date().toISOString(), by: req.employee.name,
       from: before, to: { internal: t.internalDeadline, client: t.clientDate }, note: note || null,
     });
-    logEvent(state, t.assignedTo, `Dates on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b> — internal ${escHtml(t.internalDeadline)}${t.clientDate ? ', client ' + escHtml(t.clientDate) : ''}${note ? ' (' + escHtml(note) + ')' : ''}.`);
+    logEvent(state, t.assignedTo, `Dates on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b>${asSelf ? ' (self-edit)' : ''} — internal ${escHtml(t.internalDeadline)}${t.clientDate ? ', client ' + escHtml(t.clientDate) : ''}${note ? ' (' + escHtml(note) + ')' : ''}.`);
   }
   if (tatChanged) {
     t.tatHistory = t.tatHistory || [];
     t.tatHistory.push({
       at: new Date().toISOString(), by: req.employee.name,
-      from: curTat, to: newTat, note: note || null,
+      from: curTat, to: newTat, note: note || null, self: asSelf || undefined,
     });
     t.tat = newTat;
-    logEvent(state, t.assignedTo, `Estimate on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b> — ${curTat}h → ${newTat}h${note ? ' (' + escHtml(note) + ')' : ''}.`);
+    logEvent(state, t.assignedTo, `Estimate on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b>${asSelf ? ' (self-edit)' : ''} — ${curTat}h → ${newTat}h${note ? ' (' + escHtml(note) + ')' : ''}.`);
   }
   if (dateChanged || tatChanged) db.save();
   res.json({ task: taskForClient(t) });

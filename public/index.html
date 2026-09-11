@@ -2221,6 +2221,21 @@ function empManagesWork(emp, assigneeId){
   if(emp.accessRole === 'admin') return sameTeam(empById(emp.id) || emp, empById(assigneeId));
   return false;
 }
+// Is my time-boxed self-edit grant live right now?
+function selfEditActive(){
+  const me = currentViewer();
+  return !!(me && me.selfEditUntil && Date.now() < Date.parse(me.selfEditUntil));
+}
+// Can the current viewer edit this task's estimate / due date? A manager over
+// the assignee always can; the assignee can too, but only for a task they
+// gave themselves, while their self-edit grant is live, and before it's done.
+function canEditTaskTiming(t){
+  if(!t) return false;
+  if(empManagesWork(currentViewer(), t.assignedTo)) return true;
+  return t.assignedTo === currentViewerId && t.assignedBy === currentViewerId
+    && !['completed','pending_approval'].includes(t.status)
+    && selfEditActive();
+}
 // Review: the person the assignee sent it to, OR a manager over them —
 // never the assignee themselves.
 function iCanReview(t){
@@ -2533,7 +2548,7 @@ function renderTeamBoard(){
   });
   document.getElementById('tbTasksBody').innerHTML = sorted.length ? sorted.map(t => {
     const a = empById(t.assignedTo);
-    const canEdit = t.status !== 'completed' && t.status !== 'pending_approval' && empManagesWork(currentViewer(), t.assignedTo);
+    const canEdit = canEditTaskTiming(t);
     return `<tr>
       <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${t.id}${(t.dateHistory||[]).length || (t.tatHistory||[]).length ? ' · <span title="edited by a manager" style="color:var(--text-faint);">edited</span>' : ''}</div></td>
       <td class="clientcell">${esc(t.clientName) || '—'}</td>
@@ -3199,9 +3214,9 @@ function actionCell(t){
   }
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
     html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>`;
-    if(t.internalDeadline && empManagesWork(currentViewer(), t.assignedTo)){
-      html += `<button class="verify-btn" style="border-color:#2D5B8E;color:#2D5B8E;" onclick="openSetDatesModal('${t.id}')">Edit dates / hrs</button>`;
-    }
+  }
+  if(t.internalDeadline && t.status !== 'completed' && t.status !== 'pending_approval' && canEditTaskTiming(t)){
+    html += `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openSetDatesModal('${t.id}')" title="${empManagesWork(currentViewer(), t.assignedTo) ? 'Edit the due date and estimate' : 'Adjust your own estimate / due date (self-edit access)'}">${empManagesWork(currentViewer(), t.assignedTo) ? 'Edit dates / hrs' : 'Edit my estimate'}</button>`;
   }
   if(iCanRemoveTask(t)){
     html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" title="Remove this task" onclick="removeTask('${t.id}')">Remove</button>`;
@@ -3433,10 +3448,13 @@ function renderGreeting(){
   const doneTodayHrs = tasks
     .filter(t => t.assignedTo === who && t.status === 'completed' && dayOf(t.completedAt) === today)
     .reduce((s,t) => s + taskHrs(t), 0);
+  const seNote = (!mirror && selfEditActive())
+    ? `<div class="greeting-sub" style="color:var(--purple);">✎ You can adjust the estimate &amp; due date on your own tasks until ${fmtDate(currentViewer().selfEditUntil.slice(0,10))} — use "Edit my estimate" on a task.</div>` : '';
   wrap.innerHTML = `<div class="greeting-block">
     <div>
       <h1>${mirror ? esc(me.name) + "'s dashboard" : greeting + (firstName ? ', ' + esc(firstName) : '')}</h1>
       <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueThisWeek} task${dueThisWeek === 1 ? '' : 's'} due this week &middot; ${doneTodayHrs.toFixed(1)} hrs done today</div>
+      ${seNote}
     </div>
   </div>`;
 }
@@ -4290,12 +4308,17 @@ function openSetDatesModal(id){
   const t = findTask(id);
   if(!t) return;
   const isInternalTask = t.kind === 'internal' || !t.clientDate;
+  const isSelfEdit = !empManagesWork(currentViewer(), t.assignedTo);
+  const me = currentViewer();
+  const expiryNote = (isSelfEdit && me && me.selfEditUntil)
+    ? `<div class="modal-sub" style="color:var(--purple);margin-top:2px;">Self-edit access — expires ${fmtDate(me.selfEditUntil.slice(0,10))}. The client commitment date isn't yours to move.</div>` : '';
   document.getElementById('modalBox').innerHTML = `
-    <h3>Edit dates &amp; estimate — ${esc(t.name)}</h3>
+    <h3>${isSelfEdit ? 'Edit my estimate &amp; due date' : 'Edit dates &amp; estimate'} — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName)||'Internal'} · ${esc(empById(t.assignedTo)?.name || '—')}</div>
-    <div class="field"><label>Internal due date <span style="color:var(--text-faint);">— what you hold ${esc((empById(t.assignedTo)?.name||'the assignee').split(' ')[0])} to</span></label>
+    ${expiryNote}
+    <div class="field"><label>Internal due date <span style="color:var(--text-faint);">— ${isSelfEdit ? 'when you plan to have it done' : 'what you hold ' + esc((empById(t.assignedTo)?.name||'the assignee').split(' ')[0]) + ' to'}</span></label>
       <input type="date" id="sdInternal" value="${esc(t.internalDeadline || todayISO())}" onchange="_sdRecalc()"></div>
-    ${isInternalTask ? '' : `
+    ${(isInternalTask || isSelfEdit) ? '' : `
     <div class="field"><label>Client commitment date</label>
       <input type="date" id="sdClient" value="${esc(t.clientDate || '')}" onchange="_sdClientTouched=true">
       <div id="sdClientHint" style="font-size:12px;color:var(--text-faint);margin-top:4px;"></div></div>`}
@@ -5736,7 +5759,7 @@ const MG_TILE_META = {
 function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner = true } = {}){
   const today = todayISO();
   const sorted = list.slice().sort((a,b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
-  const canEdit = t => t.status !== 'completed' && t.status !== 'pending_approval' && empManagesWork(currentViewer(), t.assignedTo);
+  const canEdit = t => canEditTaskTiming(t);
   const showActions = sorted.some(canEdit);
   const rows = sorted.map(t => {
     const o = empById(t.assignedTo);
@@ -7294,6 +7317,18 @@ function openManageEmployee(id){
         <input type="checkbox" id="meDashObserver" ${e.dashObserver ? 'checked' : ''} style="margin-top:3px;">
         <span>Dashboard observer — can open <b>any</b> employee's Commitment Dashboard, read-only<br><span style="color:var(--text-faint);font-size:12.5px;">No other powers: can't assign, reassign, review, or change anything outside their own work.</span></span>
       </label>
+      <div class="field"><label>Self-edit window <span style="text-transform:none;color:var(--text-faint);">— let this person change the estimate &amp; due date on tasks they assign to themselves. Lapses on its own.</span></label>
+        <select id="meSelfEditWindow" onchange="document.getElementById('meSelfEditCustom').style.display=this.value==='custom'?'':'none';">
+          ${(e.selfEditUntil && Date.now() < Date.parse(e.selfEditUntil)) ? `<option value="keep" selected>Keep current — active until ${fmtDate(e.selfEditUntil.slice(0,10))}</option>` : ''}
+          <option value=""${(e.selfEditUntil && Date.now() < Date.parse(e.selfEditUntil)) ? '' : ' selected'}>Off${(e.selfEditUntil && Date.now() < Date.parse(e.selfEditUntil)) ? ' — revoke now' : ''}</option>
+          <option value="1">Next 24 hours</option>
+          <option value="3">Next 3 days</option>
+          <option value="7">Next 7 days</option>
+          <option value="14">Next 14 days</option>
+          <option value="custom">Until a date…</option>
+        </select>
+        <input type="date" id="meSelfEditCustom" style="display:none;margin-top:8px;" min="${todayISO()}">
+      </div>
       <div class="field"><label>Slack user ID <span style="text-transform:none; color:var(--text-faint);">— so Slack tasks reach this person</span></label><input type="text" id="meSlackId" value="${esc(e.slackUserId || '')}" placeholder="U0XXXXXXXX"></div>
       <div class="field"><label>Aircall agent ID <span style="text-transform:none; color:var(--text-faint);">— only if they take calls</span></label><input type="text" id="meAircallId" value="${esc(e.aircallAgentId || '')}" placeholder="1234567"></div>
       <div class="field">
@@ -7359,11 +7394,23 @@ async function submitManageEmployee(id){
   const dashObserver = document.getElementById('meDashObserver').checked;
   const slackUserId = document.getElementById('meSlackId').value.trim();
   const aircallAgentId = document.getElementById('meAircallId').value.trim();
+  // self-edit window → an ISO datetime, null (revoke), or undefined (unchanged)
+  let selfEditUntil; // undefined by default
+  const sew = document.getElementById('meSelfEditWindow').value;
+  if(sew === 'keep'){ /* leave undefined — don't touch it */ }
+  else if(sew === ''){ selfEditUntil = null; }
+  else if(sew === 'custom'){
+    const d = document.getElementById('meSelfEditCustom').value;
+    selfEditUntil = d ? new Date(d + 'T23:59:59').toISOString() : null;
+  } else {
+    const dt = new Date(); dt.setDate(dt.getDate() + parseInt(sew,10)); dt.setHours(23,59,59,0);
+    selfEditUntil = dt.toISOString();
+  }
   try {
-    await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({
-      accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
-      memberships, isFounder, dashObserver, slackUserId, aircallAgentId
-    })});
+    const payload = { accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
+      memberships, isFounder, dashObserver, slackUserId, aircallAgentId };
+    if(selfEditUntil !== undefined) payload.selfEditUntil = selfEditUntil;
+    await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify(payload)});
     closeModal();
     await refreshEmployees();
     await refreshTeams();
