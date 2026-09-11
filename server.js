@@ -312,6 +312,10 @@ function taskForClient(t) {
     // commitment date — this flags it once that date has passed and nobody
     // has recorded sending it yet (see /send-to-client, /report-owner).
     reportOverdue: !!(t.awaitingClientDecision && t.clientDate && todayISO() > t.clientDate),
+    // The review itself needs to happen before the client commitment date
+    // too — there's no time left to review AND send the report once that
+    // date has passed. Flags a completed, not-yet-reviewed task the same way.
+    reviewOverdue: !!(t.status === 'completed' && !t.reviewStatus && t.clientDate && todayISO() > t.clientDate),
     // P2 — how many times this task has been chased (manual nudge or auto).
     ...(() => {
       const r = db.remindersForTask(db.get(), t.id);

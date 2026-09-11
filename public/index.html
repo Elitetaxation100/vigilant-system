@@ -2986,6 +2986,11 @@ function renderDeadlineBanner(){
     _bannerLists.dueToday = { title: 'Deadline today', subtitle: null, list: dueToday };
     banners.push(`<div class="banner warn"><span>⏰</span><span><b>Deadline today:</b> ${dueToday.length} task${dueToday.length>1?'s':''} — ${bannerRef(dueToday)} · ${seeList('dueToday')}</span></div>`);
   }
+  const overdueReviews = tasks.filter(t => t.status === 'completed' && !t.reviewStatus && t.reviewerId === currentViewerId && t.assignedTo !== currentViewerId && t.reviewOverdue);
+  if(overdueReviews.length > 0){
+    _bannerLists.overdueReviews = { title: 'Reviews overdue', subtitle: "Past the client commitment date — there's no time left to send the report", list: overdueReviews };
+    banners.push(`<div class="banner warn"><span>🔎</span><span><b>${overdueReviews.length} review${overdueReviews.length>1?'s':''} overdue</b> — past the client due date — ${bannerRef(overdueReviews)} · ${seeList('overdueReviews')}</span></div>`);
+  }
   const reportsToSend = reportsToSendFor(currentViewerId);
   if(reportsToSend.length > 0){
     const overdueN = reportsToSend.filter(t => t.reportOverdue).length;
@@ -3482,8 +3487,11 @@ function renderEmployeeStats(){
   const pendingReviewN = pendingReviewCountFor(dashSubjectId());
   const totalN = mine.length + reviewedN + pendingReviewN;
   setV('myTotalTasks', totalN);
+  // A task you finished but that's still sitting with a reviewer isn't
+  // "finished" yet from your own plate's point of view — it's sent for
+  // review. Only actually-signed-off work counts as finished.
   setV('myTotalSub', totalN
-    ? `${openN} open · ${mine.length - openN} finished`
+    ? `${openN} open · ${inReview.length} sent for review · ${mine.length - openN - inReview.length} finished`
       + (reviewedN ? ' · ' + reviewedN + ' reviewed' : '')
       + (pendingReviewN ? ' · ' + pendingReviewN + ' to review' : '')
     : '');
@@ -5977,7 +5985,32 @@ const MG_TILE_META = {
 /* Shared task-list modal — task + client, owner, due (overdue flagged),
    status. Used by the Manager Dashboard KPI tiles and the employee's
    "To-Do Today" tile. Pass showOwner:false to drop the Owner column. */
-function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner = true } = {}){
+// Every filter category a task belongs to, space-separated, for the
+// optional status-filter dropdown in taskListModal(). subjectId splits the
+// "completed, not yet reviewed" state into "sent for review" (it's your
+// own work) vs "to review" (someone else's work you're the reviewer for) —
+// same underlying state, different verb depending on whose seat you're in.
+function taskListCategories(t, subjectId){
+  const cats = ['_all'];
+  if(t.status !== 'completed') cats.push('');
+  if(t.status === 'accepted' && !t.timerStartedAt && !t.startedAt) cats.push('_yettostart');
+  if((t.status === 'accepted' || t.status === 'rework') && t.timerStartedAt) cats.push('_inprogress');
+  if((t.status === 'accepted' || t.status === 'rework') && !t.timerStartedAt && t.startedAt) cats.push('_paused');
+  if(['on_hold','rework','awaiting_acceptance','window_proposed'].includes(t.status)) cats.push(t.status);
+  if(t.status === 'completed' && !t.reviewStatus){
+    cats.push('_inreview');
+    if(subjectId && t.assignedTo === subjectId) cats.push('_sentforreview');
+    if(subjectId && t.assignedTo !== subjectId) cats.push('_toreview');
+  }
+  if(t.status === 'completed' && ['clean','done'].includes(t.reviewStatus)) cats.push('_done');
+  return cats.join(' ');
+}
+const TASK_LIST_FILTER_OPTIONS = [
+  ['_all', 'All statuses'], ['', 'Open work'], ['_yettostart', 'Yet to Start'], ['_inprogress', 'In Progress'],
+  ['_paused', 'Paused'], ['on_hold', 'On Hold'], ['rework', 'Needs Rework'], ['awaiting_acceptance', 'Awaiting Acceptance'],
+  ['window_proposed', 'Window Proposed'], ['_sentforreview', 'Sent for review'], ['_toreview', 'To review'], ['_done', 'Done'],
+];
+function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner = true, statusFilter = false, subjectId = null } = {}){
   const today = todayISO();
   const sorted = list.slice().sort((a,b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
   const canEdit = t => canEditTaskTiming(t);
@@ -5985,14 +6018,18 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
   const rows = sorted.map(t => {
     const o = empById(t.assignedTo);
     const due = t.internalDeadline ? fmtDate(t.internalDeadline) : '—';
-    const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today;
+    // An open task overdue on its internal deadline; a completed-but-not-
+    // reviewed task overdue against the client commitment date (review
+    // itself needs to happen before that date, see t.reviewOverdue).
+    const overdue = (t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today) || t.reviewOverdue || t.reportOverdue;
+    const overdueReason = t.reportOverdue ? 'report not sent' : t.reviewOverdue ? 'not yet reviewed' : 'overdue';
     const hay = (t.name + ' ' + (t.clientName||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase();
     const sub = (t.clientName || '—') + (t.id ? ' · ' + t.id : '');
-    return `<tr data-hay="${esc(hay)}">
+    return `<tr data-hay="${esc(hay)}" data-cat="${esc(taskListCategories(t, subjectId))}">
       <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub" title="${esc(sub)}">${esc(sub)}</div></td>
       <td style="font-family:var(--font-mono);white-space:nowrap;">⏱ ${t.tat}h</td>
       ${showOwner ? `<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${o ? esc(o.name) : ''}">${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>` : ''}
-      <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${due}${overdue ? ' · overdue' : ''}${t.clientDate ? `<div class="tl-sub">client: ${fmtDate(t.clientDate)}</div>` : ''}</td>
+      <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${due}${overdue ? ' · ' + overdueReason : ''}${t.clientDate ? `<div class="tl-sub">client: ${fmtDate(t.clientDate)}</div>` : ''}</td>
       <td>${statusBadge(t)}</td>
       ${showActions ? `<td>${canEdit(t) ? `<button class="verify-btn" style="border-color:#2D5B8E;color:#2D5B8E;white-space:nowrap;" onclick="openSetDatesModal('${t.id}')">Edit dates / hrs</button>` : ''}</td>` : ''}
     </tr>`;
@@ -6001,11 +6038,18 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
   // every column is visible without a horizontal scrollbar — Task takes
   // whatever's left after the narrow, known-width columns.
   const hrsW = '58px', ownerW = '104px', dueW = '100px', statusW = '150px', actionW = '150px';
+  const filterHtml = statusFilter
+    ? `<select id="modalStatusFilter" onchange="filterModalByStatus()" style="max-width:170px;">
+        ${TASK_LIST_FILTER_OPTIONS.map(([v,l]) => `<option value="${v}">${esc(l)}</option>`).join('')}
+      </select>`
+    : '';
   document.getElementById('modalBox').innerHTML = `
     <div class="tasklist-modal">
       <h3>${esc(title)} <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${sorted.length}</span></h3>
       ${subtitle ? `<div class="modal-sub">${esc(subtitle)}</div>` : ''}
-      ${sorted.length ? `<input type="text" class="modal-search" placeholder="Search…" oninput="filterModalRows(this.value)">
+      ${sorted.length ? `<div style="display:flex;gap:8px;">
+        <input type="text" class="modal-search" placeholder="Search…" oninput="filterModalRows(this.value)" style="flex:1;">
+        ${filterHtml}</div>
         <div class="tl-scroll"><table class="tl-table-fixed">
         <thead><tr><th>Task</th><th style="width:${hrsW};">Hrs</th>${showOwner ? `<th style="width:${ownerW};">Owner</th>` : ''}<th style="width:${dueW};">Due</th><th style="width:${statusW};">Status</th>${showActions ? `<th style="width:${actionW};"></th>` : ''}</tr></thead>
         <tbody>${rows}</tbody></table></div>`
@@ -6014,12 +6058,25 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
     </div>`;
   openModal();
 }
+/* Apply the status-filter dropdown on top of whatever text search is
+   already in the search box — both narrow the same row set. */
+function filterModalByStatus(){
+  const sel = document.getElementById('modalStatusFilter');
+  const val = sel ? sel.value : '_all';
+  document.querySelectorAll('#modalBox tbody tr[data-cat]').forEach(tr => {
+    const cats = (tr.getAttribute('data-cat') || '').split(' ');
+    tr.dataset.statusOk = (val === '_all' || cats.includes(val)) ? '1' : '0';
+  });
+  filterModalRows((document.querySelector('#modalBox .modal-search') || {}).value || '');
+}
 /* Live-filter the rows of whatever task list is showing in the modal. */
 function filterModalRows(q){
   q = (q || '').trim().toLowerCase();
   document.querySelectorAll('#modalBox tbody tr').forEach(tr => {
     const hay = tr.getAttribute('data-hay') || tr.textContent.toLowerCase();
-    tr.style.display = (!q || hay.includes(q)) ? '' : 'none';
+    const textOk = !q || hay.includes(q);
+    const statusOk = tr.dataset.statusOk === undefined || tr.dataset.statusOk === '1';
+    tr.style.display = (textOk && statusOk) ? '' : 'none';
   });
 }
 function openMgTileList(key){
@@ -6072,13 +6129,17 @@ function openMyAllTasks(){
   const reviewed = tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus));
   const pending = tasks.filter(t => t.status === 'completed' && !t.reviewStatus && t.reviewerId === who && t.assignedTo !== who);
   const openN = mine.filter(t=>t.status!=='completed').length;
-  const finishedN = mine.length - openN;
+  // A task you finished but that's still with a reviewer isn't "finished"
+  // yet from your side — it's sent for review, same distinction as the
+  // "Sent for review" tile.
+  const sentForReviewN = mine.filter(t => t.status === 'completed' && !t.reviewStatus).length;
+  const finishedN = mine.length - openN - sentForReviewN;
   const total = mine.length + reviewed.length + pending.length;
-  const sub = `${openN} open · ${finishedN} finished`
+  const sub = `${openN} open · ${sentForReviewN} sent for review · ${finishedN} finished`
     + (reviewed.length ? ' · ' + reviewed.length + ' reviewed' : '')
     + (pending.length ? ' · ' + pending.length + ' to review' : '')
     + ` · ${total} total`;
-  taskListModal(`${me ? me.name + ' — ' : ''}all tasks`, sub, [...mine, ...reviewed, ...pending], { empty: 'No tasks yet.' });
+  taskListModal(`${me ? me.name + ' — ' : ''}all tasks`, sub, [...mine, ...reviewed, ...pending], { empty: 'No tasks yet.', statusFilter: true, subjectId: who });
 }
 // Completed work that ran over its estimate, and by how much.
 function openMyExtraHours(){
@@ -6103,25 +6164,27 @@ function openMyExtraHours(){
 // Work other people sent the current viewer to check. Each row opens the
 // review form directly.
 function openMyReviewQueue(){
-  const list = myReviewTasks().slice().sort((a,b) => (a.completedAt||'').localeCompare(b.completedAt||''));
+  const list = myReviewTasks().slice().sort((a,b) => (a.clientDate || a.completedAt || '').localeCompare(b.clientDate || b.completedAt || ''));
   const rows = list.map(t => {
     const o = empById(t.assignedTo);
     const hay = (t.name + ' ' + (t.clientName||'') + ' ' + (o?o.name:'') + ' ' + t.id).toLowerCase();
+    const overdue = t.reviewOverdue;
     return `<tr data-hay="${esc(hay)}">
       <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</div></td>
       <td style="font-family:var(--font-mono);">⏱ ${t.tat}h</td>
       <td>${o ? esc(o.name) : '—'}</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</td>
+      <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${overdue ? ' · overdue' : ''}</td>
       <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="closeModal();openReviewFormModal('${t.id}')">📝 Review</button></td>
     </tr>`;
   }).join('');
   document.getElementById('modalBox').innerHTML = `
     <div class="tasklist-modal">
       <h3>Waiting for your review <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
-      <div class="modal-sub">Work other people chose you to check before it's signed off.</div>
+      <div class="modal-sub">Work other people chose you to check before it's signed off — review it before the client commitment date, so there's still time to send the report.</div>
       ${list.length ? `<input type="text" class="modal-search" placeholder="Search…" oninput="filterModalRows(this.value)">
         <div class="tl-scroll"><table>
-        <thead><tr><th>Task</th><th>Hrs</th><th>Submitted by</th><th>Completed</th><th></th></tr></thead>
+        <thead><tr><th>Task</th><th>Hrs</th><th>Submitted by</th><th>Completed</th><th>Client due</th><th></th></tr></thead>
         <tbody>${rows}</tbody></table></div>`
         : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting for your review right now.</p>`}
       <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
