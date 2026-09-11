@@ -349,6 +349,7 @@ function runMigrations(state) {
     if (t.reviewNote === undefined) t.reviewNote = null;
     if (t.reviewedAt === undefined) t.reviewedAt = null;
     if (t.reviewHours === undefined) t.reviewHours = null;
+    if (t.reportSendOwner === undefined) t.reportSendOwner = t.awaitingClientDecision ? t.assignedTo : null;
     if (t.completedAt === undefined) t.completedAt = null;
     if (t.clientId === undefined) t.clientId = null;
     if (t.reworkCount === undefined) t.reworkCount = 0;

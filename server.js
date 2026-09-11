@@ -308,6 +308,10 @@ function taskForClient(t) {
     queryShiftDays: taskShiftDays(t),
     effectiveClientDate: effectiveClientDate(t),
     commitmentOutcome: commitmentOutcome(t),
+    // A clean review still needs the report sent to the client by the
+    // commitment date — this flags it once that date has passed and nobody
+    // has recorded sending it yet (see /send-to-client, /report-owner).
+    reportOverdue: !!(t.awaitingClientDecision && t.clientDate && todayISO() > t.clientDate),
     // P2 — how many times this task has been chased (manual nudge or auto).
     ...(() => {
       const r = db.remindersForTask(db.get(), t.id);
@@ -1109,6 +1113,7 @@ function visibleTasks(state, me) {
     t.assignedBy === me.id ||
     t.reviewerId === me.id ||
     t.reviewedBy === me.id ||
+    t.reportSendOwner === me.id ||  // handed the "send this to the client" job, even if it isn't their task
     (t.reassignHistory || []).some(h => h.from === me.id || h.to === me.id || h.by === me.id) ||
     (isAdmin && !t.assignedTo)  // unassigned work is theirs to hand out
   );
@@ -1828,6 +1833,10 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     // A client task then asks "send it to the client?"; an internal task
     // (training, admin) has no client, so a clean review just closes it.
     t.awaitingClientDecision = t.kind !== 'internal';
+    // Whoever actually dispatches the report defaults to the person who did
+    // the work — they can hand it off (see /report-owner) if someone else
+    // is sending it.
+    if (t.awaitingClientDecision) t.reportSendOwner = t.assignedTo;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
     const managers = managersOfEmployee(state, t.assignedTo);
     managers.forEach(m => {
@@ -1838,15 +1847,39 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
   res.json({ task: taskForClient(t) });
 });
 
+// Hand the "send this to the client" step to someone else — the reviewer
+// or a manager over the assignee sets it, or the current owner can pass it
+// on themselves ("if they want"). Defaults to the original assignee the
+// moment a review goes clean (see /review).
+app.post('/api/tasks/:id/report-owner', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (!t.awaitingClientDecision) return res.status(400).json({ error: 'This task has no pending report to send.' });
+  const canAssign = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.id === t.reportSendOwner;
+  if (!canAssign) return res.status(403).json({ error: "You're not authorized to change who sends this report." });
+  const { ownerId } = req.body || {};
+  const owner = findEmployee(state, ownerId);
+  if (!owner) return res.status(400).json({ error: 'Choose a real employee.' });
+  const before = t.reportSendOwner;
+  t.reportSendOwner = owner.id;
+  if (before !== owner.id) {
+    logEvent(state, owner.id, `<b>${escHtml(req.employee.name)}</b> made you responsible for sending "${escHtml(t.name)}" to the client.`);
+  }
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
 // Send-to-client decision — asked once a task is reviewed clean. Logged
 // for the assignee and their reporting manager(s) the same way every
-// other task event is, so both see the same outcome.
+// other task event is, so both see the same outcome. Allowed for the
+// reviewer/a manager over the assignee, OR whoever the report-send job is
+// currently assigned to (defaults to the original assignee).
 app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  // Same gate as /review — the nominated reviewer or a manager over them.
-  if (!canReviewWorkOf(state, req.employee, t.assignedTo, t)) {
+  const allowed = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.id === t.reportSendOwner;
+  if (!allowed) {
     return res.status(403).json({ error: "You can't make this decision on someone else's review." });
   }
   if (t.reviewStatus !== 'clean' || !t.awaitingClientDecision) {

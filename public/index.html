@@ -2230,6 +2230,28 @@ function reviewHoursDoneOnDate(who, date){
 function reviewedByCount(who){
   return tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus)).length;
 }
+// Someone else's work sitting in `who`'s review queue right now — not yet
+// decided. Parametrized version of myReviewTasks() so it can be computed
+// for any dashboard subject, not just the current viewer.
+function pendingReviewCountFor(who){
+  return tasks.filter(t => t.status === 'completed' && !t.reviewStatus
+    && t.reviewerId === who && t.assignedTo !== who).length;
+}
+// Tasks `who` is responsible for actually sending to the client — reviewed
+// clean, still awaiting that step. Defaults to the original assignee (see
+// server /review), reassignable via /report-owner.
+function reportsToSendFor(who){
+  return tasks.filter(t => t.reportSendOwner === who && t.awaitingClientDecision);
+}
+// Can the viewer manage who sends this report / decide it's sent? The
+// reviewer, a manager over the assignee, or the current report owner.
+function canManageReportSend(t){
+  if(!t) return false;
+  if(empManagesWork(currentViewer(), t.assignedTo)) return true;
+  if(currentViewerId === t.reportSendOwner) return true;
+  if(currentViewerId === t.reviewerId || currentViewerId === t.reviewedBy) return true;
+  return false;
+}
 
 /* Is `emp` a manager/admin responsible for `assigneeId` (or a superadmin)?
    Used for self-assignment approval and as one of the two ways to review. */
@@ -2964,6 +2986,11 @@ function renderDeadlineBanner(){
     _bannerLists.dueToday = { title: 'Deadline today', subtitle: null, list: dueToday };
     banners.push(`<div class="banner warn"><span>⏰</span><span><b>Deadline today:</b> ${dueToday.length} task${dueToday.length>1?'s':''} — ${bannerRef(dueToday)} · ${seeList('dueToday')}</span></div>`);
   }
+  const reportsToSend = reportsToSendFor(currentViewerId);
+  if(reportsToSend.length > 0){
+    const overdueN = reportsToSend.filter(t => t.reportOverdue).length;
+    banners.push(`<div class="banner ${overdueN ? 'warn' : ''}"><span>📨</span><span><b>${reportsToSend.length} report${reportsToSend.length>1?'s':''} to send</b>${overdueN ? ` — ${overdueN} overdue` : ''} — ${bannerRef(reportsToSend)} · <a href="#" onclick="event.preventDefault(); openReportsToSendModal();" style="text-decoration:underline;font-weight:600;">see list</a></span></div>`);
+  }
   if(isAdmin){
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
     if(proposedOrg.length > 0){
@@ -3447,12 +3474,18 @@ function renderEmployeeStats(){
   const doneAll  = mine.filter(t => t.status === 'completed' && ['clean','done'].includes(t.reviewStatus));
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
   const openN = mine.filter(t => t.status !== 'completed').length;
-  // Reviewing other people's work is real work too — folded into the total
-  // so it isn't invisible next to tasks assigned straight to you.
+  // Reviewing other people's work is real work too — folded into the total,
+  // both what's already been decided (reviewedN) and what's still sitting
+  // in the queue waiting on a decision (pendingReviewN) — it isn't invisible
+  // next to tasks assigned straight to you.
   const reviewedN = reviewedByCount(dashSubjectId());
-  setV('myTotalTasks', mine.length + reviewedN);
-  setV('myTotalSub', mine.length || reviewedN
-    ? `${openN} open · ${mine.length - openN} finished${reviewedN ? ' · ' + reviewedN + ' reviewed' : ''}`
+  const pendingReviewN = pendingReviewCountFor(dashSubjectId());
+  const totalN = mine.length + reviewedN + pendingReviewN;
+  setV('myTotalTasks', totalN);
+  setV('myTotalSub', totalN
+    ? `${openN} open · ${mine.length - openN} finished`
+      + (reviewedN ? ' · ' + reviewedN + ' reviewed' : '')
+      + (pendingReviewN ? ' · ' + pendingReviewN + ' to review' : '')
     : '');
   setV('myTasksToday', myTodaysWork.length);
   setV('myToReview', myReviewTasks().length);
@@ -3810,11 +3843,13 @@ function renderStatusDonut(){
       // own tasks, a manager their team's, a founder/superadmin the firm.
       const scoped = dashboardScopeTasks();
       // Reviewing someone else's work is real work too — folded in as its
-      // own slice so this ring's total matches the "Total tasks" tile
-      // (mine.length + reviewedByCount) instead of quietly undercounting it.
+      // own slices so this ring's total matches the "Total tasks" tile:
+      // reviews already decided (reviewedN) AND ones still sitting in the
+      // queue waiting on a decision (pendingReviewN).
       const reviewedN = reviewedByCount(dashSubjectId());
-      if(scoped.length === 0 && reviewedN === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
-      const colors = { awaiting_acceptance:'var(--amber)', window_proposed:'var(--purple)', accepted:'var(--teal)', pending:'var(--text-faint)', rework:'var(--coral)', on_hold:'var(--amber)', inreview:'var(--mint-deep)', done:'var(--mint)', reviewed:'var(--purple)' };
+      const pendingReviewN = pendingReviewCountFor(dashSubjectId());
+      if(scoped.length === 0 && reviewedN === 0 && pendingReviewN === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
+      const colors = { awaiting_acceptance:'var(--amber)', window_proposed:'var(--purple)', accepted:'var(--teal)', pending:'var(--text-faint)', rework:'var(--coral)', on_hold:'var(--amber)', inreview:'var(--mint-deep)', done:'var(--mint)', reviewed:'var(--purple)', toreview:'color-mix(in srgb, var(--purple) 45%, var(--amber) 55%)' };
       // A finished task is either still IN REVIEW (sent, not signed off) or
       // DONE (reviewed clean / closed) — never both, and "Sent for Review"
       // never lingers on the ring once it's cleared.
@@ -3822,12 +3857,14 @@ function renderStatusDonut(){
       const counts = {};
       scoped.forEach(t => { const k = donutKey(t); counts[k] = (counts[k]||0) + 1; });
       if(reviewedN > 0) counts.reviewed = reviewedN;
+      if(pendingReviewN > 0) counts.toreview = pendingReviewN;
       const order = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
-      const total = scoped.length + reviewedN;
+      const total = scoped.length + reviewedN + pendingReviewN;
       const seg = order.map(s => `<i style="width:${counts[s]/total*100}%;background:${colors[s]||'var(--text-faint)'};"></i>`).join('');
-      const labelOf = s => s === 'reviewed' ? "Reviewed (others' work)" : statusLabel(s);
+      const labelOf = s => s === 'reviewed' ? "Reviewed (others' work)" : s === 'toreview' ? "To review (others' work)" : statusLabel(s);
       const key = order.map(s => `<div class="k"><span><i style="background:${colors[s]||'var(--text-faint)'};"></i>${labelOf(s)}</span><b>${counts[s]}</b></div>`).join('');
-      wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} task${total===1?'':'s'}${reviewedN ? ` · ${scoped.length} yours, ${reviewedN} reviewed` : ''}</div>
+      const extraBits = [reviewedN ? `${reviewedN} reviewed` : '', pendingReviewN ? `${pendingReviewN} to review` : ''].filter(Boolean).join(', ');
+      wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} task${total===1?'':'s'}${extraBits ? ` · ${scoped.length} yours, ${extraBits}` : ''}</div>
         <div class="seg">${seg}</div>
         <div class="seg-key">${key}</div>`;
       const sc = document.getElementById('statusDonutScope');
@@ -6032,10 +6069,15 @@ function openMyAllTasks(){
   const who = dashSubjectId();
   const mine = tasks.filter(t => t.assignedTo === who);
   const reviewed = tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus));
+  const pending = tasks.filter(t => t.status === 'completed' && !t.reviewStatus && t.reviewerId === who && t.assignedTo !== who);
   const openN = mine.filter(t=>t.status!=='completed').length;
   const finishedN = mine.length - openN;
-  const sub = `${openN} open · ${finishedN} finished${reviewed.length ? ' · ' + reviewed.length + ' reviewed' : ''} · ${mine.length + reviewed.length} total`;
-  taskListModal(`${me ? me.name + ' — ' : ''}all tasks`, sub, [...mine, ...reviewed], { empty: 'No tasks yet.' });
+  const total = mine.length + reviewed.length + pending.length;
+  const sub = `${openN} open · ${finishedN} finished`
+    + (reviewed.length ? ' · ' + reviewed.length + ' reviewed' : '')
+    + (pending.length ? ' · ' + pending.length + ' to review' : '')
+    + ` · ${total} total`;
+  taskListModal(`${me ? me.name + ' — ' : ''}all tasks`, sub, [...mine, ...reviewed, ...pending], { empty: 'No tasks yet.' });
 }
 // Completed work that ran over its estimate, and by how much.
 function openMyExtraHours(){
@@ -6780,13 +6822,20 @@ async function submitReviewForm(id, decision){
   function openSendToClientModal(id){
     const t = findTask(id);
     if(!t) return;
+    const owner = empById(t.reportSendOwner);
+    const canReassign = canManageReportSend(t);
     document.getElementById('modalBox').innerHTML = `
     <h3>Send to client?</h3>
     <div class="modal-sub">${esc(t.name)} was reviewed clean — send this report directly to the client?</div>
-    <div class="modal-actions">
-    <button class="btn" onclick="submitSendToClient('${id}','no')">No, not yet</button>
-    <button class="btn primary" onclick="submitSendToClient('${id}','yes')">Yes, send it</button>
+    <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:12px 14px; margin:12px 0; font-size:13px; color:var(--text-dim); line-height:1.8;">
+      <div><b style="color:var(--text);">Sending it:</b> ${owner ? esc(owner.name) : '—'}${canReassign ? ` · <a href="#" onclick="event.preventDefault(); openReassignReportOwner('${id}');" style="color:var(--purple);">change</a>` : ''}</div>
+      <div><b style="color:var(--text);">Deadline:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' <span style="color:#C2410C;font-weight:600;">· overdue</span>' : ''}</div>
     </div>
+    <div class="modal-actions">
+    <button class="btn" onclick="closeModal()">Remind me later</button>
+    <button class="btn primary" onclick="submitSendToClient('${id}','yes')">✓ Sent to client</button>
+    </div>
+    <div style="margin-top:10px;text-align:center;"><a href="#" onclick="event.preventDefault(); submitSendToClient('${id}','no')" style="font-size:12px;color:var(--text-faint);">Won't be sent — no report needed</a></div>
     `;
     openModal();
   }
@@ -6796,6 +6845,56 @@ async function submitReviewForm(id, decision){
       closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
       showToast('info', decision === 'yes' ? 'Sent to client' : 'Not sent to client', '');
     } catch(e){ showToast('error', 'Could not record decision', e.message); }
+  }
+  function openReassignReportOwner(id){
+    const t = findTask(id);
+    if(!t) return;
+    const opts = employees.slice().sort((a,b)=>a.name.localeCompare(b.name))
+      .map(e => `<option value="${e.id}" ${e.id===t.reportSendOwner?'selected':''}>${esc(e.name)}</option>`).join('');
+    document.getElementById('modalBox').innerHTML = `
+    <h3>Who sends this report?</h3>
+    <div class="modal-sub">${esc(t.name)}</div>
+    <div class="field"><label>Assign to</label><select id="roOwner">${opts}</select></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openSendToClientModal('${id}')">Cancel</button>
+      <button class="btn primary" onclick="submitReportOwner('${id}')">Save</button>
+    </div>`;
+    openModal();
+  }
+  async function submitReportOwner(id){
+    const ownerId = document.getElementById('roOwner').value;
+    try {
+      await api(`/api/tasks/${encodeURIComponent(id)}/report-owner`, { method:'POST', body: JSON.stringify({ ownerId }) });
+      await refreshTasks();
+      showToast('success', 'Reassigned', '');
+      openSendToClientModal(id);
+    } catch(e){ showToast('error', 'Could not reassign', e.message); }
+  }
+  // Everything the current viewer is responsible for actually sending to
+  // the client — reviewed clean, still waiting on that last step.
+  function openReportsToSendModal(){
+    const who = currentViewerId;
+    const list = reportsToSendFor(who).slice().sort((a,b) => (a.clientDate || '9999').localeCompare(b.clientDate || '9999'));
+    const rows = list.map(t => {
+      const a = empById(t.assignedTo);
+      return `<tr>
+        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
+        <td class="tl-sub">${a ? esc(a.name) : '—'}</td>
+        <td style="${t.reportOverdue ? 'color:#C2410C;font-weight:600;' : ''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' · overdue' : ''}</td>
+        <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;white-space:nowrap;" onclick="closeModal();openSendToClientModal('${t.id}')">Send?</button></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('modalBox').innerHTML = `
+      <div class="tasklist-modal">
+        <h3>Reports to send <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
+        <div class="modal-sub">Reviewed clean, still waiting to go out — deadline is the client commitment date.</div>
+        ${list.length ? `<div class="tl-scroll"><table class="tl-table-fixed">
+          <thead><tr><th>Task</th><th style="width:130px;">Owner</th><th style="width:130px;">Deadline</th><th style="width:100px;"></th></tr></thead>
+          <tbody>${rows}</tbody></table></div>`
+          : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting to be sent.</p>`}
+        <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+      </div>`;
+    openModal();
   }
 function openReviewViewModal(id){
   const t = findTask(id);
@@ -6809,9 +6908,16 @@ function openReviewViewModal(id){
       <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(t.reviewedAt.slice(0,10)) : '—'}</div>
       ${Number(t.reviewHours) > 0 ? `<div><b style="color:var(--text);">Time spent reviewing:</b> ${Number(t.reviewHours).toFixed(2)}h</div>` : ''}
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
-      <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision ? '<span style="color:#B45309;">Awaiting decision on sending to client</span>' : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>' : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>' : '<span style="color:var(--text-faint);">—</span>'}</div>
+      <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision
+        ? `<span style="color:#B45309;">Awaiting decision on sending to client</span> — ${esc((empById(t.reportSendOwner)||{}).name || 'unassigned')} to send${t.clientDate ? ', by ' + fmtDate(t.clientDate) : ''}${t.reportOverdue ? ' <b style="color:#C2410C;">· overdue</b>' : ''}`
+        : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>'
+        : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>'
+        : '<span style="color:var(--text-faint);">—</span>'}</div>
     </div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      ${t.awaitingClientDecision ? `<button class="btn primary" onclick="openSendToClientModal('${id}')">Send to client…</button>` : ''}
+    </div>
   `;
   openModal();
 }
