@@ -3842,26 +3842,27 @@ function renderStatusDonut(){
       // Scoped to what this dashboard is about: an employee sees only their
       // own tasks, a manager their team's, a founder/superadmin the firm.
       const scoped = dashboardScopeTasks();
-      // Reviewing someone else's work is real work too — folded in as its
-      // own slices so this ring's total matches the "Total tasks" tile:
-      // reviews already decided (reviewedN) AND ones still sitting in the
-      // queue waiting on a decision (pendingReviewN).
+      // Reviewing someone else's work is real work too — folded in so this
+      // ring's total matches the "Total tasks" tile: reviews already
+      // decided (reviewedN) count straight into DONE — reviewing it WAS
+      // finishing your part of it — and ones still sitting in the queue
+      // (pendingReviewN) get their own "still to do" slice.
       const reviewedN = reviewedByCount(dashSubjectId());
       const pendingReviewN = pendingReviewCountFor(dashSubjectId());
       if(scoped.length === 0 && reviewedN === 0 && pendingReviewN === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
-      const colors = { awaiting_acceptance:'var(--amber)', window_proposed:'var(--purple)', accepted:'var(--teal)', pending:'var(--text-faint)', rework:'var(--coral)', on_hold:'var(--amber)', inreview:'var(--mint-deep)', done:'var(--mint)', reviewed:'var(--purple)', toreview:'color-mix(in srgb, var(--purple) 45%, var(--amber) 55%)' };
+      const colors = { awaiting_acceptance:'var(--amber)', window_proposed:'var(--purple)', accepted:'var(--teal)', pending:'var(--text-faint)', rework:'var(--coral)', on_hold:'var(--amber)', inreview:'var(--mint-deep)', done:'var(--mint)', toreview:'color-mix(in srgb, var(--purple) 45%, var(--amber) 55%)' };
       // A finished task is either still IN REVIEW (sent, not signed off) or
       // DONE (reviewed clean / closed) — never both, and "Sent for Review"
       // never lingers on the ring once it's cleared.
       const donutKey = t => t.status !== 'completed' ? t.status : (t.reviewStatus ? 'done' : 'inreview');
       const counts = {};
       scoped.forEach(t => { const k = donutKey(t); counts[k] = (counts[k]||0) + 1; });
-      if(reviewedN > 0) counts.reviewed = reviewedN;
+      if(reviewedN > 0) counts.done = (counts.done || 0) + reviewedN;
       if(pendingReviewN > 0) counts.toreview = pendingReviewN;
       const order = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
       const total = scoped.length + reviewedN + pendingReviewN;
       const seg = order.map(s => `<i style="width:${counts[s]/total*100}%;background:${colors[s]||'var(--text-faint)'};"></i>`).join('');
-      const labelOf = s => s === 'reviewed' ? "Reviewed (others' work)" : s === 'toreview' ? "To review (others' work)" : statusLabel(s);
+      const labelOf = s => s === 'toreview' ? "To review (others' work)" : statusLabel(s);
       const key = order.map(s => `<div class="k"><span><i style="background:${colors[s]||'var(--text-faint)'};"></i>${labelOf(s)}</span><b>${counts[s]}</b></div>`).join('');
       const extraBits = [reviewedN ? `${reviewedN} reviewed` : '', pendingReviewN ? `${pendingReviewN} to review` : ''].filter(Boolean).join(', ');
       wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} task${total===1?'':'s'}${extraBits ? ` · ${scoped.length} yours, ${extraBits}` : ''}</div>
