@@ -194,14 +194,21 @@
   .mg-tile:hover{ border-color:var(--purple); }
   .mg-tile::after{ content:'View list →'; position:absolute; right:12px; bottom:10px; font-size:10px; letter-spacing:.4px; color:var(--text-faint); opacity:0; transition:opacity .15s ease; }
   .mg-tile:hover::after{ opacity:.9; }
-  #modalOverlay:has(.tasklist-modal) .modal-box{ max-width:720px; }
+  #modalOverlay:has(.tasklist-modal) .modal-box{ max-width:780px; }
   .tasklist-modal table{ width:100%; border-collapse:collapse; font-size:13px; }
-  .tasklist-modal th{ text-align:left; padding:7px 10px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); border-bottom:1px solid var(--panel-border); }
-  .tasklist-modal td{ padding:8px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
+  .tasklist-modal th{ text-align:left; padding:7px 10px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); border-bottom:1px solid var(--panel-border); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tasklist-modal td{ padding:8px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; overflow:hidden; }
   .tasklist-modal tr:last-child td{ border-bottom:none; }
-  .tasklist-modal .tl-name{ font-weight:600; color:var(--text); }
-  .tasklist-modal .tl-sub{ font-size:11.5px; color:var(--text-faint); }
-  .tasklist-modal .tl-scroll{ max-height:52vh; overflow:auto; margin:6px -4px 4px; }
+  .tasklist-modal .tl-name{ font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tasklist-modal .tl-sub{ font-size:11.5px; color:var(--text-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* Used only by taskListModal() (the general "N tasks" list, e.g. "see list"
+     from a banner, or a tile's full list) — its columns get explicit widths
+     inline on <th>, so table-layout:fixed keeps everything visible without a
+     horizontal scrollbar. Scoped to this one class: the OTHER .tasklist-modal
+     tables (Extra hours, Work log, In review, Done…) have no per-column
+     widths and need the browser's normal content-based (auto) sizing. */
+  .tasklist-modal table.tl-table-fixed{ table-layout:fixed; }
+  .tasklist-modal .tl-scroll{ max-height:52vh; overflow-y:auto; overflow-x:hidden; margin:6px -4px 4px; }
   .tasklist-modal .wl-datehdr td{ background:var(--panel-2); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--text-dim); position:sticky; top:0; }
   .stat-card .label{ font-size:12.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); margin-bottom:8px; }
   .stat-card .value{ font-family:var(--font-display); font-size:27px; font-weight:700; }
@@ -3802,19 +3809,25 @@ function renderStatusDonut(){
       // Scoped to what this dashboard is about: an employee sees only their
       // own tasks, a manager their team's, a founder/superadmin the firm.
       const scoped = dashboardScopeTasks();
-      if(scoped.length === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
-      const colors = { awaiting_acceptance:'var(--amber)', window_proposed:'var(--purple)', accepted:'var(--teal)', pending:'var(--text-faint)', rework:'var(--coral)', on_hold:'var(--amber)', inreview:'var(--mint-deep)', done:'var(--mint)' };
+      // Reviewing someone else's work is real work too — folded in as its
+      // own slice so this ring's total matches the "Total tasks" tile
+      // (mine.length + reviewedByCount) instead of quietly undercounting it.
+      const reviewedN = reviewedByCount(dashSubjectId());
+      if(scoped.length === 0 && reviewedN === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
+      const colors = { awaiting_acceptance:'var(--amber)', window_proposed:'var(--purple)', accepted:'var(--teal)', pending:'var(--text-faint)', rework:'var(--coral)', on_hold:'var(--amber)', inreview:'var(--mint-deep)', done:'var(--mint)', reviewed:'var(--purple)' };
       // A finished task is either still IN REVIEW (sent, not signed off) or
       // DONE (reviewed clean / closed) — never both, and "Sent for Review"
       // never lingers on the ring once it's cleared.
       const donutKey = t => t.status !== 'completed' ? t.status : (t.reviewStatus ? 'done' : 'inreview');
       const counts = {};
       scoped.forEach(t => { const k = donutKey(t); counts[k] = (counts[k]||0) + 1; });
+      if(reviewedN > 0) counts.reviewed = reviewedN;
       const order = Object.keys(counts).sort((a,b) => counts[b]-counts[a]);
-      const total = scoped.length;
+      const total = scoped.length + reviewedN;
       const seg = order.map(s => `<i style="width:${counts[s]/total*100}%;background:${colors[s]||'var(--text-faint)'};"></i>`).join('');
-      const key = order.map(s => `<div class="k"><span><i style="background:${colors[s]||'var(--text-faint)'};"></i>${statusLabel(s)}</span><b>${counts[s]}</b></div>`).join('');
-      wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} live task${total===1?'':'s'}</div>
+      const labelOf = s => s === 'reviewed' ? "Reviewed (others' work)" : statusLabel(s);
+      const key = order.map(s => `<div class="k"><span><i style="background:${colors[s]||'var(--text-faint)'};"></i>${labelOf(s)}</span><b>${counts[s]}</b></div>`).join('');
+      wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} task${total===1?'':'s'}${reviewedN ? ` · ${scoped.length} yours, ${reviewedN} reviewed` : ''}</div>
         <div class="seg">${seg}</div>
         <div class="seg-key">${key}</div>`;
       const sc = document.getElementById('statusDonutScope');
@@ -5936,22 +5949,27 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
     const due = t.internalDeadline ? fmtDate(t.internalDeadline) : '—';
     const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today;
     const hay = (t.name + ' ' + (t.clientName||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase();
+    const sub = (t.clientName || '—') + (t.id ? ' · ' + t.id : '');
     return `<tr data-hay="${esc(hay)}">
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
+      <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub" title="${esc(sub)}">${esc(sub)}</div></td>
       <td style="font-family:var(--font-mono);white-space:nowrap;">⏱ ${t.tat}h</td>
-      ${showOwner ? `<td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>` : ''}
+      ${showOwner ? `<td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${o ? esc(o.name) : ''}">${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>` : ''}
       <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${due}${overdue ? ' · overdue' : ''}${t.clientDate ? `<div class="tl-sub">client: ${fmtDate(t.clientDate)}</div>` : ''}</td>
       <td>${statusBadge(t)}</td>
       ${showActions ? `<td>${canEdit(t) ? `<button class="verify-btn" style="border-color:#2D5B8E;color:#2D5B8E;white-space:nowrap;" onclick="openSetDatesModal('${t.id}')">Edit dates / hrs</button>` : ''}</td>` : ''}
     </tr>`;
   }).join('');
+  // Column widths are fixed (table-layout:fixed on .tasklist-modal table) so
+  // every column is visible without a horizontal scrollbar — Task takes
+  // whatever's left after the narrow, known-width columns.
+  const hrsW = '58px', ownerW = '104px', dueW = '100px', statusW = '150px', actionW = '150px';
   document.getElementById('modalBox').innerHTML = `
     <div class="tasklist-modal">
       <h3>${esc(title)} <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${sorted.length}</span></h3>
       ${subtitle ? `<div class="modal-sub">${esc(subtitle)}</div>` : ''}
       ${sorted.length ? `<input type="text" class="modal-search" placeholder="Search…" oninput="filterModalRows(this.value)">
-        <div class="tl-scroll"><table>
-        <thead><tr><th>Task</th><th>Hrs</th>${showOwner ? '<th>Owner</th>' : ''}<th>Due</th><th>Status</th>${showActions ? '<th></th>' : ''}</tr></thead>
+        <div class="tl-scroll"><table class="tl-table-fixed">
+        <thead><tr><th>Task</th><th style="width:${hrsW};">Hrs</th>${showOwner ? `<th style="width:${ownerW};">Owner</th>` : ''}<th style="width:${dueW};">Due</th><th style="width:${statusW};">Status</th>${showActions ? `<th style="width:${actionW};"></th>` : ''}</tr></thead>
         <tbody>${rows}</tbody></table></div>`
         : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">${esc(empty)}</p>`}
       <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
@@ -6006,11 +6024,18 @@ function openMyTodayList(){
     { showOwner: true, empty: "Nothing due today — all clear." }
   );
 }
-// Every task on the dashboard subject.
+// Every task on the dashboard subject — their own work PLUS anything they've
+// reviewed for someone else, matching the "Total tasks" tile (reviewing is
+// real work too, see reviewedByCount). Owner column tells the two apart.
 function openMyAllTasks(){
   const me = dashSubject();
-  const list = tasks.filter(t => t.assignedTo === dashSubjectId());
-  taskListModal(`${me ? me.name + ' — ' : ''}all tasks`, `${list.filter(t=>t.status!=='completed').length} open · ${list.length} total`, list, { empty: 'No tasks yet.' });
+  const who = dashSubjectId();
+  const mine = tasks.filter(t => t.assignedTo === who);
+  const reviewed = tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus));
+  const openN = mine.filter(t=>t.status!=='completed').length;
+  const finishedN = mine.length - openN;
+  const sub = `${openN} open · ${finishedN} finished${reviewed.length ? ' · ' + reviewed.length + ' reviewed' : ''} · ${mine.length + reviewed.length} total`;
+  taskListModal(`${me ? me.name + ' — ' : ''}all tasks`, sub, [...mine, ...reviewed], { empty: 'No tasks yet.' });
 }
 // Completed work that ran over its estimate, and by how much.
 function openMyExtraHours(){
