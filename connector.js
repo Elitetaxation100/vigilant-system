@@ -380,12 +380,36 @@ function waTemplateBlocksToText(blocks) {
   (blocks || []).forEach(block => (block && block.parameters || []).forEach(p => { if (p && p.text) texts.push(p.text); }));
   return texts.length ? '[template] ' + texts.join(', ') : '[template message]';
 }
+// Some fields in Interakt's payload come through as the literal string
+// "None" (or "null"/"undefined") rather than actually being absent —
+// almost certainly a Python `None` caption/body serialized straight into
+// JSON on their end. Treat those exactly like "no text", not real content.
+function isWaPlaceholder(s) {
+  return typeof s === 'string' && ['none', 'null', 'undefined', ''].includes(s.trim().toLowerCase());
+}
+// Common WhatsApp Cloud API media shapes — message.image / .video /
+// .document / .audio / .sticker, each optionally carrying a caption. Used
+// when there's no text body at all, so a photo shows as "📷 Photo" instead
+// of blank or a stray "None".
+const WA_MEDIA_LABELS = { image: '📷 Photo', video: '🎥 Video', document: '📄 Document', audio: '🎤 Voice message', voice: '🎤 Voice message', sticker: '💬 Sticker' };
+function waMediaLabel(m) {
+  if (!m || typeof m !== 'object') return null;
+  for (const key of Object.keys(WA_MEDIA_LABELS)) {
+    if (m[key]) {
+      const caption = m[key].caption;
+      return isWaPlaceholder(caption) || !caption ? WA_MEDIA_LABELS[key] : `${WA_MEDIA_LABELS[key]} — ${caption}`;
+    }
+  }
+  return null;
+}
 // Re-clean text that's already stored — covers records saved before this
-// parsing existed (a raw JSON block array saved as the message text, back
-// when waTextOf() didn't know what to do with it). Applied wherever stored
-// text is served, so old rows read cleanly too without a data migration.
+// parsing existed (a raw JSON block array, or a literal "None", saved as
+// the message text back when waTextOf() didn't know what to do with it).
+// Applied wherever stored text is served, so old rows read cleanly too
+// without a data migration.
 function prettyWaText(text) {
   if (typeof text !== 'string') return text;
+  if (isWaPlaceholder(text)) return '📎 Attachment (no caption)';
   const s = text.trim();
   if (!s.startsWith('[') && !s.startsWith('{')) return text;
   try {
@@ -398,14 +422,19 @@ function waTextOf(msg) {
   const m = msg.message;
   if (Array.isArray(m)) return waTemplateBlocksToText(m);
   if (m && typeof m === 'object') {
-    if (m.text && m.text.body) return m.text.body;
-    if (m.body) return m.body;
-    if (m.caption) return '[media] ' + m.caption;
+    if (m.text && m.text.body && !isWaPlaceholder(m.text.body)) return m.text.body;
+    const media = waMediaLabel(m);
+    if (media) return media;
+    if (m.caption && !isWaPlaceholder(m.caption)) return '[media] ' + m.caption;
+    if (m.body && !isWaPlaceholder(m.body)) return m.body;
   }
-  if (typeof m === 'string') return m;
-  if (msg.text) return typeof msg.text === 'string' ? msg.text : (msg.text.body || '');
-  if (msg.body) return msg.body;
-  return '';
+  if (typeof m === 'string' && !isWaPlaceholder(m)) return m;
+  if (msg.text) {
+    const t = typeof msg.text === 'string' ? msg.text : (msg.text.body || '');
+    if (!isWaPlaceholder(t)) return t;
+  }
+  if (msg.body && !isWaPlaceholder(msg.body)) return msg.body;
+  return '📎 Attachment (no caption)';
 }
 // Best-effort direction guess from the event type / message shape — Interakt
 // doesn't document a single canonical field for this across plans.
@@ -430,7 +459,7 @@ async function handleInteraktWebhook(body) {
   clog('info', 'interakt webhook', { type, hasPhone: !!phone, keys: Object.keys(data) });
   if (!phone) { clog('warn', 'interakt webhook — no phone number in payload', { type }); return; }
   const name = waNameOf(customer, phone);
-  const text = waTextOf(msg) || '(no text — attachment or template)';
+  const text = waTextOf(msg); // always a non-empty, human-readable string now
   const direction = waDirectionOf(type, msg);
 
   if (!state.waContacts || typeof state.waContacts !== 'object') state.waContacts = {};
@@ -453,7 +482,15 @@ async function handleInteraktWebhook(body) {
     return;
   }
   state.waSeq = (state.waSeq || 0) + 1;
-  state.waMessages.push({ id: 'wa' + state.waSeq, phone, name: c.name, direction, text, at: now });
+  // Keep the original payload alongside the parsed fields — Interakt's exact
+  // shape for "this is an outbound plain-text message" isn't nailed down
+  // yet (only the template-array case is confirmed), so this is what lets
+  // that get diagnosed from real traffic via the app's own authenticated
+  // API instead of guessing another heuristic blind. Bounded defensively —
+  // WhatsApp message payloads are small, but never trust that blindly.
+  let raw = null;
+  try { raw = JSON.stringify(body).slice(0, 4000); } catch (e) {}
+  state.waMessages.push({ id: 'wa' + state.waSeq, phone, name: c.name, direction, text, at: now, raw });
   if (state.waMessages.length > 500) state.waMessages.shift(); // rolling window, same cap style as connectorLog
   c.lastMessageText = text; c.lastMessageAt = now;
   if (direction === 'in') { c.lastInboundAt = now; c.status = 'awaiting'; }
