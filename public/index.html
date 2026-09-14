@@ -1683,7 +1683,7 @@
               </span>
             </div>
           </div>
-          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Productivity = worked hours ÷ capacity hours for each person. Click a tile's "Detailed breakdown" for the full efficiency / on-time / rework math on their Report Card.</p>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Productivity = worked hours ÷ capacity hours for each person. Click a tile to see exactly how that number was calculated, task by task.</p>
           <div id="prodScoreCard"></div>
           <div class="top-grid" id="prodTiles" style="margin-top:16px;"></div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:18px;" id="prodBody"></div>
@@ -5935,13 +5935,58 @@ function openReportCardFor(id){
 function prodEmpTileHtml(p){
   const pct = p.utilisationPct;
   const color = pct==null ? 'var(--text-faint)' : pct>110 ? 'var(--coral)' : pct>=75 ? 'var(--teal)' : pct>=40 ? 'var(--amber)' : 'var(--coral)';
-  return `<div class="metric-tile mg-tile" onclick="openReportCardFor('${p.id}')" title="Open ${esc(p.name)}'s Report Card">
+  return `<div class="metric-tile mg-tile" onclick="openProdCalcModal('${p.id}')" title="How ${esc(p.name)}'s ${pct==null?'—':pct+'%'} was calculated">
     <div class="mt-label">${esc(p.name)}</div>
     <div style="font-size:11px;color:var(--text-faint);margin:-6px 0 10px;">${esc(p.team)}</div>
     <div class="mt-value" style="color:${color};">${pct==null?'—':pct+'<small>%</small>'}</div>
     <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">${p.workedHours.toFixed(1)}h worked / ${p.capacityHours.toFixed(0)}h capacity</div>
-    <div style="font-size:11.5px;color:var(--purple);margin-top:10px;font-weight:600;">Detailed breakdown →</div>
+    <div style="font-size:11.5px;color:var(--purple);margin-top:10px;font-weight:600;">View calculation →</div>
   </div>`;
+}
+// The exact arithmetic behind a tile's % — capacity built up day by day,
+// worked hours built up task by task — shown inline, not a navigation
+// away. The composite score (efficiency/on-time/rework/etc.) stays on the
+// Report Card only; a link to it here is optional, not the default.
+let _prodData = null;
+function openProdCalcModal(id){
+  const d = _prodData;
+  if(!d) return;
+  const p = (d.people || []).find(x => x.id === id);
+  if(!p) return;
+  const from = d.from, to = d.to;
+  const done = tasks.filter(t => t.assignedTo === id && t.status === 'completed'
+    && t.completedAt && t.completedAt.slice(0,10) >= from && t.completedAt.slice(0,10) <= to)
+    .sort((a,b) => (a.completedAt||'').localeCompare(b.completedAt||''));
+  const sumWorked = done.reduce((s,t) => s + taskHrs(t), 0);
+  const pct = p.utilisationPct;
+  const perDay = p.baseHoursPerDay || p.effectiveCapacity || 8;
+  const capLabel = `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays ? ` − ${p.leaveDays} leave` : ''} × ${perDay}h/day`;
+  const rows = done.length ? done.map(t => `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:6px 8px 6px 0;font-weight:600;">${esc(t.name)}</td>
+      <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
+      <td style="padding:6px 8px;color:var(--text-dim);">${fmtDate(t.completedAt.slice(0,10))}</td>
+      <td style="padding:6px 8px;font-family:var(--font-mono);text-align:right;">${taskHrs(t).toFixed(1)}h</td>
+    </tr>`).join('') : `<tr><td colspan="4" style="padding:10px;text-align:center;color:var(--text-faint);">No completed work counted in this period.</td></tr>`;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>${esc(p.name)} — ${pct==null?'—':pct+'%'} productivity</h3>
+    <div class="modal-sub">worked hours ÷ capacity hours · ${fmtDate(from)}–${fmtDate(to)} · every hour counted from go-live, never earlier</div>
+    <div style="margin:14px 0;padding:12px 14px;border-radius:10px;background:var(--panel-2);font-size:13.5px;line-height:1.7;">
+      <b>Capacity</b> — ${capLabel} = <b>${p.capacityHours.toFixed(0)}h</b><br>
+      <b>Worked</b> — sum of hours on the ${done.length} completed task${done.length===1?'':'s'} below = <b>${sumWorked.toFixed(1)}h</b>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--panel-border);font-family:var(--font-mono);">
+        ${sumWorked.toFixed(1)}h ÷ ${p.capacityHours.toFixed(0)}h = <b style="color:${scoreColor(pct)};">${pct==null?'—':pct+'%'}</b>
+      </div>
+    </div>
+    <div style="overflow-x:auto;max-height:38vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0;background:var(--panel);">
+        <th style="padding:6px 8px 6px 0;">Task</th><th style="padding:6px 8px;">Client</th><th style="padding:6px 8px;">Completed</th><th style="padding:6px 8px;text-align:right;">Hours</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn" onclick="closeModal(); openReportCardFor('${id}');">Full Report Card →</button>
+    </div>`;
+  openModal();
 }
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
@@ -5950,6 +5995,7 @@ async function renderProductivityView(){
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}`); }
   catch(e){ body.innerHTML = `<div style="color:var(--text-faint);padding:20px;text-align:center;grid-column:1/-1;">${esc(e.message)}</div>`; return; }
+  _prodData = data;
   const T = data.totals;
   // the server floors every window at go-live (7 Sept 2026) — no real data
   // before then. Show the range the numbers were actually computed over.
