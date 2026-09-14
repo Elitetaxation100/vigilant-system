@@ -1681,21 +1681,12 @@
                 <input type="date" id="prodFrom" onchange="renderProductivityView()">
                 <input type="date" id="prodTo" onchange="renderProductivityView()">
               </span>
-              <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-dim);font-weight:400;white-space:nowrap;">
-                <input type="checkbox" id="prodDetailToggle" onchange="renderProductivityView()"> Detailed breakdown
-              </label>
             </div>
           </div>
-          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Allocated = the agreed turnaround (TAT) on delivered work. Worked = what delivery actually took. No timers — derived from the task itself. Capacity = each person's productive hours per working day.</p>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Productivity = worked hours ÷ capacity hours for each person. Click a tile's "Detailed breakdown" for the full efficiency / on-time / rework math on their Report Card.</p>
           <div id="prodScoreCard"></div>
-          <div id="prodWeightsEditor"></div>
           <div class="top-grid" id="prodTiles" style="margin-top:16px;"></div>
-          <div class="cc-panel" style="margin-top:18px;">
-            <table class="cc-table">
-              <thead><tr><th>Person</th><th>Score</th><th>Tasks</th><th>Allocated h</th><th>Worked h</th><th>Capacity h</th><th>Utilisation</th><th>Efficiency</th><th>Throughput</th><th>On-time</th><th>Rework</th><th>Chased</th><th>YTD worked</th></tr></thead>
-              <tbody id="prodBody"></tbody>
-            </table>
-          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:18px;" id="prodBody"></div>
           <div id="prodTrend" style="margin-top:18px;"></div>
         </div>
       </section>
@@ -1766,6 +1757,7 @@
         <div class="panel" style="margin-top:16px;">
           <div class="panel-head"><h2 style="font-size:15.5px;">How this score is built</h2></div>
           <div id="rcExplain"></div>
+          <div id="rcWeightsEditor" style="margin-top:14px;"></div>
         </div>
 
         <div class="panel" style="margin-top:16px;">
@@ -5849,7 +5841,6 @@ function _prodRange(){
 /* P3 — composite productivity score. Five weighted factors, 0–100 each:
    E efficiency · T timeliness · R rework quality · N reminder discipline ·
    C delivery coverage. Weights are per-department and sum to 1. */
-let _prodWeights = null;
 const PF_META = { E:['Efficiency','allocated ÷ worked'], T:['On-time','met ÷ dated'], R:['Rework','processor faults'], N:['Reminders','chases ÷ tasks'], C:['Coverage','worked ÷ allocated'] };
 function pfColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? 'var(--teal)' : v>=60 ? 'var(--amber)' : 'var(--coral)'; }
 function scoreColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? 'var(--teal)' : v>=60 ? 'var(--amber)' : 'var(--coral)'; }
@@ -5864,29 +5855,8 @@ function factorBarsHtml(factors, weights){
     </div>`;
   }).join('') + `</div>`;
 }
-function scoreCardHtml(score, factors, weights, sub){
-  const big = score==null
-    ? `<span style="color:var(--text-faint);">—</span>`
-    : `${score}<small>/100</small>`;
-  return `<div class="pscore">
-    <div>
-      <div class="pscore-label">Productivity score</div>
-      <div class="pscore-big" style="color:${scoreColor(score)};">${big}</div>
-      <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">${esc(sub||'')}</div>
-    </div>
-    ${factorBarsHtml(factors, weights)}
-  </div>`;
-}
-function prodScoreCell(p){
-  const s = p.productivityScore;
-  const brk = p.factors ? ['E','T','R','N','C'].map(k=>`${k} ${p.factors[k]==null?'–':p.factors[k]}`).join(' · ') : '';
-  if(p.scoreStatus === 'building')
-    return `<span title="${brk}\n(building — needs ${'≥5 tasks or ≥10 working days'})" style="color:var(--text-faint);font-style:italic;">building…</span>`;
-  if(s == null) return `<span style="color:var(--text-faint);">—</span>`;
-  return `<b title="${brk}" style="font-family:var(--font-mono);color:${scoreColor(s)};">${s}</b>`;
-}
-async function renderWeightsEditor(){
-  const wrap = document.getElementById('prodWeightsEditor');
+async function renderWeightsEditor(containerId){
+  const wrap = document.getElementById(containerId || 'rcWeightsEditor');
   if(!wrap) return;
   if(!isSuperAdmin){ wrap.innerHTML=''; return; }
   let cfg;
@@ -5935,10 +5905,9 @@ async function saveWeights(team, gridId, reset){
     renderProductivityView();
   } catch(e){ showToast('error', 'Could not save', e.message); }
 }
-// Simple headline: precise, no weights — just worked hours over capacity
-// hours. The 5-factor composite (efficiency, on-time, rework, etc.) is the
-// Report Card's job now; this page defaults to the plain number and hides
-// the breakdown behind the "Detailed breakdown" toggle.
+// Precise, no weights — just worked hours over capacity hours. The 5-factor
+// composite (efficiency, on-time, rework, coverage, etc.) lives on the
+// Report Card only; this page never shows that math, only a link to it.
 function simpleScoreCardHtml(pct, workedHours, capacityHours, sub){
   const big = pct==null
     ? `<span style="color:var(--text-faint);">—</span>`
@@ -5951,58 +5920,47 @@ function simpleScoreCardHtml(pct, workedHours, capacityHours, sub){
     </div>
   </div>`;
 }
+// Jump straight to that person's Report Card — the only place the
+// efficiency / on-time / rework / coverage math is shown.
+function openReportCardFor(id){
+  _rcPersonId = id;
+  showView('report', document.querySelector('.nav-item[data-view="report"]'));
+}
+function prodEmpTileHtml(p){
+  const pct = p.utilisationPct;
+  const color = pct==null ? 'var(--text-faint)' : pct>110 ? 'var(--coral)' : pct>=75 ? 'var(--teal)' : pct>=40 ? 'var(--amber)' : 'var(--coral)';
+  return `<div class="metric-tile mg-tile" onclick="openReportCardFor('${p.id}')" title="Open ${esc(p.name)}'s Report Card">
+    <div class="mt-label">${esc(p.name)}</div>
+    <div style="font-size:11px;color:var(--text-faint);margin:-6px 0 10px;">${esc(p.team)}</div>
+    <div class="mt-value" style="color:${color};">${pct==null?'—':pct+'<small>%</small>'}</div>
+    <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">${p.workedHours.toFixed(1)}h worked / ${p.capacityHours.toFixed(0)}h capacity</div>
+    <div style="font-size:11.5px;color:var(--purple);margin-top:10px;font-weight:600;">Detailed breakdown →</div>
+  </div>`;
+}
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
   if(!body) return;
-  const detailed = !!(document.getElementById('prodDetailToggle')||{}).checked;
   const { from: reqFrom, to } = _prodRange();
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}`); }
-  catch(e){ body.innerHTML = `<tr><td colspan="13" style="color:var(--text-faint);padding:20px;text-align:center;">${esc(e.message)}</td></tr>`; return; }
+  catch(e){ body.innerHTML = `<div style="color:var(--text-faint);padding:20px;text-align:center;grid-column:1/-1;">${esc(e.message)}</div>`; return; }
   const T = data.totals;
   // the server floors every window at go-live (7 Sept 2026) — no real data
   // before then. Show the range the numbers were actually computed over.
   const from = data.from || reqFrom;
   const rangeLbl = `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}${data.goLiveApplied ? ' · from go-live' : ''}`;
   const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}</div>`;
-  _prodWeights = data.weights || _prodWeights;
-  document.getElementById('prodScoreCard').innerHTML = detailed
-    ? scoreCardHtml(T.productivityScore, T.factors, data.weights, rangeLbl)
-    : simpleScoreCardHtml(T.utilisationPct, T.workedHours, T.capacityHours, rangeLbl);
-  const weightsWrap = document.getElementById('prodWeightsEditor');
-  if(detailed) renderWeightsEditor(); else if(weightsWrap) weightsWrap.innerHTML = '';
-  // second score — coverage measured against FULL capacity, not just the
-  // work that was allocated. The gap to the delivery score above, and the
-  // hours managers never handed out, are the allocation shortfall.
-  const capGap = (T.productivityScore != null && T.capacityScore != null) ? T.productivityScore - T.capacityScore : null;
-  const unalloc = T.allocationGapHours || 0;
+  document.getElementById('prodScoreCard').innerHTML = simpleScoreCardHtml(T.utilisationPct, T.workedHours, T.capacityHours, rangeLbl);
   document.getElementById('prodTiles').innerHTML =
     tile('Worked hours', T.workedHours.toFixed(1), `of ${T.allocatedHours.toFixed(1)} allocated`) +
     tile('Utilisation', T.utilisationPct==null?'—':T.utilisationPct+'%', `vs ${T.capacityHours.toFixed(0)}h capacity`) +
     tile('Efficiency', T.efficiency==null?'—':T.efficiency.toFixed(2)+'×', T.efficiency>=1?'under budget':'over budget') +
     tile('Tasks delivered', T.tasks, rangeLbl) +
-    tile('Fiscal YTD', T.cumulativeYtdWorked.toFixed(0)+'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`) +
-    (detailed ? tile('Capacity score', T.capacityScore==null?'—':T.capacityScore+'/100',
-      `${capGap!=null && capGap>0 ? `${capGap} pts below the delivery score` : 'in line with the delivery score'} · managers left <b>${unalloc.toFixed(0)}h</b> of ${T.capacityHours.toFixed(0)}h capacity unallocated`) : '');
+    tile('Fiscal YTD', T.cumulativeYtdWorked.toFixed(0)+'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`);
 
-  const rows = data.people.slice().sort((a,b)=>
-    detailed ? ((b.productivityScore??-1)-(a.productivityScore??-1)) : ((b.utilisationPct??-1)-(a.utilisationPct??-1))
-    || b.workedHours-a.workedHours);
-  body.innerHTML = rows.length ? rows.map(p => `<tr>
-      <td><a href="#" onclick="openWorkLog('${p.id}');return false;" style="color:var(--text);font-weight:600;">${esc(p.name)}</a> <span style="font-size:11px;color:var(--text-faint);">↗ log</span><div style="font-size:11px;color:var(--text-faint);">${esc(p.team)}</div></td>
-      <td>${detailed ? prodScoreCell(p) : (p.utilisationPct==null?'<span style="color:var(--text-faint);">—</span>':`<b style="font-family:var(--font-mono);color:${scoreColor(p.utilisationPct)};">${p.utilisationPct}%</b>`)}</td>
-      <td>${p.tasks}</td>
-      <td style="font-family:var(--font-mono);">${p.allocatedHours.toFixed(1)}</td>
-      <td style="font-family:var(--font-mono);">${p.workedHours.toFixed(1)}</td>
-      <td style="font-family:var(--font-mono);">${p.capacityHours.toFixed(0)} <span style="color:var(--text-faint);">@${p.baseHoursPerDay || p.effectiveCapacity}h/d${p.leaveDays ? ` −${p.leaveDays} leave` : ''}</span></td>
-      <td><b style="color:${p.utilisationPct==null?'var(--text-faint)':p.utilisationPct>110?'var(--coral)':p.utilisationPct>=75?'var(--teal)':'var(--amber)'};">${p.utilisationPct==null?'—':p.utilisationPct+'%'}</b></td>
-      <td style="font-family:var(--font-mono);">${p.efficiency==null?'—':p.efficiency.toFixed(2)}</td>
-      <td style="font-family:var(--font-mono);">${p.throughput==null?'—':p.throughput.toFixed(1)+'/d'}</td>
-      <td>${p.onTimeRate==null?'—':p.onTimeRate+'%'}</td>
-      <td>${p.reworkRounds||''}</td>
-      <td title="times chased in this range">${p.chaseEvents||''}</td>
-      <td style="font-family:var(--font-mono);">${p.cumulativeYtdWorked.toFixed(0)}h</td>
-    </tr>`).join('') : `<tr><td colspan="13" style="text-align:center;color:var(--text-faint);padding:22px;">No completed work in this range.</td></tr>`;
+  const rows = data.people.slice().sort((a,b)=>(b.utilisationPct??-1)-(a.utilisationPct??-1) || b.workedHours-a.workedHours);
+  body.innerHTML = rows.length ? rows.map(prodEmpTileHtml).join('')
+    : `<div style="text-align:center;color:var(--text-faint);padding:22px;grid-column:1/-1;">No completed work in this range.</div>`;
 
   // monthly trend — worked vs allocated, per month, summed across the scope
   const mk = {};
@@ -7566,6 +7524,7 @@ async function renderReportCard(){
       worked ${p.workedHours.toFixed(1)}h ÷ ${p.capacityHours.toFixed(0)}h = <b style="color:${pfColor(p.capacityCoverage)};">${p.capacityCoverage == null ? '—' : p.capacityCoverage}</b>
       (vs ${f.C == null ? '—' : f.C} against fair target). Everything else stays the same. The drop is the ${(p.allocationGapHours||0).toFixed(1)}h the manager left unallocated.
     </p>`;
+  renderWeightsEditor('rcWeightsEditor');
 
   // ---- monthly trend (worked vs allocated) ----
   const series = (p.monthly || []).slice().sort((a,b)=>a.monthStart.localeCompare(b.monthStart));
