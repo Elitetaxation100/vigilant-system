@@ -362,6 +362,20 @@ function completeTask(state, taskId, byName) {
 // WhatsApp view or /api/whatsapp/contacts/:phone/relay. Nobody's messages
 // land in Slack until someone in the app chooses that person.
 // ---------------------------------------------------------------------------
+// Interakt doesn't always send `message.message` as real JSON — sometimes
+// it's the SAME content JSON-*encoded as a string* instead (a template
+// block array serialized to text rather than left as actual array/object
+// data). That string form slipped past both the text extractor and the
+// direction check, since both only recognized a genuine array — a sent
+// template ended up read as a brand-new inbound customer message. Parse it
+// back into real data first so every downstream check sees the same shape
+// regardless of which form Interakt happened to send.
+function waNormalizeMessage(msg) {
+  if (!msg || typeof msg.message !== 'string') return msg;
+  const s = msg.message.trim();
+  if (!s.startsWith('[') && !s.startsWith('{')) return msg;
+  try { return { ...msg, message: JSON.parse(s) }; } catch (e) { return msg; } // wasn't actually JSON — leave it alone
+}
 function waPhoneOf(customer, msg) {
   return String(
     (customer && (customer.phone_number || customer.phoneNumber || customer.wa_id)) ||
@@ -454,9 +468,9 @@ async function handleInteraktWebhook(body) {
   const type = body && body.type;
   const data = (body && body.data) || {};
   const customer = data.customer || {};
-  const msg = data.message || {};
+  const msg = waNormalizeMessage(data.message || {});
   const phone = waPhoneOf(customer, msg);
-  clog('info', 'interakt webhook', { type, hasPhone: !!phone, keys: Object.keys(data) });
+  clog('info', 'interakt webhook', { type, hasPhone: !!phone, keys: Object.keys(data), messageWasStringified: typeof (data.message || {}).message === 'string' && typeof msg.message !== 'string' });
   if (!phone) { clog('warn', 'interakt webhook — no phone number in payload', { type }); return; }
   const name = waNameOf(customer, phone);
   const text = waTextOf(msg); // always a non-empty, human-readable string now
