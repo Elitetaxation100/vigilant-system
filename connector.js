@@ -442,6 +442,16 @@ async function handleInteraktWebhook(body) {
   });
   c.name = name || c.name;
   const now = new Date().toISOString();
+  // Interakt can fire more than one webhook for the same underlying message
+  // (e.g. a delivery/status event alongside the content event) with no
+  // consistent event-type naming to tell them apart — one such duplicate
+  // arrived tagged as inbound for a reply we'd just sent, wrongly flipping
+  // a contact back to "awaiting". Treat the exact same text arriving again
+  // within 20s as an echo of the message just logged, not a new one.
+  if (c.lastMessageText === text && c.lastMessageAt && (Date.parse(now) - Date.parse(c.lastMessageAt)) < 20000) {
+    clog('info', 'interakt webhook — duplicate/echo suppressed', { phone, type });
+    return;
+  }
   state.waSeq = (state.waSeq || 0) + 1;
   state.waMessages.push({ id: 'wa' + state.waSeq, phone, name: c.name, direction, text, at: now });
   if (state.waMessages.length > 500) state.waMessages.shift(); // rolling window, same cap style as connectorLog

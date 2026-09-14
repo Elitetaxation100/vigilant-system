@@ -194,6 +194,7 @@
   .mg-tile:hover{ border-color:var(--purple); }
   .mg-tile::after{ content:'View list →'; position:absolute; right:12px; bottom:10px; font-size:10px; letter-spacing:.4px; color:var(--text-faint); opacity:0; transition:opacity .15s ease; }
   .mg-tile:hover::after{ opacity:.9; }
+  .mg-tile.active{ border-color:var(--purple); box-shadow:var(--glow); }
   #modalOverlay:has(.tasklist-modal) .modal-box{ max-width:780px; }
   .tasklist-modal table{ width:100%; border-collapse:collapse; font-size:13px; }
   .tasklist-modal th{ text-align:left; padding:7px 10px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); border-bottom:1px solid var(--panel-border); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1340,16 +1341,16 @@
       <!-- ===================== WHATSAPP (INTERAKT) VIEW (Superadmin) ===================== -->
       <section class="view" id="view-whatsapp">
         <div class="top-grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:20px;">
-          <div class="metric-tile">
+          <div class="metric-tile mg-tile" id="waAwaitingTile" onclick="setWaFilter('awaiting')" title="Show only people awaiting a reply">
             <div class="mt-label">Awaiting reply</div>
             <div class="mt-value" style="color:var(--coral);" id="waAwaitingCount">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">people, not messages</div>
           </div>
-          <div class="metric-tile">
+          <div class="metric-tile mg-tile" id="waTotalTile" onclick="setWaFilter('all')" title="Show everyone">
             <div class="mt-label">Total contacts</div>
             <div class="mt-value" id="waTotalContacts">0</div>
           </div>
-          <div class="metric-tile">
+          <div class="metric-tile mg-tile" id="waLongestTile" onclick="openWaLongestWaiting()" title="Open the longest-waiting conversation">
             <div class="mt-label">Longest waiting</div>
             <div class="mt-value" id="waLongestWait" style="font-size:22px;">—</div>
           </div>
@@ -2543,6 +2544,13 @@ async function refreshWaAwaitingBadge(){
     else badge.style.display = 'none';
   } catch(e){ /* not authorized or not set up yet */ }
 }
+let _waFilter = 'all'; // 'all' | 'awaiting' — set by clicking a summary tile
+function setWaFilter(f){ _waFilter = f; renderWhatsAppView(); }
+function openWaLongestWaiting(){
+  const longest = waContacts.filter(c => c.status === 'awaiting').sort((a,b) => b.waitingHours - a.waitingHours)[0];
+  if(longest) openWaThread(longest.phone);
+  else showToast('info', 'Nobody waiting', "Nothing's awaiting a reply right now.");
+}
 async function renderWhatsAppView(){
   const wrap = document.getElementById('waListWrap');
   if(!wrap) return;
@@ -2555,10 +2563,16 @@ async function renderWhatsAppView(){
   const longest = waContacts.filter(c => c.status === 'awaiting').sort((a,b) => b.waitingHours - a.waitingHours)[0];
   document.getElementById('waLongestWait').textContent = longest ? fmtWaitDuration(longest.waitingHours) : '—';
   refreshWaAwaitingBadge();
+  document.getElementById('waAwaitingTile').classList.toggle('active', _waFilter === 'awaiting');
+  document.getElementById('waTotalTile').classList.toggle('active', _waFilter === 'all');
   const q = (document.getElementById('waSearch').value || '').trim().toLowerCase();
-  const list = q ? waContacts.filter(c => (c.name + ' ' + c.phone).toLowerCase().includes(q)) : waContacts;
+  let list = q ? waContacts.filter(c => (c.name + ' ' + c.phone).toLowerCase().includes(q)) : waContacts;
+  if(_waFilter === 'awaiting') list = list.filter(c => c.status === 'awaiting');
   if(!list.length){
-    wrap.innerHTML = `<p style="font-size:13.5px;color:var(--text-faint);padding:20px 4px;text-align:center;">${waContacts.length ? 'No match.' : "No WhatsApp messages tracked yet — once Interakt's webhook is pointed here, conversations show up automatically."}</p>`;
+    const emptyMsg = !waContacts.length ? "No WhatsApp messages tracked yet — once Interakt's webhook is pointed here, conversations show up automatically."
+      : _waFilter === 'awaiting' ? "Nobody's waiting — you're all caught up. <a href=\"#\" onclick=\"setWaFilter('all');return false;\" style=\"color:var(--purple);\">Show everyone</a>"
+      : 'No match.';
+    wrap.innerHTML = `<p style="font-size:13.5px;color:var(--text-faint);padding:20px 4px;text-align:center;">${emptyMsg}</p>`;
     return;
   }
   wrap.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;">${list.map(c => {
