@@ -2591,13 +2591,18 @@ async function markWaHandled(phone){
   try { await api(`/api/whatsapp/contacts/${encodeURIComponent(phone)}/handled`, { method:'POST' }); showToast('success', 'Marked replied', ''); await renderWhatsAppView(); }
   catch(e){ showToast('error', 'Could not update', e.message); }
 }
+let _waThreadMsgs = []; // the currently-open thread's messages, so a per-message "+ Task" button can find its own text without inlining it into onclick (quotes/newlines would break that)
 async function openWaThread(phone){
   const c = waContacts.find(x => x.phone === phone);
   if(!c) return;
   let r;
   try { r = await api(`/api/whatsapp/messages?phone=${encodeURIComponent(phone)}`); } catch(e){ r = { messages: [] }; }
-  const rows = (r.messages || []).map(m => `<div style="margin-bottom:10px;${m.direction === 'out' ? 'text-align:right;' : ''}">
-      <div style="display:inline-block;max-width:80%;padding:8px 12px;border-radius:10px;font-size:13.5px;text-align:left;${m.direction === 'out' ? 'background:var(--purple-dim);color:var(--purple);' : 'background:var(--panel-2);color:var(--text);'}">${esc(m.text)}</div>
+  _waThreadMsgs = r.messages || [];
+  const rows = _waThreadMsgs.map((m,i) => `<div style="margin-bottom:12px;${m.direction === 'out' ? 'text-align:right;' : ''}">
+      <div style="display:inline-flex;align-items:flex-end;gap:6px;max-width:90%;${m.direction === 'out' ? 'flex-direction:row-reverse;' : ''}">
+        <div style="padding:8px 12px;border-radius:10px;font-size:13.5px;text-align:left;${m.direction === 'out' ? 'background:var(--purple-dim);color:var(--purple);' : 'background:var(--panel-2);color:var(--text);'}">${esc(m.text)}</div>
+        ${m.direction !== 'out' ? `<button class="btn small" style="flex-shrink:0;padding:3px 8px;font-size:11px;" title="Create a task from this message" onclick="openWaTaskModal('${esc(phone)}', ${i})">+ Task</button>` : ''}
+      </div>
       <div style="font-size:10.5px;color:var(--text-faint);margin-top:2px;">${fmtDate(m.at.slice(0,10))} ${new Date(m.at).toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'})}</div>
     </div>`).join('');
   document.getElementById('modalBox').innerHTML = `
@@ -2612,15 +2617,18 @@ async function openWaThread(phone){
     </div>`;
   openModal();
 }
-function openWaTaskModal(phone){
+// msgIndex, when given, points into _waThreadMsgs (set by openWaThread) so
+// the task is built from THAT specific message, not always the latest one.
+function openWaTaskModal(phone, msgIndex){
   const c = waContacts.find(x => x.phone === phone);
   if(!c) return;
+  const sourceText = (msgIndex !== undefined && _waThreadMsgs[msgIndex]) ? _waThreadMsgs[msgIndex].text : (c.lastMessageText || '');
   const pool = assignableEmployees().length ? assignableEmployees() : employees;
   document.getElementById('modalBox').innerHTML = `
     <h3>Create task from WhatsApp</h3>
     <div class="modal-sub">${esc(c.name)} · ${esc(c.phone)}</div>
-    <div class="field"><label>Task name</label><input type="text" id="waTaskName" value="${esc((c.lastMessageText || 'Follow up — ' + c.name).slice(0,80))}"></div>
-    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">— context for whoever does this</span></label><textarea id="waTaskNote">${esc(c.lastMessageText || '')}</textarea></div>
+    <div class="field"><label>Task name</label><input type="text" id="waTaskName" value="${esc((sourceText || 'Follow up — ' + c.name).slice(0,80))}"></div>
+    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">— context for whoever does this</span></label><textarea id="waTaskNote">${esc(sourceText)}</textarea></div>
     <div class="field"><label>Assign to</label><select id="waTaskAssignee">${pool.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Estimated time (hours)</label><input type="number" id="waTaskTat" value="0.5" min="0.25" step="0.25"></div>
     <div class="field"><label>Due date</label><input type="date" id="waTaskDeadline" value="${addDaysISO(1)}"></div>

@@ -3462,8 +3462,10 @@ app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, (req, res) =
 app.get('/api/whatsapp/contacts', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
   const now = Date.now();
+  const { prettyWaText } = require('./connector');
   const list = Object.values(state.waContacts || {}).map(c => ({
     ...c,
+    lastMessageText: prettyWaText(c.lastMessageText),
     waitingHours: (c.status === 'awaiting' && c.lastInboundAt) ? Math.round((now - Date.parse(c.lastInboundAt)) / 36000) / 100 : 0,
   })).sort((a, b) => {
     if (a.status === 'awaiting' && b.status !== 'awaiting') return -1;
@@ -3477,7 +3479,9 @@ app.get('/api/whatsapp/messages', requireAuth, requireSuperAdmin, (req, res) => 
   const state = db.get();
   const phone = String(req.query.phone || '');
   if (!phone) return res.status(400).json({ error: 'phone is required.' });
-  const list = (state.waMessages || []).filter(m => m.phone === phone).sort((a, b) => a.at.localeCompare(b.at));
+  const { prettyWaText } = require('./connector');
+  const list = (state.waMessages || []).filter(m => m.phone === phone).sort((a, b) => a.at.localeCompare(b.at))
+    .map(m => ({ ...m, text: prettyWaText(m.text) }));
   res.json({ messages: list });
 });
 // Mark a contact handled without going through Interakt — e.g. the reply

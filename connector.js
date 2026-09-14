@@ -372,17 +372,31 @@ function waNameOf(customer, phone) {
   const traits = customer && customer.traits;
   return (customer && (customer.full_name || customer.name)) || (traits && traits.name) || phone;
 }
+// A sent WhatsApp template's content blocks, e.g.
+// [{type:'body', parameters:[{type:'text', text:'Shijith'}]}] — surface the
+// actual filled-in values instead of the raw structure.
+function waTemplateBlocksToText(blocks) {
+  const texts = [];
+  (blocks || []).forEach(block => (block && block.parameters || []).forEach(p => { if (p && p.text) texts.push(p.text); }));
+  return texts.length ? '[template] ' + texts.join(', ') : '[template message]';
+}
+// Re-clean text that's already stored — covers records saved before this
+// parsing existed (a raw JSON block array saved as the message text, back
+// when waTextOf() didn't know what to do with it). Applied wherever stored
+// text is served, so old rows read cleanly too without a data migration.
+function prettyWaText(text) {
+  if (typeof text !== 'string') return text;
+  const s = text.trim();
+  if (!s.startsWith('[') && !s.startsWith('{')) return text;
+  try {
+    const parsed = JSON.parse(s);
+    return waTemplateBlocksToText(Array.isArray(parsed) ? parsed : [parsed]);
+  } catch (e) { return text; } // wasn't actually JSON — leave it alone
+}
 function waTextOf(msg) {
   if (!msg) return '';
   const m = msg.message;
-  // A sent WhatsApp template comes through as an array of content blocks,
-  // e.g. [{type:'body', parameters:[{type:'text', text:'Shijith'}]}] —
-  // surface the actual filled-in values instead of the raw structure.
-  if (Array.isArray(m)) {
-    const texts = [];
-    m.forEach(block => (block && block.parameters || []).forEach(p => { if (p && p.text) texts.push(p.text); }));
-    return texts.length ? '[template] ' + texts.join(', ') : '[template message]';
-  }
+  if (Array.isArray(m)) return waTemplateBlocksToText(m);
   if (m && typeof m === 'object') {
     if (m.text && m.text.body) return m.text.body;
     if (m.body) return m.body;
@@ -1519,4 +1533,4 @@ function mountConnector(app) {
   console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,run-digest,run-reminders,log,health}');
 }
 
-module.exports = { mountConnector, relayWaToSlack };
+module.exports = { mountConnector, relayWaToSlack, prettyWaText };
