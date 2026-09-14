@@ -1681,6 +1681,9 @@
                 <input type="date" id="prodFrom" onchange="renderProductivityView()">
                 <input type="date" id="prodTo" onchange="renderProductivityView()">
               </span>
+              <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-dim);font-weight:400;white-space:nowrap;">
+                <input type="checkbox" id="prodDetailToggle" onchange="renderProductivityView()"> Detailed breakdown
+              </label>
             </div>
           </div>
           <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Allocated = the agreed turnaround (TAT) on delivered work. Worked = what delivery actually took. No timers — derived from the task itself. Capacity = each person's productive hours per working day.</p>
@@ -5468,17 +5471,20 @@ function ccDonut(pct, label, sub){
       <div class="cc-donut-sub">${sub}</div>
     </div>`;
 }
-/* P3 — the Manager Dashboard "Team Productivity" tile shows the composite
-   score (server-computed, department-weighted). Falls back to the raw
-   worked/planned ratio already rendered if the fetch fails. */
+/* The Manager Dashboard "Team Productivity" tile shows the precise
+   worked-hours ÷ capacity-hours figure (server-computed, leave-aware) — not
+   the 5-factor composite score. That detailed breakdown (efficiency,
+   on-time, rework, etc.) lives on the Report Card / Productivity page's
+   "Detailed breakdown" toggle instead. Falls back to the raw worked/planned
+   ratio already rendered if the fetch fails. */
 async function refreshMgScore(){
   try {
     const d = await api('/api/productivity');
-    const s = d.totals.productivityScore;
+    const s = d.totals.utilisationPct;
     const el = document.getElementById('mgKpiProd'), sub = document.getElementById('mgKpiProdSub');
-    if(el && s != null){ el.textContent = s; el.style.color = scoreColor(s); }
+    if(el && s != null){ el.textContent = s + '%'; el.style.color = scoreColor(s); }
     else if(el){ el.textContent = '—'; }
-    if(sub) sub.textContent = 'composite score / 100';
+    if(sub) sub.textContent = 'worked ÷ capacity hrs';
     renderAllocationPanel(d.allocation);
   } catch(e){ /* keep the raw ratio */ }
 }
@@ -5929,9 +5935,26 @@ async function saveWeights(team, gridId, reset){
     renderProductivityView();
   } catch(e){ showToast('error', 'Could not save', e.message); }
 }
+// Simple headline: precise, no weights — just worked hours over capacity
+// hours. The 5-factor composite (efficiency, on-time, rework, etc.) is the
+// Report Card's job now; this page defaults to the plain number and hides
+// the breakdown behind the "Detailed breakdown" toggle.
+function simpleScoreCardHtml(pct, workedHours, capacityHours, sub){
+  const big = pct==null
+    ? `<span style="color:var(--text-faint);">—</span>`
+    : `${pct}<small>%</small>`;
+  return `<div class="pscore">
+    <div>
+      <div class="pscore-label">Productivity</div>
+      <div class="pscore-big" style="color:${scoreColor(pct)};">${big}</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">worked ${workedHours.toFixed(1)}h ÷ capacity ${capacityHours.toFixed(0)}h${sub?' · '+esc(sub):''}</div>
+    </div>
+  </div>`;
+}
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
   if(!body) return;
+  const detailed = !!(document.getElementById('prodDetailToggle')||{}).checked;
   const { from: reqFrom, to } = _prodRange();
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}`); }
@@ -5943,8 +5966,11 @@ async function renderProductivityView(){
   const rangeLbl = `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}${data.goLiveApplied ? ' · from go-live' : ''}`;
   const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}</div>`;
   _prodWeights = data.weights || _prodWeights;
-  document.getElementById('prodScoreCard').innerHTML = scoreCardHtml(T.productivityScore, T.factors, data.weights, rangeLbl);
-  renderWeightsEditor();
+  document.getElementById('prodScoreCard').innerHTML = detailed
+    ? scoreCardHtml(T.productivityScore, T.factors, data.weights, rangeLbl)
+    : simpleScoreCardHtml(T.utilisationPct, T.workedHours, T.capacityHours, rangeLbl);
+  const weightsWrap = document.getElementById('prodWeightsEditor');
+  if(detailed) renderWeightsEditor(); else if(weightsWrap) weightsWrap.innerHTML = '';
   // second score — coverage measured against FULL capacity, not just the
   // work that was allocated. The gap to the delivery score above, and the
   // hours managers never handed out, are the allocation shortfall.
@@ -5956,13 +5982,15 @@ async function renderProductivityView(){
     tile('Efficiency', T.efficiency==null?'—':T.efficiency.toFixed(2)+'×', T.efficiency>=1?'under budget':'over budget') +
     tile('Tasks delivered', T.tasks, rangeLbl) +
     tile('Fiscal YTD', T.cumulativeYtdWorked.toFixed(0)+'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`) +
-    tile('Capacity score', T.capacityScore==null?'—':T.capacityScore+'/100',
-      `${capGap!=null && capGap>0 ? `${capGap} pts below the delivery score` : 'in line with the delivery score'} · managers left <b>${unalloc.toFixed(0)}h</b> of ${T.capacityHours.toFixed(0)}h capacity unallocated`);
+    (detailed ? tile('Capacity score', T.capacityScore==null?'—':T.capacityScore+'/100',
+      `${capGap!=null && capGap>0 ? `${capGap} pts below the delivery score` : 'in line with the delivery score'} · managers left <b>${unalloc.toFixed(0)}h</b> of ${T.capacityHours.toFixed(0)}h capacity unallocated`) : '');
 
-  const rows = data.people.slice().sort((a,b)=>(b.productivityScore??-1)-(a.productivityScore??-1) || b.workedHours-a.workedHours);
+  const rows = data.people.slice().sort((a,b)=>
+    detailed ? ((b.productivityScore??-1)-(a.productivityScore??-1)) : ((b.utilisationPct??-1)-(a.utilisationPct??-1))
+    || b.workedHours-a.workedHours);
   body.innerHTML = rows.length ? rows.map(p => `<tr>
       <td><a href="#" onclick="openWorkLog('${p.id}');return false;" style="color:var(--text);font-weight:600;">${esc(p.name)}</a> <span style="font-size:11px;color:var(--text-faint);">↗ log</span><div style="font-size:11px;color:var(--text-faint);">${esc(p.team)}</div></td>
-      <td>${prodScoreCell(p)}</td>
+      <td>${detailed ? prodScoreCell(p) : (p.utilisationPct==null?'<span style="color:var(--text-faint);">—</span>':`<b style="font-family:var(--font-mono);color:${scoreColor(p.utilisationPct)};">${p.utilisationPct}%</b>`)}</td>
       <td>${p.tasks}</td>
       <td style="font-family:var(--font-mono);">${p.allocatedHours.toFixed(1)}</td>
       <td style="font-family:var(--font-mono);">${p.workedHours.toFixed(1)}</td>
@@ -6539,6 +6567,7 @@ function setDone(id){ return (document.getElementById(id) || {}).value || undefi
    (superadmin-only, same endpoint the Command Center's ratings use).
    ========================================================================= */
 let _fvReportRows = { key:null, rows:[] };
+let _fvProdRows = { key:null, rows:[] };
 let fvTileData = {};
 // Click any Founder KPI tile to see the tasks behind it (same scope + period).
 function openFvTileList(key){
@@ -6645,11 +6674,31 @@ async function renderFounderView(){
     else { const data = await api('/api/reports/summary?days=' + Math.min(3650, r.days)); reportRows = data.rows || []; _fvReportRows = { key:cacheKey, rows:reportRows }; }
   } catch(e){ reportRows = []; }
   const scopedRows = reportRows.filter(row => peopleIds.has(row.id));
-  const totTask = scopedRows.reduce((s,x) => s + (x.deliveredLoggedHours||0), 0);
-  const totShift = scopedRows.reduce((s,x) => s + (x.shiftHours||0), 0);
-  const prodPct = totShift > 0 ? Math.round(totTask/totShift*100) : null;
+
+  // Team Productivity = worked hours ÷ capacity hours (leave-aware, server
+  // computed) for whoever's in scope — same precise basis as the Manager
+  // Dashboard, not the online-shift-time ratio this used to show.
+  let prodPct = null, prodSub = 'No capacity in this period';
+  try {
+    const prodCacheKey = r.days + '|' + r.start;
+    let prodRows;
+    if(_fvProdRows.key === prodCacheKey){ prodRows = _fvProdRows.rows; }
+    else {
+      const [ey, em, ed] = r.end.split('-').map(Number);
+      const lastDay = new Date(ey, em - 1, ed - 1);
+      const toISO = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
+      const data = await api(`/api/productivity?from=${r.start}&to=${toISO}&full=1`);
+      prodRows = data.people || [];
+      _fvProdRows = { key: prodCacheKey, rows: prodRows };
+    }
+    const scopedProd = prodRows.filter(p => peopleIds.has(p.id));
+    const sumWorked = scopedProd.reduce((s,p) => s + (p.workedHours||0), 0);
+    const sumCap = scopedProd.reduce((s,p) => s + (p.capacityHours||0), 0);
+    prodPct = sumCap > 0 ? Math.round(sumWorked/sumCap*100) : null;
+    prodSub = sumCap > 0 ? `${sumWorked.toFixed(0)}h worked / ${sumCap.toFixed(0)}h capacity` : 'No capacity in this period';
+  } catch(e){ /* keep defaults */ }
   setT('fvProductivityPct', prodPct === null ? '—' : prodPct + '%');
-  setD('fvProductivitySub', totShift > 0 ? `${totTask.toFixed(0)}h task / ${totShift.toFixed(0)}h online` : 'No shift hours logged');
+  setD('fvProductivitySub', prodSub);
 
   const openScoped = scoped.filter(t => t.status !== 'completed' && t.status !== 'cancelled');
   const today = todayISO();
