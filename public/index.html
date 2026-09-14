@@ -1726,6 +1726,13 @@
                 <option value="year" selected>This fiscal year (Apr–Mar)</option>
               </select>
             </div>
+            <div>
+              <label style="font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); font-weight:600; display:block; margin-bottom:4px;">Headline number</label>
+              <select id="rcHeadlineMode" onchange="renderReportCard()">
+                <option value="delivery" selected>Delivery score (efficiency, on-time, rework…)</option>
+                <option value="productivity">Productivity % (worked ÷ capacity)</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -7518,12 +7525,24 @@ async function renderReportCard(){
   document.getElementById('rcName').textContent = p.name;
   document.getElementById('rcRole').textContent = `${p.jobTitle || emp.jobTitle || 'Team member'} · ${p.team} · ${periodLbl}`;
 
-  // ---- hero ring: the delivery score (falls back to on-time while building) ----
+  // ---- hero ring: either the delivery score (composite, falls back to
+  // on-time while building) or the plain productivity % (worked ÷ capacity)
+  // — whichever the "Headline number" toggle is set to. Same two numbers
+  // shown everywhere else (Productivity page tiles use the % one; the
+  // composite breakdown below the ring is unaffected either way. ----
+  const headlineMode = (document.getElementById('rcHeadlineMode')||{}).value || 'delivery';
   const scoreReady = p.scoreStatus === 'ready' && p.productivityScore != null;
-  const ringVal = scoreReady ? p.productivityScore
+  let ringVal, ringLbl;
+  if(headlineMode === 'productivity'){
+    ringVal = p.utilisationPct;
+    ringLbl = 'Productivity %';
+  } else {
+    ringVal = scoreReady ? p.productivityScore
                 : (p.productivityScore != null ? p.productivityScore : (p.onTimeRate != null ? p.onTimeRate : null));
-  document.getElementById('rcRingLbl').textContent = scoreReady ? 'Delivery /100'
+    ringLbl = scoreReady ? 'Delivery /100'
                 : p.scoreStatus === 'building' ? 'Delivery (building)' : 'Delivery score';
+  }
+  document.getElementById('rcRingLbl').textContent = ringLbl;
   document.getElementById('rcPct').textContent = ringVal == null ? '—' : Math.round(ringVal);
   const C = 402;
   document.getElementById('rcRing').setAttribute('stroke-dashoffset', ringVal == null ? C : C - C * Math.max(0,Math.min(100,ringVal)) / 100);
