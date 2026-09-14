@@ -1359,7 +1359,7 @@
             <h2>Who hasn't been replied to</h2>
             <input type="text" id="waSearch" placeholder="Search name or number…" oninput="renderWhatsAppView()" style="max-width:220px;">
           </div>
-          <p style="font-size:13px; color:var(--text-dim); margin-bottom:14px;">Tracked per <b>person</b>, not per message — five unanswered messages from the same number is still one person waiting. Point Interakt's webhook at <code>/webhooks/interakt</code> (see <code>GET /webhooks/health</code> for setup status) to start tracking; new inbound messages also relay into Slack so the team sees them live.</p>
+          <p style="font-size:13px; color:var(--text-dim); margin-bottom:14px;">Tracked per <b>person</b>, not per message — five unanswered messages from the same number is still one person waiting. Point Interakt's webhook at <code>/webhooks/interakt</code> (see <code>GET /webhooks/health</code> for setup status) to start tracking. Nobody's messages go to Slack automatically — tap <b>📤 Slack</b> on a contact to start relaying just theirs there (so you can use the "Convert to Task" shortcut on it), and again to stop.</p>
           <div id="waListWrap">Loading…</div>
         </div>
       </section>
@@ -2572,12 +2572,20 @@ async function renderWhatsAppView(){
           ${c.taskIds && c.taskIds.length ? ` · ${c.taskIds.length} task${c.taskIds.length>1?'s':''} created` : ''}
         </div>
       </div>
-      <div style="display:flex;gap:8px;flex-shrink:0;">
+      <div style="display:flex;gap:8px;flex-shrink:0;align-items:center;">
+        <button class="btn small" title="${c.relayToSlack ? 'Sending this person\'s messages to Slack — click to stop' : 'Not sent to Slack — click to relay this person\'s messages there'}" style="${c.relayToSlack ? 'border-color:var(--purple);color:var(--purple);background:var(--purple-dim);' : ''}" onclick="toggleWaRelay('${esc(c.phone)}', ${!c.relayToSlack})">📤 ${c.relayToSlack ? 'In Slack' : 'Slack'}</button>
         ${awaiting ? `<button class="btn small" onclick="markWaHandled('${esc(c.phone)}')">Mark replied</button>` : ''}
         <button class="btn small primary" onclick="openWaTaskModal('${esc(c.phone)}')">+ Task</button>
       </div>
     </div>`;
   }).join('')}</div>`;
+}
+async function toggleWaRelay(phone, enabled){
+  try {
+    await api(`/api/whatsapp/contacts/${encodeURIComponent(phone)}/relay`, { method:'POST', body: JSON.stringify({ enabled }) });
+    showToast('success', enabled ? 'Now relaying to Slack' : 'Stopped relaying to Slack', '');
+    await renderWhatsAppView();
+  } catch(e){ showToast('error', 'Could not update', e.message); }
 }
 async function markWaHandled(phone){
   try { await api(`/api/whatsapp/contacts/${encodeURIComponent(phone)}/handled`, { method:'POST' }); showToast('success', 'Marked replied', ''); await renderWhatsAppView(); }
@@ -2594,10 +2602,11 @@ async function openWaThread(phone){
     </div>`).join('');
   document.getElementById('modalBox').innerHTML = `
     <h3>${esc(c.name)}</h3>
-    <div class="modal-sub">${esc(c.phone)}</div>
+    <div class="modal-sub">${esc(c.phone)}${c.relayToSlack ? ' · <span style="color:var(--purple);">📤 relaying to Slack</span>' : ''}</div>
     <div style="max-height:50vh;overflow-y:auto;margin:14px 0;padding:4px;">${rows || '<p style="color:var(--text-faint);font-size:13px;">No messages logged.</p>'}</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn" onclick="toggleWaRelay('${esc(phone)}', ${!c.relayToSlack})">${c.relayToSlack ? 'Stop sending to Slack' : 'Send to Slack'}</button>
       ${c.status === 'awaiting' ? `<button class="btn" onclick="markWaHandled('${esc(phone)}'); closeModal();">Mark replied</button>` : ''}
       <button class="btn primary" onclick="openWaTaskModal('${esc(phone)}')">+ Task</button>
     </div>`;

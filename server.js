@@ -3490,6 +3490,22 @@ app.post('/api/whatsapp/contacts/:phone/handled', requireAuth, requireSuperAdmin
   db.save();
   res.json({ contact: c });
 });
+// Choose who's messages relay into Slack — nobody's do by default. Turning
+// it on immediately posts their latest message too, rather than waiting
+// silently for their next one.
+app.post('/api/whatsapp/contacts/:phone/relay', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const c = (state.waContacts || {})[req.params.phone];
+  if (!c) return res.status(404).json({ error: 'Contact not found.' });
+  const enabled = !!(req.body || {}).enabled;
+  c.relayToSlack = enabled;
+  db.save();
+  if (enabled && c.lastMessageText) {
+    require('./connector').relayWaToSlack(c, c.lastMessageText)
+      .catch(e => console.error('[whatsapp] relay-on-enable failed:', e && e.message));
+  }
+  res.json({ contact: c });
+});
 // Turn a WhatsApp contact's open thread into a real task — same shape as a
 // manual internal task, tagged source:'whatsapp' so it shows up in Admin
 // alongside call/Slack-sourced tasks.

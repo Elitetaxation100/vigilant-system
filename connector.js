@@ -355,9 +355,12 @@ function completeTask(state, taskId, byName) {
 // message if a field ever comes back empty, and tighten the fallbacks.
 //
 // This does NOT send WhatsApp replies — Interakt is the reply channel.
-// It only (a) tracks who's still waiting so the app can show "N people not
-// yet replied to", and (b) relays the message into Slack so the team sees
-// it immediately and can use the existing "Convert to Task" shortcut on it.
+// It (a) tracks who's still waiting so the app can show "N people not yet
+// replied to", and (b) optionally relays a message into Slack so the team
+// sees it live and can use the existing "Convert to Task" shortcut on it —
+// opt-in PER CONTACT (c.relayToSlack, off by default), toggled from the
+// WhatsApp view or /api/whatsapp/contacts/:phone/relay. Nobody's messages
+// land in Slack until someone in the app chooses that person.
 // ---------------------------------------------------------------------------
 function waPhoneOf(customer, msg) {
   return String(
@@ -407,7 +410,7 @@ async function handleInteraktWebhook(body) {
   const c = state.waContacts[phone] || (state.waContacts[phone] = {
     phone, name, firstSeenAt: new Date().toISOString(),
     lastInboundAt: null, lastOutboundAt: null, lastMessageText: '', lastMessageAt: null,
-    status: 'new', taskIds: [],
+    status: 'new', taskIds: [], relayToSlack: false,
   });
   c.name = name || c.name;
   const now = new Date().toISOString();
@@ -419,16 +422,20 @@ async function handleInteraktWebhook(body) {
   else { c.lastOutboundAt = now; c.status = 'replied'; }
   db.save();
 
-  if (direction === 'in') {
-    const channel = cfg().interaktChannel || cfg().slackChannel;
-    if (cfg().slackBotToken && channel) {
-      await slack('chat.postMessage', {
-        channel,
-        text: `📱 *WhatsApp* — ${name} (${phone}):\n${text}`,
-        unfurl_links: false,
-      });
-    }
-  }
+  if (direction === 'in' && c.relayToSlack) await relayWaToSlack(c, text);
+}
+// Post one message into Slack for a contact someone has opted into relaying.
+// Reused both by the webhook (new inbound message) and by the "turn relay
+// on" endpoint (so switching it on immediately shows their latest message,
+// instead of silently waiting for their next one).
+async function relayWaToSlack(c, text) {
+  const channel = cfg().interaktChannel || cfg().slackChannel;
+  if (!cfg().slackBotToken || !channel) return;
+  await slack('chat.postMessage', {
+    channel,
+    text: `📱 *WhatsApp* — ${c.name} (${c.phone}):\n${text}`,
+    unfurl_links: false,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1498,4 +1505,4 @@ function mountConnector(app) {
   console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,run-digest,run-reminders,log,health}');
 }
 
-module.exports = { mountConnector };
+module.exports = { mountConnector, relayWaToSlack };

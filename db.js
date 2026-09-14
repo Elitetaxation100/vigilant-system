@@ -336,6 +336,7 @@ function runMigrations(state) {
   if (state.recurringLastRun === undefined) state.recurringLastRun = null;
   // WhatsApp (Interakt) — see connector.js handleInteraktWebhook().
   if (!state.waContacts || typeof state.waContacts !== 'object' || Array.isArray(state.waContacts)) state.waContacts = {};
+  Object.values(state.waContacts).forEach(c => { if (c.relayToSlack === undefined) c.relayToSlack = false; });
   if (!Array.isArray(state.waMessages)) state.waMessages = [];
   if (typeof state.waSeq !== 'number') state.waSeq = 0;
   if (!state.connectorDigest || typeof state.connectorDigest !== 'object') state.connectorDigest = { lastSlot: null };
