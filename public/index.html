@@ -1769,6 +1769,12 @@
           <div class="panel-head"><h2 style="font-size:15.5px;">Delivery this period</h2></div>
           <div id="rcDelivery"></div>
         </div>
+
+        <div class="panel" style="margin-top:16px;">
+          <div class="panel-head"><h2 style="font-size:15.5px;">Still open, counted toward this period's load</h2></div>
+          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">Not delivered yet, but due in this period — this is the other half of "assigned load" behind the Coverage factor and the allocation gap above.</p>
+          <div id="rcOpenDue"></div>
+        </div>
       </section>
 
       <!-- ===================== EMPLOYEES (ADMIN) VIEW ===================== -->
@@ -7560,6 +7566,27 @@ async function renderReportCard(){
         <td style="padding:7px 10px;">${t.clientDate ? commitmentBadge(t) : '<span style="color:var(--text-faint);">no date</span>'}</td>
       </tr>`).join('')}</tbody>
     </table></div>` : '<p style="font-size:13px;color:var(--text-faint);">No tasks delivered in this period.</p>';
+
+  // ---- still-open tasks due in the period — the other half of assignedLoad
+  // (allocatedHours above + this = p.assignedLoad, the Coverage denominator) ----
+  const openDue = tasks.filter(t => t.assignedTo === _rcPersonId
+    && !['completed', 'pending_approval'].includes(t.status)
+    && t.internalDeadline && t.internalDeadline >= from && t.internalDeadline <= to)
+    .sort((a,b)=>(a.internalDeadline||'').localeCompare(b.internalDeadline||''));
+  const openAlloc = openDue.reduce((s,t)=>s+(Number(t.tat)||0),0);
+  document.getElementById('rcOpenDue').innerHTML = (openDue.length ? `
+    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">
+        <th style="padding:6px 10px 6px 0;">Task</th><th style="padding:6px 10px;">Client</th><th style="padding:6px 10px;">Due</th><th style="padding:6px 10px;">Allocated</th><th style="padding:6px 10px;">Status</th></tr></thead>
+      <tbody>${openDue.map(t => `<tr style="border-top:1px solid var(--panel-border);">
+        <td style="padding:7px 10px 7px 0;font-weight:600;">${esc(t.name)}</td>
+        <td style="padding:7px 10px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
+        <td style="padding:7px 10px;color:var(--text-dim);">${fmtDate(t.internalDeadline)}</td>
+        <td style="padding:7px 10px;font-family:var(--font-mono);">${Number(t.tat) > 0 ? Number(t.tat).toFixed(1)+'h' : '—'}</td>
+        <td style="padding:7px 10px;">${miniState(t) || esc((t.status||'').replace('_',' '))}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '<p style="font-size:13px;color:var(--text-faint);">No open tasks due in this period.</p>')
+    + `<p style="font-size:12px;color:var(--text-faint);margin-top:10px;">${p.allocatedHours.toFixed(1)}h delivered + ${openAlloc.toFixed(1)}h still open = ${(p.allocatedHours+openAlloc).toFixed(1)}h assigned load, every hour counted from go-live (${fmtDate(data.goLive || from)}) — never earlier.</p>`;
 }
 
 /* =========================================================================

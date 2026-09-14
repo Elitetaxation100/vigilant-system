@@ -337,9 +337,13 @@ function taskForClient(t) {
 const CAP_MIN = 3, CAP_MAX = 10, CAP_SEED = 8.0;
 
 function estimateCapacity(state, empId) {
-  // productive hours per working day over the last 8 weeks (56 days).
+  // productive hours per working day over the last 8 weeks (56 days) —
+  // but never earlier than go-live (7 Sept 2026). Without this floor, a
+  // rolling 56-day lookback still reaches back into pre-launch seed data
+  // today, which can pull the estimate down to something nobody actually
+  // worked (see: Manya Nanda showing 3h/day from stale seed rows).
   const since = cal.addWorkingDays(todayISO(), 0); // today
-  const from = new Date(Date.now() - 56 * 86400000).toISOString().slice(0, 10);
+  const from = floorAtGoLive(new Date(Date.now() - 56 * 86400000).toISOString().slice(0, 10), since);
   const byDay = {};
   state.tasks.filter(t => t.assignedTo === empId && t.status === 'completed'
       && (t.completedAt || '').slice(0, 10) >= from && (t.completedAt || '').slice(0, 10) <= since)
@@ -902,6 +906,14 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   // WhatsApp (Interakt) dashboard — grantable to any specific employee,
   // independent of accessRole (a superadmin always has it regardless).
   if (typeof req.body.whatsappAccess === 'boolean') emp.whatsappAccess = req.body.whatsappAccess;
+  // Clears a bad auto-estimated capacity (e.g. one computed from pre-go-live
+  // seed data before the go-live floor fix) — falls back to the 8h seed
+  // until real post-launch history accumulates again.
+  if (req.body.resetCapacity === true) {
+    emp.effectiveCapacity = null;
+    emp.capacityAuto = false;
+    emp.capacityEstimatedAt = null;
+  }
 
   db.save();
   res.json({ employee: publicEmployee(emp) });
