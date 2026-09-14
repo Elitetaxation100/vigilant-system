@@ -229,6 +229,9 @@ function ensureExtendedFields(state) {
     // the estimate + internal due date on tasks they assigned to THEMSELVES.
     // Set from Employees → Manage access; lapses on its own.
     if (e.selfEditUntil === undefined) e.selfEditUntil = null;
+    // WhatsApp (Interakt) dashboard — off by default; a superadmin always
+    // has it regardless. Set from Employees → Manage access.
+    if (e.whatsappAccess === undefined) e.whatsappAccess = false;
     if (e.capacityAuto === undefined) e.capacityAuto = false;
     if (e.capacityEstimatedAt === undefined) e.capacityEstimatedAt = null;
     // One-time: bump the old 6h seed to the 8h working day (only for people

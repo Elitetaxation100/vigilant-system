@@ -801,6 +801,13 @@ function requireSuperAdmin(req, res, next) {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   next();
 }
+// WhatsApp (Interakt) — a superadmin always has it; anyone else needs the
+// grant a superadmin gave them (PATCH /api/employees/:id whatsappAccess),
+// same shape as the self-edit grant: off by default, per person.
+function requireWhatsappAccess(req, res, next) {
+  if (req.employee.accessRole === 'superadmin' || req.employee.whatsappAccess) return next();
+  return res.status(403).json({ error: "You don't have access to the WhatsApp dashboard — ask a superadmin to grant it." });
+}
 
 // ---------------------------------------------------------------------------
 // AUTH ROUTES
@@ -892,6 +899,9 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   }
   if (req.body.slackUserId !== undefined) emp.slackUserId = req.body.slackUserId ? String(req.body.slackUserId).trim() : null;
   if (req.body.aircallAgentId !== undefined) emp.aircallAgentId = req.body.aircallAgentId ? String(req.body.aircallAgentId).trim() : null;
+  // WhatsApp (Interakt) dashboard — grantable to any specific employee,
+  // independent of accessRole (a superadmin always has it regardless).
+  if (typeof req.body.whatsappAccess === 'boolean') emp.whatsappAccess = req.body.whatsappAccess;
 
   db.save();
   res.json({ employee: publicEmployee(emp) });
@@ -3459,7 +3469,7 @@ app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, (req, res) =
 // "WhatsApp (Interakt)" sidebar view uses. Superadmin-only, like Command
 // Center — this is firm-wide, not scoped to one team.
 // ---------------------------------------------------------------------------
-app.get('/api/whatsapp/contacts', requireAuth, requireSuperAdmin, (req, res) => {
+app.get('/api/whatsapp/contacts', requireAuth, requireWhatsappAccess, (req, res) => {
   const state = db.get();
   const now = Date.now();
   const { prettyWaText } = require('./connector');
@@ -3475,7 +3485,7 @@ app.get('/api/whatsapp/contacts', requireAuth, requireSuperAdmin, (req, res) => 
   });
   res.json({ contacts: list, awaitingCount: list.filter(c => c.status === 'awaiting').length });
 });
-app.get('/api/whatsapp/messages', requireAuth, requireSuperAdmin, (req, res) => {
+app.get('/api/whatsapp/messages', requireAuth, requireWhatsappAccess, (req, res) => {
   const state = db.get();
   const phone = String(req.query.phone || '');
   if (!phone) return res.status(400).json({ error: 'phone is required.' });
@@ -3486,7 +3496,7 @@ app.get('/api/whatsapp/messages', requireAuth, requireSuperAdmin, (req, res) => 
 });
 // Mark a contact handled without going through Interakt — e.g. the reply
 // was sent by phone/in person, or the message needed no reply at all.
-app.post('/api/whatsapp/contacts/:phone/handled', requireAuth, requireSuperAdmin, (req, res) => {
+app.post('/api/whatsapp/contacts/:phone/handled', requireAuth, requireWhatsappAccess, (req, res) => {
   const state = db.get();
   const c = (state.waContacts || {})[req.params.phone];
   if (!c) return res.status(404).json({ error: 'Contact not found.' });
@@ -3497,7 +3507,7 @@ app.post('/api/whatsapp/contacts/:phone/handled', requireAuth, requireSuperAdmin
 // Choose who's messages relay into Slack — nobody's do by default. Turning
 // it on immediately posts their latest message too, rather than waiting
 // silently for their next one.
-app.post('/api/whatsapp/contacts/:phone/relay', requireAuth, requireSuperAdmin, (req, res) => {
+app.post('/api/whatsapp/contacts/:phone/relay', requireAuth, requireWhatsappAccess, (req, res) => {
   const state = db.get();
   const c = (state.waContacts || {})[req.params.phone];
   if (!c) return res.status(404).json({ error: 'Contact not found.' });
@@ -3513,7 +3523,7 @@ app.post('/api/whatsapp/contacts/:phone/relay', requireAuth, requireSuperAdmin, 
 // Turn a WhatsApp contact's open thread into a real task — same shape as a
 // manual internal task, tagged source:'whatsapp' so it shows up in Admin
 // alongside call/Slack-sourced tasks.
-app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireSuperAdmin, (req, res) => {
+app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAccess, (req, res) => {
   const state = db.get();
   const c = (state.waContacts || {})[req.params.phone];
   if (!c) return res.status(404).json({ error: 'Contact not found.' });

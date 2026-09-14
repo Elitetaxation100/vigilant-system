@@ -2393,7 +2393,7 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees','whatsapp'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees'];
 /* Mobile: the sidebar is an off-canvas drawer under 860px. */
 function toggleMobileNav(){ document.querySelector('.app').classList.toggle('nav-open'); }
 function closeMobileNav(){ document.querySelector('.app').classList.remove('nav-open'); }
@@ -2408,6 +2408,9 @@ function showView(id, el){
   // catches a stale link or a programmatic call)
   if(SUPERADMIN_ONLY_VIEWS.includes(id) && !isSuperAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
   if(id === 'manager' && !isAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
+  // WhatsApp — a superadmin always has it; anyone else needs the grant a
+  // superadmin gave them (Employees → Manage access).
+  if(id === 'whatsapp' && !isSuperAdmin && !(currentViewer() || {}).whatsappAccess){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + id).classList.add('active');
   document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
@@ -2535,7 +2538,7 @@ function waStatusLabel(s){ return s === 'handled' ? 'marked handled' : s === 're
 // Polled alongside the rest so the sidebar badge stays live without needing
 // the view open — cheap (superadmin-only, one small endpoint).
 async function refreshWaAwaitingBadge(){
-  if(!isSuperAdmin) return;
+  if(!isSuperAdmin && !(currentViewer() || {}).whatsappAccess) return;
   const badge = document.getElementById('waNavBadge');
   if(!badge) return;
   try {
@@ -7880,6 +7883,10 @@ function openManageEmployee(id){
         <input type="checkbox" id="meDashObserver" ${e.dashObserver ? 'checked' : ''} style="margin-top:3px;">
         <span>Dashboard observer — can open <b>any</b> employee's Commitment Dashboard, read-only<br><span style="color:var(--text-faint);font-size:12.5px;">No other powers: can't assign, reassign, review, or change anything outside their own work.</span></span>
       </label>
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
+        <input type="checkbox" id="meWhatsappAccess" ${e.whatsappAccess ? 'checked' : ''} style="margin-top:3px;">
+        <span>WhatsApp (Interakt) dashboard — see who hasn't been replied to and create tasks from messages<br><span style="color:var(--text-faint);font-size:12.5px;">Firm-wide, not scoped to a team. Superadmins always have this regardless of the checkbox.</span></span>
+      </label>
       <div class="field"><label>Self-edit window <span style="text-transform:none;color:var(--text-faint);">— let this person change the estimate &amp; due date on tasks they assign to themselves. Lapses on its own.</span></label>
         <select id="meSelfEditWindow" onchange="document.getElementById('meSelfEditCustom').style.display=this.value==='custom'?'':'none';">
           ${(e.selfEditUntil && Date.now() < Date.parse(e.selfEditUntil)) ? `<option value="keep" selected>Keep current — active until ${fmtDate(e.selfEditUntil.slice(0,10))}</option>` : ''}
@@ -7955,6 +7962,7 @@ async function submitManageEmployee(id){
   const memberships = meMembershipsDraft.map(m => ({ team: m.team, level: m.level }));
   const isFounder = document.getElementById('meFounder').checked;
   const dashObserver = document.getElementById('meDashObserver').checked;
+  const whatsappAccess = document.getElementById('meWhatsappAccess').checked;
   const slackUserId = document.getElementById('meSlackId').value.trim();
   const aircallAgentId = document.getElementById('meAircallId').value.trim();
   // self-edit window → an ISO datetime, null (revoke), or undefined (unchanged)
@@ -7971,7 +7979,7 @@ async function submitManageEmployee(id){
   }
   try {
     const payload = { accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
-      memberships, isFounder, dashObserver, slackUserId, aircallAgentId };
+      memberships, isFounder, dashObserver, whatsappAccess, slackUserId, aircallAgentId };
     if(selfEditUntil !== undefined) payload.selfEditUntil = selfEditUntil;
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify(payload)});
     closeModal();
@@ -8092,7 +8100,7 @@ async function onLoginComplete(){
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('founderNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('analyticsNavSection').style.display = isSuperAdmin ? '' : 'none';
-  document.getElementById('whatsappNavSection').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('whatsappNavSection').style.display = (isSuperAdmin || session.whatsappAccess) ? '' : 'none';
   // Manager Dashboard stays with the Admin role — team oversight & the
   // review / approve / reassign actions live there.
   document.getElementById('managerNavSection').style.display = isAdmin ? '' : 'none';
