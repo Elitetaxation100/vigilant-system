@@ -397,6 +397,12 @@ function waTextOf(msg) {
 // doesn't document a single canonical field for this across plans.
 function waDirectionOf(type, msg) {
   const t = String(type || '').toLowerCase();
+  // A WhatsApp template payload — an array of content blocks with fill-in
+  // parameters, e.g. [{type:'body', parameters:[...]}] — is only ever
+  // something the business SENT (a customer can't reply in that shape).
+  // Trust that structural signal over the event `type` string, which
+  // Interakt doesn't name consistently for this across plans/events.
+  if (msg && Array.isArray(msg.message)) return 'out';
   if (t.includes('template') || t.includes('sent') || (msg && (msg.direction === 'outgoing' || msg.sent_by))) return 'out';
   return 'in'; // default to inbound — safer to surface a message than silently drop it
 }
