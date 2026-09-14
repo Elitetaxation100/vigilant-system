@@ -3624,7 +3624,10 @@ function onEmpPeriodChange(){
   renderEmployeeStats();
 }
 function empPeriodBounds(){
-  const now = new Date(), iso = d => d.toISOString().slice(0,10);
+  // LOCAL time — toISOString() shifts dates back a day for any timezone
+  // ahead of UTC (NZ included), same class of bug already worked around in
+  // _prodRange().
+  const now = new Date(), iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const p = (document.getElementById('empPeriod')||{}).value || 'this-month';
   const addDays = (d,n) => { const x = new Date(d); x.setDate(x.getDate()+n); return x; };
   let start, end = iso(addDays(now, 1));
@@ -3721,20 +3724,45 @@ function renderGreeting(){
   const weekday = new Date().toLocaleDateString('en-NZ', { weekday:'long' });
   const dateStr = new Date().toLocaleDateString('en-NZ', { day:'2-digit', month:'long' });
   const today = todayISO();
-  const weekEnd = addDaysISO(6);
   const who = dashSubjectId();
+
+  // Track whatever window the Period filter above is set to (This week /
+  // This month / a custom range / ...) instead of being hard-coded to "this
+  // week" + "today" — a custom single-day range now correctly reads "today"
+  // rather than silently ignoring the picker.
+  const p = (document.getElementById('empPeriod')||{}).value || 'this-month';
+  const bounds = (typeof empPeriodBounds === 'function') ? empPeriodBounds() : null;
+  const start = bounds ? bounds.start : today;
+  const end = bounds ? bounds.end : addDaysISO(1);   // exclusive
+  // local-date arithmetic only — no toISOString() (see empPeriodBounds)
+  const [ey, em, ed] = end.split('-').map(Number);
+  const endDay = new Date(ey, em - 1, ed - 1);
+  const endIncl = `${endDay.getFullYear()}-${String(endDay.getMonth() + 1).padStart(2, '0')}-${String(endDay.getDate()).padStart(2, '0')}`;
+  const phrase = (start === today && endIncl === today) ? 'today'
+    : p === 'this-week' ? 'this week'
+    : p === 'this-month' ? 'this month'
+    : p === 'this-quarter' ? 'this quarter'
+    : p === 'this-year' ? 'this year'
+    : p === 'last-30' ? 'in the last 30 days'
+    : p === 'last-90' ? 'in the last 90 days'
+    : p === 'all' ? 'in total'
+    : `from ${fmtDate(start)} to ${fmtDate(endIncl)}`;
+
   const mineOpen = tasks.filter(t => t.assignedTo === who && t.status !== 'completed');
-  const dueThisWeek = mineOpen.filter(t => t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= weekEnd).length;
-  const doneTodayHrs = tasks
-    .filter(t => t.assignedTo === who && t.status === 'completed' && dayOf(t.completedAt) === today)
+  const dueInPeriod = mineOpen.filter(t => t.internalDeadline && t.internalDeadline >= start && t.internalDeadline <= endIncl).length;
+  const hrsInPeriod = tasks
+    .filter(t => t.assignedTo === who && t.status === 'completed' && t.completedAt && t.completedAt.slice(0,10) >= start && t.completedAt.slice(0,10) < end)
     .reduce((s,t) => s + taskHrs(t), 0)
-    + reviewHoursDoneOnDate(who, today);
+    + tasks
+      .filter(t => t.reviewedBy === who && Number(t.reviewHours) > 0 && t.reviewedAt && t.reviewedAt.slice(0,10) >= start && t.reviewedAt.slice(0,10) < end)
+      .reduce((s,t) => s + Number(t.reviewHours), 0);
+
   const seNote = (!mirror && selfEditActive())
     ? `<div class="greeting-sub" style="color:var(--purple);">✎ Self-edit is on until ${fmtDate(currentViewer().selfEditUntil.slice(0,10))} — tap the <b>⏱ hours</b> badge (or "edit estimate") on any of your tasks to change its estimate, due date &amp; client commitment date.</div>` : '';
   wrap.innerHTML = `<div class="greeting-block">
     <div>
       <h1>${mirror ? esc(me.name) + "'s dashboard" : greeting + (firstName ? ', ' + esc(firstName) : '')}</h1>
-      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueThisWeek} task${dueThisWeek === 1 ? '' : 's'} due this week &middot; ${doneTodayHrs.toFixed(1)} hrs done today</div>
+      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueInPeriod} task${dueInPeriod === 1 ? '' : 's'} due ${phrase} &middot; ${hrsInPeriod.toFixed(1)} hrs done ${phrase}</div>
       ${seNote}
     </div>
   </div>`;
