@@ -196,6 +196,7 @@
   .mg-tile:hover::after{ opacity:.9; }
   .mg-tile.active{ border-color:var(--purple); box-shadow:var(--glow); }
   #modalOverlay:has(.tasklist-modal) .modal-box{ max-width:780px; }
+  #modalOverlay:has(.calc-modal) .modal-box{ max-width:900px; }
   .tasklist-modal table{ width:100%; border-collapse:collapse; font-size:13px; }
   .tasklist-modal th{ text-align:left; padding:7px 10px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); border-bottom:1px solid var(--panel-border); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .tasklist-modal td{ padding:8px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; overflow:hidden; }
@@ -5948,6 +5949,15 @@ function prodEmpTileHtml(p){
 // away. The composite score (efficiency/on-time/rework/etc.) stays on the
 // Report Card only; a link to it here is optional, not the default.
 let _prodData = null;
+// Real elapsed hours on a task right now — banked time plus whatever's
+// accrued since the timer last started, if it's still running. Mirrors the
+// server's liveElapsedHours(), kept separate from taskHrs() (which falls
+// back to the estimate) because here we want the truth, not a stand-in.
+function liveElapsed(t){
+  const logged = Number(t.logged) || 0;
+  if(t.status === 'completed' || !t.timerStartedAt) return logged;
+  return logged + (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
+}
 function openProdCalcModal(id){
   const d = _prodData;
   if(!d) return;
@@ -5961,13 +5971,42 @@ function openProdCalcModal(id){
   const pct = p.utilisationPct;
   const perDay = p.baseHoursPerDay || p.effectiveCapacity || 8;
   const capLabel = `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays ? ` − ${p.leaveDays} leave` : ''} × ${perDay}h/day`;
-  const rows = done.length ? done.map(t => `<tr style="border-top:1px solid var(--panel-border);">
+
+  const mine = tasks.filter(t => t.assignedTo === id);
+  const inProgress = mine.filter(t => !['completed','on_hold','pending_approval'].includes(t.status))
+    .sort((a,b) => liveElapsed(b) - liveElapsed(a));
+  const onHold = mine.filter(t => t.status === 'on_hold')
+    .sort((a,b) => liveElapsed(b) - liveElapsed(a));
+  const wipHours = inProgress.reduce((s,t) => s + liveElapsed(t), 0);
+  const holdHours = onHold.reduce((s,t) => s + liveElapsed(t), 0);
+
+  const table = (cols, rowsHtml, emptyMsg) => `<div style="overflow-x:auto;max-height:30vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0;background:var(--panel);">
+        ${cols.map(c => `<th style="padding:6px 8px 6px 0;${c.right?'text-align:right;':''}">${c.label}</th>`).join('')}</tr></thead>
+      <tbody>${rowsHtml || `<tr><td colspan="${cols.length}" style="padding:10px;text-align:center;color:var(--text-faint);">${emptyMsg}</td></tr>`}</tbody>
+    </table></div>`;
+
+  const doneRows = done.map(t => `<tr style="border-top:1px solid var(--panel-border);">
       <td style="padding:6px 8px 6px 0;font-weight:600;">${esc(t.name)}</td>
       <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
       <td style="padding:6px 8px;color:var(--text-dim);">${fmtDate(t.completedAt.slice(0,10))}</td>
       <td style="padding:6px 8px;font-family:var(--font-mono);text-align:right;">${taskHrs(t).toFixed(1)}h</td>
-    </tr>`).join('') : `<tr><td colspan="4" style="padding:10px;text-align:center;color:var(--text-faint);">No completed work counted in this period.</td></tr>`;
+    </tr>`).join('');
+  const wipRows = inProgress.map(t => `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:6px 8px 6px 0;font-weight:600;">${esc(t.name)}</td>
+      <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
+      <td style="padding:6px 8px;">${miniState(t) || esc((t.status||'').replace('_',' '))}</td>
+      <td style="padding:6px 8px;font-family:var(--font-mono);text-align:right;">${liveElapsed(t).toFixed(1)}h</td>
+    </tr>`).join('');
+  const holdRows = onHold.map(t => `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:6px 8px 6px 0;font-weight:600;">${esc(t.name)}</td>
+      <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
+      <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.holdReason || '—')}</td>
+      <td style="padding:6px 8px;font-family:var(--font-mono);text-align:right;">${liveElapsed(t).toFixed(1)}h</td>
+    </tr>`).join('');
+
   document.getElementById('modalBox').innerHTML = `
+    <div class="calc-modal">
     <h3>${esc(p.name)} — ${pct==null?'—':pct+'%'} productivity</h3>
     <div class="modal-sub">worked hours ÷ capacity hours · ${fmtDate(from)}–${fmtDate(to)} · every hour counted from go-live, never earlier</div>
     <div style="margin:14px 0;padding:12px 14px;border-radius:10px;background:var(--panel-2);font-size:13.5px;line-height:1.7;">
@@ -5977,14 +6016,20 @@ function openProdCalcModal(id){
         ${sumWorked.toFixed(1)}h ÷ ${p.capacityHours.toFixed(0)}h = <b style="color:${scoreColor(pct)};">${pct==null?'—':pct+'%'}</b>
       </div>
     </div>
-    <div style="overflow-x:auto;max-height:38vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0;background:var(--panel);">
-        <th style="padding:6px 8px 6px 0;">Task</th><th style="padding:6px 8px;">Client</th><th style="padding:6px 8px;">Completed</th><th style="padding:6px 8px;text-align:right;">Hours</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table></div>
-    <div class="modal-actions">
+    <div style="font-size:13px;font-weight:600;margin:14px 0 6px;">Completed — counted above</div>
+    ${table([{label:'Task'},{label:'Client'},{label:'Completed'},{label:'Hours',right:true}], doneRows, 'No completed work counted in this period.')}
+
+    <div style="font-size:13px;font-weight:600;margin:18px 0 2px;">In progress — not counted in the % <span style="font-weight:400;color:var(--text-faint);">(${wipHours.toFixed(1)}h logged so far)</span></div>
+    <p style="font-size:11.5px;color:var(--text-faint);margin:0 0 6px;">Shown for context only — a task only counts toward productivity once it's delivered.</p>
+    ${table([{label:'Task'},{label:'Client'},{label:'Status'},{label:'Hours',right:true}], wipRows, 'Nothing in progress right now.')}
+
+    <div style="font-size:13px;font-weight:600;margin:18px 0 2px;">On hold — not counted in the % <span style="font-weight:400;color:var(--text-faint);">(${holdHours.toFixed(1)}h logged so far)</span></div>
+    ${table([{label:'Task'},{label:'Client'},{label:'Hold reason'},{label:'Hours',right:true}], holdRows, 'Nothing on hold right now.')}
+
+    <div class="modal-actions" style="margin-top:16px;">
       <button class="btn" onclick="closeModal()">Close</button>
       <button class="btn" onclick="closeModal(); openReportCardFor('${id}');">Full Report Card →</button>
+    </div>
     </div>`;
   openModal();
 }
