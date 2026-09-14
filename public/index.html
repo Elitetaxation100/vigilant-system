@@ -3360,7 +3360,13 @@ function statusBadge(t){
       const m = HOLD_REASONS[t.holdReasonCode] || {};
       const ex = m.exempting ? ' · clock paused' : '';
       const extra = t.holdReason && t.holdReason !== m.label ? ' — ' + esc(t.holdReason) : '';
-      return `<span class="badge awaiting dot">⏸ On Hold</span>` +
+      // Waiting-duration badge, client holds only — the whole point is to
+      // make an aging client query visible without opening the detail modal.
+      const waitingOnClient = m.exempting && openQuery(t);
+      const heldDays = t.heldAt ? Math.floor((Date.now() - new Date(t.heldAt).getTime()) / 86400000) : 0;
+      const waitBadge = waitingOnClient
+        ? ` <span class="badge ${heldDays >= 3 ? 'overdue' : 'awaiting'} dot" title="Days since put on hold, waiting on the client">${heldDays}d waiting on client</span>` : '';
+      return `<span class="badge awaiting dot">⏸ On Hold</span>${waitBadge}` +
         `<details class="hold-reason"><summary>reason</summary>` +
         `<div>${esc(holdReasonLabel(t))}${ex}${extra} · ` +
         `<a href="#" onclick="openHoldDetailModal('${t.id}');return false;">full detail ›</a></div></details>`;
@@ -4347,8 +4353,10 @@ function queryDetailHtml(t){
 function holdControlsHtml(t){
   if(!iCanHold(t)) return '';
   if(t.status === 'on_hold'){
-    let h = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="unholdTask('${t.id}')">Resume</button>`;
     const q = openQuery(t);
+    let h = q
+      ? `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeReplyModal('${t.id}','${q.id}')">Resume</button>`
+      : `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="unholdTask('${t.id}')">Resume</button>`;
     if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log client reply</button>`;
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
     return h;
@@ -4358,11 +4366,17 @@ function holdControlsHtml(t){
 function openLogReplyModal(taskId, qid){
   const t = findTask(taskId); if(!t) return;
   const q = (t.queries||[]).find(x=>x.id===qid); if(!q) return;
+  // The browser's local clock can read a different calendar day than the
+  // server's NZ-pinned "today" (e.g. a device in a different timezone) —
+  // clamp so the default/max is never accidentally before the query's own
+  // sentAt, which would make the date field invalid before anyone touches it.
+  const sentDay = q.sentAt.slice(0,10);
+  const todayClamped = todayISO() < sentDay ? sentDay : todayISO();
   document.getElementById('modalBox').innerHTML = `
     <h3>Log the client's reply</h3>
     <div class="modal-sub">${esc(t.name)} · query sent ${fmtDate(q.sentAt)} by ${esc(q.source)}</div>
     <div class="field"><label>Reply received on</label>
-      <input type="date" id="lrDate" value="${esc(todayISO())}" min="${esc(q.sentAt.slice(0,10))}" max="${esc(todayISO())}"></div>
+      <input type="date" id="lrDate" value="${esc(todayClamped)}" min="${esc(sentDay)}" max="${esc(todayClamped)}"></div>
     <div class="field"><label>How did the answer come back?</label>
       <select id="lrSource"><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
     <p style="font-size:12.5px;color:var(--text-dim);line-height:1.6;">This ends the pause. The commitment date moves forward by the working days spent waiting. <b>Resume the task the next working day</b> to keep the full extension — each day later costs one day of it.</p>
@@ -4381,6 +4395,43 @@ async function submitLogReply(taskId, qid){
     await api(`/api/tasks/${encodeURIComponent(taskId)}/query/${encodeURIComponent(qid)}/reply`, { method:'POST', body: JSON.stringify({ replyAt, replySource }) });
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
     showToast('success', 'Reply logged', 'Resume the task to keep the full commitment-date extension.');
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+// A client-hold task can currently be resumed without ever recording when
+// the client actually replied — the "Log client reply" button is a separate,
+// skippable step. This closes that gap: if Resume is clicked while the
+// query is still unanswered, ask for the reply date first, then resume in
+// the same action. If the reply was already logged separately (preserving
+// resume-lag tracking for anyone who wants that), Resume works as before.
+function openResumeReplyModal(taskId, qid){
+  const t = findTask(taskId); if(!t) return;
+  const q = (t.queries||[]).find(x=>x.id===qid); if(!q) return;
+  const sentDay = q.sentAt.slice(0,10);
+  const todayClamped = todayISO() < sentDay ? sentDay : todayISO();
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Resume — when did the client reply?</h3>
+    <div class="modal-sub">${esc(t.name)} · query sent ${fmtDate(q.sentAt)} by ${esc(q.source)}</div>
+    <div class="field"><label>Reply received on</label>
+      <input type="date" id="lrDate" value="${esc(todayClamped)}" min="${esc(sentDay)}" max="${esc(todayClamped)}"></div>
+    <div class="field"><label>How did the answer come back?</label>
+      <select id="lrSource"><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
+    <p style="font-size:12.5px;color:var(--text-dim);line-height:1.6;">The commitment date moves forward by the working days spent waiting on this reply, then the task goes back on your list.</p>
+    <div class="modal-error" id="lrErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitResumeWithReply('${taskId}','${qid}')">Log reply &amp; resume</button>
+    </div>`;
+  openModal();
+}
+async function submitResumeWithReply(taskId, qid){
+  const replyAt = document.getElementById('lrDate').value;
+  const replySource = document.getElementById('lrSource').value;
+  const errEl = document.getElementById('lrErr');
+  try {
+    await api(`/api/tasks/${encodeURIComponent(taskId)}/query/${encodeURIComponent(qid)}/reply`, { method:'POST', body: JSON.stringify({ replyAt, replySource }) });
+    await api(`/api/tasks/${encodeURIComponent(taskId)}/unhold`, { method:'POST' });
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Resumed', 'Reply logged — press play to start the clock again.');
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 function openHoldModal(id){
@@ -4496,7 +4547,9 @@ function openHoldDetailModal(id){
     ${queryDetailHtml(t)}
     ${hist.length > 1 ? `<div class="label" style="margin-bottom:6px;">History</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${fmtDate((h.heldAt||'').slice(0,10))} — ${esc((HOLD_REASONS[h.reasonCode]||{}).label || h.reason || '')}${h.resumedAt ? ' <span style="color:var(--text-faint);">(resumed)</span>' : ''}</li>`).join('')}</ul>` : ''}
     <div class="modal-actions">
-      ${iCanHold(t) ? `<button class="btn primary" onclick="unholdTask('${t.id}'); closeModal();">Resume</button>` : ''}
+      ${iCanHold(t) ? (openQuery(t)
+        ? `<button class="btn primary" onclick="openResumeReplyModal('${t.id}','${openQuery(t).id}')">Resume</button>`
+        : `<button class="btn primary" onclick="unholdTask('${t.id}'); closeModal();">Resume</button>`) : ''}
       <button class="btn" onclick="closeModal()">Close</button>
     </div>`;
   openModal();
