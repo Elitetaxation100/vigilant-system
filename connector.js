@@ -375,6 +375,14 @@ function waNameOf(customer, phone) {
 function waTextOf(msg) {
   if (!msg) return '';
   const m = msg.message;
+  // A sent WhatsApp template comes through as an array of content blocks,
+  // e.g. [{type:'body', parameters:[{type:'text', text:'Shijith'}]}] —
+  // surface the actual filled-in values instead of the raw structure.
+  if (Array.isArray(m)) {
+    const texts = [];
+    m.forEach(block => (block && block.parameters || []).forEach(p => { if (p && p.text) texts.push(p.text); }));
+    return texts.length ? '[template] ' + texts.join(', ') : '[template message]';
+  }
   if (m && typeof m === 'object') {
     if (m.text && m.text.body) return m.text.body;
     if (m.body) return m.body;
