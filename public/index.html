@@ -750,6 +750,7 @@
   .src-tag.call{ background:#0E7E9316; color:var(--teal); }
   .src-tag.slack{ background:#7C6CF616; color:#5B4FCF; }
   .src-tag.manual{ background:#00000008; color:var(--text-faint); border:1px solid var(--panel-border); }
+  .src-tag.whatsapp{ background:#25D36616; color:#1DA851; }
   .src-subtabs{ display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
   .src-subtab{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; font-weight:600; padding:7px 13px; border-radius:20px; transition:.15s; }
   .src-subtab:hover{ border-color:var(--purple); color:#6D28D9; }
@@ -923,8 +924,9 @@
       <div class="nav-item" data-view="report" onclick="showView('report', this)"><span class="nav-icon">◈</span> My Report Card</div>
       <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
     </div>
-    <div class="nav-section">
+    <div class="nav-section" id="whatsappNavSection" style="display:none;">
       <div class="nav-title">Collaborate</div>
+      <div class="nav-item" data-view="whatsapp" onclick="showView('whatsapp', this)"><span class="nav-icon">💬</span> WhatsApp (Interakt)<span class="nav-badge" id="waNavBadge" style="display:none;"></span></div>
     </div>
     <div class="nav-section" id="teamBoardNavSection" style="display:none;">
       <div class="nav-title">Teams</div>
@@ -1332,6 +1334,33 @@
             <thead><tr><th>Employee</th><th>Today's Status</th><th>Today Login</th><th>Today Logout</th><th>Last 14 Days</th><th></th></tr></thead>
             <tbody id="attendanceTableBody"></tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- ===================== WHATSAPP (INTERAKT) VIEW (Superadmin) ===================== -->
+      <section class="view" id="view-whatsapp">
+        <div class="top-grid" style="grid-template-columns:repeat(3,1fr); margin-bottom:20px;">
+          <div class="metric-tile">
+            <div class="mt-label">Awaiting reply</div>
+            <div class="mt-value" style="color:var(--coral);" id="waAwaitingCount">0</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">people, not messages</div>
+          </div>
+          <div class="metric-tile">
+            <div class="mt-label">Total contacts</div>
+            <div class="mt-value" id="waTotalContacts">0</div>
+          </div>
+          <div class="metric-tile">
+            <div class="mt-label">Longest waiting</div>
+            <div class="mt-value" id="waLongestWait" style="font-size:22px;">—</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Who hasn't been replied to</h2>
+            <input type="text" id="waSearch" placeholder="Search name or number…" oninput="renderWhatsAppView()" style="max-width:220px;">
+          </div>
+          <p style="font-size:13px; color:var(--text-dim); margin-bottom:14px;">Tracked per <b>person</b>, not per message — five unanswered messages from the same number is still one person waiting. Point Interakt's webhook at <code>/webhooks/interakt</code> (see <code>GET /webhooks/health</code> for setup status) to start tracking; new inbound messages also relay into Slack so the team sees them live.</p>
+          <div id="waListWrap">Loading…</div>
         </div>
       </section>
 
@@ -2361,8 +2390,9 @@ const titles = {
   founder: ['Founder Dashboard', 'The whole firm — sliced by team, person, or any date range'],
   admin: ['Admin', 'Every task that came in from a call or a Slack message'],
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
+  whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees','whatsapp'];
 /* Mobile: the sidebar is an off-canvas drawer under 860px. */
 function toggleMobileNav(){ document.querySelector('.app').classList.toggle('nav-open'); }
 function closeMobileNav(){ document.querySelector('.app').classList.remove('nav-open'); }
@@ -2399,6 +2429,7 @@ function showView(id, el){
   if(id === 'founder') renderFounderView();
   if(id === 'admin') renderAdminView();
   if(id === 'teamboard') renderTeamBoard();
+  if(id === 'whatsapp') renderWhatsAppView();
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -2412,6 +2443,7 @@ let adminSrcFilter = 'all';
 function srcTag(source){
   if(source === 'call') return '<span class="src-tag call">☎ call</span>';
   if(source === 'slack_message') return '<span class="src-tag slack">⌗ slack</span>';
+  if(source === 'whatsapp') return '<span class="src-tag whatsapp">💬 whatsapp</span>';
   return '<span class="src-tag manual">✎ manual</span>';
 }
 function setAdminSrc(src, el){
@@ -2482,6 +2514,134 @@ function renderAdminView(){
       <td><div class="action-stack">${actions}</div></td>
     </tr>`;
   }).join('');
+}
+
+/* =========================================================================
+   WHATSAPP (Interakt) — a contact is tracked, not a message: "awaiting"
+   means the last thing that happened was an inbound message with no reply
+   recorded since. Replies happen in Interakt itself (this app never sends
+   WhatsApp messages) — "Mark replied" is a manual acknowledgement for when
+   that happened outside a webhook Interakt sent us. Superadmin-only.
+   ========================================================================= */
+let waContacts = [];
+function fmtWaitDuration(hours){
+  if(!(hours > 0)) return '0m';
+  if(hours < 1) return Math.round(hours * 60) + 'm';
+  if(hours < 24) return hours.toFixed(1) + 'h';
+  return (hours / 24).toFixed(1) + 'd';
+}
+function waStatusLabel(s){ return s === 'handled' ? 'marked handled' : s === 'replied' ? 'replied' : 'new'; }
+// Polled alongside the rest so the sidebar badge stays live without needing
+// the view open — cheap (superadmin-only, one small endpoint).
+async function refreshWaAwaitingBadge(){
+  if(!isSuperAdmin) return;
+  const badge = document.getElementById('waNavBadge');
+  if(!badge) return;
+  try {
+    const r = await api('/api/whatsapp/contacts');
+    if(r.awaitingCount > 0){ badge.textContent = r.awaitingCount; badge.style.display = ''; }
+    else badge.style.display = 'none';
+  } catch(e){ /* not authorized or not set up yet */ }
+}
+async function renderWhatsAppView(){
+  const wrap = document.getElementById('waListWrap');
+  if(!wrap) return;
+  let r;
+  try { r = await api('/api/whatsapp/contacts'); }
+  catch(e){ wrap.innerHTML = `<p style="color:var(--text-faint);font-size:13.5px;">Couldn't load — ${esc(e.message)}</p>`; return; }
+  waContacts = r.contacts || [];
+  document.getElementById('waAwaitingCount').textContent = r.awaitingCount;
+  document.getElementById('waTotalContacts').textContent = waContacts.length;
+  const longest = waContacts.filter(c => c.status === 'awaiting').sort((a,b) => b.waitingHours - a.waitingHours)[0];
+  document.getElementById('waLongestWait').textContent = longest ? fmtWaitDuration(longest.waitingHours) : '—';
+  refreshWaAwaitingBadge();
+  const q = (document.getElementById('waSearch').value || '').trim().toLowerCase();
+  const list = q ? waContacts.filter(c => (c.name + ' ' + c.phone).toLowerCase().includes(q)) : waContacts;
+  if(!list.length){
+    wrap.innerHTML = `<p style="font-size:13.5px;color:var(--text-faint);padding:20px 4px;text-align:center;">${waContacts.length ? 'No match.' : "No WhatsApp messages tracked yet — once Interakt's webhook is pointed here, conversations show up automatically."}</p>`;
+    return;
+  }
+  wrap.innerHTML = `<div style="display:flex;flex-direction:column;gap:8px;">${list.map(c => {
+    const awaiting = c.status === 'awaiting';
+    return `<div style="display:flex;align-items:center;gap:12px;border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;${awaiting ? 'border-color:color-mix(in srgb, var(--coral) 35%, transparent);background:var(--coral-dim);' : ''}">
+      <div style="flex:1;min-width:0;cursor:pointer;" onclick="openWaThread('${esc(c.phone)}')">
+        <div style="font-weight:600;font-size:14px;">${esc(c.name)} <span style="font-weight:400;color:var(--text-faint);font-size:12px;">${esc(c.phone)}</span></div>
+        <div style="font-size:12.5px;color:var(--text-dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.lastMessageText || '')}</div>
+        <div style="font-size:11.5px;color:var(--text-faint);margin-top:3px;">
+          ${awaiting ? `<span style="color:var(--coral);font-weight:600;">⏱ waiting ${fmtWaitDuration(c.waitingHours)}</span>` : esc(waStatusLabel(c.status))}
+          ${c.taskIds && c.taskIds.length ? ` · ${c.taskIds.length} task${c.taskIds.length>1?'s':''} created` : ''}
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-shrink:0;">
+        ${awaiting ? `<button class="btn small" onclick="markWaHandled('${esc(c.phone)}')">Mark replied</button>` : ''}
+        <button class="btn small primary" onclick="openWaTaskModal('${esc(c.phone)}')">+ Task</button>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+async function markWaHandled(phone){
+  try { await api(`/api/whatsapp/contacts/${encodeURIComponent(phone)}/handled`, { method:'POST' }); showToast('success', 'Marked replied', ''); await renderWhatsAppView(); }
+  catch(e){ showToast('error', 'Could not update', e.message); }
+}
+async function openWaThread(phone){
+  const c = waContacts.find(x => x.phone === phone);
+  if(!c) return;
+  let r;
+  try { r = await api(`/api/whatsapp/messages?phone=${encodeURIComponent(phone)}`); } catch(e){ r = { messages: [] }; }
+  const rows = (r.messages || []).map(m => `<div style="margin-bottom:10px;${m.direction === 'out' ? 'text-align:right;' : ''}">
+      <div style="display:inline-block;max-width:80%;padding:8px 12px;border-radius:10px;font-size:13.5px;text-align:left;${m.direction === 'out' ? 'background:var(--purple-dim);color:var(--purple);' : 'background:var(--panel-2);color:var(--text);'}">${esc(m.text)}</div>
+      <div style="font-size:10.5px;color:var(--text-faint);margin-top:2px;">${fmtDate(m.at.slice(0,10))} ${new Date(m.at).toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'})}</div>
+    </div>`).join('');
+  document.getElementById('modalBox').innerHTML = `
+    <h3>${esc(c.name)}</h3>
+    <div class="modal-sub">${esc(c.phone)}</div>
+    <div style="max-height:50vh;overflow-y:auto;margin:14px 0;padding:4px;">${rows || '<p style="color:var(--text-faint);font-size:13px;">No messages logged.</p>'}</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      ${c.status === 'awaiting' ? `<button class="btn" onclick="markWaHandled('${esc(phone)}'); closeModal();">Mark replied</button>` : ''}
+      <button class="btn primary" onclick="openWaTaskModal('${esc(phone)}')">+ Task</button>
+    </div>`;
+  openModal();
+}
+function openWaTaskModal(phone){
+  const c = waContacts.find(x => x.phone === phone);
+  if(!c) return;
+  const pool = assignableEmployees().length ? assignableEmployees() : employees;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Create task from WhatsApp</h3>
+    <div class="modal-sub">${esc(c.name)} · ${esc(c.phone)}</div>
+    <div class="field"><label>Task name</label><input type="text" id="waTaskName" value="${esc((c.lastMessageText || 'Follow up — ' + c.name).slice(0,80))}"></div>
+    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">— context for whoever does this</span></label><textarea id="waTaskNote">${esc(c.lastMessageText || '')}</textarea></div>
+    <div class="field"><label>Assign to</label><select id="waTaskAssignee">${pool.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>Estimated time (hours)</label><input type="number" id="waTaskTat" value="0.5" min="0.25" step="0.25"></div>
+    <div class="field"><label>Due date</label><input type="date" id="waTaskDeadline" value="${addDaysISO(1)}"></div>
+    <div class="modal-error" id="waTaskErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openWaThread('${esc(phone)}')">Back</button>
+      <button class="btn primary" onclick="submitWaTask('${esc(phone)}')">Create task</button>
+    </div>`;
+  openModal();
+}
+async function submitWaTask(phone){
+  const errEl = document.getElementById('waTaskErr');
+  errEl.style.display = 'none';
+  const name = document.getElementById('waTaskName').value.trim();
+  if(!name){ errEl.textContent = 'Give the task a name.'; errEl.style.display = 'block'; return; }
+  const tat = parseFloat(document.getElementById('waTaskTat').value);
+  if(!(tat > 0)){ errEl.textContent = 'Give it an estimated time in hours.'; errEl.style.display = 'block'; return; }
+  const body = {
+    name, tat,
+    note: document.getElementById('waTaskNote').value.trim(),
+    assignedTo: document.getElementById('waTaskAssignee').value,
+    internalDeadline: document.getElementById('waTaskDeadline').value,
+  };
+  try {
+    await api(`/api/whatsapp/contacts/${encodeURIComponent(phone)}/task`, { method:'POST', body: JSON.stringify(body) });
+    closeModal();
+    await refreshTasks();
+    await renderWhatsAppView();
+    showToast('success', 'Task created', '');
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 
 /* =========================================================================
@@ -7901,6 +8061,7 @@ async function onLoginComplete(){
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('founderNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('analyticsNavSection').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('whatsappNavSection').style.display = isSuperAdmin ? '' : 'none';
   // Manager Dashboard stays with the Admin role — team oversight & the
   // review / approve / reassign actions live there.
   document.getElementById('managerNavSection').style.display = isAdmin ? '' : 'none';
@@ -7933,6 +8094,7 @@ async function onLoginComplete(){
   await refreshTasks();
   await refreshActivity();
   await refreshNotifications();
+  await refreshWaAwaitingBadge();
   initPushClient();
   await loadPunchState();
 
@@ -7970,6 +8132,7 @@ function logoutSession(){
   document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
+  document.getElementById('whatsappNavSection').style.display = 'none';
   document.getElementById('teamBoardNavSection').style.display = 'none';
   document.getElementById('assignTeamNavItem').style.display = 'none';
   document.getElementById('bulkAssignNavItem').style.display = 'none';
@@ -8012,6 +8175,7 @@ function startPolling(){
     await refreshNotifications({ notify: true });
     await refreshEmployees();
     await refreshClients();
+    await refreshWaAwaitingBadge();
   }, 8000);
 }
 function stopPolling(){ if(pollHandle){ clearInterval(pollHandle); pollHandle = null; } }

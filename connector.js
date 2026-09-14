@@ -25,6 +25,12 @@ const cfg = () => ({
   aircallApiToken: process.env.AIRCALL_API_TOKEN || '',
   aircallWebhookToken: process.env.AIRCALL_WEBHOOK_TOKEN || '',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
+  interaktApiKey: process.env.INTERAKT_API_KEY || '',
+  interaktWebhookSecret: process.env.INTERAKT_WEBHOOK_SECRET || '',
+  // Slack channel WhatsApp messages get relayed into (so the team sees them
+  // live and can use the existing "Convert to Task" message shortcut on
+  // them for free). Falls back to the call channel if no dedicated one is set.
+  interaktChannel: process.env.INTERAKT_SLACK_CHANNEL || '',
 });
 
 // Agent → team routing. Mirrors the Apps Script AGENT_MAP. slackIds = who to
@@ -131,6 +137,19 @@ function verifyAircall(req) {
   if (!expected) return { ok: false, why: 'AIRCALL_WEBHOOK_TOKEN not set' };
   const got = (req.body && req.body.token) || req.query.token || req.headers['x-aircall-token'];
   return got === expected ? { ok: true } : { ok: false, why: 'bad token' };
+}
+// Interakt signs the raw body with HMAC-SHA256 using the webhook secret set
+// in their dashboard, sent as `Interakt-Signature: sha256=<hex>`.
+function verifyInterakt(req) {
+  const secret = cfg().interaktWebhookSecret;
+  if (!secret) return { ok: false, why: 'INTERAKT_WEBHOOK_SECRET not set' };
+  const header = req.headers['interakt-signature'] || req.headers['x-interakt-signature'];
+  if (!header) return { ok: false, why: 'missing Interakt-Signature header' };
+  const raw = req.rawBody ? req.rawBody.toString('utf8') : '';
+  const mine = 'sha256=' + crypto.createHmac('sha256', secret).update(raw).digest('hex');
+  let match = false;
+  try { match = crypto.timingSafeEqual(Buffer.from(mine), Buffer.from(String(header))); } catch (e) { match = false; }
+  return match ? { ok: true } : { ok: false, why: 'signature mismatch' };
 }
 
 // ---------------------------------------------------------------------------
@@ -323,6 +342,93 @@ function completeTask(state, taskId, byName) {
   }
   activity(state, t.assignedTo, `"${esc(t.name)}" marked done from Slack${byName ? ' by <b>' + esc(byName) + '</b>' : ''}.`);
   return t;
+}
+
+// ---------------------------------------------------------------------------
+// Interakt (WhatsApp) webhook handler
+//
+// Interakt's payload shape (per their docs): { version, timestamp, type,
+// data: { customer, message } }. `type` and the exact field names inside
+// `customer`/`message` vary by plan/event, so extraction below is
+// deliberately defensive (several fallback paths) and every hit is logged
+// with its top-level shape — check `GET /webhooks/log` after the first real
+// message if a field ever comes back empty, and tighten the fallbacks.
+//
+// This does NOT send WhatsApp replies — Interakt is the reply channel.
+// It only (a) tracks who's still waiting so the app can show "N people not
+// yet replied to", and (b) relays the message into Slack so the team sees
+// it immediately and can use the existing "Convert to Task" shortcut on it.
+// ---------------------------------------------------------------------------
+function waPhoneOf(customer, msg) {
+  return String(
+    (customer && (customer.phone_number || customer.phoneNumber || customer.wa_id)) ||
+    (msg && (msg.customer_phone_number || msg.from || msg.to)) || ''
+  ).trim();
+}
+function waNameOf(customer, phone) {
+  const traits = customer && customer.traits;
+  return (customer && (customer.full_name || customer.name)) || (traits && traits.name) || phone;
+}
+function waTextOf(msg) {
+  if (!msg) return '';
+  const m = msg.message;
+  if (m && typeof m === 'object') {
+    if (m.text && m.text.body) return m.text.body;
+    if (m.body) return m.body;
+    if (m.caption) return '[media] ' + m.caption;
+  }
+  if (typeof m === 'string') return m;
+  if (msg.text) return typeof msg.text === 'string' ? msg.text : (msg.text.body || '');
+  if (msg.body) return msg.body;
+  return '';
+}
+// Best-effort direction guess from the event type / message shape — Interakt
+// doesn't document a single canonical field for this across plans.
+function waDirectionOf(type, msg) {
+  const t = String(type || '').toLowerCase();
+  if (t.includes('template') || t.includes('sent') || (msg && (msg.direction === 'outgoing' || msg.sent_by))) return 'out';
+  return 'in'; // default to inbound — safer to surface a message than silently drop it
+}
+async function handleInteraktWebhook(body) {
+  const state = db.get();
+  const type = body && body.type;
+  const data = (body && body.data) || {};
+  const customer = data.customer || {};
+  const msg = data.message || {};
+  const phone = waPhoneOf(customer, msg);
+  clog('info', 'interakt webhook', { type, hasPhone: !!phone, keys: Object.keys(data) });
+  if (!phone) { clog('warn', 'interakt webhook — no phone number in payload', { type }); return; }
+  const name = waNameOf(customer, phone);
+  const text = waTextOf(msg) || '(no text — attachment or template)';
+  const direction = waDirectionOf(type, msg);
+
+  if (!state.waContacts || typeof state.waContacts !== 'object') state.waContacts = {};
+  if (!Array.isArray(state.waMessages)) state.waMessages = [];
+  const c = state.waContacts[phone] || (state.waContacts[phone] = {
+    phone, name, firstSeenAt: new Date().toISOString(),
+    lastInboundAt: null, lastOutboundAt: null, lastMessageText: '', lastMessageAt: null,
+    status: 'new', taskIds: [],
+  });
+  c.name = name || c.name;
+  const now = new Date().toISOString();
+  state.waSeq = (state.waSeq || 0) + 1;
+  state.waMessages.push({ id: 'wa' + state.waSeq, phone, name: c.name, direction, text, at: now });
+  if (state.waMessages.length > 500) state.waMessages.shift(); // rolling window, same cap style as connectorLog
+  c.lastMessageText = text; c.lastMessageAt = now;
+  if (direction === 'in') { c.lastInboundAt = now; c.status = 'awaiting'; }
+  else { c.lastOutboundAt = now; c.status = 'replied'; }
+  db.save();
+
+  if (direction === 'in') {
+    const channel = cfg().interaktChannel || cfg().slackChannel;
+    if (cfg().slackBotToken && channel) {
+      await slack('chat.postMessage', {
+        channel,
+        text: `📱 *WhatsApp* — ${name} (${phone}):\n${text}`,
+        unfurl_links: false,
+      });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,8 +1292,11 @@ function mountConnector(app) {
         slackChannel: !!c.slackChannel, slackTeamId: !!c.slackTeamId,
         aircall: !!(c.aircallApiId && c.aircallApiToken), aircallWebhookToken: !!c.aircallWebhookToken,
         gemini: !!c.geminiApiKey,
+        interaktWebhookSecret: !!c.interaktWebhookSecret, interaktApiKey: !!c.interaktApiKey, interaktChannel: !!c.interaktChannel,
       },
       calls: (db.get().calls || []).length,
+      waContacts: Object.keys(db.get().waContacts || {}).length,
+      waAwaiting: Object.values(db.get().waContacts || {}).filter(c => c.status === 'awaiting').length,
       digestHoursNZ: DIGEST_HOURS,
       pendingListens: pendingListenCalls(db.get()).length,
       reminders: { enabled: REMINDERS_ON, dryRun: REMINDER_DRY_RUN, digestHourNZ: REMINDER_DIGEST_HOUR, escalateHours: REMINDER_ESCALATE_HOURS,
@@ -1324,6 +1433,18 @@ function mountConnector(app) {
     })();
   });
 
+  // Interakt (WhatsApp Business API). Point Interakt's webhook config at
+  // https://<your-railway-domain>/webhooks/interakt and set
+  // INTERAKT_WEBHOOK_SECRET to the secret key Interakt gives you for it.
+  // Interakt requires a 200 within 3s, so this acks immediately and does the
+  // real work after — same pattern as the Aircall hook.
+  app.post('/webhooks/interakt', (req, res) => {
+    const v = verifyInterakt(req);
+    if (!v.ok) { clog('warn', 'interakt webhook rejected', { why: v.why }); return res.status(401).json({ error: v.why }); }
+    res.status(200).json({ ok: true });
+    handleInteraktWebhook(req.body).catch(e => clog('error', 'interakt handler threw: ' + (e && e.stack || e)));
+  });
+
   app.post('/webhooks/slack/events', (req, res) => {
     if (req.body && req.body.type === 'url_verification') return res.status(200).json({ challenge: req.body.challenge });
     const v = verifySlack(req);
@@ -1374,7 +1495,7 @@ function mountConnector(app) {
   });
 
   startSchedulers();
-  console.log('[connector] routes mounted: /webhooks/{aircall,slack/events,slack/interactivity,run-digest,run-reminders,log,health}');
+  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,run-digest,run-reminders,log,health}');
 }
 
 module.exports = { mountConnector };

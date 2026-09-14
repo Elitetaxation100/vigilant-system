@@ -81,6 +81,9 @@ function seedData() {
     attendance: {}, // { [employeeId]: { [dateISO]: { loginAt, logoutAt, secondsWorked } } } — full daily history
     taskSeq: 100,
     recurringTasks: [], recurringSeq: 0, recurringLastRun: null,
+    // WhatsApp (Interakt) — waContacts tracks reply status per PERSON (not
+    // per message); waMessages is a rolling log for the thread view.
+    waContacts: {}, waMessages: [], waSeq: 0,
     createdAt: now,
   };
 }
@@ -331,6 +334,10 @@ function runMigrations(state) {
   if (!Array.isArray(state.recurringTasks)) state.recurringTasks = [];
   if (typeof state.recurringSeq !== 'number') state.recurringSeq = 0;
   if (state.recurringLastRun === undefined) state.recurringLastRun = null;
+  // WhatsApp (Interakt) — see connector.js handleInteraktWebhook().
+  if (!state.waContacts || typeof state.waContacts !== 'object' || Array.isArray(state.waContacts)) state.waContacts = {};
+  if (!Array.isArray(state.waMessages)) state.waMessages = [];
+  if (typeof state.waSeq !== 'number') state.waSeq = 0;
   if (!state.connectorDigest || typeof state.connectorDigest !== 'object') state.connectorDigest = { lastSlot: null };
   // Name-spelling fix: existing databases seeded before this correction still
   // have the old spelling — seedData()/ensureOrgChart() only add missing

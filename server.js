@@ -3454,8 +3454,87 @@ app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, (req, res) =
 });
 
 // ---------------------------------------------------------------------------
-// CONNECTOR (calls-into-tasks, Phase 5) — Aircall + Slack webhooks, moving
-// off Google Apps Script. Routes: /webhooks/aircall, /webhooks/slack/events,
+// WHATSAPP (Interakt) — the webhook that receives messages lives in
+// connector.js (POST /webhooks/interakt); these are the in-app endpoints the
+// "WhatsApp (Interakt)" sidebar view uses. Superadmin-only, like Command
+// Center — this is firm-wide, not scoped to one team.
+// ---------------------------------------------------------------------------
+app.get('/api/whatsapp/contacts', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const now = Date.now();
+  const list = Object.values(state.waContacts || {}).map(c => ({
+    ...c,
+    waitingHours: (c.status === 'awaiting' && c.lastInboundAt) ? Math.round((now - Date.parse(c.lastInboundAt)) / 36000) / 100 : 0,
+  })).sort((a, b) => {
+    if (a.status === 'awaiting' && b.status !== 'awaiting') return -1;
+    if (b.status === 'awaiting' && a.status !== 'awaiting') return 1;
+    if (a.status === 'awaiting' && b.status === 'awaiting') return Date.parse(a.lastInboundAt || 0) - Date.parse(b.lastInboundAt || 0); // longest-waiting first
+    return Date.parse(b.lastMessageAt || 0) - Date.parse(a.lastMessageAt || 0);
+  });
+  res.json({ contacts: list, awaitingCount: list.filter(c => c.status === 'awaiting').length });
+});
+app.get('/api/whatsapp/messages', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const phone = String(req.query.phone || '');
+  if (!phone) return res.status(400).json({ error: 'phone is required.' });
+  const list = (state.waMessages || []).filter(m => m.phone === phone).sort((a, b) => a.at.localeCompare(b.at));
+  res.json({ messages: list });
+});
+// Mark a contact handled without going through Interakt — e.g. the reply
+// was sent by phone/in person, or the message needed no reply at all.
+app.post('/api/whatsapp/contacts/:phone/handled', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const c = (state.waContacts || {})[req.params.phone];
+  if (!c) return res.status(404).json({ error: 'Contact not found.' });
+  c.status = 'handled';
+  db.save();
+  res.json({ contact: c });
+});
+// Turn a WhatsApp contact's open thread into a real task — same shape as a
+// manual internal task, tagged source:'whatsapp' so it shows up in Admin
+// alongside call/Slack-sourced tasks.
+app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const c = (state.waContacts || {})[req.params.phone];
+  if (!c) return res.status(404).json({ error: 'Contact not found.' });
+  const { name, note, tat, internalDeadline, assignedTo } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
+  const numTat = parseFloat(tat);
+  if (!(numTat > 0)) return res.status(400).json({ error: 'A task needs an estimated time in hours.' });
+  if (!internalDeadline) return res.status(400).json({ error: 'A task needs a due date.' });
+  const assignee = findEmployee(state, assignedTo);
+  if (!assignee) return res.status(400).json({ error: 'Choose who this should go to.' });
+  const status = assignee.id === req.employee.id ? 'accepted' : 'awaiting_acceptance';
+  state.taskSeq += 1;
+  const now = new Date().toISOString();
+  const task = {
+    id: '#' + (100000000000 + state.taskSeq), name: String(name).trim(),
+    scope: note ? String(note).trim() : (c.lastMessageText || '—'),
+    kind: 'internal', team: assignee.team || null,
+    clientId: null, clientName: 'WhatsApp · ' + c.name, internalRef: c.name,
+    clientDate: null, clientDateOverride: false, internalDeadline,
+    points: 0, assignedTo: assignee.id, assignedBy: req.employee.id,
+    assignedAt: now, reassignHistory: [], status,
+    logged: 0, tat: numTat, acceptedAt: status === 'accepted' ? now : null,
+    timerStartedAt: null, startedAt: null, completedAt: null,
+    reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
+    reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    reworkStartedAt: null, faultType: null, reworkHistory: [], holdReasonCode: null,
+    dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
+    source: 'whatsapp', sourceRef: c.phone,
+  };
+  state.tasks.unshift(task);
+  c.taskIds = c.taskIds || []; c.taskIds.push(task.id);
+  logEvent(state, assignee.id, `Task created from a WhatsApp message — <b>${escHtml(c.name)}</b> — "${escHtml(task.name)}".`);
+  if (status === 'awaiting_acceptance') notify(state, assignee.id, 'assigned', `${req.employee.name} assigned you "${task.name}" from a WhatsApp message — accept it or propose a new window.`, task.id);
+  db.save();
+  res.status(201).json({ task: taskForClient(task) });
+});
+
+// ---------------------------------------------------------------------------
+// CONNECTOR (calls-into-tasks, Phase 5) — Aircall + Slack + Interakt
+// (WhatsApp) webhooks, moving off Google Apps Script. Routes:
+// /webhooks/aircall, /webhooks/interakt, /webhooks/slack/events,
 // /webhooks/slack/interactivity, /webhooks/health.
 // ---------------------------------------------------------------------------
 require('./connector').mountConnector(app);
