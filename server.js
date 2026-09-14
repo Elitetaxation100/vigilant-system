@@ -2990,30 +2990,36 @@ app.post('/api/punch/toggle', requireAuth, (req, res) => {
   } else {
     // NON-NEGOTIABLE RULE: you can only punch out once every task is settled
     // — delivered, or explicitly put on hold with a reason. Anything left
-    // awaiting acceptance, in rework, with a window proposed, or actively in
-    // progress and due today/overdue must be dealt with first. Enforced here,
-    // not just in the UI, so it can't be bypassed by calling the API direct.
+    // awaiting acceptance, in rework, or actively in progress and due
+    // today/overdue must be dealt with first. Enforced here, not just in the
+    // UI, so it can't be bypassed by calling the API direct.
+    //
+    // A task with a proposed window is deliberately NOT in this list: the
+    // employee already did their part (proposed a new date) and it's now
+    // sitting with their manager to approve or reject — nothing further for
+    // THEM to do. Blocking punch-out on someone else's pending decision
+    // meant an unavailable manager could trap an employee at their desk
+    // every single day; the manager still gets nudged separately (the
+    // "windows proposed" banner + Manager Dashboard).
     const today = todayISO();
     const mine = state.tasks.filter(t => t.assignedTo === req.employee.id);
     const unsettled = mine.filter(t =>
-      ['awaiting_acceptance', 'rework', 'window_proposed'].includes(t.status) ||
+      ['awaiting_acceptance', 'rework'].includes(t.status) ||
       (t.status === 'accepted' && (!t.internalDeadline || t.internalDeadline <= today)));
     if (unsettled.length > 0) {
       const acc = unsettled.filter(t => t.status === 'awaiting_acceptance');
       const rw = unsettled.filter(t => t.status === 'rework');
-      const wp = unsettled.filter(t => t.status === 'window_proposed');
       const ip = unsettled.filter(t => t.status === 'accepted');
       const parts = [];
       if (acc.length) parts.push(`${acc.length} awaiting your acceptance`);
       if (rw.length) parts.push(`${rw.length} in rework`);
-      if (wp.length) parts.push(`${wp.length} with a window proposed`);
       if (ip.length) parts.push(`${ip.length} in progress due today`);
       return res.status(409).json({
         error: `You have ${parts.join(', ')}. Finish ${unsettled.length > 1 ? 'them' : 'it'}, or put ${unsettled.length > 1 ? 'them' : 'it'} on hold with a reason, before logging off.`,
         code: 'PENDING_ACCEPTANCE',
         pendingTasks: acc.map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, reviewStatus: t.reviewStatus, reviewNote: t.reviewNote, reworkCount: t.reworkCount, kind: 'acceptance' })),
         pendingRework: rw.map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, reviewNote: t.reviewNote, reworkCount: t.reworkCount, kind: 'rework' })),
-        pendingActive: [...wp, ...ip].map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, status: t.status, kind: 'active' })),
+        pendingActive: ip.map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, status: t.status, kind: 'active' })),
       });
     }
     st.seconds += Math.floor((Date.now() - st.punchedInAt) / 1000);

@@ -3063,10 +3063,14 @@ function applyPunchUI(punchedOut){
     display.textContent = fmtClock(seconds);
   }
 }
+// A window_proposed task deliberately does NOT block punch-out — the
+// employee already proposed a new date; it's sitting with their manager to
+// decide, nothing further for them to do. See the server-side comment on
+// /api/punch/toggle for the full reasoning.
 function punchOutBlockers(){
   const t = todayISO();
   return tasks.filter(x => x.assignedTo === session.id && (
-    ['awaiting_acceptance','rework','window_proposed'].includes(x.status) ||
+    ['awaiting_acceptance','rework'].includes(x.status) ||
     (x.status === 'accepted' && (!x.internalDeadline || x.internalDeadline <= t))
   ));
 }
@@ -3091,8 +3095,6 @@ function openUnacceptedBlockModal(list){
                  <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>`;
     } else if(t.status === 'rework'){
       actions = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>`;
-    } else if(t.status === 'window_proposed'){
-      actions = `<span style="font-size:12.5px;color:var(--text-faint);">Waiting on your manager's decision — or put it on hold.</span>`;
     } else {
       actions = `<button class="verify-btn" onclick="closeModal(); openCompleteModal('${t.id}')">Mark Complete</button>`;
     }
