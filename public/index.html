@@ -4582,9 +4582,41 @@ async function declineAssignment(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/pause`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
   catch(e){ showToast('error', 'Could not pause task', e.message); }
 }
-async function resumeTask(id){
-  try { await api(`/api/tasks/${encodeURIComponent(id)}/resume`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
-  catch(e){ showToast('error', 'Could not resume task', e.message); }
+// The very first time a task is picked up, ask whether real work on it
+// started before today — that time gets banked alongside whatever the live
+// clock tracks from now on. A later Resume (already started once) just
+// resumes directly; backdating only makes sense on the first pickup.
+function resumeTask(id){
+  const t = findTask(id);
+  if(t && !t.startedAt){ openStartWorkModal(id); return; }
+  doResume(id);
+}
+async function doResume(id, backdatedHours){
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/resume`, { method:'POST', body: backdatedHours ? JSON.stringify({ backdatedHours }) : undefined });
+    await refreshTasks(); await refreshActivity();
+  } catch(e){ showToast('error', 'Could not resume task', e.message); }
+}
+function openStartWorkModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Start work — ${esc(t.name)}</h3>
+    <div class="modal-sub">Agreed ${t.tat} hrs</div>
+    <div class="field"><label>Already put time in before today? <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="number" id="swBackdated" min="0" step="0.25" placeholder="e.g. 2 — hours already worked">
+      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Added on top of what the clock tracks from now — leave blank if you're starting fresh today.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitStartWork('${id}')">▶ Start</button>
+    </div>`;
+  openModal();
+}
+async function submitStartWork(id){
+  const v = (document.getElementById('swBackdated')||{}).value;
+  const backdatedHours = (v !== '' && v != null) ? parseFloat(v) : undefined;
+  closeModal();
+  await doResume(id, backdatedHours);
 }
 
 function openCompleteModal(id){
@@ -7214,6 +7246,10 @@ function openReviewFormModal(id){
       <div><b style="color:var(--text);">Client committed date:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
       <div><b style="color:var(--text);">Commitment:</b> ${cs === 'met' ? '<span style="color:var(--teal);">✓ Met</span>' : cs === 'missed' ? '<span style="color:#C2410C;">✗ Missed</span>' : '—'}</div>
     </div>
+    <div class="field" style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:12px 14px;">
+      <label style="font-size:14px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600;">Could this go straight to the client as-is?</label>
+      <div style="font-size:12.5px;color:var(--text-faint);margin-top:2px;">Yes clears it and scores the work; No sends it back and needs a reason.</div>
+    </div>
     <div class="field">
       <label>Review checklist</label>
       <div style="display:flex; flex-direction:column; gap:8px; background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:8px; padding:11px 13px;">
@@ -7232,14 +7268,29 @@ function openReviewFormModal(id){
         <option value="sop">SOP / Manager fault — SOP was unclear, missing, or wrong</option>
       </select>
     </div>
+    <div class="field"><label>Evidence of the error <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional — screenshot)</span></label>
+      <input type="file" id="reviewShot" accept="image/*">
+      <div id="reviewShotPreview" style="margin-top:8px;"></div>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">The employee can open this from the rework detail to see exactly what was flagged.</div>
+    </div>
     <div class="modal-error" id="reviewFormError"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn coral" onclick="submitReviewForm('${id}', 'error')">⚠ Flag Error</button>
-      <button class="btn primary" onclick="submitReviewForm('${id}', 'clean')">✓ Mark Clean</button>
+      <button class="btn coral" onclick="submitReviewForm('${id}', 'error')">✗ No — send back</button>
+      <button class="btn primary" onclick="submitReviewForm('${id}', 'clean')">✓ Yes — send to client</button>
     </div>
   `;
   openModal();
+  document.getElementById('reviewShot').addEventListener('change', e => previewReviewShot(e.target));
+}
+let _reviewShotData = null;
+async function previewReviewShot(fileEl){
+  _reviewShotData = null;
+  const f = fileEl.files && fileEl.files[0];
+  const box = document.getElementById('reviewShotPreview');
+  if(!f){ box.innerHTML = ''; return; }
+  _reviewShotData = await downscaleImage(f, 1600, 0.82);
+  box.innerHTML = `<img src="${_reviewShotData}" alt="screenshot preview" style="max-width:100%;max-height:180px;border:1px solid var(--panel-border);border-radius:6px;">`;
 }
 async function submitReviewForm(id, decision){
   const checked = Array.from(document.querySelectorAll('.reviewChecklistItem:checked')).map(cb => REVIEW_CHECKLIST[parseInt(cb.value, 10)]);
@@ -7260,7 +7311,8 @@ async function submitReviewForm(id, decision){
   const hoursEl = document.getElementById('reviewFormHours');
   const reviewHours = hoursEl && hoursEl.value !== '' ? parseFloat(hoursEl.value) : undefined;
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({ status: decision, note, faultType: decision === 'error' ? faultType : undefined, reviewHours }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({ status: decision, note, faultType: decision === 'error' ? faultType : undefined, reviewHours, screenshot: decision === 'error' ? (_reviewShotData || undefined) : undefined }) });
+    _reviewShotData = null;
     closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
@@ -7496,6 +7548,7 @@ function openReworkDetailModal(id){
       <div><b style="color:#7A2A0C;">Flagged by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
       <div style="margin-top:6px;"><b style="color:#7A2A0C;">What was wrong:</b><br>${t.reviewNote ? esc(t.reviewNote) : 'No notes recorded.'}</div>
       ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
+      ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
     <p style="font-size:13.5px; color:var(--text-dim); line-height:1.6; margin-bottom:16px;">Fix the issue above, then resubmit — this puts it back in front of a reviewer and the completion date used for commitment tracking will be updated to when you resubmit.</p>
     <div class="modal-actions">
@@ -7504,6 +7557,12 @@ function openReworkDetailModal(id){
     </div>
   `;
   openModal();
+  if(t.hasReviewScreenshot){
+    api(`/api/tasks/${encodeURIComponent(id)}/review-screenshot`).then(r => {
+      const h = document.getElementById('reviewShotHolder');
+      if(h && r && r.screenshot) h.innerHTML = `<img src="${r.screenshot}" alt="review screenshot" style="max-width:100%;border:1px solid #F0603E4a;border-radius:6px;">`;
+    }).catch(() => { const h = document.getElementById('reviewShotHolder'); if(h) h.textContent = ''; });
+  }
 }
 async function submitResubmit(id){
   try {

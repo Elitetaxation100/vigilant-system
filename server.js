@@ -298,10 +298,12 @@ function taskForClient(t) {
   // The hold screenshot can be a megabyte of base64 — never ship it in the
   // task list (fetched every few seconds by every open tab). It's pulled on
   // demand via /api/tasks/:id/hold-screenshot when someone opens the detail.
-  const { holdScreenshot, ...rest } = t;
+  // Same story for a review's error screenshot (/review-screenshot).
+  const { holdScreenshot, reviewScreenshot, ...rest } = t;
   return {
     ...rest,
     hasHoldScreenshot: !!holdScreenshot,
+    hasReviewScreenshot: !!reviewScreenshot,
     displayedLogged: liveElapsedHours(t),
     reworkElapsedHours: reworkElapsedHours(t),
     // query-aware commitment, computed server-side so the UI never re-derives it
@@ -1221,6 +1223,17 @@ app.get('/api/tasks/:id/hold-screenshot', requireAuth, (req, res) => {
   if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
   res.json({ screenshot: t.holdScreenshot });
 });
+// The evidence screenshot a reviewer attached when flagging an error —
+// pulled only when the assignee (or a manager over them) opens the detail.
+app.get('/api/tasks/:id/review-screenshot', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t || !t.reviewScreenshot) return res.status(404).json({ error: 'No screenshot.' });
+  const allowed = t.assignedTo === req.employee.id ||
+    isAdminRole(req.employee.accessRole) && (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo));
+  if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
+  res.json({ screenshot: t.reviewScreenshot });
+});
 
 // Has the assignee opened their in-app alerts for this task? For a manager
 // checking whether a nudge / new assignment landed. Computed on demand.
@@ -1597,10 +1610,18 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     if (!['accepted', 'rework'].includes(t.status)) return res.status(400).json({ error: 'Only an accepted task can be started.' });
     if (t.timerStartedAt) return res.status(400).json({ error: 'This task is already running.' });
     const first = !t.startedAt;
+    // Backdated hours — only meaningful the first time a task is picked up:
+    // "I actually started this before today" adds that time as already
+    // banked, on top of whatever the live clock accrues from now on. Capped
+    // at the agreed hours so a typo can't silently inflate worked time.
+    if (first && req.body && req.body.backdatedHours != null) {
+      const bh = Number(req.body.backdatedHours);
+      if (bh > 0) t.logged += Math.min(bh, Number(t.tat) > 0 ? Number(t.tat) : bh);
+    }
     t.timerStartedAt = new Date().toISOString();
     if (first) t.startedAt = t.timerStartedAt;
     pauseOtherActiveTasks(state, t.assignedTo, t.id);
-    logEvent(state, t.assignedTo, `${first ? 'Started' : 'Resumed'} "${escHtml(t.name)}".`);
+    logEvent(state, t.assignedTo, `${first ? 'Started' : 'Resumed'} "${escHtml(t.name)}".${first && req.body && Number(req.body.backdatedHours) > 0 ? ` (${Math.min(Number(req.body.backdatedHours), Number(t.tat)||Number(req.body.backdatedHours)).toFixed(1)}h already logged from before today)` : ''}`);
     db.save();
     res.json({ task: taskForClient(t) });
   });
@@ -1835,7 +1856,7 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
   if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
-  const { status, note, faultType, reviewHours } = req.body || {};
+  const { status, note, faultType, reviewHours, screenshot } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
   if (status === 'error' && !['processor', 'sop'].includes(faultType)) {
     return res.status(400).json({ error: 'Choose whether this was a processor fault or an SOP/manager fault.' });
@@ -1849,6 +1870,13 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
   // toward the reviewer's own hours (see hoursDoneOnDate) and shows on the
   // task alongside the assignee's logged hours.
   t.reviewHours = rh > 0 ? Math.round(rh * 100) / 100 : null;
+  // Optional: evidence of the error, so the assignee can see exactly what
+  // was flagged rather than just reading a note about it.
+  if (status === 'error' && typeof screenshot === 'string' && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(screenshot) && screenshot.length <= 6_000_000) {
+    t.reviewScreenshot = screenshot;
+  } else if (status === 'clean') {
+    t.reviewScreenshot = null;
+  }
   if (status === 'error') {
     t.status = 'awaiting_acceptance';
     t.reworkCount = (t.reworkCount || 0) + 1;
