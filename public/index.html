@@ -7249,6 +7249,13 @@ const REVIEW_CHECKLIST = [
   'Supporting documents attached / on file',
   'Delivered within the agreed client window'
 ];
+// Multi-step review wizard: gate question -> (No: fault -> detail form) ->
+// score -> submit. _revState carries the answers across steps since each
+// step replaces the modal body. Kept as one running object rather than
+// re-reading the DOM at the end, since earlier steps' fields are gone by
+// the time the last step submits.
+let _revState = null;
+let _reviewShotData = null;
 function openReviewFormModal(id){
   const t = findTask(id);
   if(!t) return;
@@ -7256,10 +7263,12 @@ function openReviewFormModal(id){
     showToast('error', 'Not allowed', 'Only a manager or admin responsible for this person can review their work.');
     return;
   }
+  _revState = { id, checked: [], note: '', hours: undefined, faultType: null, screenshot: null };
+  _reviewShotData = null;
   const assignee = empById(t.assignedTo);
   const cs = commitmentStatus(t);
   document.getElementById('modalBox').innerHTML = `
-    <h3>Review Form — ${esc(t.name)}</h3>
+    <h3>Review — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName) || '—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
     <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:14px 16px; margin:14px 0 16px; font-size:13.5px; color:var(--text-dim); line-height:1.8;">
       <div><b style="color:var(--text);">Completed by:</b> ${assignee ? esc(assignee.name) : '—'}</div>
@@ -7268,44 +7277,84 @@ function openReviewFormModal(id){
       <div><b style="color:var(--text);">Client committed date:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
       <div><b style="color:var(--text);">Commitment:</b> ${cs === 'met' ? '<span style="color:var(--teal);">✓ Met</span>' : cs === 'missed' ? '<span style="color:#C2410C;">✗ Missed</span>' : '—'}</div>
     </div>
-    <div class="field" style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:12px 14px;">
-      <label style="font-size:14px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600;">Could this go straight to the client as-is?</label>
-      <div style="font-size:12.5px;color:var(--text-faint);margin-top:2px;">Yes clears it and scores the work; No sends it back and needs a reason.</div>
+    <div class="field" style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;">
+      <label style="font-size:15px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600;">Can we send this directly to the client?</label>
+      <div style="font-size:12.5px;color:var(--text-faint);margin-top:4px;">Yes scores it and moves to sending it; No records whose fault it was and sends it back for rework.</div>
     </div>
-    <div class="field">
-      <label>Review checklist</label>
-      <div style="display:flex; flex-direction:column; gap:8px; background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:8px; padding:11px 13px;">
-        ${REVIEW_CHECKLIST.map((item,i) => `<label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;"><input type="checkbox" class="reviewChecklistItem" value="${i}"> ${item}</label>`).join('')}
-      </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn coral" onclick="reviewGateChoice(false)">✗ No</button>
+      <button class="btn primary" onclick="reviewGateChoice(true)">✓ Yes</button>
     </div>
-    <div class="field"><label>Review notes ${''}<span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required if flagging an error)</span></label><textarea id="reviewFormNote" placeholder="e.g. Figures reconciled, no issues found"></textarea></div>
-    <div class="field"><label>Time spent reviewing <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional — hours)</span></label>
-      <input type="number" id="reviewFormHours" min="0.05" step="0.05" placeholder="e.g. 0.5">
-      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Reviewing takes time too — logging it counts toward your own hours today.</div>
-    </div>
-    <div class="field"><label>What caused it? <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required if flagging an error)</span></label>
+  `;
+  openModal();
+}
+function reviewGateChoice(canSend){
+  if(canSend) openReviewScoreModal();
+  else openReviewFaultModal();
+}
+function openReviewFaultModal(){
+  const t = findTask(_revState.id);
+  if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Whose fault was it? — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName) || '—'}</div>
+    <div class="field"><label>Cause</label>
       <select id="reviewFaultType">
         <option value="">Select one…</option>
         <option value="processor">Processor fault — owner made a mistake despite a clear SOP</option>
         <option value="sop">SOP / Manager fault — SOP was unclear, missing, or wrong</option>
       </select>
     </div>
+    <div class="modal-error" id="reviewFaultErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openReviewFormModal('${_revState.id}')">← Back</button>
+      <button class="btn primary" onclick="reviewFaultNext()">Next →</button>
+    </div>
+  `;
+  openModal();
+}
+function reviewFaultNext(){
+  const v = document.getElementById('reviewFaultType').value;
+  if(!v){
+    const e = document.getElementById('reviewFaultErr');
+    e.textContent = 'Choose whether this was a processor fault or an SOP/manager fault.'; e.style.display = 'block';
+    return;
+  }
+  _revState.faultType = v;
+  openReviewDetailFormModal();
+}
+function openReviewDetailFormModal(){
+  const t = findTask(_revState.id);
+  if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>What was wrong — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName) || '—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
+    <div class="field">
+      <label>Review checklist</label>
+      <div style="display:flex; flex-direction:column; gap:8px; background:var(--bg-deep); border:1px solid var(--panel-border); border-radius:8px; padding:11px 13px;">
+        ${REVIEW_CHECKLIST.map((item,i) => `<label style="display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer;"><input type="checkbox" class="reviewChecklistItem" value="${i}"${_revState.checked.includes(item)?' checked':''}> ${item}</label>`).join('')}
+      </div>
+    </div>
+    <div class="field"><label>Review notes <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required)</span></label><textarea id="reviewFormNote" placeholder="e.g. GST figures didn't reconcile to source">${esc(_revState.note||'')}</textarea></div>
+    <div class="field"><label>Time spent reviewing <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional — hours)</span></label>
+      <input type="number" id="reviewFormHours" min="0.05" step="0.05" placeholder="e.g. 0.5" value="${_revState.hours!=null?_revState.hours:''}">
+      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Reviewing takes time too — logging it counts toward your own hours today.</div>
+    </div>
     <div class="field"><label>Evidence of the error <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional — screenshot)</span></label>
       <input type="file" id="reviewShot" accept="image/*">
-      <div id="reviewShotPreview" style="margin-top:8px;"></div>
+      <div id="reviewShotPreview" style="margin-top:8px;">${_reviewShotData ? `<img src="${_reviewShotData}" alt="screenshot preview" style="max-width:100%;max-height:180px;border:1px solid var(--panel-border);border-radius:6px;">` : ''}</div>
       <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">The employee can open this from the rework detail to see exactly what was flagged.</div>
     </div>
     <div class="modal-error" id="reviewFormError"></div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn coral" onclick="submitReviewForm('${id}', 'error')">✗ No — send back</button>
-      <button class="btn primary" onclick="submitReviewForm('${id}', 'clean')">✓ Yes — send to client</button>
+      <button class="btn" onclick="openReviewFaultModal()">← Back</button>
+      <button class="btn primary" onclick="reviewDetailNext()">Next →</button>
     </div>
   `;
   openModal();
   document.getElementById('reviewShot').addEventListener('change', e => previewReviewShot(e.target));
 }
-let _reviewShotData = null;
 async function previewReviewShot(fileEl){
   _reviewShotData = null;
   const f = fileEl.files && fileEl.files[0];
@@ -7314,35 +7363,65 @@ async function previewReviewShot(fileEl){
   _reviewShotData = await downscaleImage(f, 1600, 0.82);
   box.innerHTML = `<img src="${_reviewShotData}" alt="screenshot preview" style="max-width:100%;max-height:180px;border:1px solid var(--panel-border);border-radius:6px;">`;
 }
-async function submitReviewForm(id, decision){
+function reviewDetailNext(){
   const checked = Array.from(document.querySelectorAll('.reviewChecklistItem:checked')).map(cb => REVIEW_CHECKLIST[parseInt(cb.value, 10)]);
   const noteInput = document.getElementById('reviewFormNote').value.trim();
-  const faultType = document.getElementById('reviewFaultType').value;
-  if(decision === 'error' && !noteInput){
-    document.getElementById('reviewFormError').textContent = 'Please note what was wrong before flagging an error.';
-    document.getElementById('reviewFormError').style.display = 'block';
+  if(!noteInput){
+    const e = document.getElementById('reviewFormError');
+    e.textContent = 'Please note what was wrong before sending it back.'; e.style.display = 'block';
     return;
   }
-  if(decision === 'error' && !faultType){
-    document.getElementById('reviewFormError').textContent = 'Choose whether this was a processor fault or an SOP/manager fault.';
-    document.getElementById('reviewFormError').style.display = 'block';
-    return;
-  }
-  const checklistLine = checked.length ? `Checklist confirmed: ${checked.join('; ')}.` : '';
-  const note = [noteInput, checklistLine].filter(Boolean).join(' ') || undefined;
+  _revState.checked = checked;
+  _revState.note = noteInput;
   const hoursEl = document.getElementById('reviewFormHours');
-  const reviewHours = hoursEl && hoursEl.value !== '' ? parseFloat(hoursEl.value) : undefined;
+  _revState.hours = hoursEl && hoursEl.value !== '' ? parseFloat(hoursEl.value) : undefined;
+  _revState.screenshot = _reviewShotData || null;
+  openReviewScoreModal();
+}
+function openReviewScoreModal(){
+  const t = findTask(_revState.id);
+  if(!t) return;
+  const isClean = !_revState.faultType;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Score this work — ${esc(t.name)}</h3>
+    <div class="modal-sub">${isClean ? 'Going straight to the client' : 'Going back for rework'}</div>
+    <div class="field"><label>Score <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(0–100)</span></label>
+      <input type="number" id="reviewScoreInput" min="0" max="100" step="1" placeholder="e.g. 90">
+    </div>
+    <div class="modal-error" id="reviewScoreErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="${isClean ? `openReviewFormModal('${_revState.id}')` : `openReviewDetailFormModal()`}">← Back</button>
+      <button class="btn primary" onclick="submitReviewFinal()">✓ Done</button>
+    </div>
+  `;
+  openModal();
+}
+async function submitReviewFinal(){
+  const scoreEl = document.getElementById('reviewScoreInput');
+  const scoreVal = scoreEl.value !== '' ? parseFloat(scoreEl.value) : NaN;
+  if(!(scoreVal >= 0) || scoreVal > 100){
+    const e = document.getElementById('reviewScoreErr');
+    e.textContent = 'Enter a score between 0 and 100.'; e.style.display = 'block';
+    return;
+  }
+  const decision = _revState.faultType ? 'error' : 'clean';
+  const id = _revState.id;
+  const checklistLine = (_revState.checked||[]).length ? `Checklist confirmed: ${_revState.checked.join('; ')}.` : '';
+  const note = [_revState.note, checklistLine].filter(Boolean).join(' ') || undefined;
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({ status: decision, note, faultType: decision === 'error' ? faultType : undefined, reviewHours, screenshot: decision === 'error' ? (_reviewShotData || undefined) : undefined }) });
-    _reviewShotData = null;
+    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({
+      status: decision, note, faultType: _revState.faultType || undefined,
+      reviewHours: _revState.hours, screenshot: _revState.screenshot || undefined, score: scoreVal,
+    }) });
+    _reviewShotData = null; _revState = null;
     closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
-    showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', decision === 'clean' ? 'Points have been confirmed.' : 'The employee will see this note on the task.');
+    showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', `Scored ${scoreVal}/100.`);
     if(decision === 'clean') openSendToClientModal(id);
   } catch(e){
-    document.getElementById('reviewFormError').textContent = e.message;
-    document.getElementById('reviewFormError').style.display = 'block';
+    const el = document.getElementById('reviewScoreErr');
+    el.textContent = e.message; el.style.display = 'block';
   }
 }
   function openSendToClientModal(id){
@@ -7569,6 +7648,7 @@ function openReworkDetailModal(id){
     <div style="background:var(--coral-dim); border:1px solid #F0603E4a; border-radius:10px; padding:14px 16px; margin:14px 0; font-size:13.5px; color:#9A3412; line-height:1.8;">
       <div><b style="color:#7A2A0C;">Flagged by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
       <div style="margin-top:6px;"><b style="color:#7A2A0C;">What was wrong:</b><br>${t.reviewNote ? esc(t.reviewNote) : 'No notes recorded.'}</div>
+      ${t.reviewScore != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Score given:</b> ${t.reviewScore}/100</div>` : ''}
       ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>

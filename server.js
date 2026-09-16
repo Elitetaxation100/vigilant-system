@@ -1930,16 +1930,23 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
   if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
-  const { status, note, faultType, reviewHours, screenshot } = req.body || {};
+  const { status, note, faultType, reviewHours, screenshot, score } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
   if (status === 'error' && !['processor', 'sop'].includes(faultType)) {
     return res.status(400).json({ error: 'Choose whether this was a processor fault or an SOP/manager fault.' });
+  }
+  if (score != null && (!(Number(score) >= 0) || Number(score) > 100)) {
+    return res.status(400).json({ error: 'Score must be between 0 and 100.' });
   }
   const rh = Number(reviewHours);
   t.reviewStatus = status;
   t.reviewedBy = req.employee.id;
   t.reviewNote = note || null;
   t.reviewedAt = new Date().toISOString();
+  // The reviewer's own rating of the work (0-100), separate from the fixed
+  // assignment `points` set at task creation — this reflects how the
+  // delivered work actually held up, not what was planned for it.
+  t.reviewScore = score != null ? Math.round(Number(score)) : null;
   // Optional: how long the review itself took — real work, so it counts
   // toward the reviewer's own hours (see hoursDoneOnDate) and shows on the
   // task alongside the assignee's logged hours.
