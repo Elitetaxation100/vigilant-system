@@ -7409,7 +7409,7 @@ async function submitReviewFinal(){
   const checklistLine = (_revState.checked||[]).length ? `Checklist confirmed: ${_revState.checked.join('; ')}.` : '';
   const note = [_revState.note, checklistLine].filter(Boolean).join(' ') || undefined;
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({
+    const r = await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({
       status: decision, note, faultType: _revState.faultType || undefined,
       reviewHours: _revState.hours, screenshot: _revState.screenshot || undefined, score: scoreVal,
     }) });
@@ -7418,7 +7418,10 @@ async function submitReviewFinal(){
     await refreshTasks();
     await refreshActivity({ silent: true });
     showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', `Scored ${scoreVal}/100.`);
-    if(decision === 'clean') openSendToClientModal(id);
+    // Internal tasks have no client to send a report to — only offer that
+    // step when the task actually has one pending (client work, not
+    // training/admin/internal).
+    if(decision === 'clean' && r.task && r.task.awaitingClientDecision) openSendToClientModal(id);
   } catch(e){
     const el = document.getElementById('reviewScoreErr');
     el.textContent = e.message; el.style.display = 'block';
