@@ -5040,11 +5040,13 @@ function openAssignModal(mode){
     <div class="field"><label id="atTatLabel">Estimated time (hours) <span class="req-mark">*</span></label><input type="number" id="atTat" value="3" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
     <div class="field"><label id="atDeadlineLabel">Manager due date (internal) <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}" onchange="atPlanPreview(); atSyncClientDate()"></div>
     <div class="field" id="atClientDateWrap"><label>Client commitment date <span style="font-weight:400;color:var(--text-faint);">— auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
+    <div id="atImpossibleWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 45%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55; color:var(--flag); font-weight:600;"></div>
     <div id="atOverloadWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 35%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55;">
       <div id="atOverloadText" style="color:var(--flag); font-weight:600;"></div>
+      <div id="atConflictList" style="margin-top:8px;"></div>
       <label style="display:flex; gap:8px; align-items:flex-start; margin-top:8px; font-weight:500; color:var(--text-dim); cursor:pointer;">
         <input type="checkbox" id="atAcceptOverload" onchange="atRefreshSubmitBtn()" style="margin-top:2px;">
-        <span>Assign anyway — I understand it lands as extra hours on their plate that day.</span>
+        <span>Assign anyway — push the task(s) above out to make room.</span>
       </label>
     </div>
     <div class="modal-error" id="assignError">Please enter a task name.</div>
@@ -5057,6 +5059,7 @@ function openAssignModal(mode){
   window.__stickyModal = true;              // don't close on a click outside a half-filled form
   _atClientDateTouched = false;
   _atOverload = null;
+  _atImpossible = false;
   setAssignKind(noClients ? 'internal' : 'client');
   if(isTeam) atPlanPreview();
   atSyncClientDate();
@@ -5085,6 +5088,7 @@ function atSyncClientDate(){
 // assignee's real capacity + queue (Phase 5).
 let _atPlanTimer = null;
 let _atOverload = null;
+let _atImpossible = false;
 function atPlanPreview(){
   clearTimeout(_atPlanTimer);
   _atPlanTimer = setTimeout(async () => {
@@ -5100,19 +5104,32 @@ function atPlanPreview(){
     const busy = p.committedThrough > todayISO() ? `committed through <b>${fmtDate(p.committedThrough)}</b>` : 'queue is clear';
     hint.innerHTML = `${esc(p.assignee.split(' ')[0])}: ${busy} · ${cap}. A ${hours}h task lands internally <b>${fmtDate(p.internalDeadline)}</b>, client <b>${fmtDate(p.clientDate)}</b>.
       <a href="#" onclick="atUseComputedDates('${p.internalDeadline}','${p.clientDate}');return false;" style="color:var(--purple);">Use these dates</a>`;
-    // over-allocation soft stop
-    _atOverload = (p.overload && p.overload.over) ? p.overload : null;
+    const first = esc(p.assignee.split(' ')[0]);
+    const impossibleWarn = document.getElementById('atImpossibleWarn');
     const warn = document.getElementById('atOverloadWarn');
     const txt = document.getElementById('atOverloadText');
+    const list = document.getElementById('atConflictList');
     const cb = document.getElementById('atAcceptOverload');
+    _atImpossible = !!(p.overload && p.overload.impossible);
+    _atOverload = (p.overload && p.overload.over && !_atImpossible) ? p.overload : null;
+    if(_atImpossible && impossibleWarn){
+      impossibleWarn.textContent = `⚠ ${by ? fmtDate(by) : 'That due date'} only allows ${p.overload.windowCapacity}h of capacity for ${first} — a ${hours}h task can't fit no matter what else is on their plate. Push the due date out, or cut the hours.`;
+      impossibleWarn.style.display = '';
+    } else if(impossibleWarn){
+      impossibleWarn.style.display = 'none';
+    }
     if(_atOverload && warn){
-      const first = esc(p.assignee.split(' ')[0]);
-      const bookedLine = _atOverload.busyUntil ? `${first} is booked through ${fmtDate(_atOverload.busyUntil)}` : `${first} is fully booked`;
-      txt.textContent = `⚠ ${bookedLine}. Only ${_atOverload.room}h is free by ${fmtDate(by)}, so this ${hours}h task is ${_atOverload.overBy}h over capacity for that date.`;
+      const bookedLine = _atOverload.busyUntil ? `${first} is already booked through ${fmtDate(_atOverload.busyUntil)}` : `${first} is already booked`;
+      txt.textContent = `⚠ ${bookedLine} — only ${_atOverload.room}h is free by ${fmtDate(by)}, so this ${hours}h task is ${_atOverload.overBy}h over. Pushing the task${_atOverload.conflicts.length===1?'':'s'} below out by ${_atOverload.pushDays} working day${_atOverload.pushDays===1?'':'s'} would make room:`;
+      if(list) list.innerHTML = (_atOverload.conflicts||[]).map(c => `<div style="padding:6px 8px;background:var(--panel);border-radius:6px;margin-bottom:4px;">
+        <b>${esc(c.name)}</b>${c.clientName ? ' · ' + esc(c.clientName) : ''}<br>
+        <span style="color:var(--text-faint);">due ${fmtDate(c.currentInternal)} → <b style="color:var(--flag);">${fmtDate(c.newInternal)}</b>${c.currentClient ? ` · client ${fmtDate(c.currentClient)} → <b style="color:var(--flag);">${fmtDate(c.newClient)}</b>` : ''}</span>
+      </div>`).join('');
       warn.style.display = '';
     } else if(warn){
       warn.style.display = 'none';
       if(cb) cb.checked = false;
+      if(list) list.innerHTML = '';
     }
     atRefreshSubmitBtn();
   }, 250);
@@ -5121,9 +5138,14 @@ function atRefreshSubmitBtn(){
   const btn = document.getElementById('atSubmitBtn');
   if(!btn) return;
   const ticked = !!(document.getElementById('atAcceptOverload')||{}).checked;
+  if(_atImpossible){
+    btn.disabled = true;
+    btn.textContent = 'Due date too tight — fix it above';
+    return;
+  }
   btn.disabled = !!(_atOverload && !ticked);
   btn.textContent = _atOverload
-    ? (ticked ? 'Assign anyway' : 'Over capacity — tick to continue')
+    ? (ticked ? 'Push conflicts & assign' : 'Already booked — tick to continue')
     : (btn.dataset.base || 'Send for Acceptance');
 }
 function atUseComputedDates(internal, client){
@@ -5160,7 +5182,7 @@ async function submitAssign(mode){
   let team = (document.getElementById('atTeam') || {}).value || '';
   if(team === '__custom__') team = ((document.getElementById('atTeamCustom') || {}).value || '').trim();
   const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };
-  if((document.getElementById('atAcceptOverload')||{}).checked) payload.acceptOverload = true;
+  if((document.getElementById('atAcceptOverload')||{}).checked) payload.pushConflicts = true;
   if(isInternal){
     payload.kind = 'internal';
     const ref = (document.getElementById('atInternalRef')||{}).value.trim();

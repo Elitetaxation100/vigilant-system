@@ -555,6 +555,43 @@ function overloadCheck(state, emp, hours, byISO) {
     clearsAt: av.clearsAt,
   };
 }
+// Below this, an overage is normal day-to-day slack (someone's plate
+// running 20-40 minutes over on a given day is routine) and gets the old
+// soft, informational treatment — only a real conflict blocks assignment.
+const MEANINGFUL_OVERAGE_HOURS = 1;
+// The fuller picture behind an overload check, for the assign form:
+// - `impossible` — the due date doesn't leave enough raw capacity for this
+//   many hours even with a completely empty schedule. No override makes
+//   sense here; the date or the hours has to change.
+// - otherwise, if over capacity because of EXISTING work, `conflicts` lists
+//   exactly which open tasks are in the way and what their dates would
+//   become if the manager pushes them out to make room — shown before they
+//   confirm, and applied for real only if they do (see POST /api/tasks
+//   pushConflictIds).
+function assignImpactPreview(state, emp, hours, byISO) {
+  const cap = capacityOf(emp);
+  const windowCapacity = capacityHoursBetween(state, emp, todayISO(), byISO);
+  const impossible = windowCapacity + 1e-9 < hours;
+  const oc0 = overloadCheck(state, emp, hours, byISO);
+  // Re-derive `over` at the meaningful-conflict bar — oc0.over (>0.24h) is
+  // still exposed for the existing informational overAllocated stamp.
+  const oc = { ...oc0, over: oc0.overBy > MEANINGFUL_OVERAGE_HOURS };
+  let conflicts = [];
+  let pushDays = 0;
+  if (!impossible && oc.over) {
+    pushDays = Math.max(1, Math.ceil(oc.overBy / cap));
+    conflicts = state.tasks
+      .filter(t => t.assignedTo === emp.id && !['completed', 'pending_approval'].includes(t.status)
+        && t.internalDeadline && t.internalDeadline <= byISO)
+      .sort((a, b) => (a.internalDeadline || '').localeCompare(b.internalDeadline || ''))
+      .map(t => ({
+        id: t.id, name: t.name, clientName: t.clientName,
+        currentInternal: t.internalDeadline, newInternal: cal.addWorkingDays(t.internalDeadline, pushDays),
+        currentClient: t.clientDate || null, newClient: t.clientDate ? cal.addWorkingDays(t.clientDate, pushDays) : null,
+      }));
+  }
+  return { ...oc, impossible, windowCapacity: Math.round(windowCapacity * 100) / 100, conflicts, pushDays };
+}
 
 // ---------------------------------------------------------------------------
 // WORKLOAD / AVAILABILITY — informational only. There is no capacity gate:
@@ -1193,7 +1230,7 @@ app.get('/api/tasks/plan', requireAuth, (req, res) => {
     assignee: emp.name,
     ...computeCommitmentDates(state, emp, hours, start),
     ...availabilityOf(state, emp),
-    overload: by ? overloadCheck(state, emp, hours, by) : null,
+    overload: by ? assignImpactPreview(state, emp, hours, by) : null,
   });
 });
 // The client commitment date for a given manager (internal) due date: the
@@ -1280,17 +1317,54 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   if (!(numTat > 0)) return res.status(400).json({ error: 'A task needs an estimated time in hours.' });
   if (!internalDeadline) return res.status(400).json({ error: 'A task needs a due date.' });
 
-  // Capacity is not a hard server-side gate (never has been). But if the work
-  // lands on someone already fully booked for that date, the task is stamped
-  // over-allocated so its hours surface as extra work — and the assign modal
-  // makes the assigner tick "assign anyway" before it gets here.
+  // Two capacity checks for a team assignment:
+  //  - impossible: the due date itself doesn't leave enough raw capacity for
+  //    this many hours, even with a completely empty schedule. Hard block —
+  //    no override, because there's nothing to override; the date or the
+  //    hours has to change.
+  //  - conflict: there IS enough raw capacity, but existing open work is
+  //    eating into it. Blocked unless the assigner explicitly confirms
+  //    pushConflicts, in which case the specific tasks in the way get their
+  //    dates moved out by the same amount this task overloads the window by
+  //    (computed fresh here, never trusted from the client).
   let overAllocated = null;
   if (mode === 'team') {
-    const oc = overloadCheck(state, findEmployee(state, assignee), numTat, internalDeadline);
-    if (oc.over) {
+    const assigneeEmp = findEmployee(state, assignee);
+    const impact = assignImpactPreview(state, assigneeEmp, numTat, internalDeadline);
+    if (impact.impossible) {
+      return res.status(422).json({
+        error: `${assigneeEmp.name}'s due date only allows ${impact.windowCapacity}h of capacity — a ${numTat}h task can't fit by ${internalDeadline} no matter what else is on their plate. Push the due date out or cut the hours.`,
+        code: 'DUE_DATE_TOO_TIGHT', windowCapacity: impact.windowCapacity, hours: numTat,
+      });
+    }
+    if (impact.over) {
+      if (req.body.pushConflicts !== true) {
+        return res.status(409).json({
+          error: `${assigneeEmp.name} is already booked with ${impact.conflicts.length} task${impact.conflicts.length === 1 ? '' : 's'} through this due date — only ${impact.room}h is free. Confirm to push ${impact.conflicts.length === 1 ? 'it' : 'them'} out by ${impact.pushDays} working day${impact.pushDays === 1 ? '' : 's'} and assign anyway.`,
+          code: 'ALREADY_BOOKED', conflicts: impact.conflicts, pushDays: impact.pushDays, overBy: impact.overBy, room: impact.room,
+        });
+      }
+      // Confirmed — actually push the conflicting tasks' dates out.
+      impact.conflicts.forEach(c => {
+        const ct = findTask(state, c.id);
+        if (!ct) return;
+        const before = { internal: ct.internalDeadline, client: ct.clientDate };
+        ct.internalDeadline = c.newInternal;
+        if (ct.clientDate) ct.clientDate = c.newClient;
+        ct.dateHistory = ct.dateHistory || [];
+        ct.dateHistory.push({
+          at: new Date().toISOString(), by: req.employee.name,
+          from: before, to: { internal: ct.internalDeadline, client: ct.clientDate },
+          note: `Pushed out ${impact.pushDays} working day${impact.pushDays === 1 ? '' : 's'} to make room for a new ${numTat}h task due ${internalDeadline}.`,
+        });
+        logEvent(state, ct.assignedTo, `"${escHtml(ct.name)}" pushed out to <b>${escHtml(ct.internalDeadline)}</b> by <b>${escHtml(req.employee.name)}</b> — new work took priority for ${escHtml(internalDeadline)}.`);
+      });
+    }
+    if (impact.over) {
       overAllocated = {
-        overBy: oc.overBy, dueDate: internalDeadline, roomAtAssign: oc.room,
+        overBy: impact.overBy, dueDate: internalDeadline, roomAtAssign: impact.room,
         at: new Date().toISOString(), byId: req.employee.id, byName: req.employee.name,
+        pushedConflicts: impact.conflicts.map(c => c.id),
       };
     }
   }
