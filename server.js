@@ -328,47 +328,23 @@ function taskForClient(t) {
 
 // ---------------------------------------------------------------------------
 // CAPACITY & COMMITMENT DATES (Phase 5). A person has an effective capacity
-// — productive hours per working day. It's measured from their delivery
-// history (median productive day over the last 8 weeks), never assumed, so
-// the system never has to ask "do they work in parts or full days". A task
-// consumes that capacity across as many working days as it needs, and the
-// commitment date follows: internal due date, then + 3 working days for the
-// firm's do-review-send buffer.
+// — productive hours per working day. A task consumes that capacity across
+// as many working days as it needs, and the commitment date follows:
+// internal due date, then + 3 working days for the firm's do-review-send
+// buffer.
+//
+// This used to be auto-estimated per person from their own delivery history
+// (median productive day over the last 8 weeks). Dropped in favor of a flat
+// firm-wide default — even measured off real post-go-live data, a person's
+// early median skewed low on days they were mostly working something that
+// hadn't shipped yet (only *completed*-task hours count toward a day), which
+// made the auto figure read as broken rather than accurate. A flat number
+// everyone understands beats a measured one nobody trusts.
 // ---------------------------------------------------------------------------
 // The firm's working day is 9h with a 1h break = 8h of productive time.
-const CAP_MIN = 3, CAP_MAX = 10, CAP_SEED = 8.0;
-
-function estimateCapacity(state, empId) {
-  // productive hours per working day over the last 8 weeks (56 days) —
-  // but never earlier than go-live (7 Sept 2026). Without this floor, a
-  // rolling 56-day lookback still reaches back into pre-launch seed data
-  // today, which can pull the estimate down to something nobody actually
-  // worked (see: Manya Nanda showing 3h/day from stale seed rows).
-  const since = cal.addWorkingDays(todayISO(), 0); // today (NZ calendar day)
-  // 56 calendar days back from `since` — computed off the NZ day string, not
-  // Date.now(), so the window doesn't drift a day early/late depending on
-  // what time of day (UTC vs NZT) this happens to run.
-  const from = floorAtGoLive(new Date(new Date(since + 'T00:00:00Z').getTime() - 56 * 86400000).toISOString().slice(0, 10), since);
-  const byDay = {};
-  state.tasks.filter(t => t.assignedTo === empId && t.status === 'completed'
-      && nzDay(t.completedAt) >= from && nzDay(t.completedAt) <= since)
-    .forEach(t => { const d = nzDay(t.completedAt); byDay[d] = (byDay[d] || 0) + taskHours(t); });
-  const days = Object.values(byDay).filter(h => h > 0).sort((a, b) => a - b);
-  if (days.length < 8) return null; // not enough history — keep the seed / manual value
-  const mid = Math.floor(days.length / 2);
-  const median = days.length % 2 ? days[mid] : (days[mid - 1] + days[mid]) / 2;
-  return Math.round(Math.min(CAP_MAX, Math.max(CAP_MIN, median)) * 10) / 10;
-}
-// Lazily refresh a person's capacity — at most once a day.
-function refreshCapacity(state, emp) {
-  const today = todayISO();
-  if (emp.capacityEstimatedAt === today) return;
-  const est = estimateCapacity(state, emp.id);
-  if (est != null) { emp.effectiveCapacity = est; emp.capacityAuto = true; }
-  emp.capacityEstimatedAt = today;
-}
+const CAP_SEED = 8.0;
 function capacityOf(emp) {
-  return Number(emp && emp.effectiveCapacity) > 0 ? Number(emp.effectiveCapacity) : CAP_SEED;
+  return CAP_SEED;
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +481,7 @@ function availabilityOf(state, emp) {
   const cap5 = capacityNextWorkingDays(state, emp, 5);
   const freeNext5wd = Math.max(0, cap5 - backlog);
   return {
-    effectiveCapacity: cap, capacityAuto: !!emp.capacityAuto,
+    effectiveCapacity: cap, capacityAuto: false,
     baseHoursPerDay: Number(emp.baseHoursPerDay) > 0 ? Number(emp.baseHoursPerDay) : null,
     backlogHours: Math.round(backlog * 100) / 100,
     committedThrough,
@@ -975,14 +951,6 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   // WhatsApp (Interakt) dashboard — grantable to any specific employee,
   // independent of accessRole (a superadmin always has it regardless).
   if (typeof req.body.whatsappAccess === 'boolean') emp.whatsappAccess = req.body.whatsappAccess;
-  // Clears a bad auto-estimated capacity (e.g. one computed from pre-go-live
-  // seed data before the go-live floor fix) — falls back to the 8h seed
-  // until real post-launch history accumulates again.
-  if (req.body.resetCapacity === true) {
-    emp.effectiveCapacity = null;
-    emp.capacityAuto = false;
-    emp.capacityEstimatedAt = null;
-  }
 
   db.save();
   res.json({ employee: publicEmployee(emp) });
@@ -1261,7 +1229,6 @@ app.get('/api/tasks/plan', requireAuth, (req, res) => {
   if (!assignableEmployees(state, req.employee).some(e => e.id === emp.id) && emp.id !== req.employee.id) {
     return res.status(403).json({ error: "You can't plan work for this person." });
   }
-  refreshCapacity(state, emp);
   const hours = Math.max(0.25, parseFloat(req.query.hours) || 3);
   const start = (typeof req.query.start === 'string' && /^\d{4}-\d{2}-\d{2}/.test(req.query.start)) ? req.query.start.slice(0, 10) : null;
   const by = (typeof req.query.by === 'string' && /^\d{4}-\d{2}-\d{2}/.test(req.query.by)) ? req.query.by.slice(0, 10) : null;
@@ -2529,7 +2496,6 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const myTaskIds = new Set(state.tasks.filter(t => t.assignedTo === id).map(t => t.id));
     const chaseEvents = (state.taskEvents || [])
       .filter(e => e.type === 'reminded' && e.channel !== 'auto' && myTaskIds.has(e.taskId) && inRange(e.at)).length;
-    if (emp.id) refreshCapacity(state, emp);
     const cap = capacityOf(emp);
     // P1: capacity is the sum of each working day's real availability
     // (attendance + approved leave), not a flat full day every working day.
@@ -2607,7 +2573,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
       tasks: done.length,
       allocatedHours: r2(allocated), workedHours: r2(worked),
-      capacityHours: r2(capacityHours), effectiveCapacity: cap, capacityAuto: !!emp.capacityAuto, workingDays,
+      capacityHours: r2(capacityHours), effectiveCapacity: cap, capacityAuto: false, workingDays,
       leaveDays: leave.equivalent, baseHoursPerDay: Number(emp.baseHoursPerDay) > 0 ? Number(emp.baseHoursPerDay) : null,
       shiftHours,
       utilisationPct: capacityHours > 0 ? Math.round((worked / capacityHours) * 100) : null,
@@ -2921,7 +2887,6 @@ app.get('/api/workload', requireAuth, (req, res) => {
   const state = db.get();
   const visible = assignableEmployees(state, req.employee);
   const rows = visible.map(e => {
-    refreshCapacity(state, e);
     const busyUntil = employeeBusyUntil(state, e.id);
     const activeCount = state.tasks.filter(t => t.assignedTo === e.id && t.status !== 'completed').length;
     const avail = availabilityOf(state, e);
@@ -2939,7 +2904,6 @@ app.get('/api/workload', requireAuth, (req, res) => {
       ...avail, // effectiveCapacity, capacityAuto, backlogHours, committedThrough, freeCapacityNext5wd
     };
   });
-  db.save(); // persist any capacity re-estimates
   res.json({ workload: rows });
 });
 
