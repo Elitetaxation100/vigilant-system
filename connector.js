@@ -450,15 +450,21 @@ function waTextOf(msg) {
   if (msg.body && !isWaPlaceholder(msg.body)) return msg.body;
   return '📎 Attachment (no caption)';
 }
-// Best-effort direction guess from the event type / message shape — Interakt
-// doesn't document a single canonical field for this across plans.
+// Best-effort direction guess from the event type / message shape.
+// `chat_message_type` ('AgentMessage' vs 'CustomerMessage'), found directly
+// on data.message, turned out to be the one reliable field Interakt stamps
+// on EVERY event about a message — not just the content event, but also its
+// delivered/read status updates. Confirmed from a real read-receipt
+// ("agent_message_read") that carried our own outbound text again ~10
+// minutes after we sent it: no "sent"/"template" substring in the type, no
+// array-shaped message, so it fell through to the 'in' default and wrongly
+// flipped a contact back to "awaiting reply" for a message WE sent. Check
+// this field first; the older structural/string checks stay as a fallback
+// for any payload shape that doesn't carry it.
 function waDirectionOf(type, msg) {
+  if (msg && msg.chat_message_type === 'AgentMessage') return 'out';
+  if (msg && msg.chat_message_type === 'CustomerMessage') return 'in';
   const t = String(type || '').toLowerCase();
-  // A WhatsApp template payload — an array of content blocks with fill-in
-  // parameters, e.g. [{type:'body', parameters:[...]}] — is only ever
-  // something the business SENT (a customer can't reply in that shape).
-  // Trust that structural signal over the event `type` string, which
-  // Interakt doesn't name consistently for this across plans/events.
   if (msg && Array.isArray(msg.message)) return 'out';
   if (t.includes('template') || t.includes('sent') || (msg && (msg.direction === 'outgoing' || msg.sent_by))) return 'out';
   return 'in'; // default to inbound — safer to surface a message than silently drop it
@@ -481,16 +487,24 @@ async function handleInteraktWebhook(body) {
   const c = state.waContacts[phone] || (state.waContacts[phone] = {
     phone, name, firstSeenAt: new Date().toISOString(),
     lastInboundAt: null, lastOutboundAt: null, lastMessageText: '', lastMessageAt: null,
-    status: 'new', taskIds: [], relayToSlack: false,
+    lastMessageSourceId: null, status: 'new', taskIds: [], relayToSlack: false,
   });
   c.name = name || c.name;
   const now = new Date().toISOString();
-  // Interakt can fire more than one webhook for the same underlying message
-  // (e.g. a delivery/status event alongside the content event) with no
-  // consistent event-type naming to tell them apart — one such duplicate
-  // arrived tagged as inbound for a reply we'd just sent, wrongly flipping
-  // a contact back to "awaiting". Treat the exact same text arriving again
-  // within 20s as an echo of the message just logged, not a new one.
+  // Interakt fires a separate webhook for each status a message passes
+  // through — sent, delivered, read — and a read receipt can land many
+  // minutes after the original send, carrying the same message content
+  // again. data.message.id is stable across all of them (confirmed from
+  // real traffic: a "sent" and its "read" receipt shared one id 10 minutes
+  // apart), so it's a far more reliable dedup key than the text+20s window
+  // below, which only catches near-simultaneous duplicates. Check the id
+  // first, uncapped by time; fall back to the text+time heuristic for any
+  // payload that doesn't carry an id.
+  const sourceId = msg && msg.id ? String(msg.id) : null;
+  if (sourceId && c.lastMessageSourceId === sourceId) {
+    clog('info', 'interakt webhook — duplicate status update suppressed', { phone, type, sourceId });
+    return;
+  }
   if (c.lastMessageText === text && c.lastMessageAt && (Date.parse(now) - Date.parse(c.lastMessageAt)) < 20000) {
     clog('info', 'interakt webhook — duplicate/echo suppressed', { phone, type });
     return;
@@ -506,7 +520,7 @@ async function handleInteraktWebhook(body) {
   try { raw = JSON.stringify(body).slice(0, 4000); } catch (e) {}
   state.waMessages.push({ id: 'wa' + state.waSeq, phone, name: c.name, direction, text, at: now, raw });
   if (state.waMessages.length > 500) state.waMessages.shift(); // rolling window, same cap style as connectorLog
-  c.lastMessageText = text; c.lastMessageAt = now;
+  c.lastMessageText = text; c.lastMessageAt = now; c.lastMessageSourceId = sourceId;
   if (direction === 'in') { c.lastInboundAt = now; c.status = 'awaiting'; }
   else { c.lastOutboundAt = now; c.status = 'replied'; }
   db.save();
