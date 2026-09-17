@@ -918,6 +918,7 @@
     <div class="nav-section" id="managerNavSection" style="display:none;">
       <div class="nav-title">Team</div>
       <div class="nav-item" data-view="manager" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
+      <div class="nav-item" onclick="openTrashModal()"><span class="nav-icon">🗑</span> Recently removed</div>
     </div>
     <div class="nav-section" id="analyticsNavSection" style="display:none;">
       <div class="nav-title">Engines & Analytics</div>
@@ -1016,9 +1017,9 @@
         <div id="empDeadlineNote"></div>
 
         <div class="top-grid">
-          <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Every task assigned to this person">
+          <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Every task assigned to this person, all time — not scoped to the Period filter above">
             <div class="mt-ic">▦</div>
-            <div class="mt-label">Total tasks</div>
+            <div class="mt-label">Total tasks <span style="font-weight:400;color:var(--text-faint);">· all time</span></div>
             <div class="mt-value" id="myTotalTasks">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myTotalSub"></div>
           </div>
@@ -1038,9 +1039,9 @@
             <div class="mt-label">Sent for review</div>
             <div class="mt-value purple" id="myInReview">0</div>
           </div>
-          <div class="metric-tile mg-tile" onclick="openMyDoneList()" title="Everything you've finished and had signed off">
+          <div class="metric-tile mg-tile" onclick="openMyDoneList()" title="Everything you've finished and had signed off, all time — not scoped to the Period filter above">
             <div class="mt-ic">✓</div>
-            <div class="mt-label">Done</div>
+            <div class="mt-label">Done <span style="font-weight:400;color:var(--text-faint);">· all time</span></div>
             <div class="mt-value teal" id="myDoneAll">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myDoneSub"></div>
           </div>
@@ -2038,14 +2039,21 @@ function renderDashMirrorPicker(){
     </optgroup>
   </select>`;
 }
-// Local calendar day (the browser is in NZ) — NOT toISOString(), which is UTC
-// and rolls over ~12h early for anyone in New Zealand.
-function _localDay(d){ d = d instanceof Date ? d : new Date(d); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+// The NZ calendar day — the firm's day, not the viewer's device timezone.
+// NOT toISOString() (UTC) and NOT the browser's local getFullYear/getMonth/
+// getDate (whatever timezone the device happens to be set to): either one
+// rolls over up to ~12h early/late for a viewer outside Pacific/Auckland,
+// disagreeing with the server's NZ-pinned "today" on the same data.
+const _NZ_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit' });
+function _localDay(d){ return _NZ_FMT.format(d instanceof Date ? d : new Date(d)); }
 function todayISO(){ return _localDay(new Date()); }
-// The local calendar day a stored UTC timestamp falls on — use instead of
+// The NZ calendar day a stored UTC timestamp falls on — use instead of
 // `.slice(0,10)` whenever comparing a timestamp against "today".
 function dayOf(ts){ return ts ? _localDay(new Date(ts)) : ''; }
-function addDaysISO(days){ const d = new Date(); d.setDate(d.getDate()+days); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+// `days` calendar days from the NZ "today" — pure date-only arithmetic
+// anchored on todayISO(), so it isn't subject to the device's own timezone
+// or DST transitions either.
+function addDaysISO(days){ const d = new Date(todayISO() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); }
 
 /* =========================================================================
    DASHBOARD SCOPE — the shared "who / what period" filter used by the
@@ -2057,7 +2065,11 @@ const dashScope = {
   // (a manager → "My reports"; a non-managing superadmin → "Whole firm").
   mg: { view:null, period:'this-month', cStart:null, cEnd:null, cmp:true },
 };
-function _iso(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+// Same NZ-day formatting as _localDay — the Founder/Manager dashboard period
+// boundaries (dashPeriod below) used to be built from the browser's own
+// local getFullYear/getMonth/getDate, which could put "this week"/"this
+// month"'s edges on the wrong day for a viewer outside Pacific/Auckland.
+function _iso(d){ return _localDay(d); }
 // The real team list — just the distinct team names people are actually on.
 // (The org-chart / memberships layer carries stale phantom names like
 // "Companies" / "Leads" and duplicates like "Rental" vs "Rental Team"; it
@@ -2120,7 +2132,7 @@ function dashScopeLabel(key, mineOnly){
   if(v.startsWith('p:')){ const e = employees.find(x=>x.id===v.slice(2)); return e ? e.name : 'Person'; }
   return mineOnly ? (myTeamName() || 'My team') : 'Whole firm';
 }
-function dashInRange(dateStr, r){ if(!dateStr) return false; const d = dateStr.slice(0,10); return d >= r.start && d < r.end; }
+function dashInRange(dateStr, r){ if(!dateStr) return false; const d = dayOf(dateStr); return d >= r.start && d < r.end; }
 // tasks whose assignee sits inside the current scope (all statuses). Firm
 // scope also keeps unassigned tasks; team / person scope does not.
 function dashScopedTasks(key, mineTeamsOnly){
@@ -3673,7 +3685,7 @@ function renderEmployeeStats(){
   const { start, end, label } = empPeriodBounds();
   const today = todayISO();
   const mine = tasks.filter(t => t.assignedTo === dashSubjectId());
-  const inP = t => t.completedAt && t.completedAt.slice(0,10) >= start && t.completedAt.slice(0,10) < end;
+  const inP = t => t.completedAt && dayOf(t.completedAt) >= start && dayOf(t.completedAt) < end;
   const doneP = mine.filter(t => t.status === 'completed' && inP(t));
 
   renderDashMirrorPicker();
@@ -3766,10 +3778,10 @@ function renderGreeting(){
   const mineOpen = tasks.filter(t => t.assignedTo === who && t.status !== 'completed');
   const dueInPeriod = mineOpen.filter(t => t.internalDeadline && t.internalDeadline >= start && t.internalDeadline <= endIncl).length;
   const hrsInPeriod = tasks
-    .filter(t => t.assignedTo === who && t.status === 'completed' && t.completedAt && t.completedAt.slice(0,10) >= start && t.completedAt.slice(0,10) < end)
+    .filter(t => t.assignedTo === who && t.status === 'completed' && t.completedAt && dayOf(t.completedAt) >= start && dayOf(t.completedAt) < end)
     .reduce((s,t) => s + taskHrs(t), 0)
     + tasks
-      .filter(t => t.reviewedBy === who && Number(t.reviewHours) > 0 && t.reviewedAt && t.reviewedAt.slice(0,10) >= start && t.reviewedAt.slice(0,10) < end)
+      .filter(t => t.reviewedBy === who && Number(t.reviewHours) > 0 && t.reviewedAt && dayOf(t.reviewedAt) >= start && dayOf(t.reviewedAt) < end)
       .reduce((s,t) => s + Number(t.reviewHours), 0);
 
   const seNote = (!mirror && selfEditActive())
@@ -4437,6 +4449,10 @@ async function submitResumeWithReply(taskId, qid){
 function openHoldModal(id){
   const t = findTask(id);
   if(!t) return;
+  // A screenshot attached for a previous hold (even one that was cancelled,
+  // or failed to submit) must not carry over to whatever task this modal is
+  // opened for next — the file input below always starts empty regardless.
+  _holdShotData = null;
   const iAmManager = empManagesWork(currentViewer(), t.assignedTo);
   const opts = Object.entries(HOLD_REASONS)
     .filter(([, m]) => !m.managerOnly || iAmManager)
@@ -5565,10 +5581,13 @@ function ccSetWindow(w, el){
 function ccInWindow(iso){
   if(ccWindow === 'all') return true;
   if(!iso) return false;
+  // "Today"/"Yesterday" are exact-day matches — judged on the NZ calendar
+  // day (dayOf/todayISO), not the viewer's own device timezone, so this
+  // agrees with the server's NZ-pinned idea of "today" on the same data.
+  if(ccWindow === 'today') return dayOf(iso) === todayISO();
+  if(ccWindow === 'yesterday') return dayOf(iso) === addDaysISO(-1);
   const d = new Date(iso);
   const now = new Date();
-  if(ccWindow === 'today') return d.toDateString() === now.toDateString();
-  if(ccWindow === 'yesterday'){ const y = new Date(now); y.setDate(y.getDate()-1); return d.toDateString() === y.toDateString(); }
   if(ccWindow === 'week'){ const wk = new Date(now); wk.setDate(wk.getDate()-7); return d >= wk; }
   if(ccWindow === 'month'){ const mo = new Date(now); mo.setMonth(mo.getMonth()-1); return d >= mo; }
   return true;
@@ -5797,12 +5816,12 @@ async function renderTrash(){
   if(tasks.length){
     html += `<div class="label" style="margin:6px 0;">Tasks (${tasks.length})</div>`;
     html += tasks.map(t => row(t.name, `${t.clientName || 'Internal'} · ${t.id}`,
-      fmtDate((t.deletedAt||'').slice(0,10)), t.deletedByName, `restoreTask('${t.id}')`)).join('');
+      fmtDate(dayOf(t.deletedAt)), t.deletedByName, `restoreTask('${t.id}')`)).join('');
   }
   if(clients.length){
     html += `<div class="label" style="margin:14px 0 6px;">Clients (${clients.length})</div>`;
     html += clients.map(c => row(c.name, c.type || 'Client',
-      fmtDate((c.deletedAt||'').slice(0,10)), c.deletedByName, `restoreClient('${c.id}')`)).join('');
+      fmtDate(dayOf(c.deletedAt)), c.deletedByName, `restoreClient('${c.id}')`)).join('');
   }
   wrap.innerHTML = html;
 }
@@ -5817,6 +5836,59 @@ async function restoreClient(id){
     await refreshClients(); renderClientGrid(); renderTrash();
     showToast('success', 'Client restored', ''); }
   catch(e){ showToast('error', 'Could not restore', e.message); }
+}
+// A team admin's own way to reach "Recently removed" — the Command Center
+// panel above is superadmin-only (it sits next to firm-wide reports that
+// genuinely should be), but /api/tasks/:id/restore has always let an admin
+// restore their own team's deleted tasks; they just had no way to find the
+// id. This is that: same data, admin-reachable, own modal.
+async function openTrashModal(){
+  let data;
+  try { data = await api('/api/admin/trash'); }
+  catch(e){ showToast('error', 'Could not load', e.message); return; }
+  const { tasks = [], clients = [] } = data;
+  const row = (title, sub, when, who, restoreCall) => `
+    <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
+      <div><div style="font-weight:600;color:var(--text);">${esc(title)}</div>
+        <div style="font-size:12px;color:var(--text-faint);">${esc(sub)} · removed ${esc(when)}${who ? ' by ' + esc(who) : ''}</div></div>
+      <button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="${restoreCall}">↩ Restore</button>
+    </div>`;
+  let body;
+  if(!tasks.length && !clients.length){
+    body = `<p style="color:var(--text-faint);font-size:13.5px;">Nothing removed that you're able to restore.</p>`;
+  } else {
+    body = '';
+    if(tasks.length){
+      body += `<div class="label" style="margin:6px 0;">Tasks (${tasks.length})</div>`;
+      body += tasks.map(t => row(t.name, `${t.clientName || 'Internal'} · ${t.id}`,
+        fmtDate(dayOf(t.deletedAt)), t.deletedByName, `restoreTaskFromModal('${t.id}')`)).join('');
+    }
+    if(clients.length){
+      body += `<div class="label" style="margin:14px 0 6px;">Clients (${clients.length})</div>`;
+      body += clients.map(c => row(c.name, c.type || 'Client',
+        fmtDate(dayOf(c.deletedAt)), c.deletedByName, `restoreClientFromModal('${c.id}')`)).join('');
+    }
+  }
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🗑 Recently removed</h3>
+    <div class="modal-sub">Deleted tasks &amp; clients you're able to restore</div>
+    <div style="max-height:55vh;overflow-y:auto;margin-top:10px;">${body}</div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
+  openModal();
+}
+async function restoreTaskFromModal(id){
+  try { await api(`/api/tasks/${encodeURIComponent(id)}/restore`, { method:'POST' });
+    await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Task restored', '');
+    openTrashModal();
+  } catch(e){ showToast('error', 'Could not restore', e.message); }
+}
+async function restoreClientFromModal(id){
+  try { await api(`/api/clients/${encodeURIComponent(id)}/restore`, { method:'POST' });
+    await refreshClients(); renderClientGrid();
+    showToast('success', 'Client restored', '');
+    openTrashModal();
+  } catch(e){ showToast('error', 'Could not restore', e.message); }
 }
 function downloadExcelReport(){
   if(typeof XLSX === 'undefined'){ showToast('error', 'Unavailable', 'The Excel export library failed to load — check your internet connection and try again.'); return; }
@@ -5843,7 +5915,7 @@ function downloadExcelReport(){
     const assignRows = ccAssignments.map(a => ({
       'Task ID': a.id, 'Task': a.name, 'Client': a.clientName || '', 'Assigned By': a.assignedBy, 'Assigned To': a.assignedTo,
       'Status': a.status, 'Hours Logged': a.loggedHours, 'TAT (hrs)': a.tatHours, 'Reassignments': a.reassigned, 'Delivered': a.delivered ? 'Yes' : 'No',
-      'Client Date': a.clientDate || '', 'Completed At': a.completedAt ? a.completedAt.slice(0,10) : '',
+      'Client Date': a.clientDate || '', 'Completed At': a.completedAt ? dayOf(a.completedAt) : '',
     }));
     const ws2 = XLSX.utils.json_to_sheet(assignRows);
     ws2['!cols'] = Object.keys(assignRows[0]).map(k => ({ wch: Math.max(12, k.length + 2) }));
@@ -6079,7 +6151,7 @@ function openProdCalcModal(id){
   if(!p) return;
   const from = d.from, to = d.to;
   const done = tasks.filter(t => t.assignedTo === id && t.status === 'completed'
-    && t.completedAt && t.completedAt.slice(0,10) >= from && t.completedAt.slice(0,10) <= to)
+    && t.completedAt && dayOf(t.completedAt) >= from && dayOf(t.completedAt) <= to)
     .sort((a,b) => (a.completedAt||'').localeCompare(b.completedAt||''));
   const sumWorked = done.reduce((s,t) => s + taskHrs(t), 0);
   const pct = p.utilisationPct;
@@ -6103,7 +6175,7 @@ function openProdCalcModal(id){
   const doneRows = done.map(t => `<tr style="border-top:1px solid var(--panel-border);">
       <td style="padding:6px 8px 6px 0;font-weight:600;">${esc(t.name)}</td>
       <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
-      <td style="padding:6px 8px;color:var(--text-dim);">${fmtDate(t.completedAt.slice(0,10))}</td>
+      <td style="padding:6px 8px;color:var(--text-dim);">${fmtDate(dayOf(t.completedAt))}</td>
       <td style="padding:6px 8px;font-family:var(--font-mono);text-align:right;">${taskHrs(t).toFixed(1)}h</td>
     </tr>`).join('');
   const wipRows = inProgress.map(t => `<tr style="border-top:1px solid var(--panel-border);">
@@ -6304,13 +6376,11 @@ function svgSmoothPath(points){
 function computeSlaSeries(days){
   const dates = [];
   for(let i = days - 1; i >= 0; i--){
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    dates.push(d.toISOString().slice(0, 10));
+    dates.push(addDaysISO(-i));
   }
   if(!slaFeedOn) return dates.map(d => ({ date: d, value: 0 }));
   return dates.map(dateStr => {
-    const doneThatDay = tasks.filter(t => t.status === 'completed' && t.completedAt && t.completedAt.slice(0,10) === dateStr);
+    const doneThatDay = tasks.filter(t => t.status === 'completed' && t.completedAt && dayOf(t.completedAt) === dateStr);
     if(doneThatDay.length === 0) return { date: dateStr, value: 0 };
     const onTime = doneThatDay.filter(t => withinAgreedHours(t)).length;
     return { date: dateStr, value: Math.round((onTime / doneThatDay.length) * 100) };
@@ -6566,7 +6636,7 @@ function openMyAllTasks(){
 function openMyExtraHours(){
   const total = _myExtra.reduce((s,x) => s + x.extra, 0);
   const rows = _myExtra.map(x => `<tr>
-    <td><div class="tl-name">${esc(x.t.name)}</div><div class="tl-sub">${esc(x.t.clientName || 'Internal')} · ${x.t.id}${x.t.completedAt ? ' · ' + fmtDate(x.t.completedAt.slice(0,10)) : ''}</div></td>
+    <td><div class="tl-name">${esc(x.t.name)}</div><div class="tl-sub">${esc(x.t.clientName || 'Internal')} · ${x.t.id}${x.t.completedAt ? ' · ' + fmtDate(dayOf(x.t.completedAt)) : ''}</div></td>
     <td style="font-family:var(--font-mono);">${x.est.toFixed(1)}h</td>
     <td style="font-family:var(--font-mono);">${x.actual.toFixed(1)}h</td>
     <td style="font-family:var(--font-mono);color:#C2410C;font-weight:600;">+${x.extra.toFixed(1)}h</td>
@@ -6594,7 +6664,7 @@ function openMyReviewQueue(){
       <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</div></td>
       <td style="font-family:var(--font-mono);">⏱ ${t.tat}h</td>
       <td>${o ? esc(o.name) : '—'}</td>
-      <td class="tl-sub">${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</td>
+      <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
       <td style="${overdue ? 'color:#C2410C;font-weight:600;' : ''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${overdue ? ' · overdue' : ''}</td>
       <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="closeModal();openReviewFormModal('${t.id}')">📝 Review</button></td>
     </tr>`;
@@ -6625,14 +6695,13 @@ function openWorkLog(empId, startISO, endISO){
     showToast('error', 'Not allowed', "You can only see your own team's work log."); return;
   }
   const t0 = todayISO();
-  const d30 = new Date(); d30.setDate(d30.getDate() - 30);
-  const s = startISO || d30.toISOString().slice(0,10);
+  const s = startISO || addDaysISO(-30);
   const e = endISO || t0;
   const list = tasks
-    .filter(t => t.assignedTo === empId && t.completedAt && t.completedAt.slice(0,10) >= s && t.completedAt.slice(0,10) <= e)
+    .filter(t => t.assignedTo === empId && t.completedAt && dayOf(t.completedAt) >= s && dayOf(t.completedAt) <= e)
     .sort((a,b) => (b.completedAt||'').localeCompare(a.completedAt||''));
   const byDate = {};
-  list.forEach(t => { const d = t.completedAt.slice(0,10); (byDate[d] = byDate[d] || []).push(t); });
+  list.forEach(t => { const d = dayOf(t.completedAt); (byDate[d] = byDate[d] || []).push(t); });
   const dates = Object.keys(byDate).sort().reverse();
   const resultLabel = t => t.reviewStatus === 'clean' ? '<span class="badge completed dot">✓ Clean</span>'
     : t.reviewStatus === 'error' ? '<span class="badge overdue dot">⚠ Error</span>'
@@ -6676,7 +6745,7 @@ function openMyInReview(q){
     return `<tr>
       <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')} · ${t.id}</div></td>
       <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
-      <td class="tl-sub">${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</td>
+      <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
       <td class="tl-sub">${r ? esc(r.name) : 'unassigned'}</td>
     </tr>`;
   }).join('');
@@ -6699,13 +6768,13 @@ function openMyDoneList(startISO, endISO, q){
   const s = startISO || '', e = endISO || '';
   const all = tasks
     .filter(t => t.assignedTo === dashSubjectId() && t.status === 'completed' && ['clean','done'].includes(t.reviewStatus))
-    .filter(t => (!s || t.completedAt.slice(0,10) >= s) && (!e || t.completedAt.slice(0,10) <= e))
+    .filter(t => (!s || dayOf(t.completedAt) >= s) && (!e || dayOf(t.completedAt) <= e))
     .sort((a,b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
   const list = q ? all.filter(t => (t.name + ' ' + (t.clientName||'') + ' ' + t.id).toLowerCase().includes(q)) : all;
   const rows = list.map(t => `<tr>
       <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')} · ${t.id}</div></td>
       <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
-      <td class="tl-sub">${fmtDate(t.completedAt.slice(0,10))}</td>
+      <td class="tl-sub">${fmtDate(dayOf(t.completedAt))}</td>
       <td>${t.reviewStatus === 'clean' ? '<span class="badge completed dot">✓ Clean</span>' : '<span class="badge completed dot">✓ Done</span>'}</td>
     </tr>`).join('');
   const totalHrs = list.reduce((n,t) => n + taskHrs(t), 0);
@@ -7263,7 +7332,7 @@ function openReviewFormModal(id){
     showToast('error', 'Not allowed', 'Only a manager or admin responsible for this person can review their work.');
     return;
   }
-  _revState = { id, checked: [], note: '', hours: undefined, faultType: null, screenshot: null };
+  _revState = { id, checked: [], note: '', hours: undefined, faultType: null, screenshot: null, score: undefined };
   _reviewShotData = null;
   const assignee = empById(t.assignedTo);
   const cs = commitmentStatus(t);
@@ -7273,13 +7342,13 @@ function openReviewFormModal(id){
     <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:14px 16px; margin:14px 0 16px; font-size:13.5px; color:var(--text-dim); line-height:1.8;">
       <div><b style="color:var(--text);">Completed by:</b> ${assignee ? esc(assignee.name) : '—'}</div>
       <div><b style="color:var(--text);">Hours logged:</b> ${t.logged.toFixed(2)} / ${t.tat} hrs estimated</div>
-      <div><b style="color:var(--text);">Completed on:</b> ${t.completedAt ? fmtDate(t.completedAt.slice(0,10)) : '—'}</div>
+      <div><b style="color:var(--text);">Completed on:</b> ${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</div>
       <div><b style="color:var(--text);">Client committed date:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
       <div><b style="color:var(--text);">Commitment:</b> ${cs === 'met' ? '<span style="color:var(--teal);">✓ Met</span>' : cs === 'missed' ? '<span style="color:#C2410C;">✗ Missed</span>' : '—'}</div>
     </div>
     <div class="field" style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;">
-      <label style="font-size:15px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600;">Can we send this directly to the client?</label>
-      <div style="font-size:12.5px;color:var(--text-faint);margin-top:4px;">Yes scores it and moves to sending it; No records whose fault it was and sends it back for rework.</div>
+      <label style="font-size:15px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600;">${t.kind === 'internal' ? 'Is this work correct as delivered?' : 'Can we send this directly to the client?'}</label>
+      <div style="font-size:12.5px;color:var(--text-faint);margin-top:4px;">${t.kind === 'internal' ? 'Yes scores it and closes it out; No records whose fault it was and sends it back for rework.' : 'Yes scores it and moves to sending it; No records whose fault it was and sends it back for rework.'}</div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -7386,15 +7455,24 @@ function openReviewScoreModal(){
     <h3>Score this work — ${esc(t.name)}</h3>
     <div class="modal-sub">${isClean ? 'Going straight to the client' : 'Going back for rework'}</div>
     <div class="field"><label>Score <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(0–100)</span></label>
-      <input type="number" id="reviewScoreInput" min="0" max="100" step="1" placeholder="e.g. 90">
+      <input type="number" id="reviewScoreInput" min="0" max="100" step="1" placeholder="e.g. 90" value="${_revState.score != null ? _revState.score : ''}">
     </div>
     <div class="modal-error" id="reviewScoreErr"></div>
     <div class="modal-actions">
-      <button class="btn" onclick="${isClean ? `openReviewFormModal('${_revState.id}')` : `openReviewDetailFormModal()`}">← Back</button>
+      <button class="btn" onclick="reviewScoreGoBack(${isClean})">← Back</button>
       <button class="btn primary" onclick="submitReviewFinal()">✓ Done</button>
     </div>
   `;
   openModal();
+}
+// Whatever was typed into the score field would otherwise be silently
+// dropped on Back, since the modal it returns to is a full innerHTML replace
+// — stash it on _revState first so re-opening the score step restores it.
+function reviewScoreGoBack(isClean){
+  const scoreEl = document.getElementById('reviewScoreInput');
+  _revState.score = scoreEl && scoreEl.value !== '' ? scoreEl.value : undefined;
+  if(isClean) openReviewFormModal(_revState.id);
+  else openReviewDetailFormModal();
 }
 async function submitReviewFinal(){
   const scoreEl = document.getElementById('reviewScoreInput');
@@ -7513,7 +7591,7 @@ function openReviewViewModal(id){
     <div class="modal-sub">${esc(t.clientName) || '—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
     <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:14px 16px; margin:14px 0; font-size:13.5px; color:var(--text-dim); line-height:1.8;">
       <div><b style="color:var(--text);">Reviewed by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
-      <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(t.reviewedAt.slice(0,10)) : '—'}</div>
+      <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</div>
       ${Number(t.reviewHours) > 0 ? `<div><b style="color:var(--text);">Time spent reviewing:</b> ${Number(t.reviewHours).toFixed(2)}h</div>` : ''}
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
       <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision
@@ -7573,6 +7651,9 @@ function openTaskTrailModal(id){
   (t.tatHistory||[]).forEach(h => {
     push(h.at, '⏱', `<b>${esc(h.by||'—')}</b> changed the estimate — ${h.from}h → ${h.to}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
   });
+  (t.loggedHistory||[]).forEach(h => {
+    push(h.at, '🛠', `<b>${esc(h.by||'—')}</b> corrected the logged hours — ${Number(h.from).toFixed(1)}h → ${Number(h.to).toFixed(1)}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
+  });
   (t.queries||[]).forEach(q => {
     push(q.sentAt, '❓', `Query to the client raised (${esc(q.source)})${q.note ? ': “'+esc(q.note)+'”' : ''} — commitment clock frozen.`);
     if(q.replyAt) push(q.replyAt, '📨', `Client replied${q.replySource ? ' by ' + esc(q.replySource) : ''} — freeze ends.`);
@@ -7621,7 +7702,10 @@ function openTaskTrailModal(id){
     <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${t.id} · now: <b>${esc(stateNow)}</b></div>
     <div id="ttNotifyStatus"></div>
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      ${isSuperAdmin ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="openCorrectLoggedModal('${id}')" title="Fix a bad logged-hours value — e.g. a forgotten timer">Correct logged hours (${t.logged.toFixed(1)}h)</button>` : ''}
+    </div>
   `;
   openModal();
   // did the assignee open their alerts for this? (manager / assigner view)
@@ -7634,6 +7718,37 @@ function openTaskTrailModal(id){
         : `<div class="notif-seen-line unseen">🔔 ${who} has <b>not opened</b> the alert for this task yet (sent ${_relTime(d.status.at)}).</div>`;
     }).catch(()=>{});
   }
+}
+function openCorrectLoggedModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Correct logged hours — ${esc(t.name)}</h3>
+    <div class="modal-sub">Currently ${t.logged.toFixed(2)}h logged, agreed ${t.tat}h. Use this to fix a bad value — e.g. a forgotten timer left running for days.</div>
+    <div class="field"><label>Correct logged hours</label>
+      <input type="number" id="clNewValue" min="0" step="0.1" value="${t.logged.toFixed(1)}"></div>
+    <div class="field"><label>Reason <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required)</span></label>
+      <textarea id="clNote" placeholder="e.g. Timer left running over the weekend — resetting to the agreed estimate"></textarea></div>
+    <div class="modal-error" id="clErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openTaskTrailModal('${id}')">← Back</button>
+      <button class="btn primary" onclick="submitCorrectLogged('${id}')">Save correction</button>
+    </div>`;
+  openModal();
+}
+async function submitCorrectLogged(id){
+  const v = document.getElementById('clNewValue').value;
+  const note = document.getElementById('clNote').value.trim();
+  const errEl = document.getElementById('clErr');
+  const logged = v !== '' ? parseFloat(v) : NaN;
+  if(!(logged >= 0)){ errEl.textContent = 'Enter zero or a positive number of hours.'; errEl.style.display = 'block'; return; }
+  if(!note){ errEl.textContent = 'A one-line reason is required.'; errEl.style.display = 'block'; return; }
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/correct-logged`, { method:'POST', body: JSON.stringify({ logged, note }) });
+    await refreshTasks();
+    showToast('success', 'Logged hours corrected', `Now ${logged.toFixed(1)}h.`);
+    openTaskTrailModal(id);
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* =========================================================================
    REWORK — a task the manager flagged with an error, sent back to the
@@ -7821,6 +7936,7 @@ async function renderReportCard(){
     tile('Efficiency', p.efficiency == null ? '—' : p.efficiency.toFixed(2) + '×', p.efficiency == null ? '' : p.efficiency >= 1 ? 'at/under estimate' : 'over estimate') +
     tile('Throughput', p.throughput == null ? '—' : p.throughput.toFixed(1), 'tasks per working day') +
     tile('Rework rounds', p.processorReworkRounds || 0, `${p.reviewedTasks} reviewed`) +
+    tile('Reviewer score', p.avgReviewScore == null ? '—' : p.avgReviewScore.toFixed(0), p.reviewScoreCount ? `avg of ${p.reviewScoreCount} scored review${p.reviewScoreCount===1?'':'s'}` : 'no scored reviews yet') +
     tile('Chased', p.chaseEvents || 0, 'deliberate nudges in range') +
     tile('Fiscal YTD', p.cumulativeYtdWorked.toFixed(0) + 'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`);
 
@@ -7878,7 +7994,7 @@ async function renderReportCard(){
 
   // ---- delivered tasks in the period ----
   const delivered = tasks.filter(t => t.assignedTo === _rcPersonId && t.status === 'completed'
-    && (t.completedAt || '').slice(0,10) >= from && (t.completedAt || '').slice(0,10) <= to)
+    && t.completedAt && dayOf(t.completedAt) >= from && dayOf(t.completedAt) <= to)
     .sort((a,b)=>(b.completedAt||'').localeCompare(a.completedAt||''));
   document.getElementById('rcDelivery').innerHTML = delivered.length ? `
     <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -7887,7 +8003,7 @@ async function renderReportCard(){
       <tbody>${delivered.map(t => `<tr style="border-top:1px solid var(--panel-border);">
         <td style="padding:7px 10px 7px 0;font-weight:600;">${esc(t.name)}</td>
         <td style="padding:7px 10px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
-        <td style="padding:7px 10px;color:var(--text-dim);">${fmtDate((t.completedAt||'').slice(0,10))}</td>
+        <td style="padding:7px 10px;color:var(--text-dim);">${fmtDate(dayOf(t.completedAt))}</td>
         <td style="padding:7px 10px;font-family:var(--font-mono);">${Number(t.tat) > 0 ? Number(t.tat).toFixed(1)+'h' : '—'}</td>
         <td style="padding:7px 10px;font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
         <td style="padding:7px 10px;">${t.clientDate ? commitmentBadge(t) : '<span style="color:var(--text-faint);">no date</span>'}</td>

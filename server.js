@@ -344,12 +344,15 @@ function estimateCapacity(state, empId) {
   // rolling 56-day lookback still reaches back into pre-launch seed data
   // today, which can pull the estimate down to something nobody actually
   // worked (see: Manya Nanda showing 3h/day from stale seed rows).
-  const since = cal.addWorkingDays(todayISO(), 0); // today
-  const from = floorAtGoLive(new Date(Date.now() - 56 * 86400000).toISOString().slice(0, 10), since);
+  const since = cal.addWorkingDays(todayISO(), 0); // today (NZ calendar day)
+  // 56 calendar days back from `since` — computed off the NZ day string, not
+  // Date.now(), so the window doesn't drift a day early/late depending on
+  // what time of day (UTC vs NZT) this happens to run.
+  const from = floorAtGoLive(new Date(new Date(since + 'T00:00:00Z').getTime() - 56 * 86400000).toISOString().slice(0, 10), since);
   const byDay = {};
   state.tasks.filter(t => t.assignedTo === empId && t.status === 'completed'
-      && (t.completedAt || '').slice(0, 10) >= from && (t.completedAt || '').slice(0, 10) <= since)
-    .forEach(t => { const d = t.completedAt.slice(0, 10); byDay[d] = (byDay[d] || 0) + taskHours(t); });
+      && nzDay(t.completedAt) >= from && nzDay(t.completedAt) <= since)
+    .forEach(t => { const d = nzDay(t.completedAt); byDay[d] = (byDay[d] || 0) + taskHours(t); });
   const days = Object.values(byDay).filter(h => h > 0).sort((a, b) => a - b);
   if (days.length < 8) return null; // not enough history — keep the seed / manual value
   const mid = Math.floor(days.length / 2);
@@ -817,6 +820,33 @@ function sweepAutoReminders(state) {
   return n;
 }
 
+// A task's "logged" hours accumulate as raw wall-clock time between Start
+// and Pause/Complete, with no cap — so a timer left running by accident
+// (someone starts it, goes home, and doesn't notice for days) silently
+// racks up real production found this at 115h logged on an 8h task,
+// because the clock ran unpaused across 8 calendar days including nights
+// and a weekend. Auto-pause any timer that's been running continuously
+// past this many hours: bank exactly that many (discard whatever ran
+// past it — almost certainly not real work) and stop the clock, so a
+// forgotten timer can never inflate past a bounded, sane amount.
+const RUNAWAY_TIMER_HOURS = 10;
+function sweepRunawayTimers(state) {
+  const now = Date.now();
+  let n = 0;
+  state.tasks.forEach(t => {
+    if (!t.timerStartedAt) return;
+    const elapsedH = (now - new Date(t.timerStartedAt).getTime()) / 3600000;
+    if (elapsedH <= RUNAWAY_TIMER_HOURS) return;
+    t.logged = (Number(t.logged) || 0) + RUNAWAY_TIMER_HOURS;
+    t.timerStartedAt = null;
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}"'s timer had been running for over ${RUNAWAY_TIMER_HOURS}h straight and looked forgotten, so it was auto-paused — ${RUNAWAY_TIMER_HOURS}h banked, the clock stopped. Resume it if you're still working on it.`);
+    notify(state, t.assignedTo, 'timer_autopaused', `"${t.name}"'s timer ran for over ${RUNAWAY_TIMER_HOURS}h straight and was auto-paused. Resume it if you're still on it.`, t.id);
+    n += 1;
+  });
+  if (n) db.save();
+  return n;
+}
+
 // ---------------------------------------------------------------------------
 // Auth middleware
 // ---------------------------------------------------------------------------
@@ -1147,11 +1177,19 @@ app.post('/api/clients/:id/restore', requireAuth, (req, res) => {
   db.save();
   res.json({ client });
 });
-// Recently-removed tasks and clients, newest first. Any admin/superadmin.
-app.get('/api/admin/trash', requireAuth, requireSuperAdmin, (req, res) => {
+// Recently-removed tasks and clients, newest first. Any admin/superadmin —
+// this used to be requireSuperAdmin while POST /api/tasks/:id/restore
+// already let a plain team admin restore their own team's deleted tasks;
+// they just had no way to see what was in the trash to find the id. The
+// task list below already scopes to the same boundary the restore endpoint
+// checks, so widening who can call this doesn't hand out any new capability.
+app.get('/api/admin/trash', requireAuth, requireAdmin, (req, res) => {
   const state = db.get();
   const me = req.employee;
   const canSeeTask = t => me.accessRole === 'superadmin' || t.deletedBy === me.id || canManageEmployee(state, me, t.assignedTo);
+  // Client restore (POST /api/clients/:id/restore) has always been open to
+  // any admin/superadmin regardless of team — the list here matches that
+  // existing rule rather than introducing a narrower one of its own.
   res.json({
     tasks: (state.deletedTasks || []).filter(canSeeTask).slice(0, 100).map(taskForClient),
     clients: (state.deletedClients || []).slice(0, 100),
@@ -1186,6 +1224,7 @@ function visibleTasks(state, me) {
 app.get('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
   sweepAutoReminders(state); // chase due-soon tasks that never started (once/day per task)
+  sweepRunawayTimers(state); // auto-pause a timer left running too long (see RUNAWAY_TIMER_HOURS)
   res.json({ tasks: visibleTasks(state, req.employee).map(taskForClient) });
 });
 // P2 — a manual "Nudge": whoever oversees a task records that they've chased
@@ -2210,6 +2249,31 @@ app.post('/api/tasks/:id/set-dates', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
+// Correct a task's logged hours after the fact — superadmin only, since
+// this figure feeds every worked-hours/productivity number directly. For
+// fixing a runaway/forgotten timer (see sweepRunawayTimers) or any other
+// bad entry once it's already landed. Requires a one-line reason; the
+// prior value is kept in loggedHistory so the correction is auditable,
+// the same way date/estimate edits above are.
+app.post('/api/tasks/:id/correct-logged', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const body = req.body || {};
+  const newLogged = Number(body.logged);
+  if (!(newLogged >= 0)) return res.status(400).json({ error: 'Logged hours must be zero or a positive number.' });
+  const note = String(body.note || '').trim();
+  if (!note) return res.status(400).json({ error: 'A one-line reason is required for correcting logged hours.' });
+  const before = Number(t.logged) || 0;
+  if (Math.abs(before - newLogged) < 0.01) return res.json({ task: taskForClient(t) });
+  t.loggedHistory = t.loggedHistory || [];
+  t.loggedHistory.push({ at: new Date().toISOString(), by: req.employee.name, from: before, to: newLogged, note });
+  t.logged = newLogged;
+  logEvent(state, t.assignedTo, `Logged hours on "${escHtml(t.name)}" corrected by <b>${escHtml(req.employee.name)}</b> — ${before.toFixed(1)}h → ${newLogged.toFixed(1)}h (${escHtml(note)}).`);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
 // Reassignment — an Admin/Superadmin hands a task to a different employee.
 // It deliberately routes through the SAME "awaiting_acceptance" state a
 // brand-new assignment uses, so the new assignee gets the exact same
@@ -2285,11 +2349,12 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
   // window (used by the Founder View's 30-day snapshot). Omitted, this
   // stays the all-time view the Command Center has always shown.
   const days = parseInt(req.query.days, 10);
-  const sinceISO = Number.isFinite(days) && days > 0 ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10) : null;
+  const sinceISO = Number.isFinite(days) && days > 0
+    ? new Date(new Date(todayISO() + 'T00:00:00Z').getTime() - days * 86400000).toISOString().slice(0, 10) : null;
   const rows = state.employees.map(emp => {
     const assignedToMe = state.tasks.filter(t => t.assignedTo === emp.id);
     const assignedByMe = state.tasks.filter(t => t.assignedBy === emp.id);
-    const delivered = assignedToMe.filter(t => t.status === 'completed' && (!sinceISO || (t.completedAt || '').slice(0, 10) >= sinceISO));
+    const delivered = assignedToMe.filter(t => t.status === 'completed' && (!sinceISO || nzDay(t.completedAt) >= sinceISO));
     const cleanDelivered = delivered.filter(t => t.reviewStatus === 'clean');
     const errorDelivered = delivered.filter(t => t.reviewStatus === 'error');
     const reviewedCount = cleanDelivered.length + errorDelivered.length;
@@ -2441,7 +2506,7 @@ function floorAtGoLive(fromISO, toISO) {
 
 function productivityFor(state, empIds, fromISO, toISO) {
   const from = fromISO, to = toISO;
-  const inRange = d => d && d.slice(0, 10) >= from && d.slice(0, 10) <= to;
+  const inRange = d => d && nzDay(d) >= from && nzDay(d) <= to;
   const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
   // YTD counts from the fiscal-year start, but never earlier than go-live —
   // there's no real worked-hours data before then.
@@ -2476,12 +2541,12 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const shiftHours = Math.round((shiftSeconds / 3600) * 100) / 100;
     // year-to-date cumulative worked hours
     const ytdWorked = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed'
-      && (t.completedAt || '').slice(0, 10) >= yearStart && (t.completedAt || '').slice(0, 10) <= to)
+      && nzDay(t.completedAt) >= yearStart && nzDay(t.completedAt) <= to)
       .reduce((s, t) => s + taskHours(t), 0);
     // monthly trend across the range (reporting is monthly / fiscal-year)
     const months = {};
     done.forEach(t => {
-      const mk = t.completedAt.slice(0, 7) + '-01';       // YYYY-MM-01
+      const mk = nzDay(t.completedAt).slice(0, 7) + '-01';       // YYYY-MM-01, NZ calendar month
       (months[mk] = months[mk] || { monthStart: mk, tasks: 0, worked: 0, allocated: 0 });
       months[mk].tasks += 1; months[mk].worked += taskHours(t); months[mk].allocated += Number(t.tat) || 0;
     });
@@ -2490,6 +2555,13 @@ function productivityFor(state, empIds, fromISO, toISO) {
     // ---- P3 composite score ----
     const weights = weightsForTeam(state, emp.team);
     const reviewedDone = done.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
+    // The reviewer's 0-100 score from the Review wizard (t.reviewScore) is
+    // captured on both clean and error reviews but was never rolled up
+    // anywhere — this is that rollup, averaged over whatever was scored in
+    // the window. Informational only; it doesn't feed the composite score.
+    const scoredReviews = done.filter(t => t.reviewScore != null);
+    const avgReviewScore = scoredReviews.length
+      ? r2(scoredReviews.reduce((s, t) => s + t.reviewScore, 0) / scoredReviews.length) : null;
     const processorReworkRounds = done.reduce((s, t) => {
       const hist = (t.reworkHistory || []).filter(h => h && h.faultType === 'processor').length;
       if (hist) return s + hist;
@@ -2546,6 +2618,9 @@ function productivityFor(state, empIds, fromISO, toISO) {
       // P3
       factors, productivityScore: rawScore, scoreStatus, reviewedTasks: reviewedDone.length,
       processorReworkRounds, openTasksInRange: openTasks,
+      // Reviewer's 0-100 score from the Review wizard, averaged over reviews
+      // in range that carry one — informational only, not part of the score.
+      avgReviewScore, reviewScoreCount: scoredReviews.length,
       // second score — coverage measured against full capacity, and the gap
       capacityFactors, capacityScore, capacityCoverage,
       allocationGapHours, scoreGap,
@@ -2598,7 +2673,7 @@ function allocatedInWindow(state, empId, fromISO, toISO) {
   return state.tasks.filter(t => {
     if (t.assignedTo !== empId) return false;
     const dueIn = t.status !== 'completed' && t.internalDeadline && t.internalDeadline >= fromISO && t.internalDeadline <= toISO;
-    const doneIn = t.status === 'completed' && (t.completedAt || '').slice(0, 10) >= fromISO && (t.completedAt || '').slice(0, 10) <= toISO;
+    const doneIn = t.status === 'completed' && nzDay(t.completedAt) >= fromISO && nzDay(t.completedAt) <= toISO;
     return dueIn || doneIn;
   }).reduce((s, t) => s + (Number(t.tat) || 0), 0);
 }
@@ -2633,7 +2708,7 @@ function allocationScorecard(state, teamName, fromISO, toISO) {
       };
     });
     const sopReworkRounds = state.tasks.filter(t => t.assignedTo === e.id && t.status === 'completed'
-      && (t.completedAt || '').slice(0, 10) >= fromISO && (t.completedAt || '').slice(0, 10) <= toISO)
+      && nzDay(t.completedAt) >= fromISO && nzDay(t.completedAt) <= toISO)
       .reduce((s, t) => s + (t.reworkHistory || []).filter(h => h && h.faultType === 'sop').length, 0);
     return {
       id: e.id, name: e.name,
@@ -2664,7 +2739,8 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const me = req.employee;
   const clamp = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
   const to = clamp(req.query.to) || todayISO();
-  const requestedFrom = clamp(req.query.from) || new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
+  const requestedFrom = clamp(req.query.from)
+    || new Date(new Date(to + 'T00:00:00Z').getTime() - 90 * 86400000).toISOString().slice(0, 10);
   if (requestedFrom > to) return res.status(400).json({ error: 'from must be on or before to.' });
   // No real data before go-live — count capacity / working days / worked
   // hours from 7 Sept 2026 on, never from the fiscal-year start.
@@ -3080,19 +3156,31 @@ app.post('/api/push/test', requireAuth, async (req, res) => {
 // times over time — and so productivity can be judged against actual
 // shift hours worked, not just an assumed full day.
 // ---------------------------------------------------------------------------
-function getPunchState(state, empId) {
-  const existing = state.punchLog[empId];
-  if (!existing || existing.date !== todayISO()) {
-    state.punchLog[empId] = { date: todayISO(), punchedOut: false, punchedInAt: null, seconds: 0 };
-  }
-  return state.punchLog[empId];
-}
 function getAttendanceDay(state, empId, date) {
   state.attendance[empId] = state.attendance[empId] || {};
   if (!state.attendance[empId][date]) {
     state.attendance[empId][date] = { loginAt: null, logoutAt: null, secondsWorked: 0 };
   }
   return state.attendance[empId][date];
+}
+function getPunchState(state, empId) {
+  const existing = state.punchLog[empId];
+  if (!existing || existing.date !== todayISO()) {
+    // A record left mid-shift from a previous day (forgot to punch out)
+    // used to be silently discarded here — replaced with a blank record for
+    // the new day, losing that whole day's hours. Flush whatever was banked
+    // plus whatever accrued since the last punch-in into that day's
+    // attendance record first, capped the same way attendance/ingest caps a
+    // device reading, so a very stale record can't produce a bogus shift.
+    if (existing && existing.punchedInAt) {
+      const seconds = Math.min(existing.seconds + Math.floor((Date.now() - existing.punchedInAt) / 1000), 16 * 3600);
+      const day = getAttendanceDay(state, empId, existing.date);
+      if (!day.logoutAt) day.logoutAt = new Date().toISOString();
+      day.secondsWorked = seconds;
+    }
+    state.punchLog[empId] = { date: todayISO(), punchedOut: false, punchedInAt: null, seconds: 0 };
+  }
+  return state.punchLog[empId];
 }
 app.get('/api/punch/me', requireAuth, (req, res) => {
   const state = db.get();
@@ -3143,6 +3231,15 @@ app.post('/api/punch/toggle', requireAuth, (req, res) => {
         pendingActive: ip.map(t => ({ id: t.id, name: t.name, scope: t.scope, clientName: t.clientName, status: t.status, kind: 'active' })),
       });
     }
+    // Stop the clock on anything of theirs still actively running — a task
+    // shouldn't keep accruing "worked" hours after its owner has clocked off
+    // for the day. Whatever accrued is banked, same as a manual Pause.
+    state.tasks.forEach(t => {
+      if (t.assignedTo === req.employee.id && t.timerStartedAt) {
+        t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
+        t.timerStartedAt = null;
+      }
+    });
     st.seconds += Math.floor((Date.now() - st.punchedInAt) / 1000);
     st.punchedInAt = null;
     st.punchedOut = true; // one punch in/out cycle per day, then locked

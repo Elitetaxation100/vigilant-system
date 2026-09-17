@@ -14,6 +14,7 @@
 const crypto = require('crypto');
 const https = require('https');
 const db = require('./db');
+const cal = require('./calendar');
 
 const cfg = () => ({
   slackBotToken: process.env.SLACK_BOT_TOKEN || '',
@@ -313,7 +314,14 @@ function createTask(state, o) {
     id: '#' + (100000000000 + state.taskSeq), name: String(o.title || 'Call follow-up').slice(0, 200),
     scope: o.detail ? String(o.detail).trim() : '—',
     clientId: client ? client.id : null, clientName: client ? client.name : (o.clientName || ''),
-    clientDate: null, internalDeadline: o.dueDate || null, points: 0,
+    // A due date is required everywhere else a task is created (same rule
+    // the in-app assign form enforces) — a call/Slack task with none used to
+    // stay null forever if "Log Outcome" skipped its optional date field,
+    // which then permanently blocked the assignee's punch-out (the gate
+    // treats an accepted task with no internal deadline as unsettled).
+    // Default to the next working day so it's never null; easy to correct
+    // later from the task's own "Edit dates" if that's not the real date.
+    clientDate: null, internalDeadline: o.dueDate || cal.addWorkingDays(nzToday(), 1), points: 0,
     assignedTo: assignee ? assignee.id : null, assignedBy: assignee ? assignee.id : null,
     team: (assignee && assignee.team) || null,
     assignedAt: now, reassignHistory: [], status: 'accepted', logged: 0, tat,
@@ -940,7 +948,10 @@ async function submitLogOutcome(payload) {
   if (row.taskId) {
     const t = (state.tasks || []).find(x => x.id === row.taskId);
     if (t) {
-      t.name = title; t.scope = detail || '—'; t.internalDeadline = due || null;
+      // Leaving the due-date field blank here means "keep whatever it already
+      // has" (e.g. the placeholder set at self-assign), not "clear it" — a
+      // null internal deadline permanently blocks the assignee's punch-out.
+      t.name = title; t.scope = detail || '—'; t.internalDeadline = due || t.internalDeadline || cal.addWorkingDays(nzToday(), 1);
       const a = empBySlackId(state, assigneeSlackId); if (a) t.assignedTo = a.id;
       t.estMinutes = minsN;
       t.tat = Math.max(0.25, Math.round((minsN / 60) * 4) / 4);
@@ -1136,7 +1147,7 @@ function openCallTasksFor(state, empId) {
     t.status !== 'completed' && t.status !== 'cancelled');
 }
 function overdueIntegrationTasks(state) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = nzToday();
   return (state.tasks || []).filter(t =>
     (t.source === 'call' || t.source === 'slack_message') && t.status !== 'completed' && t.status !== 'cancelled' &&
     t.internalDeadline && t.internalDeadline < today);

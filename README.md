@@ -11,17 +11,23 @@ copy of the data, not one per browser.
 You need [Node.js](https://nodejs.org) installed (version 18 or newer).
 
 ```bash
-cd server
 npm install
 npm start
 ```
 
+(Run from the repository root — there is no separate `server/` folder;
+`server.js`, `db.js`, `calendar.js` and `connector.js` all live at the top
+level, and `package.json`'s `main`/`start` script points at `server.js`
+directly.)
+
 Then open **http://localhost:3000** in a browser. That's the whole app —
 frontend and backend are served from the same place.
 
-The first time it runs, it creates `server/data/db.json` with these
-starting accounts (this list is kept in sync with `server/db.js`'s
-`ROSTER` — the single place these are defined):
+The first time it runs, it creates `data/db.json` with these starting
+accounts (this list is kept in sync with `db.js`'s `ROSTER` — the single
+place these are defined). Anyone since removed from the roster (via
+`RETIRED_EMAILS` in `db.js`) is left out here too — an entry in this table
+that isn't in `db.js`'s `ROSTER` is a stale row, not a real login:
 
 | Name | Email | Password | Access |
 |---|---|---|---|
@@ -39,8 +45,6 @@ starting accounts (this list is kept in sync with `server/db.js`'s
 | Nitish | nitish@elitetaxation.co.nz | Nitish@2026 | Employee |
 | Smita | smita@elitetaxation.co.nz | Smita@2026 | Employee |
 | Hunny | hunny@elitetaxation.co.nz | Hunny@2026 | Employee |
-| Natasha | natasha@elitetaxation.co.nz | Natasha@2026 | Employee |
-| Krishna | krishna@elitetaxation.co.nz | Krishna@2026 | Employee |
 
 **Treat this table as sensitive** — these are real, working credentials for
 real accounts, not placeholders. Don't push this repository (or this file)
@@ -59,7 +63,7 @@ employee to reach the same server, it needs to run somewhere always-on
 that everyone's computer can reach. Two realistic paths:
 
 **A. A small always-on server you already have** (an office PC that stays
-on, a NAS, an existing company server): copy this `server/` folder onto
+on, a NAS, an existing company server): copy this whole repository onto
 it, run `npm install && npm start` there, and have everyone open
 `http://<that machine's address>:3000` on the office network. This is
 free and keeps everything in-house.
@@ -70,7 +74,7 @@ Fly.io can run a Node app for you, usually with a free tier for something
 this size. In broad strokes: create an account, connect this project
 (or upload it), set the start command to `npm start`, and they give you
 a public URL. **Important:** whichever you pick, make sure it gives your
-app **persistent disk storage** for the `server/data/` folder — some
+app **persistent disk storage** for the `data/` folder — some
 free tiers wipe the filesystem on every restart, which would erase your
 tasks and employee accounts. If you're not sure which option handles
 this correctly, that's worth asking the provider directly, or getting a
@@ -82,7 +86,7 @@ so Replit picks up `npm start` automatically — `engines.node` in
 get right is the deployment type: pick **Reserved VM ("Always On")**, not
 **Autoscale**. Autoscale runs on ephemeral storage per instance, and this
 app's entire database — every employee, task, and the session-signing
-secret — is the one file `server/data/db.json` on local disk. On
+secret — is the one file `data/db.json` on local disk. On
 Autoscale, a scale event or redeploy can wipe that file (and silently log
 everyone out, since the signing secret goes with it). A Reserved VM keeps
 the same disk across restarts, which is what this app needs.
@@ -92,14 +96,14 @@ the same disk across restarts, which is what this app needs.
 - Passwords are hashed (bcrypt) — a real improvement over the old
   plaintext-in-the-file-source setup. Change the default passwords above.
 - Sessions are JWTs signed with a secret that's generated once and saved
-  to `server/data/jwt-secret.txt`. Keep that file private; anyone with it
+  to `data/jwt-secret.txt`. Keep that file private; anyone with it
   could forge sessions. In production, prefer setting it yourself via an
   environment variable: `JWT_SECRET=<random long string>`.
 - There's no HTTPS built in. If this is reachable over the open internet
   (not just your office network), put it behind a reverse proxy (e.g.
   Caddy, Nginx, or your hosting provider's built-in HTTPS) so passwords
   and pause-task screenshots aren't sent in the clear.
-- Back up `server/data/db.json` periodically — it's the entire database.
+- Back up `data/db.json` periodically — it's the entire database.
 - The API allows requests from any origin by default. Once you have a
   real deployed URL, set `ALLOWED_ORIGIN=https://your-app-domain` so only
   your own frontend can call the API.
@@ -108,13 +112,15 @@ the same disk across restarts, which is what this app needs.
   issue where one person's display name or task title could otherwise run
   as code in someone else's browser.
 - Admin actions on an existing task (review, reassign, approve/reject a
-  proposed window) are scoped to the admin's own team (`managesIds`), the
-  same boundary already used when handing out new work — one admin can't
-  reach into another manager's tasks.
+  proposed window) are scoped to the admin's own team — everyone sharing
+  the same `team` name on their employee record, the same boundary already
+  used when handing out new work — one admin can't reach into another
+  manager's tasks. (`managesIds` is kept in sync for the Employee Directory
+  view but is no longer what scoping is actually checked against.)
 
 ## What changed from the static-file version
 
-- All data lives on the server (`server/data/db.json`), not in the
+- All data lives on the server (`data/db.json`), not in the
   browser — this is the actual fix for cross-employee sync.
 - Login is real: hashed passwords, server-issued session tokens, and
   every permission check (who can assign to whom, who can approve a
