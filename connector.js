@@ -462,7 +462,13 @@ function waTextOf(msg) {
 // this field first; the older structural/string checks stay as a fallback
 // for any payload shape that doesn't carry it.
 function waDirectionOf(type, msg) {
-  if (msg && msg.chat_message_type === 'AgentMessage') return 'out';
+  // AgentMessage = a person on our team replying manually. PublicApiMessage
+  // = sent programmatically via Interakt's Public API (confirmed from real
+  // traffic: every sample carries meta_data.source "PublicInterakt" and is
+  // an automated/bulk-send follow-up or CRM-triggered template — never
+  // something a customer typed). Both are ours; only CustomerMessage is
+  // genuinely inbound (100% consistent across every real sample seen).
+  if (msg && (msg.chat_message_type === 'AgentMessage' || msg.chat_message_type === 'PublicApiMessage')) return 'out';
   if (msg && msg.chat_message_type === 'CustomerMessage') return 'in';
   const t = String(type || '').toLowerCase();
   if (msg && Array.isArray(msg.message)) return 'out';
