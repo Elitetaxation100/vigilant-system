@@ -8407,6 +8407,13 @@ function openManageEmployee(id){
         </select>
         <input type="date" id="meSelfEditCustom" style="display:none;margin-top:8px;" min="${todayISO()}">
       </div>
+      <div class="field"><label>Capacity <span style="text-transform:none;color:var(--text-faint);">— hours/day the system estimates from this person's own delivery history, used for workload &amp; commitment dates</span></label>
+        <div style="font-size:13.5px;color:var(--text-dim);margin-bottom:6px;">Currently <b>${Number(e.effectiveCapacity) > 0 ? Number(e.effectiveCapacity) : 8}h/day</b>${e.capacityAuto ? ' (auto-estimated)' : ' (default)'}</div>
+        <label style="display:flex; align-items:flex-start; gap:8px; font-size:14px; cursor:pointer;">
+          <input type="checkbox" id="meResetCapacity" style="margin-top:3px;">
+          <span>Reset to the 8h/day default now<br><span style="color:var(--text-faint);font-size:12.5px;">Clears a stale auto-estimate (e.g. one pulled down by pre-launch seed data) — recomputes on its own once 8 days of real history exist.</span></span>
+        </label>
+      </div>
       <div class="field"><label>Slack user ID <span style="text-transform:none; color:var(--text-faint);">— so Slack tasks reach this person</span></label><input type="text" id="meSlackId" value="${esc(e.slackUserId || '')}" placeholder="U0XXXXXXXX"></div>
       <div class="field"><label>Aircall agent ID <span style="text-transform:none; color:var(--text-faint);">— only if they take calls</span></label><input type="text" id="meAircallId" value="${esc(e.aircallAgentId || '')}" placeholder="1234567"></div>
       <div class="field">
@@ -8473,6 +8480,7 @@ async function submitManageEmployee(id){
   const whatsappAccess = document.getElementById('meWhatsappAccess').checked;
   const slackUserId = document.getElementById('meSlackId').value.trim();
   const aircallAgentId = document.getElementById('meAircallId').value.trim();
+  const resetCapacity = document.getElementById('meResetCapacity').checked;
   // self-edit window → an ISO datetime, null (revoke), or undefined (unchanged)
   let selfEditUntil; // undefined by default
   const sew = document.getElementById('meSelfEditWindow').value;
@@ -8489,6 +8497,7 @@ async function submitManageEmployee(id){
     const payload = { accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
       memberships, isFounder, dashObserver, whatsappAccess, slackUserId, aircallAgentId };
     if(selfEditUntil !== undefined) payload.selfEditUntil = selfEditUntil;
+    if(resetCapacity) payload.resetCapacity = true;
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify(payload)});
     closeModal();
     await refreshEmployees();
