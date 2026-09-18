@@ -3438,6 +3438,14 @@ function actionCell(t){
       if(t.status === 'on_hold'){
         html += holdControlsHtml(t);
       } else if(isMine || isAdmin){
+        // Start/Pause/Resume is the same optional actual-time clock manual
+        // tasks get — call/Slack tasks used to skip straight to Mark Done
+        // with no way to track real time worked on them.
+        if(isMine && t.status === 'accepted'){
+          html += t.timerStartedAt
+            ? `<button class="verify-btn" onclick="pauseTask('${t.id}')" title="Pause the clock">⏸ Pause</button>`
+            : `<button class="verify-btn" style="border-color:var(--teal,var(--teal));color:var(--teal);" onclick="resumeTask('${t.id}')" title="${t.startedAt ? 'Resume the clock' : 'Optional — track the actual time on this task'}">▶ ${t.startedAt ? 'Resume' : 'Start Work'}</button>`;
+        }
         html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="markDoneNoReview('${t.id}')">✓ Mark Done</button>`;
         if(t.assignedTo) html += `<button class="verify-btn" onclick="openCompleteModal('${t.id}')" title="Send it to someone to check first">Send for Review</button>`;
         html += holdControlsHtml(t);
