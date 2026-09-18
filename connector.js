@@ -189,9 +189,14 @@ const SLACK_TEXT_MAX = 2800;
 // (or bare <url>) — passed straight through, that leaks as e.g.
 // "<mailto:x@y.com|x@y.com> Rideshare client processing" in a task title.
 // Unwrap to just the readable label (or the url/address when there's no
-// separate label), same as what a person actually sees in Slack's UI.
+// separate label). Slack's raw text also HTML-escapes &, < and > (so a
+// literal "&" survives as "&amp;" — see "HAMILTON PANEL &amp; PAINT
+// LIMITED" in a real task title) — unescape those too, same as what a
+// person actually sees in Slack's UI.
 function deslackifyText(s) {
-  return String(s || '').replace(/<([^|>]+)(?:\|([^>]*))?>/g, (_, url, label) => label || url.replace(/^mailto:/, ''));
+  return String(s || '')
+    .replace(/<([^|>]+)(?:\|([^>]*))?>/g, (_, url, label) => label || url.replace(/^(mailto|tel):/, ''))
+    .replace(/&(amp|lt|gt);/g, (_, e) => ({ amp: '&', lt: '<', gt: '>' }[e]));
 }
 function fmtDate(iso) {
   if (!iso) return '—';
