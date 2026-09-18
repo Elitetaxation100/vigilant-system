@@ -7662,6 +7662,9 @@ function openTaskTrailModal(id){
   (t.loggedHistory||[]).forEach(h => {
     push(h.at, '🛠', `<b>${esc(h.by||'—')}</b> corrected the logged hours — ${Number(h.from).toFixed(1)}h → ${Number(h.to).toFixed(1)}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
   });
+  (t.nameHistory||[]).forEach(h => {
+    push(h.at, '✏', `<b>${esc(h.by||'—')}</b> renamed it — “${esc(h.from)}” → “${esc(h.to)}”.`);
+  });
   (t.queries||[]).forEach(q => {
     push(q.sentAt, '❓', `Query to the client raised (${esc(q.source)})${q.note ? ': “'+esc(q.note)+'”' : ''} — commitment clock frozen.`);
     if(q.replyAt) push(q.replyAt, '📨', `Client replied${q.replySource ? ' by ' + esc(q.replySource) : ''} — freeze ends.`);
@@ -7712,6 +7715,7 @@ function openTaskTrailModal(id){
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
+      ${empManagesWork(currentViewer(), t.assignedTo) ? `<button class="btn" style="border-color:#6D28D9;color:#6D28D9;" onclick="openCorrectNameModal('${id}')" title="Fix a garbled or wrong title">Rename task</button>` : ''}
       ${isSuperAdmin ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="openCorrectLoggedModal('${id}')" title="Fix a bad logged-hours value — e.g. a forgotten timer">Correct logged hours (${t.logged.toFixed(1)}h)</button>` : ''}
     </div>
   `;
@@ -7755,6 +7759,32 @@ async function submitCorrectLogged(id){
     await api(`/api/tasks/${encodeURIComponent(id)}/correct-logged`, { method:'POST', body: JSON.stringify({ logged, note }) });
     await refreshTasks();
     showToast('success', 'Logged hours corrected', `Now ${logged.toFixed(1)}h.`);
+    openTaskTrailModal(id);
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+function openCorrectNameModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Rename task</h3>
+    <div class="modal-sub">${t.id}</div>
+    <div class="field"><label>Task name</label>
+      <input type="text" id="cnNewValue" value="${esc(t.name)}"></div>
+    <div class="modal-error" id="cnErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openTaskTrailModal('${id}')">← Back</button>
+      <button class="btn primary" onclick="submitCorrectName('${id}')">Save</button>
+    </div>`;
+  openModal();
+}
+async function submitCorrectName(id){
+  const name = document.getElementById('cnNewValue').value.trim();
+  const errEl = document.getElementById('cnErr');
+  if(!name){ errEl.textContent = 'Task name cannot be empty.'; errEl.style.display = 'block'; return; }
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/correct-name`, { method:'POST', body: JSON.stringify({ name }) });
+    await refreshTasks();
+    showToast('success', 'Task renamed', '');
     openTaskTrailModal(id);
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }

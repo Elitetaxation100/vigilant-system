@@ -2241,6 +2241,31 @@ app.post('/api/tasks/:id/correct-logged', requireAuth, requireSuperAdmin, (req, 
   res.json({ task: taskForClient(t) });
 });
 
+// Correct a task's display name — same access as editing its dates/estimate
+// (whoever manages the assignee). Mainly for a garbled title left over from
+// Slack "Convert to Task" pulling raw Slack markup through (e.g.
+// "<mailto:x@y.com|x@y.com> Rideshare client processing") before the
+// deslackifyText() fix in connector.js — a task created before that fix
+// keeps whatever got saved at the time, so this is how to clean one up.
+app.post('/api/tasks/:id/correct-name', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (!(isAdminRole(req.employee.accessRole) && canManageEmployee(state, req.employee, t.assignedTo))) {
+    return res.status(403).json({ error: "You're not authorized to rename this task." });
+  }
+  const newName = String((req.body || {}).name || '').trim().slice(0, 200);
+  if (!newName) return res.status(400).json({ error: 'Task name cannot be empty.' });
+  const before = t.name;
+  if (before === newName) return res.json({ task: taskForClient(t) });
+  t.nameHistory = t.nameHistory || [];
+  t.nameHistory.push({ at: new Date().toISOString(), by: req.employee.name, from: before, to: newName });
+  t.name = newName;
+  logEvent(state, t.assignedTo, `Task renamed by <b>${escHtml(req.employee.name)}</b> — "${escHtml(before)}" → "${escHtml(newName)}".`);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
 // Reassignment — an Admin/Superadmin hands a task to a different employee.
 // It deliberately routes through the SAME "awaiting_acceptance" state a
 // brand-new assignment uses, so the new assignee gets the exact same
