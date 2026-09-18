@@ -185,6 +185,14 @@ function esc(s, max) {
 }
 // Slack section text hard-caps at 3000 chars — keep user-supplied blocks under it.
 const SLACK_TEXT_MAX = 2800;
+// A Slack message's raw `text` encodes links/emails/mentions as <url|label>
+// (or bare <url>) — passed straight through, that leaks as e.g.
+// "<mailto:x@y.com|x@y.com> Rideshare client processing" in a task title.
+// Unwrap to just the readable label (or the url/address when there's no
+// separate label), same as what a person actually sees in Slack's UI.
+function deslackifyText(s) {
+  return String(s || '').replace(/<([^|>]+)(?:\|([^>]*))?>/g, (_, url, label) => label || url.replace(/^mailto:/, ''));
+}
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.length <= 10 ? iso + 'T00:00:00' : iso);
@@ -971,7 +979,7 @@ async function submitLogOutcome(payload) {
 
 // Convert to Task message shortcut
 async function openConvertModal(payload) {
-  const src = ((payload.message && payload.message.text) || '').trim();
+  const src = deslackifyText((payload.message && payload.message.text) || '').trim();
   const meta = JSON.stringify({ channel: payload.channel.id, ts: payload.message.ts });
   // Slack rejects an empty initial_value — only pre-fill when there's text.
   const descEl = { type: 'plain_text_input', action_id: 'v', multiline: true };
@@ -996,7 +1004,7 @@ async function submitConvert(payload) {
   const state = db.get();
   const meta = JSON.parse(payload.view.private_metadata || '{}');
   const v = payload.view.state.values;
-  const desc = (v.desc && v.desc.v.value) || '';
+  const desc = deslackifyText((v.desc && v.desc.v.value) || '');
   const assigneeSlackId = v.assignee && v.assignee.v.selected_user;
   const due = (v.due && v.due.v.selected_date) || '';
   const mins = (v.mins && v.mins.v.value) || '';
