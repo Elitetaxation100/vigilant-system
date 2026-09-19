@@ -885,6 +885,23 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ employee: publicEmployee(req.employee) });
 });
+// Self-service password change. Used for the mandatory first-login reset
+// (mustChangePassword — set when an account is auto-created, e.g. by the
+// CRM sync creating a brand-new employee with a temp password), but works
+// for anyone changing their own password at any time.
+app.post('/api/auth/change-password', requireAuth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (!bcrypt.compareSync(String(currentPassword || ''), req.employee.passwordHash)) {
+    return res.status(401).json({ error: 'Current password is incorrect.' });
+  }
+  if (!isPasswordAcceptable(newPassword)) return res.status(400).json({ error: WEAK_PASSWORD_ERROR });
+  const state = db.get();
+  const emp = findEmployee(state, req.employee.id);
+  emp.passwordHash = bcrypt.hashSync(newPassword, 10);
+  emp.mustChangePassword = false;
+  db.save();
+  res.json({ employee: publicEmployee(emp) });
+});
 
 // ---------------------------------------------------------------------------
 // EMPLOYEES

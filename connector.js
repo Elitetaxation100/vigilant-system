@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 const crypto = require('crypto');
 const https = require('https');
+const bcrypt = require('bcryptjs');
 const db = require('./db');
 const cal = require('./calendar');
 
@@ -32,6 +33,10 @@ const cfg = () => ({
   // live and can use the existing "Convert to Task" message shortcut on
   // them for free). Falls back to the call channel if no dedicated one is set.
   interaktChannel: process.env.INTERAKT_SLACK_CHANNEL || '',
+  // Shared secret for the CRM (crm.elitetaxation.co.nz) → task manager sync.
+  // The CRM's Supabase project sends a Database Webhook with this value in
+  // an X-CRM-Webhook-Secret header whenever a customer/user row changes.
+  crmWebhookSecret: process.env.CRM_WEBHOOK_SECRET || '',
 });
 
 // Agent → team routing. Mirrors the Apps Script AGENT_MAP. slackIds = who to
@@ -151,6 +156,17 @@ function verifyInterakt(req) {
   let match = false;
   try { match = crypto.timingSafeEqual(Buffer.from(mine), Buffer.from(String(header))); } catch (e) { match = false; }
   return match ? { ok: true } : { ok: false, why: 'signature mismatch' };
+}
+// The CRM's Supabase Database Webhook lets you attach a fixed custom header
+// (no HMAC signing available) — same static-token pattern as verifyAircall.
+function verifyCrm(req) {
+  const expected = cfg().crmWebhookSecret;
+  if (!expected) return { ok: false, why: 'CRM_WEBHOOK_SECRET not set' };
+  const got = req.headers['x-crm-webhook-secret'];
+  if (!got) return { ok: false, why: 'missing X-CRM-Webhook-Secret header' };
+  let match = false;
+  try { match = crypto.timingSafeEqual(Buffer.from(String(got)), Buffer.from(expected)); } catch (e) { match = false; }
+  return match ? { ok: true } : { ok: false, why: 'bad secret' };
 }
 
 // ---------------------------------------------------------------------------
@@ -1420,6 +1436,93 @@ function startSchedulers() {
 }
 
 // ---------------------------------------------------------------------------
+// CRM SYNC (crm.elitetaxation.co.nz, Supabase-backed) — one-way, CRM → here.
+// A Supabase Database Webhook on the CRM's customer table and its user
+// table each POST { type: 'INSERT'|'UPDATE'|'DELETE', table, record,
+// old_record } whenever a row changes. Field names below (name/phone/
+// email/category for a customer; name/email/role/slack_user_id for a user)
+// are our best read of the CRM's own UI, not its confirmed schema — verify
+// against a real payload (check the Railway logs after the CRM side sends
+// its first webhook) and adjust here if their actual column names differ.
+// A DELETE is logged but never acted on — we don't auto-remove a client or
+// an employee's login just because a CRM row disappeared.
+// ---------------------------------------------------------------------------
+async function handleCrmCustomer(payload) {
+  const row = payload && payload.record;
+  const type = payload && payload.type;
+  if (!row || !row.id) { clog('warn', 'crm-customer payload missing record.id', { payload }); return; }
+  if (type === 'DELETE') { clog('info', 'crm customer delete — leaving the client as-is', { crmId: row.id }); return; }
+  const state = db.get();
+  state.clients = state.clients || [];
+  const name = String(row.name || row.full_name || 'Unnamed').trim();
+  const email = row.email ? String(row.email).trim() : null;
+  const phone = row.phone ? String(row.phone).trim() : null;
+  const category = row.category ? String(row.category).trim() : null;
+  let client = state.clients.find(c => c.crmContactId === row.id);
+  if (client) {
+    client.name = name; client.email = email; client.phone = phone;
+    if (category) client.type = category;
+  } else {
+    client = {
+      id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
+      name, email, phone, type: category,
+      ownerId: null, addedBy: null,
+      crmContactId: row.id,
+    };
+    state.clients.push(client);
+  }
+  db.save();
+  clog('info', 'crm customer synced', { crmId: row.id, clientId: client.id, type });
+}
+
+async function handleCrmUser(payload) {
+  const row = payload && payload.record;
+  const type = payload && payload.type;
+  if (!row || !row.id) { clog('warn', 'crm-user payload missing record.id', { payload }); return; }
+  if (type === 'DELETE') { clog('info', 'crm user delete — leaving the login as-is', { crmId: row.id }); return; }
+  const state = db.get();
+  const name = String(row.name || row.full_name || 'Unnamed').trim();
+  const email = row.email ? String(row.email).trim().toLowerCase() : null;
+  if (!email) { clog('warn', 'crm-user webhook has no email — skipping', { crmId: row.id }); return; }
+  const slackUserId = row.slack_user_id || row.slackUserId || null;
+
+  let emp = state.employees.find(e => e.crmUserId === row.id);
+  if (!emp) emp = state.employees.find(e => e.email && e.email.toLowerCase() === email);
+  if (emp) {
+    emp.name = name;
+    emp.crmUserId = row.id;
+    if (slackUserId && !emp.slackUserId) emp.slackUserId = slackUserId;
+    db.save();
+    clog('info', 'crm user synced (existing employee updated)', { crmId: row.id, employeeId: emp.id });
+    return;
+  }
+
+  // New CRM user → a brand-new, fully working login here. Starts as a plain
+  // employee regardless of whatever role the CRM has them as — a sync bug
+  // should never be able to hand out admin/superadmin; a real superadmin
+  // promotes them by hand via Manage Access if they need more. Forced to
+  // set their own password before they can do anything else in the app.
+  const tempPassword = crypto.randomBytes(9).toString('base64url');
+  const id = 'e' + Date.now().toString(36) + Math.floor(Math.random() * 1000);
+  const newEmp = {
+    id, name, email, passwordHash: bcrypt.hashSync(tempPassword, 10),
+    jobTitle: 'Team Member', team: 'Unassigned',
+    accessRole: 'employee', managesIds: [],
+    crmUserId: row.id, slackUserId: slackUserId || null,
+    mustChangePassword: true,
+  };
+  state.employees.push(newEmp);
+  db.save();
+  clog('info', 'crm user synced (new employee created)', { crmId: row.id, employeeId: id, slackLinked: !!slackUserId });
+  if (slackUserId) {
+    await dm(slackUserId,
+      `👋 Welcome! A login for *Elite Taxation Governance OS* has been created for you.\n\n*Email:* ${email}\n*Temporary password:* \`${tempPassword}\`\n\nYou'll be asked to set your own password the first time you log in.`);
+  } else {
+    clog('warn', 'new crm-synced employee has no linked Slack — temp password could not be delivered, needs manual handoff', { employeeId: id, email });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 function mountConnector(app) {
@@ -1634,8 +1737,24 @@ function mountConnector(app) {
     finally { if (dry) _reminderDryRun = false; }
   });
 
+  // CRM (crm.elitetaxation.co.nz) sync — a Supabase Database Webhook on the
+  // CRM's customers table and its users table, each pointed at one of these
+  // two URLs with header X-CRM-Webhook-Secret: <CRM_WEBHOOK_SECRET>.
+  app.post('/webhooks/crm-customer', (req, res) => {
+    const v = verifyCrm(req);
+    if (!v.ok) { clog('warn', 'crm-customer webhook rejected', { why: v.why }); return res.status(401).json({ error: v.why }); }
+    res.status(200).json({ ok: true });
+    handleCrmCustomer(req.body).catch(e => clog('error', 'crm-customer handler threw: ' + (e && e.stack || e)));
+  });
+  app.post('/webhooks/crm-user', (req, res) => {
+    const v = verifyCrm(req);
+    if (!v.ok) { clog('warn', 'crm-user webhook rejected', { why: v.why }); return res.status(401).json({ error: v.why }); }
+    res.status(200).json({ ok: true });
+    handleCrmUser(req.body).catch(e => clog('error', 'crm-user handler threw: ' + (e && e.stack || e)));
+  });
+
   startSchedulers();
-  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,run-digest,run-reminders,log,health}');
+  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-reminders,log,health}');
 }
 
 module.exports = { mountConnector, relayWaToSlack, prettyWaText };

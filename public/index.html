@@ -8627,12 +8627,44 @@ async function submitLogin(){
     isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
     isSuperAdmin = session.accessRole === 'superadmin';
     currentViewerId = session.id;
-    window.__loginGateActive = false;
     closeModal();
+    if(session.mustChangePassword){ openForcedPasswordChangeModal(); return; }
+    window.__loginGateActive = false;
     await onLoginComplete();
   } catch(e){
     renderLoginGate(e.message);
   }
+}
+// A brand-new account (e.g. auto-created by the CRM sync) starts with a
+// temp password and must set its own before it can do anything else — no
+// Close/Cancel, and __loginGateActive keeps it from being dismissed by a
+// backdrop click or Escape, same as the login gate itself.
+function openForcedPasswordChangeModal(){
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Set your password</h3>
+    <div class="modal-sub">Your account was just created. Set your own password before continuing — the temporary one won't work again after this.</div>
+    <div class="field"><label>Temporary password</label><input type="password" id="fpcCurrent" placeholder="The one-time password you were given"></div>
+    <div class="field"><label>New password</label><input type="password" id="fpcNew" placeholder="At least 8 characters"></div>
+    <div class="field"><label>Confirm new password</label><input type="password" id="fpcConfirm"></div>
+    <div class="modal-error" id="fpcErr"></div>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="submitForcedPasswordChange()">Set Password &amp; Continue</button>
+    </div>`;
+  openModal();
+}
+async function submitForcedPasswordChange(){
+  const currentPassword = document.getElementById('fpcCurrent').value;
+  const newPassword = document.getElementById('fpcNew').value;
+  const confirmPassword = document.getElementById('fpcConfirm').value;
+  const errEl = document.getElementById('fpcErr');
+  if(newPassword !== confirmPassword){ errEl.textContent = "New passwords don't match."; errEl.style.display = 'block'; return; }
+  try {
+    const { employee } = await api('/api/auth/change-password', { method:'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+    session = employee;
+    closeModal();
+    window.__loginGateActive = false;
+    await onLoginComplete();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 async function onLoginComplete(){
   seenAwaitingIds = null; // fresh baseline each login — don't re-pop tasks already surfaced last session
