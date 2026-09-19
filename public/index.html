@@ -3021,13 +3021,51 @@ async function submitLeave(){
   const who = document.getElementById('toWho');
   if(isAdmin && who && who.value && who.value !== currentViewerId) body.employeeId = who.value;
   if(!from){ err.textContent = 'Pick a start date.'; err.style.display = 'block'; return; }
+  const employeeId = body.employeeId || currentViewerId;
+  try {
+    const c = await api(`/api/leave/conflicts?employeeId=${encodeURIComponent(employeeId)}&from=${encodeURIComponent(body.from)}&to=${encodeURIComponent(body.to)}`);
+    if((c.conflicts||[]).length){ openLeaveConflictModal(body, c.conflicts); return; }
+  } catch(e){ /* conflict check is a nudge, not a gate — don't let it block filing leave */ }
+  await doSubmitLeave(body);
+}
+async function doSubmitLeave(body){
+  const err = document.getElementById('toFormErr');
   try {
     await api('/api/leave', { method:'POST', body: JSON.stringify(body) });
-    document.getElementById('toReason').value = '';
+    const reasonEl = document.getElementById('toReason');
+    if(reasonEl) reasonEl.value = '';
     showToast('success', 'Time off submitted', 'It shows below with its status.');
     renderTimeOff();
     refreshWorkload();
-  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
+  } catch(e){ if(err){ err.textContent = e.message; err.style.display = 'block'; } else showToast('error', 'Could not submit', e.message); }
+}
+// Shown right when someone applies for leave, before it's submitted — any
+// open task of theirs due inside that window would otherwise just sit there
+// overdue while they're away. Hand it off or put it on hold right here, or
+// submit anyway and deal with it later.
+function openLeaveConflictModal(leaveBody, conflicts){
+  window.__leaveConflictBody = leaveBody;
+  const rows = conflicts.map(t => `
+    <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
+      <div><div style="font-weight:600;color:var(--text);">${esc(t.name)}</div>
+        <div style="font-size:12px;color:var(--text-faint);">${esc(t.clientName || 'Internal')} · due ${fmtDate(t.internalDeadline)}</div></div>
+      <button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>
+      <button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="openHoldModal('${t.id}')">Put on Hold</button>
+    </div>`).join('');
+  document.getElementById('modalBox').innerHTML = `
+    <h3>⚠ ${conflicts.length} task${conflicts.length===1?'':'s'} due during this time off</h3>
+    <div class="modal-sub">These are due while this leave would be in effect. Hand each one off or put it on hold now, or submit the leave anyway and sort it out later.</div>
+    <div style="max-height:45vh;overflow-y:auto;margin-top:10px;">${rows}</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal();showView('timeoff', document.querySelector('.nav-item[data-view=&quot;timeoff&quot;]'));">← Back</button>
+      <button class="btn primary" onclick="submitLeaveAnyway()">Submit leave anyway</button>
+    </div>`;
+  openModal();
+}
+async function submitLeaveAnyway(){
+  const body = window.__leaveConflictBody;
+  closeModal();
+  if(body) await doSubmitLeave(body);
 }
 async function decideLeave(id, approve){
   try {

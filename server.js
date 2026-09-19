@@ -3421,6 +3421,28 @@ app.get('/api/leave', requireAuth, (req, res) => {
         && canManageEmployee(state, me, l.employeeId)).length;
   res.json({ leave: rows.map(l => publicLeave(state, l)), pendingApprovals });
 });
+// Checked at the moment someone applies for leave — any open task of theirs
+// due inside the requested range would otherwise just sit there overdue
+// while they're away. Lets the leave form prompt a handoff/hold right then,
+// instead of the gap only surfacing after the fact. A soft nudge, not a
+// hard block — same pattern as the over-capacity assign warning: shown,
+// not enforced, since a manager may have their own reason to submit anyway.
+app.get('/api/leave/conflicts', requireAuth, (req, res) => {
+  const state = db.get();
+  const employeeId = req.query.employeeId || req.employee.id;
+  if (employeeId !== req.employee.id && !canManageEmployee(state, req.employee, employeeId)) {
+    return res.status(403).json({ error: 'Not your team.' });
+  }
+  const isDate = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s);
+  const from = isDate(req.query.from) ? req.query.from.slice(0, 10) : null;
+  const to = isDate(req.query.to) ? req.query.to.slice(0, 10) : from;
+  if (!from) return res.status(400).json({ error: 'Pick a start date.' });
+  const conflicts = state.tasks.filter(t => t.assignedTo === employeeId
+    && t.status !== 'completed' && t.status !== 'on_hold'
+    && t.internalDeadline && t.internalDeadline >= from && t.internalDeadline <= to
+  ).map(taskForClient);
+  res.json({ conflicts });
+});
 app.post('/api/leave', requireAuth, (req, res) => {
   const state = db.get();
   const me = req.employee;
