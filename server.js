@@ -153,8 +153,12 @@ if (!JWT_SECRET) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function publicEmployee(e) {
-  const { passwordHash, ...rest } = e;
+// The CRM User ID (and its edit history) is only for whoever administers
+// the CRM link — omitted for an ordinary employee's own view or anyone
+// else's, unless the viewer is an admin/superadmin.
+function publicEmployee(e, viewerIsAdmin) {
+  const { passwordHash, crmUserId, crmUserIdHistory, ...rest } = e;
+  if (viewerIsAdmin) { rest.crmUserId = crmUserId; rest.crmUserIdHistory = crmUserIdHistory; }
   return rest;
 }
 function findEmployee(state, id) { return state.employees.find(e => e.id === id); }
@@ -880,10 +884,10 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
     return res.status(403).json({ error: `This account has ${emp.accessRole} access — use the Admin / Superadmin tab.` });
   }
   const token = jwt.sign({ id: emp.id }, JWT_SECRET, { expiresIn: '30d' });
-  res.json({ token, employee: publicEmployee(emp) });
+  res.json({ token, employee: publicEmployee(emp, isAdminRole(emp.accessRole)) });
 });
 app.get('/api/auth/me', requireAuth, (req, res) => {
-  res.json({ employee: publicEmployee(req.employee) });
+  res.json({ employee: publicEmployee(req.employee, isAdminRole(req.employee.accessRole)) });
 });
 // Self-service password change. Used for the mandatory first-login reset
 // (mustChangePassword — set when an account is auto-created, e.g. by the
@@ -900,7 +904,7 @@ app.post('/api/auth/change-password', requireAuth, (req, res) => {
   emp.passwordHash = bcrypt.hashSync(newPassword, 10);
   emp.mustChangePassword = false;
   db.save();
-  res.json({ employee: publicEmployee(emp) });
+  res.json({ employee: publicEmployee(emp, isAdminRole(emp.accessRole)) });
 });
 
 // ---------------------------------------------------------------------------
@@ -908,7 +912,8 @@ app.post('/api/auth/change-password', requireAuth, (req, res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/employees', requireAuth, (req, res) => {
   const state = db.get();
-  res.json({ employees: state.employees.map(publicEmployee) });
+  const viewerIsAdmin = isAdminRole(req.employee.accessRole);
+  res.json({ employees: state.employees.map(e => publicEmployee(e, viewerIsAdmin)) });
 });
 app.post('/api/employees', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
@@ -930,7 +935,7 @@ app.post('/api/employees', requireAuth, requireSuperAdmin, (req, res) => {
   };
   state.employees.push(emp);
   db.save();
-  res.status(201).json({ employee: publicEmployee(emp) });
+  res.status(201).json({ employee: publicEmployee(emp, true) });
 });
 app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
@@ -969,8 +974,38 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   // independent of accessRole (a superadmin always has it regardless).
   if (typeof req.body.whatsappAccess === 'boolean') emp.whatsappAccess = req.body.whatsappAccess;
 
+  // CRM User ID — the permanent cross-system identity link to ET-CRM (a
+  // Supabase-generated UUID, visible there under Settings > User Management).
+  // Manual only: an admin pastes it in on THIS employee's own Manage Access
+  // screen, having already confirmed by eye that the email here matches the
+  // CRM record — never matched or assigned automatically by name. Doesn't
+  // touch auth, roles, or the employee's own id; it's purely a reference.
+  if (req.body.crmUserId !== undefined) {
+    const raw = req.body.crmUserId;
+    if (raw === null || raw === '') {
+      if (emp.crmUserId) {
+        emp.crmUserIdHistory = emp.crmUserIdHistory || [];
+        emp.crmUserIdHistory.push({ at: new Date().toISOString(), by: req.employee.name, from: emp.crmUserId, to: null });
+        logEvent(state, emp.id, `CRM User ID unlinked by <b>${escHtml(req.employee.name)}</b>.`);
+        emp.crmUserId = null;
+      }
+    } else {
+      const uuid = String(raw).trim().toLowerCase();
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+      if (!UUID_RE.test(uuid)) return res.status(400).json({ error: "That doesn't look like a valid CRM User ID — it should be a UUID, e.g. 12345678-1234-1234-1234-123456789abc." });
+      const clash = state.employees.find(x => x.id !== emp.id && x.crmUserId === uuid);
+      if (clash) return res.status(409).json({ error: `That CRM User ID is already linked to ${clash.name}.` });
+      if (emp.crmUserId !== uuid) {
+        emp.crmUserIdHistory = emp.crmUserIdHistory || [];
+        emp.crmUserIdHistory.push({ at: new Date().toISOString(), by: req.employee.name, from: emp.crmUserId || null, to: uuid });
+        logEvent(state, emp.id, `CRM User ID linked by <b>${escHtml(req.employee.name)}</b>.`);
+        emp.crmUserId = uuid;
+      }
+    }
+  }
+
   db.save();
-  res.json({ employee: publicEmployee(emp) });
+  res.json({ employee: publicEmployee(emp, true) });
 });
 
 // ---------------------------------------------------------------------------

@@ -8485,6 +8485,10 @@ function openManageEmployee(id){
       </div>
       <div class="field"><label>Slack user ID <span style="text-transform:none; color:var(--text-faint);">— so Slack tasks reach this person</span></label><input type="text" id="meSlackId" value="${esc(e.slackUserId || '')}" placeholder="U0XXXXXXXX"></div>
       <div class="field"><label>Aircall agent ID <span style="text-transform:none; color:var(--text-faint);">— only if they take calls</span></label><input type="text" id="meAircallId" value="${esc(e.aircallAgentId || '')}" placeholder="1234567"></div>
+      ${isSuperAdmin ? `<div class="field"><label>CRM User ID <span style="text-transform:none; color:var(--text-faint);">— links this login to their ET-CRM account</span></label>
+        <input type="text" id="meCrmUserId" value="${esc(e.crmUserId || '')}" placeholder="e.g. 12345678-1234-1234-1234-123456789abc">
+        <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Before pasting this: check in ET-CRM (Settings → User Management) that the email under this person's CRM User ID is <b>${esc(e.email)}</b> — the one above. Never match by name.${(e.crmUserIdHistory && e.crmUserIdHistory.length) ? ` Last changed ${fmtDate((e.crmUserIdHistory[e.crmUserIdHistory.length-1].at||'').slice(0,10))} by ${esc(e.crmUserIdHistory[e.crmUserIdHistory.length-1].by||'—')}.` : ''}</div>
+      </div>` : ''}
       <div class="field">
         <label>Team memberships</label>
         <div id="meMembershipChips" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px;"></div>
@@ -8549,6 +8553,7 @@ async function submitManageEmployee(id){
   const whatsappAccess = document.getElementById('meWhatsappAccess').checked;
   const slackUserId = document.getElementById('meSlackId').value.trim();
   const aircallAgentId = document.getElementById('meAircallId').value.trim();
+  const crmIdEl = document.getElementById('meCrmUserId');
   // self-edit window → an ISO datetime, null (revoke), or undefined (unchanged)
   let selfEditUntil; // undefined by default
   const sew = document.getElementById('meSelfEditWindow').value;
@@ -8565,6 +8570,7 @@ async function submitManageEmployee(id){
     const payload = { accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
       memberships, isFounder, dashObserver, whatsappAccess, slackUserId, aircallAgentId };
     if(selfEditUntil !== undefined) payload.selfEditUntil = selfEditUntil;
+    if(crmIdEl) payload.crmUserId = crmIdEl.value.trim();
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify(payload)});
     closeModal();
     await refreshEmployees();
