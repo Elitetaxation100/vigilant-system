@@ -48,11 +48,19 @@ const cfg = () => ({
 // Agent → team routing. Mirrors the Apps Script AGENT_MAP. slackIds = who to
 // @-mention on the card and who the pending digest nags (mandatory teams).
 // A later phase can read this from employees' aircallAgentId + team config.
+//
+// `name`/`team` stay the real Aircall agent (Shubam/Parvinder/Disha still
+// took the call, on record) — only slackIds changes, to whoever's actually
+// doing the listening now. Deliberately not giving Diksha/Khushi/Manya
+// their own AGENT_MAP entries — they don't take calls themselves, they
+// just need the same per-call ping + end-of-day "still unlistened" nag
+// their senior's calls already generate, without a whole separate agent
+// identity cluttering the call notifier.
 const AGENT_MAP = {
-  '1660428': { name: 'Shubam Sharma',   team: 'Leads',              mandatory: true,  slackIds: ['U0BNFG5T1LP', 'U0BNTB31KBP'] },
-  '1682239': { name: 'Parvinder Kumar', team: 'Companies',          mandatory: true,  slackIds: ['U0BNFGKDWDV'] },
+  '1660428': { name: 'Shubam Sharma',   team: 'Leads',              mandatory: true,  slackIds: ['U0BNTB31KBP'] }, // Diksha
+  '1682239': { name: 'Parvinder Kumar', team: 'Companies',          mandatory: true,  slackIds: ['U0BNFGKDWDV'] }, // Manya (was already this id)
   '1674408': { name: 'Anjana Pandey',   team: 'Rideshare + Rental', mandatory: false, slackIds: ['U0BNYP84A9X'] },
-  '1937711': { name: 'Disha Chaudhary', team: 'Rideshare + Rental', mandatory: false, slackIds: ['U0BNYP84A9X'] },
+  '1937711': { name: 'Disha Chaudhary', team: 'Rideshare + Rental', mandatory: true,  slackIds: ['U0BNQHX4F4K'] }, // Khushi
 };
 const TRANSFER_MERGE_MINUTES = 15;
 const RECORDING_MATCH_MINUTES = 120;
