@@ -37,6 +37,12 @@ const cfg = () => ({
   // The CRM's Supabase project sends a Database Webhook with this value in
   // an X-CRM-Webhook-Secret header whenever a customer/user row changes.
   crmWebhookSecret: process.env.CRM_WEBHOOK_SECRET || '',
+  // For writing back the other way — task manager → CRM — once a customer
+  // syncs in, so the CRM side can also see which Task Manager record it
+  // connects to. The CRM's documented API (Settings > API Docs there), a
+  // Supabase Edge Function; CRM_API_KEY needs `update-contact` permission.
+  crmApiUrl: process.env.CRM_API_URL || 'https://ceqqphhqjqyfxxmaaglw.supabase.co/functions/v1/crm-api',
+  crmApiKey: process.env.CRM_API_KEY || '',
 });
 
 // Agent → team routing. Mirrors the Apps Script AGENT_MAP. slackIds = who to
@@ -1295,6 +1301,23 @@ function escalationTargets(state, emp) {
   });
   return [...out];
 }
+// Calls the CRM's own documented API (Settings > API Docs there) — used to
+// write our own record's id back onto the matching CRM row. Never throws;
+// the caller decides what a failure means (usually: log it, move on — the
+// sync we received already saved, this is just closing the loop back).
+async function crmApi(action, fields) {
+  const c = cfg();
+  if (!c.crmApiKey) return { ok: false, error: 'CRM_API_KEY not set' };
+  const r = await httpsRequest(c.crmApiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + c.crmApiKey },
+    body: Object.assign({ action }, fields),
+  });
+  if (r.status !== 200 || !r.json || r.json.ok === false) {
+    return { ok: false, error: (r.json && r.json.error) || r.error || ('HTTP ' + r.status) };
+  }
+  return { ok: true, result: r.json };
+}
 let _reminderDryRun = false; // toggled by /webhooks/run-reminders?dry=1
 async function dm(slackUserId, text, blocks) {
   if (!slackUserId) return { ok: false };
@@ -1473,6 +1496,13 @@ async function handleCrmCustomer(payload) {
   }
   db.save();
   clog('info', 'crm customer synced', { crmId: row.id, clientId: client.id, type });
+
+  // Write our client id back onto the CRM's own contact record, so it's
+  // visible from either side — not just us knowing their id. Best-effort:
+  // the sync above already saved regardless of whether this succeeds.
+  const link = await crmApi('update-contact', { id: row.id, task_manager_client_id: client.id });
+  if (link.ok) clog('info', 'crm customer link-back ok', { crmId: row.id, clientId: client.id });
+  else clog('warn', 'crm customer link-back failed', { crmId: row.id, clientId: client.id, why: link.error });
 }
 
 async function handleCrmUser(payload) {
