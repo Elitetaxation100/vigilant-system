@@ -294,6 +294,10 @@ function runMigrations(state) {
   (state.clients || []).forEach(c => {
     if (c.email === undefined) c.email = null;
     if (c.addedBy === undefined) c.addedBy = c.ownerId || null;
+    if (c.crmContactId === undefined) c.crmContactId = null;
+    if (c.phone === undefined) c.phone = null;
+    if (c.category === undefined) c.category = null;
+    if (c.crmUpdatedAt === undefined) c.crmUpdatedAt = null;
   });
   if (!state.attendance) state.attendance = {};
   // P1 — Capacity from attendance: approved leave / half-days carve real

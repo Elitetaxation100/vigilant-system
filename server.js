@@ -165,6 +165,12 @@ function findEmployee(state, id) { return state.employees.find(e => e.id === id)
 function findTask(state, id) { return state.tasks.find(t => t.id === id); }
 function isAdminRole(role) { return role === 'admin' || role === 'superadmin'; }
 
+function secretsEqual(left, right) {
+  const a = Buffer.from(String(left || ''));
+  const b = Buffer.from(String(right || ''));
+  return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b);
+}
+
 /**
  * A team is a `.team` name. Everyone who shares a name is on that team; the
  * admins on it are its managers. This is the single source of truth for
@@ -1099,6 +1105,64 @@ app.delete('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
 app.get('/api/clients', requireAuth, (req, res) => {
   const state = db.get();
   res.json({ clients: state.clients });
+});
+
+// CRM is the source of truth for customer identity. Supabase sends a
+// minimal allow-listed customer payload here; repeated deliveries update
+// the same Task Manager client by CRM UUID instead of creating duplicates.
+app.post('/webhooks/crm-customer', async (req, res) => {
+  const configuredSecret = process.env.CRM_WEBHOOK_SECRET;
+  if (!configuredSecret) return res.status(503).json({ error: 'CRM customer sync is not configured.' });
+  if (!secretsEqual(req.headers['x-crm-webhook-secret'], configuredSecret)) {
+    return res.status(401).json({ error: 'Invalid CRM webhook credentials.' });
+  }
+
+  const incoming = req.body && req.body.record ? req.body.record : (req.body || {});
+  const crmContactId = String(incoming.crm_contact_id || incoming.id || '').trim();
+  if (!crmContactId) return res.status(400).json({ error: 'crm_contact_id is required.' });
+  if (incoming.type && incoming.type !== 'existing') return res.json({ ok: true, ignored: true, reason: 'not_existing_customer' });
+
+  const state = db.get();
+  let client = state.clients.find(c => c.crmContactId === crmContactId);
+  const created = !client;
+  if (!client) {
+    client = {
+      id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
+      crmContactId,
+      ownerId: null,
+      addedBy: null,
+    };
+    state.clients.push(client);
+  }
+  client.name = String(incoming.company_name || incoming.name || '').trim() || 'Unnamed CRM customer';
+  client.email = incoming.email ? String(incoming.email).trim() : null;
+  client.phone = incoming.phone ? String(incoming.phone).trim() : null;
+  client.category = incoming.category ? String(incoming.category).trim() : null;
+  client.type = client.category;
+  client.crmUpdatedAt = incoming.updated_at || new Date().toISOString();
+  db.save();
+
+  let linkedBack = false;
+  let linkError = null;
+  const crmApiUrl = process.env.CRM_API_URL;
+  const crmApiKey = process.env.CRM_API_KEY;
+  if (crmApiUrl && crmApiKey) {
+    try {
+      const response = await fetch(crmApiUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${crmApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'link-task-manager-client', id: crmContactId, task_manager_client_id: client.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok === false) throw new Error(result.error || `CRM API returned ${response.status}`);
+      linkedBack = true;
+    } catch (error) {
+      linkError = error instanceof Error ? error.message : String(error);
+      console.error('[crm-customer] link-back failed:', linkError);
+    }
+  }
+
+  res.status(created ? 201 : 200).json({ ok: true, created, client_id: client.id, crm_contact_id: crmContactId, linked_back: linkedBack, link_error: linkError });
 });
 // Anyone can add a client — an employee adding their own contact defaults to
 // owning it. Only an admin can hand ownership to someone else.
