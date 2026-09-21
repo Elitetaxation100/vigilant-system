@@ -828,6 +828,28 @@ function slackPermalink(row) {
   if (!row.slackChannel || !row.slackTs) return null;
   return `https://slack.com/archives/${row.slackChannel}/p${String(row.slackTs).replace('.', '')}`;
 }
+// Listened-vs-remaining call counts for whoever's Slack ID is tagged on an
+// agent's calls (Manage Access > Slack user ID). Deliberately status ===
+// 'ended' only — a voicemail or missed call never gets a card posted or a
+// tag in the first place (see handleCallEnded's `!unanswered && !vm`
+// guard), so this stays consistent with what actually reached them.
+function callStatsForSlackId(state, slackUserId) {
+  if (!slackUserId) return { total: 0, listened: 0, remaining: 0, remainingCalls: [] };
+  const agentIds = Object.keys(AGENT_MAP).filter(id => (AGENT_MAP[id].slackIds || []).includes(slackUserId));
+  const calls = (state.calls || []).filter(c => agentIds.includes(c.agentAircallId) && c.status === 'ended');
+  const remaining = calls.filter(c => !c.listenedBy);
+  return {
+    total: calls.length,
+    listened: calls.length - remaining.length,
+    remaining: remaining.length,
+    remainingCalls: remaining
+      .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''))
+      .map(c => ({
+        id: c.id, agentName: c.agentName, clientName: c.clientName || 'Unknown / not saved',
+        callerPhone: c.callerPhone, occurredAt: c.occurredAt, link: slackPermalink(c),
+      })),
+  };
+}
 async function postTaskCard(row, task, ownerSlackId, byName, selfAssigned) {
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: selfAssigned ? '📌 Task Logged (Self-Assigned)' : '📌 New Task', emoji: true } },
@@ -1795,4 +1817,4 @@ function mountConnector(app) {
   console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-reminders,log,health}');
 }
 
-module.exports = { mountConnector, relayWaToSlack, prettyWaText };
+module.exports = { mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId };

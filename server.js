@@ -3752,6 +3752,20 @@ app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, (req, res) =
 });
 
 // ---------------------------------------------------------------------------
+// CALLS — listened-vs-remaining, for whoever's Slack ID is tagged on an
+// agent's calls (connector.js AGENT_MAP). Read-only: actually listening and
+// marking done still happens on the Slack card (recording playback, the
+// button) — this is just visibility, so it's clear how much is outstanding
+// without having to dig through Slack. status:'ended' only, same as the
+// tag itself — a voicemail or missed call was never posted or tagged.
+// ---------------------------------------------------------------------------
+app.get('/api/calls/mine', requireAuth, (req, res) => {
+  const state = db.get();
+  const { callStatsForSlackId } = require('./connector');
+  res.json(callStatsForSlackId(state, req.employee.slackUserId));
+});
+
+// ---------------------------------------------------------------------------
 // WHATSAPP (Interakt) — the webhook that receives messages lives in
 // connector.js (POST /webhooks/interakt); these are the in-app endpoints the
 // "WhatsApp (Interakt)" sidebar view uses. Superadmin-only, like Command

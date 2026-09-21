@@ -1051,6 +1051,12 @@
             <div class="mt-value" style="color:var(--coral);" id="myExtraHours">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myExtraSub"></div>
           </div>
+          <div class="metric-tile mg-tile" id="myCallsTile" style="display:none;" onclick="openMyCallsList()" title="Calls tagged to you that actually connected — voicemails and missed calls aren't counted">
+            <div class="mt-ic">📞</div>
+            <div class="mt-label">Calls remaining</div>
+            <div class="mt-value" style="color:var(--amber);" id="myCallsRemaining">0</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myCallsSub"></div>
+          </div>
         </div>
 
         <div class="dash-bento">
@@ -3785,6 +3791,45 @@ function renderEmployeeStats(){
   // now — not on the Commitment Dashboard.
   renderMirrorBanner();
   renderDeliveryStrip('deliveryStrip', mine, isMirroring() ? (me.name || '') : null);
+  refreshMyCallStats();
+}
+// Calls tagged to you (see connector.js AGENT_MAP) that actually connected
+// — voicemails and missed calls were never posted or tagged, so they never
+// show up here either. Hidden entirely if you have none (most people), and
+// while mirroring someone else's dashboard — these are always the actual
+// logged-in viewer's own calls, never the mirrored person's.
+async function refreshMyCallStats(){
+  const tile = document.getElementById('myCallsTile');
+  if(!tile) return;
+  if(isMirroring()){ tile.style.display = 'none'; return; }
+  let stats;
+  try { stats = await api('/api/calls/mine'); } catch(e){ tile.style.display = 'none'; return; }
+  _myCalls = stats;
+  if(!stats.total){ tile.style.display = 'none'; return; }
+  tile.style.display = '';
+  document.getElementById('myCallsRemaining').textContent = stats.remaining;
+  document.getElementById('myCallsSub').textContent = `${stats.listened} of ${stats.total} listened`;
+}
+let _myCalls = null;
+function openMyCallsList(){
+  const stats = _myCalls;
+  if(!stats) return;
+  const rows = stats.remainingCalls.map(c => `
+    <tr>
+      <td><div class="tl-name">${esc(c.clientName)}</div><div class="tl-sub">${esc(c.callerPhone || '—')}</div></td>
+      <td class="tl-sub">${c.occurredAt ? fmtDate(dayOf(c.occurredAt)) : '—'}</td>
+      <td>${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener" class="verify-btn" style="text-decoration:none;display:inline-block;">Open in Slack</a>` : '<span class="tl-sub">no card</span>'}</td>
+    </tr>`).join('');
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Calls — ${stats.remaining} remaining</h3>
+    <div class="modal-sub">${stats.listened} of ${stats.total} listened so far. Voicemails and missed calls aren't counted.</div>
+    <div style="max-height:55vh;overflow-y:auto;margin-top:10px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tbody>${rows || '<tr><td style="padding:14px 0;color:var(--text-faint);">All caught up.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
+  openModal();
 }
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
