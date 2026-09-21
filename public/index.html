@@ -7587,10 +7587,12 @@ async function submitReviewFinal(){
     await refreshTasks();
     await refreshActivity({ silent: true });
     showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', `Scored ${scoreVal}/100.`);
+    // Right in the moment, not something you have to remember to come back
+    // for later — a clean review is exactly when kudos is on your mind.
     // Internal tasks have no client to send a report to — only offer that
     // step when the task actually has one pending (client work, not
     // training/admin/internal).
-    if(decision === 'clean' && r.task && r.task.awaitingClientDecision) openSendToClientModal(id);
+    if(decision === 'clean') openKudosPromptModal(id, !!(r.task && r.task.awaitingClientDecision));
   } catch(e){
     const el = document.getElementById('reviewScoreErr');
     el.textContent = e.message; el.style.display = 'block';
@@ -7723,6 +7725,34 @@ async function submitKudos(id){
     await refreshTasks();
     showToast('success', 'Kudos sent! 🎉', 'Posted to the team Slack channel.');
     closeModal();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+// Shown immediately after marking a review clean — the actual moment
+// kudos is on your mind, not a button you have to remember to come back
+// for later (that one still exists on View Review, for older work).
+function openKudosPromptModal(id, thenSendToClient){
+  const t = findTask(id);
+  if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🎉 Send kudos?</h3>
+    <div class="modal-sub">Nice work from ${esc((empById(t.assignedTo)||{}).name || 'them')} on "${esc(t.name)}" — give them a public shoutout in Slack?</div>
+    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">(optional)</span></label>
+      <textarea id="kudosNote" placeholder="e.g. Great turnaround on a tricky one!"></textarea></div>
+    <div class="modal-error" id="kudosErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="${thenSendToClient ? `openSendToClientModal('${id}')` : 'closeModal()'}">Skip</button>
+      <button class="btn primary" onclick="submitKudosThen('${id}', ${thenSendToClient ? 'true' : 'false'})">Send 🎉</button>
+    </div>`;
+  openModal();
+}
+async function submitKudosThen(id, thenSendToClient){
+  const note = document.getElementById('kudosNote').value.trim();
+  const errEl = document.getElementById('kudosErr');
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/kudos`, { method:'POST', body: JSON.stringify({ note: note || undefined }) });
+    await refreshTasks();
+    showToast('success', 'Kudos sent! 🎉', 'Posted to the team Slack channel.');
+    if(thenSendToClient) openSendToClientModal(id); else closeModal();
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* =========================================================================
