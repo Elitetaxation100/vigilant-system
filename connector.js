@@ -59,7 +59,7 @@ const cfg = () => ({
 const AGENT_MAP = {
   '1660428': { name: 'Shubam Sharma',   team: 'Leads',              mandatory: true,  slackIds: ['U0BNTB31KBP'] }, // Diksha
   '1682239': { name: 'Parvinder Kumar', team: 'Companies',          mandatory: true,  slackIds: ['U0BNFGKDWDV'] }, // Manya (was already this id)
-  '1674408': { name: 'Anjana Pandey',   team: 'Rideshare + Rental', mandatory: false, slackIds: ['U0BNYP84A9X'] },
+  '1674408': { name: 'Anjana Pandey',   team: 'Rideshare + Rental', mandatory: false, slackIds: [] }, // nobody listens to these — no tag, no nag
   '1937711': { name: 'Disha Chaudhary', team: 'Rideshare + Rental', mandatory: true,  slackIds: ['U0BNQHX4F4K'] }, // Khushi
 };
 const TRANSFER_MERGE_MINUTES = 15;
