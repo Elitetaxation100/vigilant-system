@@ -7690,13 +7690,40 @@ function openReviewViewModal(id){
         : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>'
         : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>'
         : '<span style="color:var(--text-faint);">—</span>'}</div>
+      ${t.kudosAt ? `<div style="margin-top:8px;">🎉 <b style="color:var(--text);">Kudos sent</b> ${fmtDate(dayOf(t.kudosAt))} by ${esc((empById(t.kudosBy)||{}).name || '—')}</div>` : ''}
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
+      ${t.reviewStatus === 'clean' && !t.kudosAt ? `<button class="btn" style="border-color:#F59E0B;color:#B45309;" onclick="openKudosModal('${id}')">🎉 Send Kudos</button>` : ''}
       ${t.awaitingClientDecision ? `<button class="btn primary" onclick="openSendToClientModal('${id}')">Send to client…</button>` : ''}
     </div>
   `;
   openModal();
+}
+function openKudosModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🎉 Send Kudos — ${esc(t.name)}</h3>
+    <div class="modal-sub">Posts a public shoutout to the team Slack channel.</div>
+    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">(optional)</span></label>
+      <textarea id="kudosNote" placeholder="e.g. Great turnaround on a tricky one!"></textarea></div>
+    <div class="modal-error" id="kudosErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openReviewViewModal('${id}')">← Back</button>
+      <button class="btn primary" onclick="submitKudos('${id}')">Send 🎉</button>
+    </div>`;
+  openModal();
+}
+async function submitKudos(id){
+  const note = document.getElementById('kudosNote').value.trim();
+  const errEl = document.getElementById('kudosErr');
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/kudos`, { method:'POST', body: JSON.stringify({ note: note || undefined }) });
+    await refreshTasks();
+    showToast('success', 'Kudos sent! 🎉', 'Posted to the team Slack channel.');
+    closeModal();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* =========================================================================
    TASK TRAIL — the full "who did what, when" for one task, built from the

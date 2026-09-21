@@ -68,6 +68,10 @@ const RECORDING_MATCH_MINUTES = 120;
 // tasks, posted to the call channel at these NZ hours (24h, comma list).
 const DIGEST_HOURS = (process.env.CALL_DIGEST_HOURS || '9,15').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
 const DIGEST_TZ = process.env.CALL_DIGEST_TZ || 'Pacific/Auckland';
+// Personal "your day" DM — everyone with a linked Slack account and
+// anything to report gets one, at this NZ hour. Separate from the call
+// digest above (that's the shared channel post about calls specifically).
+const PERSONAL_DIGEST_HOURS = (process.env.PERSONAL_DIGEST_HOURS || '8').split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
 const LISTEN_GRACE_HOURS = 2;   // don't nag about a recording younger than this
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
@@ -850,6 +854,19 @@ function callStatsForSlackId(state, slackUserId) {
       })),
   };
 }
+// A public shoutout — posted by server.js's kudos endpoint once a clean
+// review is recorded. Best-effort: the kudos itself is already saved by
+// the time this runs, so a Slack outage here doesn't lose anything.
+async function postKudos(state, task, byName, note) {
+  const assignee = (state.employees || []).find(e => e.id === task.assignedTo);
+  const mention = assignee && assignee.slackUserId ? `<@${assignee.slackUserId}>` : esc((assignee && assignee.name) || 'someone');
+  const text = `🎉 *Kudos to ${mention}!*\n${esc(byName)} gave a shoutout for great work on *${esc(task.name)}*${task.clientName ? ' (' + esc(task.clientName) + ')' : ''}.` + (note ? `\n> ${esc(note)}` : '');
+  await slack('chat.postMessage', {
+    channel: cfg().slackChannel,
+    text: `🎉 Kudos to ${(assignee && assignee.name) || 'someone'}!`,
+    blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }],
+  });
+}
 async function postTaskCard(row, task, ownerSlackId, byName, selfAssigned) {
   const blocks = [
     { type: 'header', text: { type: 'plain_text', text: selfAssigned ? '📌 Task Logged (Self-Assigned)' : '📌 New Task', emoji: true } },
@@ -860,12 +877,37 @@ async function postTaskCard(row, task, ownerSlackId, byName, selfAssigned) {
     { type: 'section', text: { type: 'mrkdwn', text: `*Task:* ${esc(task.scope !== '—' ? task.scope : task.name, SLACK_TEXT_MAX)}` } },
     { type: 'context', elements: [{ type: 'mrkdwn', text: `${selfAssigned ? '' : 'Assigned by *' + esc(byName) + '* · '}Task ${task.id} · 🟢 via Governance OS` }] },
     { type: 'divider' },
-    { type: 'actions', elements: [buttonEl('✅ Mark Done', 'task_done', task.id)] },
+    { type: 'actions', elements: [buttonEl('▶ Start Work', 'task_start', task.id), buttonEl('✅ Mark Done', 'task_done', task.id)] },
   ];
   await slack('chat.postMessage', {
     channel: cfg().slackChannel, thread_ts: row.slackTs || undefined,
     text: `📌 Task for <@${ownerSlackId}>: ${task.name}`, blocks,
   });
+}
+// Start Work — the exact same state transition as the app's own Start/
+// Resume button (server.js#resumeTaskCore, required lazily so it's the one
+// shared implementation, not a re-guessed copy). Only works for whoever the
+// task is actually assigned to; anyone else clicking it just sees why not,
+// same message the app itself would show.
+async function onTaskStart(payload, taskId) {
+  const state = db.get();
+  const t = (state.tasks || []).find(x => x.id === taskId);
+  if (!t) return;
+  const who = payload.user.name || payload.user.username || payload.user.id;
+  const emp = empBySlackId(state, payload.user.id);
+  const blocks = removeButton(payload.message.blocks, 'task_start');
+  if (!emp) {
+    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `⚠️ Couldn't tell who you are — your Slack account isn't linked to a Governance OS login.` }] });
+  } else {
+    const { resumeTaskCore } = require('./server');
+    const result = resumeTaskCore(state, t, emp, {});
+    if (result.error) {
+      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `⚠️ ${esc(result.error)}` }] });
+    } else {
+      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `▶ *Started* by *${esc(who)}* — ${new Date().toLocaleString('en-NZ')}` }] });
+    }
+  }
+  await editMessage(payload, blocks);
 }
 async function onTaskDone(payload, taskId) {
   const state = db.get();
@@ -1092,7 +1134,7 @@ async function handleInteractivity(payload) {
     if (!a) return;
     const map = {
       mark_listened: onMarkListened, no_action: onNoAction, self_assign: onSelfAssign,
-      task_done: onTaskDone, play_recording: onPlayRecording, log_outcome: openLogOutcomeModal,
+      task_done: onTaskDone, task_start: onTaskStart, play_recording: onPlayRecording, log_outcome: openLogOutcomeModal,
       task_snooze: onTaskSnooze, task_need_time: onTaskNeedTime,
     };
     if (map[a.action_id]) await map[a.action_id](payload, a.value);
@@ -1459,6 +1501,40 @@ async function runReminders(reason) {
   return sent;
 }
 
+// Personal morning DM — "still open from yesterday" (missed, needs
+// attention) + "due today" (today's work), per person, only sent when
+// there's actually something to say. Everyone with open work and a linked
+// Slack account gets this, not just whoever's tagged on calls — this is a
+// general task-manager feature.
+async function runPersonalDigests(reason) {
+  const state = db.get();
+  const today = nzToday();
+  const yesterday = nzToday(new Date(Date.now() - 86400000));
+  const line = t => `• ${esc(t.name, 100)}${t.clientName ? ' — ' + esc(t.clientName, 60) : ''}`;
+  let sent = 0;
+  for (const emp of (state.employees || [])) {
+    if (!emp.slackUserId) continue;
+    const mine = activeAssignedTasks(state).filter(t => t.assignedTo === emp.id);
+    const missedYesterday = mine.filter(t => t.internalDeadline === yesterday);
+    const dueToday = mine.filter(t => t.internalDeadline === today);
+    if (!missedYesterday.length && !dueToday.length) continue;
+    const blocks = [{ type: 'header', text: { type: 'plain_text', text: '🗓️ Your day', emoji: true } }];
+    if (missedYesterday.length) {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text:
+        (`*⚠️ ${missedYesterday.length} still open from yesterday*\n` + missedYesterday.slice(0, 8).map(line).join('\n')).slice(0, SLACK_TEXT_MAX) } });
+    }
+    if (dueToday.length) {
+      blocks.push({ type: 'section', text: { type: 'mrkdwn', text:
+        (`*📋 ${dueToday.length} due today*\n` + dueToday.slice(0, 8).map(line).join('\n')).slice(0, SLACK_TEXT_MAX) } });
+    }
+    await dm(emp.slackUserId,
+      `🗓️ Your day: ${missedYesterday.length} still open from yesterday, ${dueToday.length} due today.`, blocks);
+    sent++;
+  }
+  clog('info', 'personal digests sent', { reason, sent });
+  return sent;
+}
+
 // hourly tick; fires the digest once per DIGEST_HOURS slot per day + the
 // reminder pass every tick
 let _schedTimer = null;
@@ -1479,13 +1555,21 @@ function startSchedulers() {
           await runDigest('scheduled ' + slot);
         }
       }
+      if (Array.isArray(PERSONAL_DIGEST_HOURS) && PERSONAL_DIGEST_HOURS.length) {
+        state.personalDigest = state.personalDigest || {};
+        const pslot = dayKey + ':' + hr;
+        if (PERSONAL_DIGEST_HOURS.includes(hr) && state.personalDigest.lastSlot !== pslot) {
+          state.personalDigest.lastSlot = pslot; db.save();
+          await runPersonalDigests('scheduled ' + pslot);
+        }
+      }
       await runReminders('scheduled ' + dayKey + ':' + hr);
     } catch (e) { clog('error', 'scheduler tick threw: ' + (e && e.stack || e)); }
   };
   _schedTimer = setInterval(tick, 10 * 60 * 1000); // every 10 min
   if (_schedTimer.unref) _schedTimer.unref();
   setTimeout(tick, 15000);
-  console.log('[connector] schedulers started — digest NZ hours ' + DIGEST_HOURS.join(',') + '; reminders ' + (REMINDERS_ON ? 'ON' : 'OFF') + (REMINDER_DRY_RUN ? ' (dry-run)' : ''));
+  console.log('[connector] schedulers started — digest NZ hours ' + DIGEST_HOURS.join(',') + '; personal digest NZ hours ' + PERSONAL_DIGEST_HOURS.join(',') + '; reminders ' + (REMINDERS_ON ? 'ON' : 'OFF') + (REMINDER_DRY_RUN ? ' (dry-run)' : ''));
 }
 
 // ---------------------------------------------------------------------------
@@ -1783,6 +1867,12 @@ function mountConnector(app) {
     runDigest('manual').catch(e => clog('error', 'manual digest threw: ' + e));
     res.json({ ok: true, triggered: true });
   });
+  app.post('/webhooks/run-personal-digest', async (req, res) => {
+    const v = verifyAircall(req);
+    if (!v.ok) return res.status(401).json({ error: v.why });
+    try { res.json({ ok: true, sent: await runPersonalDigests('manual') }); }
+    catch (e) { clog('error', 'manual personal digest threw: ' + e); res.status(500).json({ error: String(e) }); }
+  });
   // A manual reminder run always executes (even with REMINDERS_ENABLED unset),
   // so add ?dry=1 the first time to see what it WOULD send without DMing anyone.
   app.post('/webhooks/run-reminders', async (req, res) => {
@@ -1814,7 +1904,7 @@ function mountConnector(app) {
   });
 
   startSchedulers();
-  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-reminders,log,health}');
+  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-personal-digest,run-reminders,log,health}');
 }
 
-module.exports = { mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId };
+module.exports = { mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, postKudos };

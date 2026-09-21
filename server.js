@@ -1736,27 +1736,36 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
   // progress" at a time). First time it's called on a task, it also stamps
   // startedAt, which is what flips the badge from "Yet to start" to "In
   // progress" and, once paused, to "Paused" rather than back to "Yet to start".
-  app.post('/api/tasks/:id/resume', requireAuth, (req, res) => {
-    const state = db.get();
-    const t = findTask(state, req.params.id);
-    if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
-    if (!['accepted', 'rework'].includes(t.status)) return res.status(400).json({ error: 'Only an accepted task can be started.' });
-    if (t.timerStartedAt) return res.status(400).json({ error: 'This task is already running.' });
+  // Core logic shared with the Slack "Start Work" quick-action button
+  // (connector.js) — one place for the actual state transition, so the two
+  // entry points can never drift apart. Returns { error, status } or { task }.
+  function resumeTaskCore(state, t, byEmployee, { backdatedHours } = {}) {
+    if (t.assignedTo !== byEmployee.id) return { error: 'Only the assigned employee can do this.', status: 403 };
+    if (!['accepted', 'rework'].includes(t.status)) return { error: 'Only an accepted task can be started.', status: 400 };
+    if (t.timerStartedAt) return { error: 'This task is already running.', status: 400 };
     const first = !t.startedAt;
     // Backdated hours — only meaningful the first time a task is picked up:
     // "I actually started this before today" adds that time as already
     // banked, on top of whatever the live clock accrues from now on. Capped
     // at the agreed hours so a typo can't silently inflate worked time.
-    if (first && req.body && req.body.backdatedHours != null) {
-      const bh = Number(req.body.backdatedHours);
+    if (first && backdatedHours != null) {
+      const bh = Number(backdatedHours);
       if (bh > 0) t.logged += Math.min(bh, Number(t.tat) > 0 ? Number(t.tat) : bh);
     }
     t.timerStartedAt = new Date().toISOString();
     if (first) t.startedAt = t.timerStartedAt;
     pauseOtherActiveTasks(state, t.assignedTo, t.id);
-    logEvent(state, t.assignedTo, `${first ? 'Started' : 'Resumed'} "${escHtml(t.name)}".${first && req.body && Number(req.body.backdatedHours) > 0 ? ` (${Math.min(Number(req.body.backdatedHours), Number(t.tat)||Number(req.body.backdatedHours)).toFixed(1)}h already logged from before today)` : ''}`);
+    logEvent(state, t.assignedTo, `${first ? 'Started' : 'Resumed'} "${escHtml(t.name)}".${first && Number(backdatedHours) > 0 ? ` (${Math.min(Number(backdatedHours), Number(t.tat)||Number(backdatedHours)).toFixed(1)}h already logged from before today)` : ''}`);
     db.save();
-    res.json({ task: taskForClient(t) });
+    return { task: taskForClient(t) };
+  }
+  app.post('/api/tasks/:id/resume', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    const result = resumeTaskCore(state, t, req.employee, { backdatedHours: req.body && req.body.backdatedHours });
+    if (result.error) return res.status(result.status).json({ error: result.error });
+    res.json(result);
   });
 
 
@@ -2092,6 +2101,30 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
     logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was ${outcome}.`);
   });
   db.save();
+  res.json({ task: taskForClient(t) });
+});
+
+// Kudos — a public shoutout in the team Slack channel for a clean review.
+// Same permission as reviewing the work in the first place (or superadmin);
+// once per task, so it can't be spammed on the same piece of work.
+app.post('/api/tasks/:id/kudos', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (t.reviewStatus !== 'clean') return res.status(400).json({ error: 'Kudos is for clean reviews only.' });
+  if (!canReviewWorkOf(state, req.employee, t.assignedTo, t) && req.employee.accessRole !== 'superadmin') {
+    return res.status(403).json({ error: "You're not authorized to send kudos for this task." });
+  }
+  if (t.kudosAt) return res.status(400).json({ error: 'Kudos already sent for this task.' });
+  const note = String((req.body || {}).note || '').trim().slice(0, 300);
+  t.kudosAt = new Date().toISOString();
+  t.kudosBy = req.employee.id;
+  logEvent(state, t.assignedTo, `🎉 <b>${escHtml(req.employee.name)}</b> sent kudos for "${escHtml(t.name)}"${note ? ' — ' + escHtml(note) : ''}.`);
+  notify(state, t.assignedTo, 'kudos', `🎉 ${req.employee.name} sent you kudos for "${t.name}"${note ? ' — ' + note : ''}!`, t.id);
+  db.save();
+  // Best-effort — the kudos is already recorded above regardless of Slack.
+  require('./connector').postKudos(state, t, req.employee.name, note)
+    .catch(e => console.error('[kudos] slack post failed:', e && e.message));
   res.json({ task: taskForClient(t) });
 });
 
@@ -3870,6 +3903,12 @@ app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAcces
 // /webhooks/slack/interactivity, /webhooks/health.
 // ---------------------------------------------------------------------------
 require('./connector').mountConnector(app);
+
+// A few core task-state functions, for connector.js's Slack quick-action
+// buttons to share instead of re-implementing the same transitions —
+// required lazily from there (after this file has fully loaded), same
+// pattern connector.js already uses elsewhere.
+module.exports = { resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml };
 
 // ---------------------------------------------------------------------------
 // Static frontend
