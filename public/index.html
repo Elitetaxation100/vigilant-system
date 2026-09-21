@@ -7592,7 +7592,13 @@ async function submitReviewFinal(){
     // Internal tasks have no client to send a report to — only offer that
     // step when the task actually has one pending (client work, not
     // training/admin/internal).
-    if(decision === 'clean') openKudosPromptModal(id, !!(r.task && r.task.awaitingClientDecision));
+    const needsClientDecision = !!(r.task && r.task.awaitingClientDecision);
+    // A task that's already been through this once (sent back for review,
+    // then re-reviewed clean) already has kudos from the first round —
+    // don't prompt again, since Send would just fail with "already sent".
+    const alreadyKudosed = !!(r.task && r.task.kudosAt);
+    if(decision === 'clean' && !alreadyKudosed) openKudosPromptModal(id, needsClientDecision);
+    else if(needsClientDecision) openSendToClientModal(id);
   } catch(e){
     const el = document.getElementById('reviewScoreErr');
     el.textContent = e.message; el.style.display = 'block';
