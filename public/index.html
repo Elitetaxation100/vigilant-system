@@ -929,14 +929,14 @@
     </div>
     <div class="nav-section">
       <div class="nav-title">Tasks</div>
-      <div class="nav-item" onclick="openCreateTaskModal()"><span class="nav-icon">✚</span> Create Task</div>
+      <div class="nav-item" data-view="tasks" onclick="showView('tasks', this)"><span class="nav-icon">✓</span> Tasks</div>
+      <div class="nav-item nav-sub" onclick="openCreateTaskModal()"><span class="nav-icon">✚</span> Create Task</div>
       <!-- assignTeamNavItem / bulkAssignNavItem: no longer separate nav rows,
            but kept as real (hidden) elements — onLoginComplete/logoutSession
            already toggle these exact ids, and openCreateTaskModal's isAdmin
            check mirrors the same gate, so nothing needs to change there. -->
       <div id="assignTeamNavItem" style="display:none;"></div>
       <div id="bulkAssignNavItem" style="display:none;"></div>
-      <div class="nav-item" onclick="openTrashModal()"><span class="nav-icon">🗑</span> Recently removed</div>
     </div>
     <div class="nav-section">
       <div class="nav-title">Reviews</div>
@@ -1202,6 +1202,26 @@
             <tbody id="adminTaskTableBody"></tbody>
           </table>
         </div>
+      </section>
+
+      <!-- ===================== TASKS (My/Team/All, saved filters, recurring/removed/bulk) ===================== -->
+      <section class="view" id="view-tasks">
+        <div class="src-subtabs" id="tasksScopeTabs"></div>
+        <div class="panel-head-actions" style="margin:12px 0;display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn small" onclick="openRecurringModal()">🔁 Recurring / Daily Tasks</button>
+          <button class="btn small" onclick="openTrashModal()">🗑 Recently Removed</button>
+          <button class="btn small" onclick="openBulkAssignModal()">≣ Bulk Import</button>
+        </div>
+        <div class="src-subtabs" id="tasksSavedFilters"></div>
+        <div class="filter-row">
+          <input type="text" id="tasksSearch" placeholder="Search task, client, assignee…" oninput="renderTasksPage()">
+          <select id="tasksStatusFilter" onchange="renderTasksPage()"></select>
+        </div>
+        <table>
+          <thead><tr><th>Task</th><th>Client</th><th style="width:110px;">Owner</th><th style="width:60px;">Hrs</th><th style="width:120px;">Due</th><th style="width:150px;">Status</th></tr></thead>
+          <tbody id="tasksPageBody"></tbody>
+        </table>
+        <div id="tasksPageEmpty" style="display:none;padding:20px;text-align:center;color:var(--text-faint);">No tasks match this view.</div>
       </section>
 
       <!-- ===================== REVIEWS (dedicated home for review + send/profit-confirm actions) ===================== -->
@@ -2485,6 +2505,7 @@ function dashboardScopeLabelShort(){ return ''; }
    ========================================================================= */
 const titles = {
   dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
+  tasks: ['Tasks', 'My Tasks, Team Tasks and All Tasks — with saved filters, recurring tasks, and Recently Removed'],
   reviews: ['Reviews', 'Awaiting review, rework, profit confirmation, and reports to send — one queue'],
   taxonomy: ['Task Taxonomy', 'Canonical departments and services, and a privacy report on task titles — superadmin only'],
   taskengine: ['Task Engine', 'Measuring what gets done'],
@@ -2530,6 +2551,7 @@ function showView(id, el){
   if(id === 'report') renderReportCard();
   if(id === 'timeoff') renderTimeOff();
   if(id === 'dashboard'){ renderTaskTable(); refreshToday(); }
+  if(id === 'tasks') renderTasksPage(true);
   if(id === 'reviews') renderReviewsView();
   if(id === 'taxonomy') renderTaxonomyView();
   if(id === 'manager') refreshToday();
@@ -6925,6 +6947,91 @@ function openMyExtraHours(){
 }
 // Work other people sent the current viewer to check. Each row opens the
 // review form directly.
+/* =========================================================================
+   TASKS — one page for My/Team/All (whichever the role actually has),
+   saved filters, and the three things that used to be separate sidebar
+   items (Recurring, Recently Removed, Bulk Import — all still their own
+   existing modals, just launched from here now). Reuses taskListCategories
+   (already used by the tasklist-modal filter) for the status dropdown, and
+   TASK_LIST_FILTER_OPTIONS for its choices — no filtering logic invented
+   twice.
+   ========================================================================= */
+let _tasksScope = 'me';
+let _tasksSavedFilter = null;
+const TASKS_SAVED_FILTERS = [
+  ['duetoday', 'Due today'], ['overdue', 'Overdue'], ['atrisk', 'At risk'],
+  ['awaitingreview', 'Awaiting review'], ['onhold', 'On hold'],
+  ['assignedme', 'Assigned to me'], ['createdme', 'Created by me'],
+];
+function tasksSavedFilterMatch(t, key){
+  const today = todayISO();
+  switch(key){
+    case 'duetoday': return t.internalDeadline === today && t.status !== 'completed';
+    case 'overdue': return !!t.internalDeadline && t.internalDeadline < today && t.status !== 'completed';
+    case 'atrisk': return !!t.internalDeadline && t.internalDeadline >= today && t.internalDeadline <= addDaysISO(1) && t.status !== 'completed';
+    case 'awaitingreview': return t.status === 'completed' && !t.reviewStatus;
+    case 'onhold': return t.status === 'on_hold';
+    case 'assignedme': return t.assignedTo === currentViewerId;
+    case 'createdme': return t.assignedBy === currentViewerId;
+    default: return true;
+  }
+}
+function tasksScopedList(){
+  if(_tasksScope === 'me') return tasks.filter(t => t.assignedTo === currentViewerId);
+  return tasks; // 'team' (admin) / 'all' (superadmin) — already server-scoped, see visibleTasks()
+}
+function setTasksScope(scope, el){
+  _tasksScope = scope;
+  document.querySelectorAll('#tasksScopeTabs .src-subtab').forEach(b => b.classList.remove('on'));
+  if(el) el.classList.add('on');
+  renderTasksPage();
+}
+function toggleTasksFilter(key, el){
+  _tasksSavedFilter = _tasksSavedFilter === key ? null : key;
+  document.querySelectorAll('#tasksSavedFilters .src-subtab').forEach(b => b.classList.toggle('on', b.dataset.f === _tasksSavedFilter));
+  renderTasksPage();
+}
+function renderTasksPage(resetTabs){
+  const scopeWrap = document.getElementById('tasksScopeTabs');
+  if(resetTabs || !scopeWrap.childElementCount){
+    const tabs = [['me', 'My Tasks']];
+    if(isSuperAdmin) tabs.push(['team', 'All Tasks']);
+    else if(isAdmin) tabs.push(['team', 'Team Tasks']);
+    _tasksScope = 'me';
+    scopeWrap.innerHTML = tabs.map(([v,l],i) => `<button class="src-subtab${i===0?' on':''}" onclick="setTasksScope('${v}', this)">${esc(l)}</button>`).join('');
+    _tasksSavedFilter = null;
+    document.getElementById('tasksSavedFilters').innerHTML = TASKS_SAVED_FILTERS.map(([v,l]) =>
+      `<button class="src-subtab" data-f="${v}" onclick="toggleTasksFilter('${v}', this)">${esc(l)}</button>`).join('');
+    const statusSel = document.getElementById('tasksStatusFilter');
+    statusSel.innerHTML = TASK_LIST_FILTER_OPTIONS.map(([v,l]) => `<option value="${v}">${esc(l)}</option>`).join('');
+    statusSel.value = '_all';
+    document.getElementById('tasksSearch').value = '';
+  }
+  const q = (document.getElementById('tasksSearch').value || '').trim().toLowerCase();
+  const statusVal = document.getElementById('tasksStatusFilter').value || '_all';
+  let list = tasksScopedList();
+  if(_tasksSavedFilter) list = list.filter(t => tasksSavedFilterMatch(t, _tasksSavedFilter));
+  if(statusVal !== '_all') list = list.filter(t => taskListCategories(t, currentViewerId).split(' ').includes(statusVal));
+  if(q) list = list.filter(t => {
+    const o = empById(t.assignedTo);
+    return (t.name + ' ' + (t.clientName||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase().includes(q);
+  });
+  list = list.slice().sort((a,b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+  const today = todayISO();
+  document.getElementById('tasksPageBody').innerHTML = list.map(t => {
+    const o = empById(t.assignedTo);
+    const overdue = (t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today) || t.reviewOverdue || t.reportOverdue;
+    return `<tr style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
+      <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div></td>
+      <td class="tl-sub">${esc(t.clientName || 'Internal')}</td>
+      <td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>
+      <td style="font-family:var(--font-mono);">${t.tat}h</td>
+      <td style="${overdue?'color:#C2410C;font-weight:600;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${overdue?' · overdue':''}</td>
+      <td>${statusBadge(t)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('tasksPageEmpty').style.display = list.length ? 'none' : '';
+}
 // The dedicated Reviews page — everything that used to be scattered across
 // the Manager Dashboard, Command Center and individual task cards: what's
 // waiting on you to review, what's waiting on YOU to fix (rework), what's
