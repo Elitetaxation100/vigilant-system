@@ -1423,20 +1423,29 @@ app.get('/api/tasks/:id/notify-status', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind, internalRef, department, departmentOther } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind, internalRef, department, departmentOther, service } = req.body || {};
   let { internalDeadline } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
-  // Optional, controlled department (IA Phase 6) — free-text `team` above is
-  // untouched either way. "Other" always requires a one-line reason.
-  let deptName = null, deptOtherNote = null;
+  // Optional, controlled department + service (IA Phase 6) — free-text
+  // `team` above is untouched either way. "Other" always requires a
+  // one-line reason. Service is only checked against the chosen
+  // department's own list — picking a department is not required to name
+  // a service (a department-less "Other" task can still note a service).
+  let deptName = null, deptOtherNote = null, svcName = null;
   if (department !== undefined && department !== null && department !== '') {
-    const knownDepts = (state.taxonomy && state.taxonomy.departments || []).map(d => d.name);
+    const depts = (state.taxonomy && state.taxonomy.departments) || [];
+    const knownDepts = depts.map(d => d.name);
     if (department === 'Other') {
       const note = String(departmentOther || '').trim();
       if (!note) return res.status(400).json({ error: 'Say why this is "Other" before saving.' });
       deptName = 'Other'; deptOtherNote = note;
     } else if (knownDepts.includes(department)) {
       deptName = department;
+      if (service) {
+        const dept = depts.find(d => d.name === department);
+        if (!dept.services.includes(service)) return res.status(400).json({ error: 'Pick a real service under that department.' });
+        svcName = service;
+      }
     } else {
       return res.status(400).json({ error: 'Pick a real department, or "Other" with a reason.' });
     }
@@ -1530,7 +1539,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     name: String(name).trim(), scope: isInternal ? (scope ? String(scope).trim() : '—') : (scope || '—'),
     kind: isInternal ? 'internal' : 'client',
     team: team ? String(team).trim() : (findEmployee(state, assignee) || {}).team || null,
-    department: deptName, departmentOther: deptOtherNote,
+    department: deptName, departmentOther: deptOtherNote, service: svcName,
     clientId: client ? client.id : (internalClient ? internalClient.id : null),
     clientName: client ? client.name : (internalClient ? internalClient.name : (iref || (isInternal ? 'Internal' : ''))),
     internalRef: iref || null,

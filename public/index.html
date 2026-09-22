@@ -1926,6 +1926,10 @@ let tasks = [];
 let activityLog = [];
 let workload = []; // per-employee occupancy from /api/workload — who's booked until when
 let teams = []; // named team registry from /api/teams (calls-into-tasks, Phase 1b)
+let taxonomyDepartments = []; // canonical Department->Service list (IA Phase 6), cached at login
+async function refreshTaxonomy(){
+  try { taxonomyDepartments = (await api('/api/taxonomy')).departments; } catch(e){ /* non-fatal */ }
+}
 let myTodaysWork = []; // the current viewer's "to-do today" list, for the dashboard tile drill-down
 let myDoneToday = [];  // the current viewer's tasks completed today
 let _myExtra = [];     // completed tasks that ran over estimate, for the Extra Hours drill-down
@@ -5197,6 +5201,19 @@ function applyTaskPreset(){
   if(val) document.getElementById('atName').value = val;
   // TAT and points are intentionally left untouched — the manager sets those.
 }
+function onAtDeptChange(){
+  const dept = document.getElementById('atDept').value;
+  const svcWrap = document.getElementById('atServiceWrap');
+  const otherWrap = document.getElementById('atDeptOtherWrap');
+  otherWrap.style.display = dept === 'Other' ? '' : 'none';
+  const services = dept ? (taxonomyDepartments.find(d => d.name === dept) || {}).services || [] : [];
+  if(services.length){
+    document.getElementById('atService').innerHTML = `<option value="">— none —</option>${services.map(s=>`<option value="${esc(s)}">${esc(s)}</option>`).join('')}`;
+    svcWrap.style.display = '';
+  } else {
+    svcWrap.style.display = 'none';
+  }
+}
 // One front door for the three assignment flows that used to be separate
 // nav items. Routes straight to whichever existing modal handles it —
 // none of that logic is duplicated or rewritten here. A plain employee
@@ -5257,6 +5274,15 @@ function openAssignModal(mode){
       <select id="atTeam" onchange="onAtTeamChange()">${teamCategoryOptionsHtml((currentViewer() || {}).team || '')}</select>
       <input type="text" id="atTeamCustom" placeholder="Type a team or work category" style="display:none; margin-top:8px;">
     </div>
+    <div class="field"><label>Department <span style="font-weight:400;color:var(--text-faint);text-transform:none;letter-spacing:0;">— optional, for reporting</span></label>
+      <select id="atDept" onchange="onAtDeptChange()">
+        <option value="">— none —</option>
+        ${taxonomyDepartments.map(d => `<option value="${esc(d.name)}">${esc(d.name)}</option>`).join('')}
+        <option value="Other">Other</option>
+      </select>
+    </div>
+    <div class="field" id="atServiceWrap" style="display:none;"><label>Service</label><select id="atService"></select></div>
+    <div class="field" id="atDeptOtherWrap" style="display:none;"><label>Why "Other"? <span class="req-mark">*</span></label><input type="text" id="atDeptOther" placeholder="e.g. cross-department cover work"></div>
     ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee" onchange="atPlanPreview(); atSyncClientDate()">${assignableEmployees().map(e=>{
       const w = workload.find(x => x.id === e.id);
       const ct = w && w.committedThrough;
@@ -5420,6 +5446,18 @@ async function submitAssign(mode){
   let team = (document.getElementById('atTeam') || {}).value || '';
   if(team === '__custom__') team = ((document.getElementById('atTeamCustom') || {}).value || '').trim();
   const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };
+  const dept = (document.getElementById('atDept') || {}).value || '';
+  if(dept){
+    payload.department = dept;
+    if(dept === 'Other'){
+      const note = (document.getElementById('atDeptOther') || {}).value.trim();
+      if(!note){ showErr('Say why this is "Other" before saving.'); return; }
+      payload.departmentOther = note;
+    } else {
+      const svc = (document.getElementById('atService') || {}).value || '';
+      if(svc) payload.service = svc;
+    }
+  }
   if((document.getElementById('atAcceptOverload')||{}).checked) payload.pushConflicts = true;
   if(isInternal){
     payload.kind = 'internal';
@@ -9191,6 +9229,7 @@ async function onLoginComplete(){
   }
   await refreshClients();
   await refreshTeams();
+  await refreshTaxonomy();
   await refreshTasks();
   await refreshActivity();
   await refreshNotifications();

@@ -501,6 +501,7 @@ function runMigrations(state) {
     // a task that predates this field).
     if (t.department === undefined) t.department = null;
     if (t.departmentOther === undefined) t.departmentOther = null; // required note when department === 'Other'
+    if (t.service === undefined) t.service = null;
   });
   state._startedAtResetV1 = true;
   // ONE-TIME: map every existing task's free-text `team` to a canonical
