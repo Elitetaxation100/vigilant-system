@@ -840,7 +840,11 @@ function slackPermalink(row) {
 function callStatsForSlackId(state, slackUserId) {
   if (!slackUserId) return { total: 0, listened: 0, remaining: 0, remainingCalls: [] };
   const agentIds = Object.keys(AGENT_MAP).filter(id => (AGENT_MAP[id].slackIds || []).includes(slackUserId));
-  const calls = (state.calls || []).filter(c => agentIds.includes(c.agentAircallId) && c.status === 'ended');
+  // Rolling window, not the whole backlog — old unlistened calls (weeks back)
+  // just buried the tile in noise. "Remaining" now means yesterday onward.
+  const cutoff = nzToday(new Date(Date.now() - 86400000));
+  const calls = (state.calls || []).filter(c => agentIds.includes(c.agentAircallId) && c.status === 'ended'
+    && c.occurredAt && nzToday(new Date(c.occurredAt)) >= cutoff);
   const remaining = calls.filter(c => !c.listenedBy);
   return {
     total: calls.length,
