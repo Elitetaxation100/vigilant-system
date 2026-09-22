@@ -6446,7 +6446,10 @@ async function renderProductivityView(){
   const series = Object.values(mk).sort((a,b)=>a.monthStart.localeCompare(b.monthStart));
   const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
   const monthLbl = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
-  document.getElementById('prodTrend').innerHTML = series.length ? `
+  document.getElementById('prodTrend').innerHTML = series.length === 0 ? ''
+    : series.length === 1
+    ? `<p style="font-size:13px;color:var(--text-faint);">Only one month (${monthLbl(series[0].monthStart)}) in this range so far — a trend needs at least two to compare.</p>`
+    : `
     <div class="label" style="margin-bottom:8px;">Monthly — <span style="color:var(--teal,var(--teal));">worked</span> vs <span style="color:var(--text-faint);">allocated</span></div>
     <div style="display:flex;gap:12px;align-items:flex-end;height:120px;overflow-x:auto;padding-bottom:4px;">
       ${series.map(s => `<div style="flex:0 0 54px;text-align:center;">
@@ -6456,7 +6459,7 @@ async function renderProductivityView(){
         </div>
         <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${monthLbl(s.monthStart)}</div>
       </div>`).join('')}
-    </div>` : '';
+    </div>`;
 }
 
 function renderChartBuilder(){
@@ -8392,7 +8395,11 @@ async function renderReportCard(){
   const series = (p.monthly || []).slice().sort((a,b)=>a.monthStart.localeCompare(b.monthStart));
   const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
   const monthLbl = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
-  document.getElementById('rcTrend').innerHTML = series.length ? `
+  document.getElementById('rcTrend').innerHTML = series.length === 0
+    ? '<p style="font-size:13px;color:var(--text-faint);">No delivered work in this period.</p>'
+    : series.length === 1
+    ? `<p style="font-size:13px;color:var(--text-faint);">Only one month (${monthLbl(series[0].monthStart)}) in this period so far — a trend needs at least two to compare.</p>`
+    : `
     <div class="label" style="margin-bottom:8px;"><span style="color:var(--teal,var(--teal));">worked</span> vs <span style="color:var(--text-faint);">allocated</span>, per month</div>
     <div style="display:flex;gap:14px;align-items:flex-end;height:130px;overflow-x:auto;padding-bottom:4px;">
       ${series.map(s => `<div style="flex:0 0 56px;text-align:center;">
@@ -8403,7 +8410,7 @@ async function renderReportCard(){
         <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${monthLbl(s.monthStart)}</div>
         <div style="font-size:10px;color:var(--text-faint);">${s.tasks} task${s.tasks===1?'':'s'}</div>
       </div>`).join('')}
-    </div>` : '<p style="font-size:13px;color:var(--text-faint);">No delivered work in this period.</p>';
+    </div>`;
 
   // ---- delivered tasks in the period ----
   const delivered = tasks.filter(t => t.assignedTo === _rcPersonId && t.status === 'completed'
