@@ -954,9 +954,7 @@
     </div>
     <div class="nav-section">
       <div class="nav-title">Performance</div>
-      <div class="nav-item" data-view="report" onclick="showView('report', this)"><span class="nav-icon">◈</span> My Report Card</div>
-      <div class="nav-item nav-sub" id="analyticsNavSection" data-view="productivity" style="display:none;" onclick="showView('productivity', this)"><span class="nav-icon">▤</span> Productivity</div>
-      <div class="nav-item nav-sub" id="analyticsNavSection2" data-view="analytics" style="display:none;" onclick="showView('analytics', this)"><span class="nav-icon">📊</span> Analytics</div>
+      <div class="nav-item" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
     </div>
     <div class="nav-section" id="clientsNavSection">
       <div class="nav-title">Clients</div>
@@ -1719,7 +1717,10 @@
       </section>
 
       <!-- ===================== ANALYTICS (CUSTOM CHART BUILDER) VIEW ===================== -->
-      <section class="view" id="view-analytics">
+      <!-- ===================== PERFORMANCE (Report Card / Productivity / Analytics, one page, tabbed) ===================== -->
+      <section class="view" id="view-performance">
+        <div class="src-subtabs" id="perfTabs" style="margin-bottom:14px;"></div>
+        <div class="perf-tab" id="tab-analytics" style="display:none;">
         <div class="panel">
           <div class="panel-head"><h2>Chart Builder</h2></div>
           <p style="font-size:14px; color:var(--text-dim); margin-bottom:16px;">Pick any breakdown and any metric — the chart below is built live from the same task data as the rest of the app.</p>
@@ -1763,9 +1764,8 @@
           <div id="chartPeriodLabel" style="font-size:12px;color:var(--text-faint);margin-bottom:8px;"></div>
           <div class="cb-chart-wrap" id="chartBuilderWrap"></div>
         </div>
-      </section>
-
-      <section class="view" id="view-productivity">
+        </div>
+        <div class="perf-tab" id="tab-productivity" style="display:none;">
         <div class="panel">
           <div class="panel-head">
             <h2>Productivity — allocated vs worked</h2>
@@ -1792,28 +1792,10 @@
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:18px;" id="prodBody"></div>
           <div id="prodTrend" style="margin-top:18px;"></div>
         </div>
-      </section>
-
-      <section class="view" id="view-clients">
-        <div class="panel">
-          <div class="panel-head">
-            <h2>Client Directory</h2>
-            <button class="btn primary small" onclick="openAddClientModal()">+ Add Client</button>
-          </div>
-          <p style="font-size:14px; color:var(--text-faint); margin-bottom:14px;">Anyone can add a client and their contact email. Whoever adds it owns it and can edit its details; an admin can hand a client to someone else. Clients without an owner are flagged.</p>
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
-            <input type="text" id="clientSearch" placeholder="Search clients, email, owner, type…" oninput="renderClientGrid()"
-              style="flex:1; min-width:220px; background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 12px; font-size:14px;">
-            <select id="clientTypeFilter" onchange="renderClientGrid()" style="background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:13.5px;"></select>
-            <select id="clientOwnerFilter" onchange="renderClientGrid()" style="background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:13.5px;"></select>
-            <span id="clientCount" style="font-size:12.5px; color:var(--text-faint);"></span>
-          </div>
-          <div id="clientGrid"></div>
         </div>
-      </section>
-
-      <!-- ===================== EMPLOYEE REPORT CARD VIEW ===================== -->
-      <section class="view" id="view-report">
+        <!-- Report Card is the default tab — the only one of the three
+             guaranteed to be visible to every role, so it's never blank. -->
+        <div class="perf-tab" id="tab-report" style="display:block;">
         <div class="panel" style="margin-bottom:16px;">
           <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
             <div id="rcPersonWrap" style="display:none;">
@@ -1893,6 +1875,25 @@
           <div class="panel-head"><h2 style="font-size:15.5px;">Still open, counted toward this period's load</h2></div>
           <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">Not delivered yet, but due in this period — this is the other half of "assigned load" behind the Coverage factor and the allocation gap above.</p>
           <div id="rcOpenDue"></div>
+        </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-clients">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Client Directory</h2>
+            <button class="btn primary small" onclick="openAddClientModal()">+ Add Client</button>
+          </div>
+          <p style="font-size:14px; color:var(--text-faint); margin-bottom:14px;">Anyone can add a client and their contact email. Whoever adds it owns it and can edit its details; an admin can hand a client to someone else. Clients without an owner are flagged.</p>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+            <input type="text" id="clientSearch" placeholder="Search clients, email, owner, type…" oninput="renderClientGrid()"
+              style="flex:1; min-width:220px; background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 12px; font-size:14px;">
+            <select id="clientTypeFilter" onchange="renderClientGrid()" style="background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:13.5px;"></select>
+            <select id="clientOwnerFilter" onchange="renderClientGrid()" style="background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:9px 11px; font-size:13.5px;"></select>
+            <span id="clientCount" style="font-size:12.5px; color:var(--text-faint);"></span>
+          </div>
+          <div id="clientGrid"></div>
         </div>
       </section>
 
@@ -2559,9 +2560,7 @@ const titles = {
   taxonomy: ['Task Taxonomy', 'Canonical departments and services, and a privacy report on task titles — superadmin only'],
   taskengine: ['Task Engine', 'Measuring what gets done'],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
-  productivity: ['Productivity', 'Allocated vs worked hours — weekly, monthly, quarterly, year to date'],
-  analytics: ['Analytics', 'Build a chart from any breakdown and any metric'],
-  report: ['My Report Card', 'Auto-generated monthly, shareable as a PDF'],
+  performance: ['Performance', 'Your Report Card, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
   timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
@@ -2572,7 +2571,7 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','employees','taxonomy'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','command','attendance','employees','taxonomy'];
 // A shared tab strip at the top of Manager Dashboard / Team Board / Founder
 // View / Command Center — the four used to be separate, disconnected nav
 // destinations; this makes them read and navigate as one "Dashboard"
@@ -2597,6 +2596,32 @@ function renderMgmtTabs(activeId){
     `<button class="src-subtab${id===activeId?' on':''}" onclick="showView('${id}', document.querySelector('.nav-item[data-view=&quot;${id}&quot;]'))">${label}</button>`
   ).join('');
   document.querySelectorAll('.mgmt-tabs').forEach(el => el.innerHTML = html);
+}
+// Performance — Report Card, Productivity and Analytics as tabs of one
+// page. Report Card stays open to everyone (it's an employee's own
+// performance view — see the role-based nav breakdown); Productivity and
+// Analytics stay superadmin-only, exactly as they were as separate nav
+// items, just gated on the tab button instead of the sidebar row.
+let _perfTab = 'report';
+const PERF_TABS = [
+  ['report', 'My Report Card', false],
+  ['productivity', 'Productivity', true],
+  ['analytics', 'Analytics', true],
+];
+function renderPerformanceView(){
+  const visible = PERF_TABS.filter(([,,superOnly]) => !superOnly || isSuperAdmin);
+  if(!visible.some(([id]) => id === _perfTab)) _perfTab = 'report';
+  document.getElementById('perfTabs').innerHTML = visible.length < 2 ? '' : visible.map(([id,label]) =>
+    `<button class="src-subtab${id===_perfTab?' on':''}" onclick="setPerfTab('${id}')">${esc(label)}</button>`
+  ).join('');
+  document.querySelectorAll('.perf-tab').forEach(el => el.style.display = el.id === 'tab-' + _perfTab ? '' : 'none');
+  if(_perfTab === 'report') renderReportCard();
+  else if(_perfTab === 'productivity') renderProductivityView();
+  else if(_perfTab === 'analytics') renderChartBuilder();
+}
+function setPerfTab(id){
+  _perfTab = id;
+  renderPerformanceView();
 }
 /* Mobile: the sidebar is an off-canvas drawer under 860px. */
 function toggleMobileNav(){ document.querySelector('.app').classList.toggle('nav-open'); }
@@ -2626,7 +2651,6 @@ function showView(id, el){
   document.getElementById('pageTitle').textContent = titles[id][0];
   document.getElementById('pageSub').textContent = titles[id][1];
   if(id !== 'dashboard' && _dashMirror){ _dashMirror = null; renderMirrorBanner(); }  // mirror only lives on the Commitment Dashboard
-  if(id === 'report') renderReportCard();
   if(id === 'timeoff') renderTimeOff();
   if(id === 'dashboard'){ renderTaskTable(); refreshToday(); }
   if(id === 'tasks') renderTasksPage(true);
@@ -2637,8 +2661,7 @@ function showView(id, el){
   if(id === 'clients') renderClientGrid();
   if(id === 'manager') renderManagerStatics();
   if(id === 'taskengine') renderTaskEngineVisuals();
-  if(id === 'analytics') renderChartBuilder();
-  if(id === 'productivity') renderProductivityView();
+  if(id === 'performance') renderPerformanceView();
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
@@ -6589,7 +6612,8 @@ function simpleScoreCardHtml(pct, workedHours, capacityHours, sub){
 // efficiency / on-time / rework / coverage math is shown.
 function openReportCardFor(id){
   _rcPersonId = id;
-  showView('report', document.querySelector('.nav-item[data-view="report"]'));
+  _perfTab = 'report';
+  showView('performance', document.querySelector('.nav-item[data-view="performance"]'));
 }
 function prodEmpTileHtml(p){
   const pct = p.utilisationPct;
@@ -9519,8 +9543,6 @@ async function onLoginComplete(){
   // Founder View — actual founder(s) only (Manage Access → Founder), not
   // every superadmin.
   document.getElementById('founderNavSection').style.display = (isSuperAdmin && session.isFounder) ? '' : 'none';
-  document.getElementById('analyticsNavSection').style.display = isSuperAdmin ? '' : 'none';
-  document.getElementById('analyticsNavSection2').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('whatsappNavSection').style.display = (isSuperAdmin || session.whatsappAccess) ? '' : 'none';
   // Manager Dashboard stays with the Admin role — team oversight & the
   // review / approve / reassign actions live there.
@@ -9599,7 +9621,6 @@ function logoutSession(){
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
   document.getElementById('mgmtNavToggle').style.display = 'none';
-  document.getElementById('analyticsNavSection2').style.display = 'none';
   document.getElementById('whatsappNavSection').style.display = 'none';
   document.getElementById('teamBoardNavSection').style.display = 'none';
   document.getElementById('assignTeamNavItem').style.display = 'none';
