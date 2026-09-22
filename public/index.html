@@ -1057,6 +1057,12 @@
             <div class="mt-value" style="color:var(--amber);" id="myCallsRemaining">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myCallsSub"></div>
           </div>
+          <div class="metric-tile mg-tile" id="profitConfirmTile" style="display:none;" onclick="openProfitConfirmsModal()" title="Clean client tasks routed to you for profit confirmation before the report goes out">
+            <div class="mt-ic">💰</div>
+            <div class="mt-label">Profit confirmations</div>
+            <div class="mt-value" style="color:var(--purple);" id="profitConfirmCount">0</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="profitConfirmSub">waiting on you</div>
+          </div>
         </div>
 
         <div class="dash-bento">
@@ -3805,6 +3811,19 @@ function renderEmployeeStats(){
   renderMirrorBanner();
   renderDeliveryStrip('deliveryStrip', mine, isMirroring() ? (me.name || '') : null);
   refreshMyCallStats();
+  refreshProfitConfirmTile();
+}
+// Shubam's (or superadmin's) queue of clean client tasks waiting on his
+// profit confirmation — a real dashboard tile, not just the banner, so it
+// doesn't rely on being noticed at the top of the page.
+function refreshProfitConfirmTile(){
+  const tile = document.getElementById('profitConfirmTile');
+  if(!tile) return;
+  if(isMirroring() || !iAmProfitConfirmOwner()){ tile.style.display = 'none'; return; }
+  const n = profitConfirmsPendingFor().length;
+  if(!n){ tile.style.display = 'none'; return; }
+  tile.style.display = '';
+  document.getElementById('profitConfirmCount').textContent = n;
 }
 // Calls tagged to you (see connector.js AGENT_MAP) that actually connected
 // — voicemails and missed calls were never posted or tagged, so they never
@@ -7609,48 +7628,70 @@ async function submitReviewFinal(){
     await refreshTasks();
     await refreshActivity({ silent: true });
     showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', `Scored ${scoreVal}/100.`);
-    // Right in the moment, not something you have to remember to come back
-    // for later — a clean review is exactly when kudos is on your mind.
-    // Internal tasks have no client to send a report to — only offer that
-    // step when the task actually has one pending (client work, not
-    // training/admin/internal).
-    const needsClientDecision = !!(r.task && r.task.awaitingClientDecision);
-    // A task that's already been through this once (sent back for review,
-    // then re-reviewed clean) already has kudos from the first round —
-    // don't prompt again, since Send would just fail with "already sent".
-    const alreadyKudosed = !!(r.task && r.task.kudosAt);
-    if(decision === 'clean' && !alreadyKudosed) openKudosPromptModal(id, needsClientDecision);
-    else if(needsClientDecision) openSendToClientModal(id);
+    // One screen for everything that follows a clean review — links, kudos,
+    // and (for client work) the send/profit-confirm decision — instead of a
+    // chain of separate popups. openSendToClientModal adapts to internal vs
+    // client and to whether kudos is still available on its own.
+    if(decision === 'clean') openSendToClientModal(id);
   } catch(e){
     const el = document.getElementById('reviewScoreErr');
     el.textContent = e.message; el.style.display = 'block';
   }
 }
+  // The one screen after a clean review — links, kudos, and (for client
+  // work) the send/profit-confirm decision. Works both right after scoring
+  // a review AND when reopened later from Reports to send / View Review,
+  // since it only ever reads the task's current state.
   function openSendToClientModal(id){
     const t = findTask(id);
     if(!t) return;
+    const isInternal = t.kind === 'internal';
     const owner = empById(t.reportSendOwner);
     const canReassign = canManageReportSend(t);
-    const offerProfitConfirm = t.profitConfirmStatus !== 'confirmed';
+    const offerProfitConfirm = !isInternal && t.profitConfirmStatus !== 'confirmed' && t.profitConfirmStatus !== 'pending';
+    const offerKudos = t.reviewStatus === 'clean' && !t.kudosAt;
+    const linksBlock = !isInternal ? `
+    <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="stcSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+    <div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : '';
     document.getElementById('modalBox').innerHTML = `
-    <h3>Send to client?</h3>
-    <div class="modal-sub">${esc(t.name)} was reviewed clean — send this report directly to the client?</div>
-    <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:12px 14px; margin:12px 0; font-size:13px; color:var(--text-dim); line-height:1.8;">
+    <h3>${isInternal ? '✓ Reviewed clean' : 'Send to client?'} — ${esc(t.name)}</h3>
+    <div class="modal-sub">${isInternal ? 'Internal task — nothing to send.' : `Reviewed clean — send this report directly to the client?`}</div>
+    ${!isInternal ? `<div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:12px 14px; margin:12px 0; font-size:13px; color:var(--text-dim); line-height:1.8;">
       <div><b style="color:var(--text);">Sending it:</b> ${owner ? esc(owner.name) : '—'}${canReassign ? ` · <a href="#" onclick="event.preventDefault(); openReassignReportOwner('${id}');" style="color:var(--purple);">change</a>` : ''}</div>
       <div><b style="color:var(--text);">Deadline:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' <span style="color:#C2410C;font-weight:600;">· overdue</span>' : ''}</div>
+      ${t.profitConfirmStatus === 'pending' ? `<div><b style="color:#B45309;">💰 Awaiting profit confirmation from Shubam Sharma.</b></div>` : ''}
       ${t.profitConfirmStatus === 'confirmed' ? `<div><b style="color:var(--text);">Profit confirmed</b> — ready to send.</div>` : ''}
-    </div>
+    </div>` : ''}
+    ${linksBlock}
     <div class="modal-actions" style="flex-wrap:wrap;">
-    <button class="btn" onclick="closeModal()">Remind me later</button>
+    <button class="btn" onclick="${isInternal ? 'closeModal()' : `submitSaveLinks('${id}', true)`}">${isInternal ? 'Close' : 'Remind me later'}</button>
+    ${offerKudos ? `<button class="btn" style="border-color:#F59E0B;color:#B45309;" onclick="openKudosModal('${id}','send')">🎉 Kudos</button>` : ''}
     ${offerProfitConfirm ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitProfitConfirmRequest('${id}')" title="Send to Shubam with the sheet/cashbook links before this goes out">💰 Profit Confirm</button>` : ''}
-    <button class="btn primary" onclick="submitSendToClient('${id}','yes')">✓ Sent to client</button>
+    ${!isInternal && t.profitConfirmStatus !== 'pending' ? `<button class="btn primary" onclick="submitSendToClient('${id}','yes')">✓ Sent to client</button>` : ''}
     </div>
-    <div style="margin-top:10px;text-align:center;"><a href="#" onclick="event.preventDefault(); submitSendToClient('${id}','no')" style="font-size:12px;color:var(--text-faint);">Won't be sent — no report needed</a></div>
+    ${!isInternal && t.profitConfirmStatus !== 'pending' ? `<div style="margin-top:10px;text-align:center;"><a href="#" onclick="event.preventDefault(); submitSendToClient('${id}','no')" style="font-size:12px;color:var(--text-faint);">Won't be sent — no report needed</a></div>` : ''}
     `;
     openModal();
   }
+  // Persists whatever is currently in the link fields (if this screen has
+  // them) — called before every decision so an edit is never lost, and
+  // stands alone for "I only came here to add a link, decide later."
+  async function submitSaveLinks(id, thenClose){
+    const sheetEl = document.getElementById('stcSheetLink');
+    if(!sheetEl){ if(thenClose) closeModal(); return; }
+    const sheetLink = sheetEl.value || undefined;
+    const cashbookLink = (document.getElementById('stcCashbookLink')||{}).value || undefined;
+    try {
+      await api(`/api/tasks/${encodeURIComponent(id)}/links`, { method:'PATCH', body: JSON.stringify({ sheetLink, cashbookLink }) });
+      await refreshTasks();
+      if(thenClose) closeModal();
+    } catch(e){ showToast('error', 'Could not save links', e.message); }
+  }
   async function submitSendToClient(id, decision){
     try {
+      await submitSaveLinks(id, false);
       await api(`/api/tasks/${encodeURIComponent(id)}/send-to-client`, { method:'POST', body: JSON.stringify({ decision }) });
       closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
       showToast('info', decision === 'yes' ? 'Sent to client' : 'Not sent to client', '');
@@ -7658,6 +7699,7 @@ async function submitReviewFinal(){
   }
   async function submitProfitConfirmRequest(id){
     try {
+      await submitSaveLinks(id, false);
       await api(`/api/tasks/${encodeURIComponent(id)}/profit-confirm`, { method:'POST' });
       closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
       showToast('info', 'Sent for profit confirmation', 'Shubam Sharma will confirm before this goes out.');
@@ -7779,7 +7821,9 @@ function openReviewViewModal(id){
   `;
   openModal();
 }
-function openKudosModal(id){
+// `from` is 'send' when reached from the post-review send-to-client screen
+// (Back / after-send return there), otherwise the View Review detail.
+function openKudosModal(id, from){
   const t = findTask(id);
   if(!t) return;
   document.getElementById('modalBox').innerHTML = `
@@ -7789,47 +7833,19 @@ function openKudosModal(id){
       <textarea id="kudosNote" placeholder="e.g. Great turnaround on a tricky one!"></textarea></div>
     <div class="modal-error" id="kudosErr"></div>
     <div class="modal-actions">
-      <button class="btn" onclick="openReviewViewModal('${id}')">← Back</button>
-      <button class="btn primary" onclick="submitKudos('${id}')">Send 🎉</button>
+      <button class="btn" onclick="${from === 'send' ? `openSendToClientModal('${id}')` : `openReviewViewModal('${id}')`}">← Back</button>
+      <button class="btn primary" onclick="submitKudos('${id}','${from||'view'}')">Send 🎉</button>
     </div>`;
   openModal();
 }
-async function submitKudos(id){
+async function submitKudos(id, from){
   const note = document.getElementById('kudosNote').value.trim();
   const errEl = document.getElementById('kudosErr');
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/kudos`, { method:'POST', body: JSON.stringify({ note: note || undefined }) });
     await refreshTasks();
     showToast('success', 'Kudos sent! 🎉', 'Posted to the team Slack channel.');
-    closeModal();
-  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
-}
-// Shown immediately after marking a review clean — the actual moment
-// kudos is on your mind, not a button you have to remember to come back
-// for later (that one still exists on View Review, for older work).
-function openKudosPromptModal(id, thenSendToClient){
-  const t = findTask(id);
-  if(!t) return;
-  document.getElementById('modalBox').innerHTML = `
-    <h3>🎉 Send kudos?</h3>
-    <div class="modal-sub">Nice work from ${esc((empById(t.assignedTo)||{}).name || 'them')} on "${esc(t.name)}" — give them a public shoutout in Slack?</div>
-    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">(optional)</span></label>
-      <textarea id="kudosNote" placeholder="e.g. Great turnaround on a tricky one!"></textarea></div>
-    <div class="modal-error" id="kudosErr"></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="${thenSendToClient ? `openSendToClientModal('${id}')` : 'closeModal()'}">Skip</button>
-      <button class="btn primary" onclick="submitKudosThen('${id}', ${thenSendToClient ? 'true' : 'false'})">Send 🎉</button>
-    </div>`;
-  openModal();
-}
-async function submitKudosThen(id, thenSendToClient){
-  const note = document.getElementById('kudosNote').value.trim();
-  const errEl = document.getElementById('kudosErr');
-  try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/kudos`, { method:'POST', body: JSON.stringify({ note: note || undefined }) });
-    await refreshTasks();
-    showToast('success', 'Kudos sent! 🎉', 'Posted to the team Slack channel.');
-    if(thenSendToClient) openSendToClientModal(id); else closeModal();
+    if(from === 'send') openSendToClientModal(id); else closeModal();
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* =========================================================================

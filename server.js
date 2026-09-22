@@ -2099,6 +2099,28 @@ app.post('/api/tasks/:id/report-owner', requireAuth, (req, res) => {
   db.save();
   res.json({ task: taskForClient(t) });
 });
+// Attach/edit the Sheet or Cashbook link at any point after review — not
+// just at Mark Complete. Same standing as everyone else in the send-to-
+// client flow: the reviewer, a manager over the assignee, the report-send
+// owner, or the assignee themselves (they're the one who'd actually know
+// the link if it was missed the first time).
+app.patch('/api/tasks/:id/links', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const allowed = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.id === t.reportSendOwner ||
+    req.employee.id === t.assignedTo || req.employee.accessRole === 'superadmin';
+  if (!allowed) return res.status(403).json({ error: "You can't edit this task's links." });
+  const { sheetLink, cashbookLink } = req.body || {};
+  const sheetLinkN = normalizeLink(sheetLink);
+  const cashbookLinkN = normalizeLink(cashbookLink);
+  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
+  if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
 // Send-to-client decision — asked once a task is reviewed clean. Logged
 // for the assignee and their reporting manager(s) the same way every
 // other task event is, so both see the same outcome. Allowed for the
