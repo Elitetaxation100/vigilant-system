@@ -1083,6 +1083,64 @@ app.post('/api/teams', requireAuth, requireSuperAdmin, (req, res) => {
   res.status(201).json({ team });
 });
 
+// IA Phase 6 — canonical Department -> Service taxonomy. Separate from
+// /api/teams: `team` stays the free-text field the rest of the app already
+// keys off; department/service are the new controlled categories tasks can
+// optionally carry alongside it (see POST /api/tasks below). "Other" is
+// always implicitly available client-side and never appears in this list.
+app.get('/api/taxonomy', requireAuth, (req, res) => {
+  res.json({ departments: db.get().taxonomy.departments });
+});
+app.put('/api/taxonomy', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const input = (req.body || {}).departments;
+  if (!Array.isArray(input) || !input.length) return res.status(400).json({ error: 'At least one department is required.' });
+  const seenDept = new Set();
+  const departments = [];
+  for (const d of input) {
+    const name = String((d || {}).name || '').trim();
+    if (!name) return res.status(400).json({ error: 'Every department needs a name.' });
+    if (name.toLowerCase() === 'other') return res.status(400).json({ error: '"Other" is reserved — it\'s always available automatically.' });
+    const key = name.toLowerCase();
+    if (seenDept.has(key)) return res.status(409).json({ error: `Duplicate department: "${name}".` });
+    seenDept.add(key);
+    const seenSvc = new Set();
+    const services = [];
+    for (const raw of (Array.isArray(d.services) ? d.services : [])) {
+      const svc = String(raw || '').trim();
+      if (!svc) continue;
+      const svcKey = svc.toLowerCase();
+      if (seenSvc.has(svcKey)) return res.status(409).json({ error: `Duplicate service "${svc}" under "${name}".` });
+      seenSvc.add(svcKey);
+      services.push(svc);
+    }
+    departments.push({ name, services });
+  }
+  state.taxonomy = { departments };
+  db.save();
+  res.json({ departments });
+});
+// Scans task names/scopes for what looks like a phone number or email —
+// read-only, changes nothing. The point is a list a superadmin can review
+// and decide what (if anything) to redact; see POST /api/tasks/:id/correct-
+// name for the one place a title is ever actually edited, and that still
+// takes a human doing it deliberately, never this endpoint.
+app.get('/api/admin/pii-report', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const flagged = (state.tasks || []).filter(t => !t.deletedAt).map(t => {
+    const hay = `${t.name || ''} ${t.scope || ''}`;
+    const hasEmail = db.PII_EMAIL_RE.test(hay);
+    const hasPhone = db.PII_PHONE_RE.test(hay);
+    if (!hasEmail && !hasPhone) return null;
+    return {
+      id: t.id, name: t.name, scope: t.scope, clientName: t.clientName,
+      assignedTo: t.assignedTo, status: t.status,
+      matched: [hasEmail && 'email', hasPhone && 'phone'].filter(Boolean),
+    };
+  }).filter(Boolean);
+  res.json({ total: (state.tasks || []).length, flaggedCount: flagged.length, flagged });
+});
+
 // Remove an employee entirely — Superadmin only. Blocked while they still
 // hold active (non-completed) work, so removing someone can't silently
 // orphan a task; reassign it first, then remove. Also unwinds any trace
@@ -1365,9 +1423,24 @@ app.get('/api/tasks/:id/notify-status', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind, internalRef } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind, internalRef, department, departmentOther } = req.body || {};
   let { internalDeadline } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
+  // Optional, controlled department (IA Phase 6) — free-text `team` above is
+  // untouched either way. "Other" always requires a one-line reason.
+  let deptName = null, deptOtherNote = null;
+  if (department !== undefined && department !== null && department !== '') {
+    const knownDepts = (state.taxonomy && state.taxonomy.departments || []).map(d => d.name);
+    if (department === 'Other') {
+      const note = String(departmentOther || '').trim();
+      if (!note) return res.status(400).json({ error: 'Say why this is "Other" before saving.' });
+      deptName = 'Other'; deptOtherNote = note;
+    } else if (knownDepts.includes(department)) {
+      deptName = department;
+    } else {
+      return res.status(400).json({ error: 'Pick a real department, or "Other" with a reason.' });
+    }
+  }
   // Internal tasks (training, admin, meetings…) have no client. Everything
   // else must name one.
   const isInternal = kind === 'internal';
@@ -1457,6 +1530,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     name: String(name).trim(), scope: isInternal ? (scope ? String(scope).trim() : '—') : (scope || '—'),
     kind: isInternal ? 'internal' : 'client',
     team: team ? String(team).trim() : (findEmployee(state, assignee) || {}).team || null,
+    department: deptName, departmentOther: deptOtherNote,
     clientId: client ? client.id : (internalClient ? internalClient.id : null),
     clientName: client ? client.name : (internalClient ? internalClient.name : (iref || (isInternal ? 'Internal' : ''))),
     internalRef: iref || null,

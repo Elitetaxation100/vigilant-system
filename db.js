@@ -66,6 +66,48 @@ const RETIRED_EMAILS = new Set([
   'krishna@elitetaxation.co.nz',
 ]);
 
+// IA Phase 6 — canonical Department -> Service taxonomy. This is additive:
+// it sits alongside the existing free-text `team` field (still used by
+// employee.team, task.team, dashboards) rather than replacing it, so
+// nothing that already keys off `team` strings changes behaviour. Editable
+// by a superadmin via PUT /api/taxonomy; "Other" always stays available and
+// server.js requires a note when it's chosen (see normalizeTaxonomyChoice).
+const TAXONOMY_SEED = [
+  { name: 'Companies & Rental', services: ['Annual Accounts', 'GST', 'Income Tax', 'Bookkeeping', 'Rental Accounts', 'Companies Office', 'Client Queries'] },
+  { name: 'Rideshare & Admin', services: ['Rideshare GST', 'Rideshare Annual Accounts', 'Rideshare Bookkeeping', 'Client Onboarding', 'Client Administration'] },
+  { name: 'Marketing', services: [] },
+  { name: 'Management', services: [] },
+  { name: 'Internal Administration', services: [] },
+];
+// Every real `team` value seen on live tasks as of the Phase 1 audit, mapped
+// to the department it belongs under. A value not in this map (new teams,
+// typos not yet seen) just gets department: null until someone re-tags it —
+// nothing forces a guess. task.team itself is never touched by this map;
+// see runMigrations' one-time backfill below, which only adds new fields.
+const LEGACY_TEAM_TO_DEPARTMENT = {
+  'companies & rental team': 'Companies & Rental',
+  'companies': 'Companies & Rental',
+  'companies team': 'Companies & Rental',
+  'companies + rental + rideshare': 'Companies & Rental',
+  'rental team': 'Companies & Rental',
+  'campany & rideshare': 'Companies & Rental',
+  'coontractual': 'Companies & Rental',
+  'schedular income': 'Companies & Rental',
+  'gst team': 'Companies & Rental',
+  'rideshare': 'Rideshare & Admin',
+  'rideshare & admin team': 'Rideshare & Admin',
+  'admin': 'Rideshare & Admin',
+  'marketing': 'Marketing',
+  'management': 'Management',
+  'unassigned': 'Internal Administration',
+};
+// Task titles/scopes get scanned for this shape during the PII report — a
+// loose match on purpose (see /api/admin/pii-report): false positives just
+// mean a harmless line gets reviewed and cleared, false negatives mean a
+// real number slips through unflagged, and the first is the safer failure.
+const PII_EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+const PII_PHONE_RE = /(\+?\d[\d\s-]{7,}\d)/;
+
 function seedData() {
   const now = Date.now();
   const hash = (pw) => bcrypt.hashSync(pw, 10);
@@ -341,6 +383,12 @@ function runMigrations(state) {
   if (!Array.isArray(state.recurringTasks)) state.recurringTasks = [];
   if (typeof state.recurringSeq !== 'number') state.recurringSeq = 0;
   if (state.recurringLastRun === undefined) state.recurringLastRun = null;
+  // IA Phase 6 — canonical taxonomy, seeded once. A superadmin can rename/
+  // add departments and services from Admin Settings afterwards; this only
+  // fills it in if it's genuinely missing, never overwrites an edit.
+  if (!state.taxonomy || !Array.isArray(state.taxonomy.departments)) {
+    state.taxonomy = { departments: TAXONOMY_SEED.map(d => ({ name: d.name, services: d.services.slice() })) };
+  }
   // WhatsApp (Interakt) — see connector.js handleInteraktWebhook().
   if (!state.waContacts || typeof state.waContacts !== 'object' || Array.isArray(state.waContacts)) state.waContacts = {};
   Object.values(state.waContacts).forEach(c => { if (c.relayToSlack === undefined) c.relayToSlack = false; });
@@ -447,8 +495,28 @@ function runMigrations(state) {
     if (t.profitConfirmRequestedBy === undefined) t.profitConfirmRequestedBy = null;
     if (t.profitConfirmAt === undefined) t.profitConfirmAt = null;
     if (t.profitConfirmBy === undefined) t.profitConfirmBy = null;
+    // IA Phase 6 — canonical department, additive alongside the existing
+    // free-text team (never overwritten or removed — see the one-time
+    // backfill below, which is the only thing that ever sets department on
+    // a task that predates this field).
+    if (t.department === undefined) t.department = null;
+    if (t.departmentOther === undefined) t.departmentOther = null; // required note when department === 'Other'
   });
   state._startedAtResetV1 = true;
+  // ONE-TIME: map every existing task's free-text `team` to a canonical
+  // department using the known legacy values from the Phase 1 audit. Never
+  // re-runs (guarded), never touches `team` itself, and only fills
+  // `department` where it's still null — so a task someone already
+  // hand-categorized (or created after this shipped) is left alone.
+  if (!state._taxonomyMigrationV1) {
+    (state.tasks || []).forEach(t => {
+      if (t.department == null && t.team) {
+        const mapped = LEGACY_TEAM_TO_DEPARTMENT[String(t.team).trim().toLowerCase()];
+        if (mapped) t.department = mapped;
+      }
+    });
+    state._taxonomyMigrationV1 = true;
+  }
   // ONE-TIME historical backfill: call / Slack tasks that were already
   // completed before the review flow existed should read as 'done', not
   // "awaiting review". This must NOT re-run — after the flow shipped, a
@@ -679,6 +747,9 @@ module.exports = {
   replace,
   logTaskEvent,
   remindersForTask,
+  TAXONOMY_SEED,
+  PII_EMAIL_RE,
+  PII_PHONE_RE,
   _mode: () => (pgActive ? 'postgres' : 'file'),
   _rev: () => rev,
 };

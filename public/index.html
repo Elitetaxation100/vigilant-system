@@ -961,6 +961,7 @@
       <div class="nav-title">Admin Settings</div>
       <div class="nav-item" id="adminNavItem" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Admin</div>
       <div class="nav-item" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
+      <div class="nav-item" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Taxonomy</div>
       <div class="nav-item" id="taskEngineNavItem" data-view="taskengine" onclick="showView('taskengine', this)"><span class="nav-icon">⚙</span> Task Engine</div>
     </div>
 
@@ -1843,6 +1844,33 @@
         </div>
       </section>
 
+      <!-- ===================== TASK TAXONOMY (canonical categories + privacy report) ===================== -->
+      <section class="view" id="view-taxonomy">
+        <div class="banner">
+          <span>🗂</span>
+          <span><b>Task Taxonomy.</b> The controlled Department → Service list new tasks can optionally use — separate from the existing free-text Team field, which is untouched. Renaming or removing something here never changes a task that's already using it.</span>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Departments &amp; services</h2><button class="btn primary small" onclick="taxAddDept()">+ Add department</button></div>
+          <div id="taxDeptList"></div>
+          <div class="modal-error" id="taxErr" style="display:none;margin-top:10px;"></div>
+          <div class="panel-head-actions" style="margin-top:14px;">
+            <button class="btn primary" onclick="saveTaxonomy()">Save changes</button>
+            <span style="font-size:12.5px;color:var(--text-faint);">"Other" is always available on top of this list and always asks for a one-line reason.</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Privacy report</h2></div>
+          <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;max-width:70ch;">Task titles and descriptions that look like they contain a phone number or email address — client contact details belong on the Client record, not here. This is a read-only scan: nothing below has been changed. Use "Rename" to fix one deliberately.</p>
+          <div id="piiSummary" style="font-size:13.5px;margin:10px 0;"></div>
+          <div class="tl-scroll"><table id="piiTable">
+            <thead><tr><th>Task</th><th style="width:110px;">Client</th><th style="width:90px;">Flagged for</th><th style="width:90px;"></th></tr></thead>
+            <tbody id="piiBody"></tbody>
+          </table></div>
+        </div>
+      </section>
+
       <div class="footnote">Elite Taxation · Governance OS &amp; Task Engine — internal team tool</div>
     </div>
   </main>
@@ -2454,6 +2482,7 @@ function dashboardScopeLabelShort(){ return ''; }
 const titles = {
   dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
   reviews: ['Reviews', 'Awaiting review, rework, profit confirmation, and reports to send — one queue'],
+  taxonomy: ['Task Taxonomy', 'Canonical departments and services, and a privacy report on task titles — superadmin only'],
   taskengine: ['Task Engine', 'Measuring what gets done'],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   productivity: ['Productivity', 'Allocated vs worked hours — weekly, monthly, quarterly, year to date'],
@@ -2469,7 +2498,7 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees','taxonomy'];
 /* Mobile: the sidebar is an off-canvas drawer under 860px. */
 function toggleMobileNav(){ document.querySelector('.app').classList.toggle('nav-open'); }
 function closeMobileNav(){ document.querySelector('.app').classList.remove('nav-open'); }
@@ -2498,6 +2527,7 @@ function showView(id, el){
   if(id === 'timeoff') renderTimeOff();
   if(id === 'dashboard'){ renderTaskTable(); refreshToday(); }
   if(id === 'reviews') renderReviewsView();
+  if(id === 'taxonomy') renderTaxonomyView();
   if(id === 'manager') refreshToday();
   if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
   if(id === 'clients') renderClientGrid();
@@ -8708,6 +8738,70 @@ async function refreshEmployees(){
     }
     if(document.getElementById('view-employees').classList.contains('active')) renderEmployeeGrid();
   } catch(e){ console.error('Failed to refresh employees', e); }
+}
+/* =========================================================================
+   TASK TAXONOMY (IA Phase 6) — canonical Department -> Service list, edited
+   as a working copy in _taxWorking and only sent to the server on Save. The
+   privacy report below it is entirely read-only: it lists what the scan
+   found, and "Rename" is the one deliberate way anything ever changes.
+   ========================================================================= */
+let _taxWorking = null;
+async function renderTaxonomyView(){
+  try {
+    const { departments } = await api('/api/taxonomy');
+    _taxWorking = departments.map(d => ({ name: d.name, services: d.services.slice() }));
+  } catch(e){ _taxWorking = []; }
+  taxRenderList();
+  renderPiiReport();
+}
+function taxRenderList(){
+  const wrap = document.getElementById('taxDeptList');
+  if(!wrap) return;
+  wrap.innerHTML = _taxWorking.map((d, di) => `
+    <div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;margin-bottom:10px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="text" value="${esc(d.name)}" oninput="_taxWorking[${di}].name=this.value" style="font-weight:600;flex:1;">
+        <button class="btn small" style="border-color:var(--coral);color:var(--coral);" onclick="taxRemoveDept(${di})">Remove</button>
+      </div>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;">
+        ${d.services.map((s, si) => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--panel-2);border-radius:100px;padding:4px 6px 4px 12px;font-size:12.5px;">
+          <input type="text" value="${esc(s)}" oninput="_taxWorking[${di}].services[${si}]=this.value" style="border:none;background:transparent;font-size:12.5px;width:${Math.max(6,s.length)}ch;padding:0;">
+          <a href="#" onclick="event.preventDefault();taxRemoveService(${di},${si})" style="color:var(--text-faint);">✕</a>
+        </span>`).join('')}
+        <a href="#" onclick="event.preventDefault();taxAddService(${di})" style="font-size:12.5px;color:var(--purple);align-self:center;">+ service</a>
+      </div>
+    </div>`).join('');
+}
+function taxAddDept(){
+  _taxWorking.push({ name: 'New department', services: [] });
+  taxRenderList();
+}
+function taxRemoveDept(i){ _taxWorking.splice(i,1); taxRenderList(); }
+function taxAddService(di){ _taxWorking[di].services.push('New service'); taxRenderList(); }
+function taxRemoveService(di,si){ _taxWorking[di].services.splice(si,1); taxRenderList(); }
+async function saveTaxonomy(){
+  const errEl = document.getElementById('taxErr');
+  try {
+    await api('/api/taxonomy', { method:'PUT', body: JSON.stringify({ departments: _taxWorking }) });
+    errEl.style.display = 'none';
+    showToast('success', 'Taxonomy saved', '');
+    renderTaxonomyView();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+async function renderPiiReport(){
+  const sumEl = document.getElementById('piiSummary');
+  const body = document.getElementById('piiBody');
+  if(!sumEl || !body) return;
+  let r;
+  try { r = await api('/api/admin/pii-report'); }
+  catch(e){ sumEl.textContent = e.message; return; }
+  sumEl.textContent = `${r.flaggedCount} of ${r.total} tasks flagged for review.`;
+  body.innerHTML = r.flagged.length ? r.flagged.map(f => `<tr>
+      <td><div class="tl-name" title="${esc(f.name)}">${esc(f.name)}</div>${f.scope && f.scope !== '—' ? `<div class="tl-sub" title="${esc(f.scope)}">${esc(f.scope)}</div>` : ''}</td>
+      <td class="tl-sub">${esc(f.clientName || '—')}</td>
+      <td>${f.matched.map(m => `<span class="pill neutral" style="font-size:10px;">${m}</span>`).join(' ')}</td>
+      <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openCorrectNameModal('${f.id}')">Rename</button></td>
+    </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--text-faint);padding:16px;">Nothing flagged. 🎉</td></tr>`;
 }
 function renderEmployeeGrid(){
   const grid = document.getElementById('employeeGrid');
