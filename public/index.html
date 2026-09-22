@@ -149,6 +149,11 @@
   .nav-icon{ width:16px; text-align:center; opacity:.75; font-size:16px; }
   .nav-badge{ margin-left:auto; font-family:var(--font-mono); font-size:12px; background:var(--coral); color:#fff; padding:1px 6px; border-radius:8px; }
   .nav-locked{ opacity:.45; }
+  /* A group's secondary destinations (e.g. Founder View under Dashboard) —
+     same row, indented and a touch smaller, so the group reads as one
+     section instead of a flat list of equally-weighted items. */
+  .nav-item.nav-sub{ padding-left:26px; font-size:14px; }
+  .nav-item.nav-sub .nav-icon{ font-size:14px; }
 
   .admin-box{ margin-top:auto; padding-top:14px; border-top:1px solid var(--line); }
   .admin-btn{ width:100%; background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13.5px; font-weight:600; padding:9px 0; border-radius:var(--radius-s); }
@@ -901,58 +906,44 @@
     </div>
 
     <div class="nav-section">
-      <div class="nav-title">Commitment Hub</div>
-      <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> Commitment Dashboard</div>
-      <div class="nav-item" id="adminNavItem" data-view="admin" onclick="showView('admin', this)" style="display:none;"><span class="nav-icon">▣</span> Admin</div>
-    </div>
-    <div class="nav-section" id="whatsappNavSection" style="display:none;">
-      <div class="nav-title">Collaborate</div>
-      <div class="nav-item" data-view="whatsapp" onclick="showView('whatsapp', this)"><span class="nav-icon">💬</span> WhatsApp (Interakt)<span class="nav-badge" id="waNavBadge" style="display:none;"></span></div>
+      <div class="nav-title">Dashboard</div>
+      <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> My Dashboard</div>
+      <div class="nav-item nav-sub" id="managerNavSection" data-view="manager" style="display:none;" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
+      <div class="nav-item nav-sub" id="teamBoardNavSection" data-view="teamboard" style="display:none;" onclick="showView('teamboard', this)"><span class="nav-icon">◲</span> Team Board</div>
+      <div class="nav-item nav-sub" id="founderNavSection" data-view="founder" style="display:none;" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div>
+      <div class="nav-item nav-sub" id="commandCenterNavSection" data-view="command" style="display:none;" onclick="showView('command', this)"><span class="nav-icon">🛡</span> Command Center</div>
     </div>
     <div class="nav-section">
-      <div class="nav-title">Assign Work</div>
+      <div class="nav-title">Tasks</div>
       <div class="nav-item" onclick="openAssignModal('me')"><span class="nav-icon">→</span> Assign to Me</div>
       <div class="nav-item" id="assignTeamNavItem" style="display:none;" onclick="openAssignModal('team')"><span class="nav-icon">⇉</span> Assign to Team</div>
       <div class="nav-item" id="bulkAssignNavItem" style="display:none;" onclick="openBulkAssignModal()"><span class="nav-icon">≣</span> Bulk Assign</div>
-    </div>
-    <div class="nav-section" id="managerNavSection" style="display:none;">
-      <div class="nav-title">Team</div>
-      <div class="nav-item" data-view="manager" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
       <div class="nav-item" onclick="openTrashModal()"><span class="nav-icon">🗑</span> Recently removed</div>
     </div>
-    <div class="nav-section" id="analyticsNavSection" style="display:none;">
-      <div class="nav-title">Engines & Analytics</div>
-      <div class="nav-item" data-view="taskengine" onclick="showView('taskengine', this)"><span class="nav-icon">⚙</span> Task Engine</div>
-      <div class="nav-item" data-view="productivity" onclick="showView('productivity', this)"><span class="nav-icon">▤</span> Productivity</div>
-      <div class="nav-item" data-view="analytics" onclick="showView('analytics', this)"><span class="nav-icon">📊</span> Analytics</div>
+    <div class="nav-section">
+      <div class="nav-title">Reviews</div>
+      <div class="nav-item" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadge" style="display:none;"></span></div>
     </div>
     <div class="nav-section">
-      <div class="nav-title">My Work</div>
+      <div class="nav-title">Performance</div>
       <div class="nav-item" data-view="report" onclick="showView('report', this)"><span class="nav-icon">◈</span> My Report Card</div>
-      <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
-    </div>
-    <div class="nav-section" id="teamBoardNavSection" style="display:none;">
-      <div class="nav-title">Teams</div>
-      <div class="nav-item" data-view="teamboard" onclick="showView('teamboard', this)"><span class="nav-icon">◲</span> Team Board</div>
-    </div>
-    <div class="nav-section" id="founderNavSection" style="display:none;">
-      <div class="nav-title">Founder</div>
-      <div class="nav-item" data-view="founder" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div>
-    </div>
-    <div class="nav-section" id="commandCenterNavSection" style="display:none;">
-      <div class="nav-title">Oversight</div>
-      <div class="nav-item" data-view="command" onclick="showView('command', this)"><span class="nav-icon">🛡</span> Command Center</div>
-    </div>
-    <div class="nav-section" id="attendanceNavSection" style="display:none;">
-      <div class="nav-item" data-view="attendance" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
+      <div class="nav-item nav-sub" id="analyticsNavSection" data-view="productivity" style="display:none;" onclick="showView('productivity', this)"><span class="nav-icon">▤</span> Productivity</div>
+      <div class="nav-item nav-sub" id="analyticsNavSection2" data-view="analytics" style="display:none;" onclick="showView('analytics', this)"><span class="nav-icon">📊</span> Analytics</div>
     </div>
     <div class="nav-section" id="clientsNavSection">
-      <div class="nav-title">Directory</div>
+      <div class="nav-title">Clients</div>
       <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
     </div>
+    <div class="nav-section">
+      <div class="nav-title">Time & Attendance</div>
+      <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
+      <div class="nav-item nav-sub" id="attendanceNavSection" data-view="attendance" style="display:none;" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
+    </div>
     <div class="nav-section" id="employeesNavSection" style="display:none;">
-      <div class="nav-title">Admin</div>
+      <div class="nav-title">Admin Settings</div>
+      <div class="nav-item" id="adminNavItem" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Admin</div>
       <div class="nav-item" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
+      <div class="nav-item" id="taskEngineNavItem" data-view="taskengine" onclick="showView('taskengine', this)"><span class="nav-icon">⚙</span> Task Engine</div>
     </div>
 
     <div class="admin-box">
@@ -973,6 +964,7 @@
         <div class="sub" id="pageSub">Verification matrix & live task tracking</div>
       </div>
       <div class="topbar-right">
+        <div class="bell" id="whatsappNavSection" data-view="whatsapp" onclick="showView('whatsapp', document.getElementById('whatsappNavSection'))" title="WhatsApp (Interakt)" style="display:none;">💬<span class="notif-badge" id="waNavBadge" style="display:none;">0</span></div>
         <button class="bell" id="themeToggle" title="Switch light / dark" onclick="toggleTheme()" style="border:none;background:transparent;">🌙</button>
         <div class="bell" id="bellIcon" onclick="openNotifications()">🔔<span class="notif-badge" id="notifBadge" hidden>0</span></div>
         <div class="user-pill">
@@ -1189,6 +1181,47 @@
               </tr>
             </thead>
             <tbody id="adminTaskTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ===================== REVIEWS (dedicated home for review + send/profit-confirm actions) ===================== -->
+      <section class="view" id="view-reviews">
+        <div class="banner">
+          <span>📝</span>
+          <span><b>Reviews.</b> Everything waiting on you as a reviewer or a report-sender, in one place — sorted by client-commitment risk, then how long it's been waiting.</span>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Awaiting your review</h2></div>
+          <table>
+            <thead><tr><th>Task</th><th>Client</th><th>Employee</th><th>Submitted</th><th>Waiting</th><th>Commitment</th><th></th></tr></thead>
+            <tbody id="revAwaitingBody"></tbody>
+          </table>
+          <div id="revAwaitingEmpty" style="display:none;padding:16px 4px;font-size:13.5px;color:var(--text-faint);">Nothing waiting for your review right now.</div>
+        </div>
+
+        <div class="panel" id="revReworkPanel" style="display:none;">
+          <div class="panel-head"><h2>Needs your rework</h2></div>
+          <table>
+            <thead><tr><th>Task</th><th>Client</th><th>Reviewer</th><th>Flagged</th><th>Note</th><th></th></tr></thead>
+            <tbody id="revReworkBody"></tbody>
+          </table>
+        </div>
+
+        <div class="panel" id="revProfitPanel" style="display:none;">
+          <div class="panel-head"><h2>Profit confirmations</h2></div>
+          <table>
+            <thead><tr><th>Task</th><th>Client</th><th>Owner</th><th>Sheet</th><th>Cashbook</th><th></th></tr></thead>
+            <tbody id="revProfitBody"></tbody>
+          </table>
+        </div>
+
+        <div class="panel" id="revSendPanel" style="display:none;">
+          <div class="panel-head"><h2>Reports to send</h2></div>
+          <table>
+            <thead><tr><th>Task</th><th>Client</th><th>Reviewed</th><th>Commitment</th><th></th></tr></thead>
+            <tbody id="revSendBody"></tbody>
           </table>
         </div>
       </section>
@@ -2420,6 +2453,7 @@ function dashboardScopeLabelShort(){ return ''; }
    ========================================================================= */
 const titles = {
   dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
+  reviews: ['Reviews', 'Awaiting review, rework, profit confirmation, and reports to send — one queue'],
   taskengine: ['Task Engine', 'Measuring what gets done'],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   productivity: ['Productivity', 'Allocated vs worked hours — weekly, monthly, quarterly, year to date'],
@@ -2463,6 +2497,7 @@ function showView(id, el){
   if(id === 'report') renderReportCard();
   if(id === 'timeoff') renderTimeOff();
   if(id === 'dashboard'){ renderTaskTable(); refreshToday(); }
+  if(id === 'reviews') renderReviewsView();
   if(id === 'manager') refreshToday();
   if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
   if(id === 'clients') renderClientGrid();
@@ -4345,6 +4380,7 @@ async function refreshTasks(){
     tasks = fresh;
     checkForNewAssignments();
     renderTaskTable();
+    updateReviewsNavBadge();
   } catch(e){ console.error('Failed to refresh tasks', e); }
   await refreshWorkload();
   refreshToday();
@@ -6785,6 +6821,85 @@ function openMyExtraHours(){
 }
 // Work other people sent the current viewer to check. Each row opens the
 // review form directly.
+// The dedicated Reviews page — everything that used to be scattered across
+// the Manager Dashboard, Command Center and individual task cards: what's
+// waiting on you to review, what's waiting on YOU to fix (rework), what's
+// waiting on Shubam for profit confirmation, and what's reviewed clean and
+// just needs sending. Reuses the exact same data/actions as those older
+// entry points — nothing here is a second copy of the review logic.
+function daysWaiting(t){
+  const from = t.completedAt || t.reviewedAt;
+  return from ? Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 86400000)) : 0;
+}
+function renderReviewsView(){
+  const awaiting = myReviewTasks().slice().sort((a,b) => {
+    const riskA = a.reviewOverdue ? 1 : 0, riskB = b.reviewOverdue ? 1 : 0;
+    if(riskA !== riskB) return riskB - riskA;
+    if(daysWaiting(a) !== daysWaiting(b)) return daysWaiting(b) - daysWaiting(a);
+    return (a.clientDate || '9999').localeCompare(b.clientDate || '9999');
+  });
+  document.getElementById('revAwaitingBody').innerHTML = awaiting.map(t => {
+    const o = empById(t.assignedTo);
+    return `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div></td>
+      <td class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</td>
+      <td>${o ? esc(o.name) : '—'}</td>
+      <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
+      <td style="${t.reviewOverdue?'color:#C2410C;font-weight:600;':''}">${daysWaiting(t)}d</td>
+      <td>${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reviewOverdue ? ' · overdue' : ''}</td>
+      <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Review</button></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('revAwaitingEmpty').style.display = awaiting.length ? 'none' : '';
+
+  const rework = tasks.filter(t => isReworkFlagged(t) && t.assignedTo === currentViewerId);
+  document.getElementById('revReworkPanel').style.display = rework.length ? '' : 'none';
+  document.getElementById('revReworkBody').innerHTML = rework.map(t => {
+    const r = empById(t.reviewedBy);
+    return `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div></td>
+      <td class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</td>
+      <td>${r ? esc(r.name) : '—'}</td>
+      <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
+      <td class="tl-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.reviewNote||'')}">${esc(t.reviewNote || '—')}</td>
+      <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Accept &amp; fix</button></td>
+    </tr>`;
+  }).join('');
+
+  const showProfit = iAmProfitConfirmOwner();
+  const profit = showProfit ? profitConfirmsPendingFor() : [];
+  document.getElementById('revProfitPanel').style.display = profit.length ? '' : 'none';
+  const linkTag = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">${label}</a>` : `<span style="color:var(--text-faint);">—</span>`;
+  document.getElementById('revProfitBody').innerHTML = profit.map(t => {
+    const o = empById(t.assignedTo);
+    return `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div></td>
+      <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</td>
+      <td>${o ? esc(o.name) : '—'}</td>
+      <td>${linkTag(t.sheetLink, 'Sheet')}</td>
+      <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
+      <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="submitProfitConfirmDone('${t.id}')">✓ Done</button></td>
+    </tr>`;
+  }).join('');
+
+  const toSend = reportsToSendFor(currentViewerId).slice().sort((a,b) => (a.clientDate||'9999').localeCompare(b.clientDate||'9999'));
+  document.getElementById('revSendPanel').style.display = toSend.length ? '' : 'none';
+  document.getElementById('revSendBody').innerHTML = toSend.map(t => `<tr>
+      <td><div class="tl-name">${esc(t.name)}</div></td>
+      <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</td>
+      <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
+      <td style="${t.reportOverdue?'color:#C2410C;font-weight:600;':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' · overdue' : ''}</td>
+      <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openSendToClientModal('${t.id}')">Send?</button></td>
+    </tr>`).join('');
+
+  updateReviewsNavBadge();
+}
+function updateReviewsNavBadge(){
+  const badge = document.getElementById('reviewsNavBadge');
+  if(!badge) return;
+  const n = myReviewTasks().length + (iAmProfitConfirmOwner() ? profitConfirmsPendingFor().length : 0);
+  if(n > 0){ badge.textContent = n; badge.style.display = ''; } else badge.style.display = 'none';
+}
 function openMyReviewQueue(){
   const list = myReviewTasks().slice().sort((a,b) => (a.clientDate || a.completedAt || '').localeCompare(b.clientDate || b.completedAt || ''));
   const rows = list.map(t => {
@@ -8917,6 +9032,7 @@ async function onLoginComplete(){
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('founderNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('analyticsNavSection').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('analyticsNavSection2').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('whatsappNavSection').style.display = (isSuperAdmin || session.whatsappAccess) ? '' : 'none';
   // Manager Dashboard stays with the Admin role — team oversight & the
   // review / approve / reassign actions live there.
@@ -8988,6 +9104,7 @@ function logoutSession(){
   document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
+  document.getElementById('analyticsNavSection2').style.display = 'none';
   document.getElementById('whatsappNavSection').style.display = 'none';
   document.getElementById('teamBoardNavSection').style.display = 'none';
   document.getElementById('assignTeamNavItem').style.display = 'none';
