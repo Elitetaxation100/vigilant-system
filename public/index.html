@@ -1267,6 +1267,7 @@
 
       <!-- ===================== TEAM BOARD (membership-scoped) ===================== -->
       <section class="view" id="view-teamboard">
+        <div class="mgmt-tabs" style="margin-bottom:14px;"></div>
         <div class="banner">
           <span>◲</span>
           <span><b>Team Board.</b> Scoped to the team(s) you lead — every member's open work, what's overdue, and what's due this week. Founders see all teams.</span>
@@ -1303,6 +1304,7 @@
 
       <!-- ===================== COMMAND CENTER VIEW ===================== -->
       <section class="view" id="view-command">
+        <div class="mgmt-tabs" style="margin-bottom:14px;"></div>
         <div class="cc">
           <div class="cc-header">
             <div class="cc-header-left">
@@ -1479,6 +1481,7 @@
 
       <!-- ===================== FOUNDER VIEW ===================== -->
       <section class="view" id="view-founder">
+        <div class="mgmt-tabs" style="margin-bottom:14px;"></div>
         <div class="dscope" id="fvScope">
           <div class="dg">
             <label>Viewing</label>
@@ -1599,6 +1602,7 @@
 
       <!-- ===================== MANAGER DASHBOARD VIEW ===================== -->
       <section class="view" id="view-manager">
+        <div class="mgmt-tabs" style="margin-bottom:14px;"></div>
         <div class="dscope" id="mgScope">
           <div class="dg">
             <label>Viewing</label>
@@ -2554,6 +2558,31 @@ const titles = {
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
 const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees','taxonomy'];
+// A shared tab strip at the top of Manager Dashboard / Team Board / Founder
+// View / Command Center — the four used to be separate, disconnected nav
+// destinations; this makes them read and navigate as one "Dashboard"
+// section without touching how any of the four actually render or
+// refresh (each is still its own independently-toggled .view, exactly as
+// before — see the six places elsewhere that check view-X.classList for
+// "am I currently looking at this" before re-rendering on a poll).
+// Visibility mirrors the sidebar's own nav-items exactly, so there's one
+// place — onLoginComplete/logoutSession — deciding who sees what.
+function renderMgmtTabs(activeId){
+  const defs = [
+    ['manager', '◱ Manager Dashboard', 'managerNavSection'],
+    ['teamboard', '◲ Team Board', 'teamBoardNavSection'],
+    ['founder', '◉ Founder View', 'founderNavSection'],
+    ['command', '🛡 Command Center', 'commandCenterNavSection'],
+  ];
+  const visible = defs.filter(([,,navId]) => {
+    const navEl = document.getElementById(navId);
+    return navEl && getComputedStyle(navEl).display !== 'none';
+  });
+  const html = visible.length < 2 ? '' : visible.map(([id,label]) =>
+    `<button class="src-subtab${id===activeId?' on':''}" onclick="showView('${id}', document.querySelector('.nav-item[data-view=&quot;${id}&quot;]'))">${label}</button>`
+  ).join('');
+  document.querySelectorAll('.mgmt-tabs').forEach(el => el.innerHTML = html);
+}
 /* Mobile: the sidebar is an off-canvas drawer under 860px. */
 function toggleMobileNav(){ document.querySelector('.app').classList.toggle('nav-open'); }
 function closeMobileNav(){ document.querySelector('.app').classList.remove('nav-open'); }
@@ -2597,6 +2626,7 @@ function showView(id, el){
   if(id === 'admin') renderAdminView();
   if(id === 'teamboard') renderTeamBoard();
   if(id === 'whatsapp') renderWhatsAppView();
+  if(['manager','teamboard','founder','command'].includes(id)) renderMgmtTabs(id);
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
