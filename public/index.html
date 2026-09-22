@@ -2572,7 +2572,7 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','founder','employees','taxonomy'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','productivity','analytics','command','attendance','employees','taxonomy'];
 // A shared tab strip at the top of Manager Dashboard / Team Board / Founder
 // View / Command Center — the four used to be separate, disconnected nav
 // destinations; this makes them read and navigate as one "Dashboard"
@@ -2612,6 +2612,10 @@ function showView(id, el){
   // catches a stale link or a programmatic call)
   if(SUPERADMIN_ONLY_VIEWS.includes(id) && !isSuperAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
   if(id === 'manager' && !isAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
+  // Founder View — the actual founder(s) only, not every superadmin. A
+  // superadmin who isn't flagged as founder (Manage Access → Founder) gets
+  // sent back same as anyone else with a stale link.
+  if(id === 'founder' && !(isSuperAdmin && session && session.isFounder)){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
   // WhatsApp — a superadmin always has it; anyone else needs the grant a
   // superadmin gave them (Employees → Manage access).
   if(id === 'whatsapp' && !isSuperAdmin && !(currentViewer() || {}).whatsappAccess){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
@@ -4037,18 +4041,36 @@ function setMyCallsFilter(key, el){
   if(el) el.classList.add('on');
   renderMyCallsListRows();
 }
+// Grouped by NZ calendar day — "Today"/"Yesterday" then the date, same
+// convention as the Delivery panel on the dashboard — instead of one flat
+// list where the date was just another column to scan past.
+function myCallsDayLabel(dayISO){
+  if(dayISO === todayISO()) return 'Today';
+  if(dayISO === addDaysISO(-1)) return 'Yesterday';
+  return fmtDate(dayISO);
+}
 function renderMyCallsListRows(){
   const stats = _myCalls;
   const def = MY_CALLS_FILTERS.find(([k]) => k === _myCallsFilter);
   const list = stats[def[2]] || [];
-  const rows = list.map(c => `
+  const groups = {};
+  const order = [];
+  list.forEach(c => {
+    const d = c.occurredAt ? dayOf(c.occurredAt) : 'unknown';
+    if(!groups[d]){ groups[d] = []; order.push(d); }
+    groups[d].push(c);
+  });
+  order.sort((a,b) => b.localeCompare(a)); // most recent day first
+  const rows = order.map(d => {
+    const dayRows = groups[d].map(c => `
     <tr>
       <td><div class="tl-name">${esc(c.clientName)}</div><div class="tl-sub">${esc(c.callerPhone || '—')}</div></td>
-      <td class="tl-sub">${c.occurredAt ? fmtDate(dayOf(c.occurredAt)) : '—'}</td>
       <td>${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener" class="verify-btn" style="text-decoration:none;display:inline-block;">Open in Slack</a>` : '<span class="tl-sub">no card</span>'}</td>
     </tr>`).join('');
+    return `<tr><td colspan="2" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
+  }).join('');
   const body = document.getElementById('myCallsBody');
-  if(body) body.innerHTML = rows || `<tr><td colspan="3" style="padding:14px 0;color:var(--text-faint);">Nothing in this category.</td></tr>`;
+  if(body) body.innerHTML = rows || `<tr><td colspan="2" style="padding:14px 0;color:var(--text-faint);">Nothing in this category.</td></tr>`;
 }
 function renderMyCallsList(){
   const stats = _myCalls;
@@ -9494,7 +9516,9 @@ async function onLoginComplete(){
   document.getElementById('employeesNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('commandCenterNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
-  document.getElementById('founderNavSection').style.display = isSuperAdmin ? '' : 'none';
+  // Founder View — actual founder(s) only (Manage Access → Founder), not
+  // every superadmin.
+  document.getElementById('founderNavSection').style.display = (isSuperAdmin && session.isFounder) ? '' : 'none';
   document.getElementById('analyticsNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('analyticsNavSection2').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('whatsappNavSection').style.display = (isSuperAdmin || session.whatsappAccess) ? '' : 'none';
@@ -9539,9 +9563,10 @@ async function onLoginComplete(){
   initPushClient();
   await loadPunchState();
 
-  if(isAdmin){
-    showView('manager', document.querySelector('.nav-item[data-view="manager"]'));
-  }
+  // Everyone lands on My Dashboard now, admins included — it's already
+  // fully populated by refreshTasks() above regardless of role, and
+  // Manager Dashboard is one click away (or inside the Management
+  // dashboards dropdown) for anyone who wants it.
   startPolling();
 }
 function openAdminLogin(){
