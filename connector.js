@@ -838,24 +838,35 @@ function slackPermalink(row) {
 // tag in the first place (see handleCallEnded's `!unanswered && !vm`
 // guard), so this stays consistent with what actually reached them.
 function callStatsForSlackId(state, slackUserId) {
-  if (!slackUserId) return { total: 0, listened: 0, remaining: 0, remainingCalls: [] };
+  const empty = { total: 0, listened: 0, remaining: 0, remainingCalls: [], noAction: 0, noActionCalls: [], listenedCalls: [] };
+  if (!slackUserId) return empty;
   const agentIds = Object.keys(AGENT_MAP).filter(id => (AGENT_MAP[id].slackIds || []).includes(slackUserId));
   // Rolling window, not the whole backlog — old unlistened calls (weeks back)
   // just buried the tile in noise. "Remaining" now means yesterday onward.
   const cutoff = nzToday(new Date(Date.now() - 86400000));
-  const calls = (state.calls || []).filter(c => agentIds.includes(c.agentAircallId) && c.status === 'ended'
+  // Ended calls AND ones explicitly marked "no action needed" — the latter
+  // used to be excluded from this tile entirely, which is why there was no
+  // way to see them here at all.
+  const calls = (state.calls || []).filter(c => agentIds.includes(c.agentAircallId)
+    && (c.status === 'ended' || c.status === 'no_action')
     && c.occurredAt && nzToday(new Date(c.occurredAt)) >= cutoff);
-  const remaining = calls.filter(c => !c.listenedBy);
+  const shape = c => ({
+    id: c.id, agentName: c.agentName, clientName: c.clientName || 'Unknown / not saved',
+    callerPhone: c.callerPhone, occurredAt: c.occurredAt, link: slackPermalink(c),
+  });
+  const noActionCalls = calls.filter(c => c.status === 'no_action');
+  const endedCalls = calls.filter(c => c.status === 'ended');
+  const remaining = endedCalls.filter(c => !c.listenedBy);
+  const listenedCalls = endedCalls.filter(c => c.listenedBy);
+  const byRecent = (a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || '');
   return {
-    total: calls.length,
-    listened: calls.length - remaining.length,
+    total: endedCalls.length,
+    listened: listenedCalls.length,
     remaining: remaining.length,
-    remainingCalls: remaining
-      .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''))
-      .map(c => ({
-        id: c.id, agentName: c.agentName, clientName: c.clientName || 'Unknown / not saved',
-        callerPhone: c.callerPhone, occurredAt: c.occurredAt, link: slackPermalink(c),
-      })),
+    remainingCalls: remaining.sort(byRecent).map(shape),
+    noAction: noActionCalls.length,
+    noActionCalls: noActionCalls.sort(byRecent).map(shape),
+    listenedCalls: listenedCalls.sort(byRecent).map(shape),
   };
 }
 // A public shoutout — posted by server.js's kudos endpoint once a clean

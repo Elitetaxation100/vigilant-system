@@ -1038,9 +1038,9 @@
         <div id="empDeadlineNote"></div>
 
         <div class="top-grid">
-          <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Every task assigned to this person, all time — not scoped to the Period filter above">
+          <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Open work (always current) plus what finished in the period selected above">
             <div class="mt-ic">▦</div>
-            <div class="mt-label">Total tasks <span style="font-weight:400;color:var(--text-faint);">· all time</span></div>
+            <div class="mt-label">Total tasks <span style="font-weight:400;color:var(--text-faint);" id="myTotalLabel">· all time</span></div>
             <div class="mt-value" id="myTotalTasks">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myTotalSub"></div>
           </div>
@@ -1060,9 +1060,9 @@
             <div class="mt-label">Sent for review</div>
             <div class="mt-value purple" id="myInReview">0</div>
           </div>
-          <div class="metric-tile mg-tile" onclick="openMyDoneList()" title="Everything you've finished and had signed off, all time — not scoped to the Period filter above">
+          <div class="metric-tile mg-tile" onclick="const b=empPeriodBounds();openMyDoneList(b.start,isoDayBefore(b.end))" title="Finished and signed off within the period selected above">
             <div class="mt-ic">✓</div>
-            <div class="mt-label">Done <span style="font-weight:400;color:var(--text-faint);">· all time</span></div>
+            <div class="mt-label">Done <span style="font-weight:400;color:var(--text-faint);" id="myDoneLabel">· all time</span></div>
             <div class="mt-value teal" id="myDoneAll">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myDoneSub"></div>
           </div>
@@ -2195,6 +2195,10 @@ function dayOf(ts){ return ts ? _localDay(new Date(ts)) : ''; }
 // anchored on todayISO(), so it isn't subject to the device's own timezone
 // or DST transitions either.
 function addDaysISO(days){ const d = new Date(todayISO() + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); }
+// empPeriodBounds()/_prodRange()-style ranges use an EXCLUSIVE end (the day
+// after); a couple of older list functions (openMyDoneList) take an
+// INCLUSIVE end date instead — this converts one to the other.
+function isoDayBefore(iso){ const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate()-1); return d.toISOString().slice(0,10); }
 
 /* =========================================================================
    DASHBOARD SCOPE — the shared "who / what period" filter used by the
@@ -2419,8 +2423,9 @@ function reviewHoursDoneOnDate(who, date){
   return tasks.filter(t => t.reviewedBy === who && Number(t.reviewHours) > 0 && dayOf(t.reviewedAt) === date)
     .reduce((s,t) => s + Number(t.reviewHours), 0);
 }
-function reviewedByCount(who){
-  return tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus)).length;
+function reviewedByCount(who, start, end){
+  return tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus)
+    && (!start || (t.reviewedAt && dayOf(t.reviewedAt) >= start && dayOf(t.reviewedAt) < end))).length;
 }
 // Someone else's work sitting in `who`'s review queue right now — not yet
 // decided. Parametrized version of myReviewTasks() so it can be computed
@@ -3936,33 +3941,41 @@ function renderEmployeeStats(){
   myDoneToday = mine.filter(t => t.completedAt && dayOf(t.completedAt) === today);
   // In Review = your own finished work waiting on a checker — off your to-do
   // list, not yet signed off. Done = everything finished AND reviewed
-  // (clean, or closed without review), all-time.
+  // (clean, or closed without review).
   const inReview = mine.filter(t => t.status === 'completed' && !t.reviewStatus);
   const doneAll  = mine.filter(t => t.status === 'completed' && ['clean','done'].includes(t.reviewStatus));
+  // "Total tasks" and "Done" respond to the Period selector above: open
+  // work and the review queue are current-state (they don't have a
+  // "period" — a task on hold since March is still on hold today), but
+  // what counts as finished/reviewed is scoped to the selected window.
+  const donePeriod = doneAll.filter(inP);
   const setV = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
   const openN = mine.filter(t => t.status !== 'completed').length;
   // Reviewing other people's work is real work too — folded into the total,
-  // both what's already been decided (reviewedN) and what's still sitting
-  // in the queue waiting on a decision (pendingReviewN) — it isn't invisible
-  // next to tasks assigned straight to you.
-  const reviewedN = reviewedByCount(dashSubjectId());
+  // both what's already been decided in this period (reviewedN) and what's
+  // still sitting in the queue waiting on a decision (pendingReviewN,
+  // always current — it isn't invisible next to tasks assigned straight to
+  // you.
+  const reviewedN = reviewedByCount(dashSubjectId(), start, end);
   const pendingReviewN = pendingReviewCountFor(dashSubjectId());
-  const totalN = mine.length + reviewedN + pendingReviewN;
+  const totalN = openN + donePeriod.length + reviewedN + pendingReviewN;
   setV('myTotalTasks', totalN);
+  setV('myTotalLabel', '· ' + label);
   // A task you finished but that's still sitting with a reviewer isn't
   // "finished" yet from your own plate's point of view — it's sent for
-  // review. Only actually-signed-off work counts as finished.
+  // review. Only actually-signed-off work IN THIS PERIOD counts as finished.
   setV('myTotalSub', totalN
-    ? `${openN} open · ${inReview.length} sent for review · ${mine.length - openN - inReview.length} finished`
+    ? `${openN} open · ${inReview.length} sent for review · ${donePeriod.length} finished`
       + (reviewedN ? ' · ' + reviewedN + ' reviewed' : '')
       + (pendingReviewN ? ' · ' + pendingReviewN + ' to review' : '')
     : '');
   setV('myTasksToday', myTodaysWork.length);
   setV('myToReview', myReviewTasks().length);
   setV('myInReview', inReview.length);
-  setV('myDoneAll', doneAll.length);
-  const doneHrs = doneAll.reduce((s,t) => s + taskHrs(t), 0);
-  setV('myDoneSub', doneAll.length ? `${doneHrs.toFixed(1)}h total` : '');
+  setV('myDoneAll', donePeriod.length);
+  setV('myDoneLabel', '· ' + label);
+  const doneHrs = donePeriod.reduce((s,t) => s + taskHrs(t), 0);
+  setV('myDoneSub', donePeriod.length ? `${doneHrs.toFixed(1)}h total` : '');
   // Extra hours — completed work in the period that ran over its estimate.
   _myExtra = doneP.map(t => ({ t, est: Number(t.tat)||0, actual: taskHrs(t) }))
     .map(x => ({ ...x, extra: Math.round((x.actual - x.est) * 100) / 100 }))
@@ -4008,25 +4021,53 @@ async function refreshMyCallStats(){
   document.getElementById('myCallsSub').textContent = `${stats.listened} of ${stats.total} listened`;
 }
 let _myCalls = null;
+let _myCallsFilter = 'notlistened';
+const MY_CALLS_FILTERS = [
+  ['notlistened', 'Not listened yet', 'remainingCalls'],
+  ['listened', 'Listened', 'listenedCalls'],
+  ['noaction', 'No action needed', 'noActionCalls'],
+];
 function openMyCallsList(){
+  _myCallsFilter = 'notlistened';
+  renderMyCallsList();
+}
+function setMyCallsFilter(key, el){
+  _myCallsFilter = key;
+  document.querySelectorAll('#modalBox .src-subtab').forEach(b => b.classList.remove('on'));
+  if(el) el.classList.add('on');
+  renderMyCallsListRows();
+}
+function renderMyCallsListRows(){
   const stats = _myCalls;
-  if(!stats) return;
-  const rows = stats.remainingCalls.map(c => `
+  const def = MY_CALLS_FILTERS.find(([k]) => k === _myCallsFilter);
+  const list = stats[def[2]] || [];
+  const rows = list.map(c => `
     <tr>
       <td><div class="tl-name">${esc(c.clientName)}</div><div class="tl-sub">${esc(c.callerPhone || '—')}</div></td>
       <td class="tl-sub">${c.occurredAt ? fmtDate(dayOf(c.occurredAt)) : '—'}</td>
       <td>${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener" class="verify-btn" style="text-decoration:none;display:inline-block;">Open in Slack</a>` : '<span class="tl-sub">no card</span>'}</td>
     </tr>`).join('');
+  const body = document.getElementById('myCallsBody');
+  if(body) body.innerHTML = rows || `<tr><td colspan="3" style="padding:14px 0;color:var(--text-faint);">Nothing in this category.</td></tr>`;
+}
+function renderMyCallsList(){
+  const stats = _myCalls;
+  if(!stats) return;
+  const pills = MY_CALLS_FILTERS.map(([key,label,field]) =>
+    `<button class="src-subtab${key===_myCallsFilter?' on':''}" onclick="setMyCallsFilter('${key}', this)">${esc(label)} <span class="ct">${(stats[field]||[]).length}</span></button>`
+  ).join('');
   document.getElementById('modalBox').innerHTML = `
     <h3>Calls — ${stats.remaining} remaining</h3>
-    <div class="modal-sub">${stats.listened} of ${stats.total} listened so far. Voicemails and missed calls aren't counted.</div>
+    <div class="modal-sub">${stats.listened} of ${stats.total} listened so far${stats.noAction ? `, ${stats.noAction} marked no action needed` : ''}. Voicemails and missed calls aren't counted.</div>
+    <div class="src-subtabs" style="margin-top:10px;">${pills}</div>
     <div style="max-height:55vh;overflow-y:auto;margin-top:10px;">
       <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <tbody>${rows || '<tr><td style="padding:14px 0;color:var(--text-faint);">All caught up.</td></tr>'}</tbody>
+        <tbody id="myCallsBody"></tbody>
       </table>
     </div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
   openModal();
+  renderMyCallsListRows();
 }
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
@@ -4388,12 +4429,19 @@ function renderStatusDonut(){
       if(!wrap) return;
       // Scoped to what this dashboard is about: an employee sees only their
       // own tasks, a manager their team's, a founder/superadmin the firm.
+      // This is a CURRENT-STATE snapshot (what's on hold / in progress /
+      // done right now, all-time), not scoped to the Period selector above
+      // — a task on hold since March is still on hold today regardless of
+      // what period is picked. The "Total tasks" tile IS period-scoped, so
+      // the two numbers are expected to differ; that's intentional, not a
+      // bug (they answer different questions: "state right now" vs.
+      // "activity in this window").
       const scoped = dashboardScopeTasks();
       // Reviewing someone else's work is real work too — folded in so this
-      // ring's total matches the "Total tasks" tile: reviews already
-      // decided (reviewedN) count straight into DONE — reviewing it WAS
-      // finishing your part of it — and ones still sitting in the queue
-      // (pendingReviewN) get their own "still to do" slice.
+      // ring accounts for it: reviews already decided (reviewedN) count
+      // straight into DONE — reviewing it WAS finishing your part of it —
+      // and ones still sitting in the queue (pendingReviewN) get their own
+      // "still to do" slice.
       const reviewedN = reviewedByCount(dashSubjectId());
       const pendingReviewN = pendingReviewCountFor(dashSubjectId());
       if(scoped.length === 0 && reviewedN === 0 && pendingReviewN === 0){ wrap.innerHTML = '<div class="chart-empty">No tasks yet.</div>'; return; }
@@ -7023,24 +7071,30 @@ function openMyTodayList(){
 // Every task on the dashboard subject — their own work PLUS anything they've
 // reviewed for someone else, matching the "Total tasks" tile (reviewing is
 // real work too, see reviewedByCount). Owner column tells the two apart.
+// Matches the "Total tasks" tile exactly: open work + the review queue are
+// always current (they don't have a "period"); what's finished/reviewed is
+// scoped to whatever the Period selector above the tile is set to.
 function openMyAllTasks(){
   const me = dashSubject();
   const who = dashSubjectId();
+  const { start, end, label } = empPeriodBounds();
+  const inPeriod = t => t.completedAt && dayOf(t.completedAt) >= start && dayOf(t.completedAt) < end;
   const mine = tasks.filter(t => t.assignedTo === who);
-  const reviewed = tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus));
+  const reviewed = tasks.filter(t => t.reviewedBy === who && ['clean','error'].includes(t.reviewStatus) && t.reviewedAt && dayOf(t.reviewedAt) >= start && dayOf(t.reviewedAt) < end);
   const pending = tasks.filter(t => t.status === 'completed' && !t.reviewStatus && t.reviewerId === who && t.assignedTo !== who);
   const openN = mine.filter(t=>t.status!=='completed').length;
   // A task you finished but that's still with a reviewer isn't "finished"
   // yet from your side — it's sent for review, same distinction as the
-  // "Sent for review" tile.
+  // "Sent for review" tile. Both queue states are current, not period-scoped.
   const sentForReviewN = mine.filter(t => t.status === 'completed' && !t.reviewStatus).length;
-  const finishedN = mine.length - openN - sentForReviewN;
-  const total = mine.length + reviewed.length + pending.length;
-  const sub = `${openN} open · ${sentForReviewN} sent for review · ${finishedN} finished`
+  const finishedInPeriod = mine.filter(t => t.status === 'completed' && ['clean','done'].includes(t.reviewStatus) && inPeriod(t));
+  const openAndQueued = mine.filter(t => t.status !== 'completed' || !t.reviewStatus);
+  const total = openAndQueued.length + finishedInPeriod.length + reviewed.length + pending.length;
+  const sub = `${openN} open · ${sentForReviewN} sent for review · ${finishedInPeriod.length} finished (${label})`
     + (reviewed.length ? ' · ' + reviewed.length + ' reviewed' : '')
     + (pending.length ? ' · ' + pending.length + ' to review' : '')
     + ` · ${total} total`;
-  taskListModal(`${me ? me.name + ' — ' : ''}all tasks`, sub, [...mine, ...reviewed, ...pending], { empty: 'No tasks yet.', statusFilter: true, subjectId: who });
+  taskListModal(`${me ? me.name + ' — ' : ''}all tasks`, sub, [...openAndQueued, ...finishedInPeriod, ...reviewed, ...pending], { empty: 'No tasks yet.', statusFilter: true, subjectId: who });
 }
 // Completed work that ran over its estimate, and by how much.
 function openMyExtraHours(){
