@@ -154,6 +154,13 @@
      section instead of a flat list of equally-weighted items. */
   .nav-item.nav-sub{ padding-left:26px; font-size:14px; }
   .nav-item.nav-sub .nav-icon{ font-size:14px; }
+  /* Collapsible nav group (e.g. the Management dashboards dropdown) — a
+     native <details>/<summary> so it needs no JS to open/close by itself;
+     showView() only forces it open when landing on something inside it. */
+  .nav-drop summary{ list-style:none; cursor:pointer; }
+  .nav-drop summary::-webkit-details-marker{ display:none; }
+  .nav-drop summary .nav-icon{ transition:transform .15s ease; display:inline-block; }
+  .nav-drop[open] summary .nav-icon{ transform:rotate(180deg); }
 
   .admin-box{ margin-top:auto; padding-top:14px; border-top:1px solid var(--line); }
   .admin-btn{ width:100%; background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13.5px; font-weight:600; padding:9px 0; border-radius:var(--radius-s); }
@@ -922,10 +929,13 @@
     <div class="nav-section">
       <div class="nav-title">Dashboard</div>
       <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> My Dashboard</div>
-      <div class="nav-item nav-sub" id="managerNavSection" data-view="manager" style="display:none;" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
-      <div class="nav-item nav-sub" id="teamBoardNavSection" data-view="teamboard" style="display:none;" onclick="showView('teamboard', this)"><span class="nav-icon">◲</span> Team Board</div>
-      <div class="nav-item nav-sub" id="founderNavSection" data-view="founder" style="display:none;" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div>
-      <div class="nav-item nav-sub" id="commandCenterNavSection" data-view="command" style="display:none;" onclick="showView('command', this)"><span class="nav-icon">🛡</span> Command Center</div>
+      <details class="nav-drop" id="mgmtNavGroup">
+        <summary class="nav-item nav-sub" id="mgmtNavToggle" style="display:none;"><span class="nav-icon">▾</span> Management dashboards</summary>
+        <div class="nav-item nav-sub" id="managerNavSection" data-view="manager" style="display:none;" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
+        <div class="nav-item nav-sub" id="teamBoardNavSection" data-view="teamboard" style="display:none;" onclick="showView('teamboard', this)"><span class="nav-icon">◲</span> Team Board</div>
+        <div class="nav-item nav-sub" id="founderNavSection" data-view="founder" style="display:none;" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div>
+        <div class="nav-item nav-sub" id="commandCenterNavSection" data-view="command" style="display:none;" onclick="showView('command', this)"><span class="nav-icon">🛡</span> Command Center</div>
+      </details>
     </div>
     <div class="nav-section">
       <div class="nav-title">Tasks</div>
@@ -2626,7 +2636,11 @@ function showView(id, el){
   if(id === 'admin') renderAdminView();
   if(id === 'teamboard') renderTeamBoard();
   if(id === 'whatsapp') renderWhatsAppView();
-  if(['manager','teamboard','founder','command'].includes(id)) renderMgmtTabs(id);
+  if(['manager','teamboard','founder','command'].includes(id)){
+    renderMgmtTabs(id);
+    const grp = document.getElementById('mgmtNavGroup');
+    if(grp) grp.open = true; // never land on a page whose own nav row is hidden inside a collapsed dropdown
+  }
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -9433,6 +9447,10 @@ async function onLoginComplete(){
   // Manager Dashboard stays with the Admin role — team oversight & the
   // review / approve / reassign actions live there.
   document.getElementById('managerNavSection').style.display = isAdmin ? '' : 'none';
+  // The "Management dashboards" dropdown toggle — visible under the exact
+  // same condition as the least-restrictive item inside it (isAdmin), so
+  // nobody sees an empty, un-openable dropdown.
+  document.getElementById('mgmtNavToggle').style.display = isAdmin ? '' : 'none';
   // "Who's busy until when" — manager/superadmin coordination aid, hidden
   // from plain employees.
   document.getElementById('busyBoardPanel').style.display = isAdmin ? '' : 'none';
@@ -9501,6 +9519,7 @@ function logoutSession(){
   document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
+  document.getElementById('mgmtNavToggle').style.display = 'none';
   document.getElementById('analyticsNavSection2').style.display = 'none';
   document.getElementById('whatsappNavSection').style.display = 'none';
   document.getElementById('teamBoardNavSection').style.display = 'none';
