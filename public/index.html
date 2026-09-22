@@ -1710,6 +1710,22 @@
           <div class="panel-head"><h2>Chart Builder</h2></div>
           <p style="font-size:14px; color:var(--text-dim); margin-bottom:16px;">Pick any breakdown and any metric — the chart below is built live from the same task data as the rest of the app.</p>
           <div class="cb-controls">
+            <div class="field"><label>Period</label>
+              <select id="chartPeriod" onchange="renderChartBuilder()">
+                <option value="week">This week</option>
+                <option value="month">This month</option>
+                <option value="quarter">This fiscal quarter</option>
+                <option value="year">This fiscal year (Apr–Mar)</option>
+                <option value="last30">Last 30 days</option>
+                <option value="last90">Last 90 days</option>
+                <option value="all" selected>All time</option>
+                <option value="custom">Custom range…</option>
+              </select>
+              <span id="chartCustom" style="display:none;margin-top:6px;">
+                <input type="date" id="chartFrom" onchange="renderChartBuilder()">
+                <input type="date" id="chartTo" onchange="renderChartBuilder()">
+              </span>
+            </div>
             <div class="field"><label>Break down by</label>
               <select id="chartGroupBy" onchange="renderChartBuilder()">
                 <option value="employee">Employee</option>
@@ -1730,6 +1746,7 @@
               </select>
             </div>
           </div>
+          <div id="chartPeriodLabel" style="font-size:12px;color:var(--text-faint);margin-bottom:8px;"></div>
           <div class="cb-chart-wrap" id="chartBuilderWrap"></div>
         </div>
       </section>
@@ -1740,9 +1757,13 @@
             <h2>Productivity — allocated vs worked</h2>
             <div class="panel-head-actions">
               <select id="prodPeriod" onchange="renderProductivityView()">
+                <option value="week">This week</option>
                 <option value="month" selected>This month</option>
                 <option value="quarter">This fiscal quarter</option>
                 <option value="year">This fiscal year (Apr–Mar)</option>
+                <option value="last30">Last 30 days</option>
+                <option value="last90">Last 90 days</option>
+                <option value="all">All time</option>
                 <option value="custom">Custom range…</option>
               </select>
               <span id="prodCustom" style="display:none;">
@@ -1788,10 +1809,19 @@
             <div>
               <label style="font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); font-weight:600; display:block; margin-bottom:4px;">Period</label>
               <select id="rcPeriod" onchange="renderReportCard()">
+                <option value="week">This week</option>
                 <option value="month">This month</option>
                 <option value="quarter">This fiscal quarter</option>
                 <option value="year" selected>This fiscal year (Apr–Mar)</option>
+                <option value="last30">Last 30 days</option>
+                <option value="last90">Last 90 days</option>
+                <option value="all">All time</option>
+                <option value="custom">Custom range…</option>
               </select>
+              <span id="rcCustom" style="display:none;margin-top:6px;">
+                <input type="date" id="rcFrom" onchange="renderReportCard()">
+                <input type="date" id="rcTo" onchange="renderReportCard()">
+              </span>
             </div>
             <div>
               <label style="font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); font-weight:600; display:block; margin-bottom:4px;">Headline number</label>
@@ -6270,9 +6300,42 @@ function chartMetricValue(metric, groupTasks){
     default: return null;
   }
 }
+// Same shape as _prodRange()/_rcRange() — one consistent set of period
+// choices across every Performance page. Analytics defaults to "all time"
+// (its historical behaviour) rather than "this month" like the other two,
+// so turning this on doesn't silently narrow what regular users of the
+// chart builder were already seeing.
+function _chartRange(){
+  const p = (document.getElementById('chartPeriod')||{}).value || 'all';
+  const now = new Date();
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const customEl = document.getElementById('chartCustom');
+  if(customEl) customEl.style.display = p === 'custom' ? '' : 'none';
+  if(p === 'all') return null; // no filtering at all
+  if(p === 'custom'){
+    return { from: (document.getElementById('chartFrom')||{}).value || iso(new Date(now-30*864e5)),
+             to: (document.getElementById('chartTo')||{}).value || iso(now) };
+  }
+  let from;
+  if(p === 'week'){
+    const day = now.getDay();
+    from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (day === 0 ? 6 : day - 1));
+  }
+  else if(p === 'month'){ from = new Date(now.getFullYear(), now.getMonth(), 1); }
+  else if(p === 'quarter'){
+    const fy = fiscalYearStartDate(now);
+    const q = Math.floor(((now.getMonth() - 3 + 12) % 12) / 3);
+    from = new Date(fy.getFullYear(), 3 + q * 3, 1);
+  }
+  else if(p === 'last30'){ from = new Date(now - 30*864e5); }
+  else if(p === 'last90'){ from = new Date(now - 90*864e5); }
+  else { from = fiscalYearStartDate(now); } // 'year'
+  return { from: iso(from), to: iso(now) };
+}
 function computeChartData(groupBy, metric){
+  const range = _chartRange();
   const groups = {};
-  tasks.forEach(t => {
+  tasks.filter(t => !range || (t.internalDeadline && t.internalDeadline >= range.from && t.internalDeadline <= range.to)).forEach(t => {
     const key = chartGroupKey(groupBy, t);
     if(key === null || key === undefined) return;
     if(!groups[key]) groups[key] = [];
@@ -6309,13 +6372,20 @@ function _prodRange(){
              to: (document.getElementById('prodTo')||{}).value || iso(now) };
   }
   let from;
-  if(p === 'month'){ from=new Date(now.getFullYear(), now.getMonth(), 1); }
+  if(p === 'week'){
+    const day = now.getDay(); // 0=Sun..6=Sat, week starts Monday
+    from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (day === 0 ? 6 : day - 1));
+  }
+  else if(p === 'month'){ from=new Date(now.getFullYear(), now.getMonth(), 1); }
   else if(p === 'quarter'){
     // fiscal quarter: Apr-Jun, Jul-Sep, Oct-Dec, Jan-Mar
     const fyStart = fiscalYearStartDate(now);
     const q = Math.floor(((now.getMonth() - 3 + 12) % 12) / 3);
     from = new Date(fyStart.getFullYear(), 3 + q * 3, 1);
   }
+  else if(p === 'last30'){ from = new Date(now - 30*864e5); }
+  else if(p === 'last90'){ from = new Date(now - 90*864e5); }
+  else if(p === 'all'){ from = new Date(2000, 0, 1); } // the server floors this at go-live anyway
   else { from = fiscalYearStartDate(now); }   // 'year' = fiscal year
   return { from: iso(from), to: iso(now) };
 }
@@ -6563,6 +6633,9 @@ function renderChartBuilder(){
   const metricEl = document.getElementById('chartMetric');
   const wrap = document.getElementById('chartBuilderWrap');
   if(!groupByEl || !metricEl || !wrap) return;
+  const range = _chartRange();
+  const lbl = document.getElementById('chartPeriodLabel');
+  if(lbl) lbl.textContent = range ? `Showing tasks due ${fmtDate(range.from)} – ${fmtDate(range.to)}` : 'Showing all time — every task regardless of due date';
   const { entries, isPercent, isHours } = computeChartData(groupByEl.value, metricEl.value);
   if(entries.length === 0){
     wrap.innerHTML = `<div style="font-size:13.5px; color:var(--text-faint); padding:20px 0;">No data yet for this combination — it fills in as tasks are logged.</div>`;
@@ -8411,13 +8484,27 @@ function _rcRange(){
   const now = new Date();
   // format a Date in LOCAL time — toISOString() would shift NZ dates back a day
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const customEl = document.getElementById('rcCustom');
+  if(customEl) customEl.style.display = p === 'custom' ? '' : 'none';
+  if(p === 'custom'){
+    return { from: (document.getElementById('rcFrom')||{}).value || iso(new Date(now-30*864e5)),
+             to: (document.getElementById('rcTo')||{}).value || iso(now), period: p };
+  }
   let from;
-  if(p === 'month'){ from = new Date(now.getFullYear(), now.getMonth(), 1); }
+  if(p === 'week'){
+    const day = now.getDay();
+    from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (day === 0 ? 6 : day - 1));
+  }
+  else if(p === 'month'){ from = new Date(now.getFullYear(), now.getMonth(), 1); }
   else if(p === 'quarter'){
     const fy = fiscalYearStartDate(now);
     const q = Math.floor(((now.getMonth() - 3 + 12) % 12) / 3);
     from = new Date(fy.getFullYear(), 3 + q * 3, 1);
-  } else { from = fiscalYearStartDate(now); }
+  }
+  else if(p === 'last30'){ from = new Date(now - 30*864e5); }
+  else if(p === 'last90'){ from = new Date(now - 90*864e5); }
+  else if(p === 'all'){ from = new Date(2000, 0, 1); }
+  else { from = fiscalYearStartDate(now); }
   return { from: iso(from), to: iso(now), period: p };
 }
 
