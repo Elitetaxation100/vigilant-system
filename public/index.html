@@ -602,6 +602,20 @@
   .field input, .field select, .field textarea{ transition:box-shadow .16s ease, border-color .16s ease; }
   .field textarea{ resize:vertical; min-height:60px; }
   .modal-actions{ display:flex; gap:10px; margin-top:18px; justify-content:flex-end; }
+  /* + Create Task picker — three equal routes into the existing assign flows */
+  .ct-choices{ display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+  .ct-choice{
+    display:flex; align-items:center; gap:13px; width:100%; text-align:left;
+    padding:13px 14px; border-radius:var(--radius-s); border:1px solid var(--panel-border);
+    background:var(--panel); color:var(--text); cursor:pointer; font:inherit; transition:all .15s ease;
+  }
+  .ct-choice:hover{ border-color:var(--purple); background:var(--purple-dim); }
+  .ct-choice .ct-ic{
+    width:34px; height:34px; border-radius:9px; background:var(--panel-2); flex:none;
+    display:flex; align-items:center; justify-content:center; font-size:16px; color:var(--purple);
+  }
+  .ct-choice b{ display:block; font-size:14.5px; }
+  .ct-choice span{ display:block; font-size:12.5px; color:var(--text-faint); margin-top:1px; }
   .modal-error{ color:#C2410C; font-size:14px; margin-top:-6px; margin-bottom:12px; display:none; }
   .file-drop{ border:1.5px dashed var(--panel-border); border-radius:var(--radius-s); padding:16px; text-align:center; font-size:14px; color:var(--text-faint); cursor:pointer; }
   .file-drop img{ max-width:100%; max-height:120px; border-radius:6px; margin-top:8px; }
@@ -915,9 +929,13 @@
     </div>
     <div class="nav-section">
       <div class="nav-title">Tasks</div>
-      <div class="nav-item" onclick="openAssignModal('me')"><span class="nav-icon">→</span> Assign to Me</div>
-      <div class="nav-item" id="assignTeamNavItem" style="display:none;" onclick="openAssignModal('team')"><span class="nav-icon">⇉</span> Assign to Team</div>
-      <div class="nav-item" id="bulkAssignNavItem" style="display:none;" onclick="openBulkAssignModal()"><span class="nav-icon">≣</span> Bulk Assign</div>
+      <div class="nav-item" onclick="openCreateTaskModal()"><span class="nav-icon">✚</span> Create Task</div>
+      <!-- assignTeamNavItem / bulkAssignNavItem: no longer separate nav rows,
+           but kept as real (hidden) elements — onLoginComplete/logoutSession
+           already toggle these exact ids, and openCreateTaskModal's isAdmin
+           check mirrors the same gate, so nothing needs to change there. -->
+      <div id="assignTeamNavItem" style="display:none;"></div>
+      <div id="bulkAssignNavItem" style="display:none;"></div>
       <div class="nav-item" onclick="openTrashModal()"><span class="nav-icon">🗑</span> Recently removed</div>
     </div>
     <div class="nav-section">
@@ -1535,24 +1553,19 @@
       </section>
 
       <!-- ===================== TASK ENGINE VIEW ===================== -->
+      <!-- Trimmed to what's actually operational: the TAT benchmark and the
+           done-heatmap. The old promotional feature-grid explaining the
+           product to itself, and the SLA chart gated behind a fake "Live SLA
+           Feed" toggle (real SLA Monitor integration isn't connected — see
+           renderSlaChart/computeSlaSeries, left in place but no longer
+           called, ready to re-enable once that feed is real), were removed
+           from the UI per the navigation simplification. -->
       <section class="view" id="view-taskengine">
         <div class="panel">
           <div class="panel-head"><h2>Task Engine — Measuring Output &amp; Quality</h2></div>
-          <p style="color:var(--text-dim); font-size:15px; line-height:1.6; max-width:640px;">
-            Every task moves through allocation, live time-tracking, and quality verification before a single point is awarded.
-            No credit is issued for incomplete or unconfirmed work.
-          </p>
           <div class="tat-strip">
             <div class="num">3.0 hrs</div>
             <div style="font-size:14.5px; color:var(--text-dim);">Standard GST Filing turnaround &nbsp;·&nbsp; <span style="color:var(--teal);">40–45 min</span> fast-track benchmark</div>
-          </div>
-          <div class="feature-grid">
-            <div class="feature-card"><div class="ico">📋</div><h3>Granular Work Allocation</h3><p>Customizable point weights per task type — every role is measured on the work that actually defines it.</p></div>
-            <div class="feature-card"><div class="ico">⏱</div><h3>Live Time Tracking</h3><p>Daily summaries and TAT benchmarks per role, so managers see exactly where time is going in real time.</p></div>
-            <div class="feature-card"><div class="ico">✔</div><h3>Quality Verification</h3><p>Work must be confirmed by a reviewer before points are awarded — no credit for incomplete submissions.</p></div>
-            <div class="feature-card"><div class="ico">🔔</div><h3>Smart Notifications</h3><p>The moment a task lands in someone's queue, gets paused, or a window is proposed, it surfaces in their bell and banner — no need to dig for it.</p></div>
-            <div class="feature-card"><div class="ico">🔐</div><h3>Role-Based Approvals</h3><p>Only Admins and Superadmins can approve or reject a proposed window — enforced at login, not just hidden in the UI.</p></div>
-            <div class="feature-card"><div class="ico">📡</div><h3>Live Activity Sync</h3><p>Every assignment, approval, pause, and completion is logged as it happens — a real audit trail, not a mockup.</p></div>
           </div>
         </div>
 
@@ -1560,19 +1573,6 @@
           <div class="panel-head"><h2>Task Done Heatmap — Task Type × Weekday</h2></div>
           <p style="font-size:13.5px; color:var(--text-dim); line-height:1.5;">Darker cells mean more completed tasks of that type landed on that weekday — a quick read on where load actually clusters.</p>
           <div id="taskHeatmapWrap"></div>
-        </div>
-
-        <div class="panel">
-          <div class="sla-panel-head">
-            <div class="panel-head" style="margin:0;"><h2>SLA Adherence Tracking</h2></div>
-            <div class="sla-toggle-wrap">
-              <span class="sla-status-chip" id="slaStatusChip">Not connected</span>
-              <span class="sla-toggle-label">Live SLA Feed</span>
-              <div class="toggle-switch" id="slaToggle" onclick="toggleSlaFeed()"></div>
-            </div>
-          </div>
-          <div class="sla-chart-wrap" id="slaChartWrap"></div>
-          <div class="sla-chart-note" id="slaChartNote"></div>
         </div>
       </section>
 
@@ -5167,6 +5167,31 @@ function applyTaskPreset(){
   if(val) document.getElementById('atName').value = val;
   // TAT and points are intentionally left untouched — the manager sets those.
 }
+// One front door for the three assignment flows that used to be separate
+// nav items. Routes straight to whichever existing modal handles it —
+// none of that logic is duplicated or rewritten here. A plain employee
+// only ever has "myself" available, so skip the picker and go straight
+// there instead of showing a menu with two disabled options.
+function openCreateTaskModal(){
+  if(!isAdmin){ openAssignModal('me'); return; }
+  document.getElementById('modalBox').innerHTML = `
+    <h3>+ Create Task</h3>
+    <div class="modal-sub">Who's this for?</div>
+    <div class="ct-choices">
+      <button class="ct-choice" onclick="closeModal();openAssignModal('me')">
+        <div class="ct-ic">→</div><div><b>Myself</b><span>Add work to your own queue</span></div>
+      </button>
+      <button class="ct-choice" onclick="closeModal();openAssignModal('team')">
+        <div class="ct-ic">⇉</div><div><b>One employee</b><span>Assign a single task to someone on your team</span></div>
+      </button>
+      <button class="ct-choice" onclick="closeModal();openBulkAssignModal()">
+        <div class="ct-ic">≣</div><div><b>Bulk import</b><span>Paste a list — one task per line, all to the same person</span></div>
+      </button>
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button></div>
+  `;
+  openModal();
+}
 function openAssignModal(mode){
   const isTeam = mode === 'team';
   if(isTeam){
@@ -6612,7 +6637,9 @@ function renderSlaChart(){
 }
 function renderTaskEngineVisuals(){
   renderTaskHeatmap('taskHeatmapWrap');
-  renderSlaChart();
+  // renderSlaChart() no longer called — its panel was removed from the UI
+  // (see the view-taskengine comment); the function is left defined for
+  // when a real SLA Monitor feed exists to reconnect it to.
 }
 let mgTileData = {};
 function renderManagerTeamStats(){
