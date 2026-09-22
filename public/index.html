@@ -4373,7 +4373,13 @@ function renderNeedsAttention(){
     .slice()
     .sort((a,b) => a.internalDeadline.localeCompare(b.internalDeadline));
   if(overdue.length === 0){ wrap.innerHTML = '<div style="font-size:14.5px; color:var(--text-faint);">Nothing overdue right now.</div>'; return; }
-  wrap.innerHTML = overdue.map(t => {
+  // The three most overdue, not the whole list — this panel sits right on
+  // the dashboard; the same data in full is one click away via the
+  // Overdue number tile above (openMgTileList('overdue')).
+  const shown = overdue.slice(0, 3);
+  const viewAll = overdue.length > shown.length
+    ? `<a href="#" onclick="event.preventDefault();openMgTileList('overdue');" style="display:block;text-align:center;padding-top:8px;font-size:12.5px;color:var(--purple);font-weight:600;">View all ${overdue.length} →</a>` : '';
+  wrap.innerHTML = shown.map(t => {
     const emp = empById(t.assignedTo);
     const days = Math.max(1, Math.round((new Date(today) - new Date(t.internalDeadline)) / 86400000));
     const chased = t.reminderCount ? ` &middot; <span title="times chased">&#8623; ${t.reminderCount}</span>` : '';
@@ -4387,7 +4393,7 @@ function renderNeedsAttention(){
       </div>
       ${nudge}
     </div>`;
-  }).join('');
+  }).join('') + viewAll;
 }
 /* P2 — record a manual chase against a task. The server appends it to the
    reminder ledger and pings the assignee; the 3rd chase on an open task
