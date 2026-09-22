@@ -227,6 +227,25 @@ function canReviewWorkOf(state, actor, assigneeId, t) {
   return canManageEmployee(state, actor, assigneeId);
 }
 
+// Google Sheet / Cashbook links attached at send-for-review time — optional,
+// but when given must actually be a link so it's safe to render as a
+// clickable href (never javascript:, data:, etc).
+function normalizeLink(raw) {
+  if (raw === undefined || raw === null) return { ok: true, value: undefined };
+  const s = String(raw).trim();
+  if (!s) return { ok: true, value: null };
+  if (s.length > 1000 || !/^https?:\/\//i.test(s)) {
+    return { ok: false };
+  }
+  return { ok: true, value: s };
+}
+// Profit confirmation always routes to Shubam Sharma — same "one named
+// person" pattern as FOUNDER_EMAILS in db.js.
+const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
+function profitConfirmOwner(state) {
+  return (state.employees || []).find(e => (e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+}
+
 // ---------------------------------------------------------------------------
 // TIME — there is no manual Start/Pause clock anymore. Once a task is
   // TIME — a task now has a real Start/Pause clock. t.timerStartedAt holds
@@ -666,6 +685,7 @@ function buildRecurringInstance(state, rt, dateISO) {
     timerStartedAt: null, startedAt: null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [],
     holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
     source: 'recurring', sourceRef: rt.id, recurringTemplateId: rt.id,
@@ -723,7 +743,7 @@ function notify(state, empId, type, text, taskId) {
   // forget; the in-app inbox is the source of truth.
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
-    rework: 'Task sent back', due: 'Task due', window: 'Window decision' };
+    rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -1463,6 +1483,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     startedAt: null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
     holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [], overAllocated,
     // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
@@ -1816,18 +1837,24 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'accepted') return res.status(400).json({ error: 'Only an accepted task can be marked complete.' });
-  const { reviewerId } = req.body || {};
+  const { reviewerId, sheetLink, cashbookLink } = req.body || {};
   if (!reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
   const reviewer = findEmployee(state, reviewerId);
   if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   // You can send your work to anyone for review — just not yourself.
   if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send your own work to yourself for review — pick someone else." });
+  const sheetLinkN = normalizeLink(sheetLink);
+  const cashbookLinkN = normalizeLink(cashbookLink);
+  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
     const elapsed = t.timerStartedAt ? (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000 : 0;
   t.logged += elapsed;
     t.timerStartedAt = null;
   t.status = 'completed';
   t.completedAt = new Date().toISOString();
   t.reviewerId = reviewerId;
+  if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
+  if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
   logEvent(state, t.assignedTo, `Marked "${escHtml(t.name)}" complete — ${t.logged.toFixed(2)} hrs actual vs ${t.tat} hrs agreed.`, { points: t.points });
   logEvent(state, reviewerId, `<b>${escHtml(findEmployee(state, t.assignedTo)?.name || 'Someone')}</b> asked you to review "${escHtml(t.name)}".`);
   notify(state, reviewerId, 'review', `${findEmployee(state, t.assignedTo)?.name || 'Someone'} asked you to review "${t.name}".`, t.id);
@@ -2100,6 +2127,62 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
   managers.forEach(m => {
     logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was ${outcome}.`);
   });
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
+// Profit confirmation — an extra gate a reviewer/report-owner can route a
+// clean client task through instead of sending it straight to the client.
+// It always goes to Shubam Sharma with whatever sheet/cashbook links were
+// attached at send-for-review time; once he confirms it comes back to
+// whoever the report-send job belongs to, exactly where /send-to-client
+// picks up.
+app.post('/api/tasks/:id/profit-confirm', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const allowed = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.id === t.reportSendOwner;
+  if (!allowed) {
+    return res.status(403).json({ error: "You can't make this decision on someone else's review." });
+  }
+  if (t.reviewStatus !== 'clean' || !t.awaitingClientDecision) {
+    return res.status(400).json({ error: 'This task has no pending client-send decision.' });
+  }
+  if (!t.sheetLink && !t.cashbookLink) {
+    return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link (from Send for Review) before requesting profit confirmation.' });
+  }
+  const owner = profitConfirmOwner(state);
+  if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  t.profitConfirmStatus = 'pending';
+  t.profitConfirmRequestedAt = new Date().toISOString();
+  t.profitConfirmRequestedBy = req.employee.id;
+  t.awaitingClientDecision = false;
+  logEvent(state, owner.id, `<b>${escHtml(req.employee.name)}</b> sent "${escHtml(t.name)}" for profit confirmation.`);
+  logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
+  notify(state, owner.id, 'profit_confirm', `${req.employee.name} sent "${t.name}" for profit confirmation.`, t.id);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+// Shubam confirms the profit — hands the report-send job back to whoever it
+// belonged to (unchanged throughout: the original assignee, unless
+// reassigned via /report-owner). Superadmin can also confirm, as a backup.
+app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const owner = profitConfirmOwner(state);
+  const allowed = (owner && req.employee.id === owner.id) || req.employee.accessRole === 'superadmin';
+  if (!allowed) return res.status(403).json({ error: 'Only Shubam Sharma can confirm this.' });
+  if (t.profitConfirmStatus !== 'pending') return res.status(400).json({ error: 'This task has no pending profit confirmation.' });
+  t.profitConfirmStatus = 'confirmed';
+  t.profitConfirmAt = new Date().toISOString();
+  t.profitConfirmBy = req.employee.id;
+  t.awaitingClientDecision = true;
+  const sendTo = t.reportSendOwner || t.assignedTo;
+  if (sendTo) {
+    logEvent(state, sendTo, `<b>${escHtml(req.employee.name)}</b> confirmed profit on "${escHtml(t.name)}" — go ahead and send the report.`);
+    notify(state, sendTo, 'profit_confirm', `${req.employee.name} confirmed profit on "${t.name}" — send the report.`, t.id);
+  }
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -3646,6 +3729,7 @@ app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
     acceptedAt: now, timerStartedAt: null,
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [],
     source, sourceRef: b.sourceRef || null,
     estMinutes: b.estMinutes != null && !isNaN(Number(b.estMinutes)) ? Number(b.estMinutes) : null,
@@ -3884,6 +3968,7 @@ app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAcces
     timerStartedAt: null, startedAt: null, completedAt: null,
     reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], holdReasonCode: null,
     dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
     source: 'whatsapp', sourceRef: c.phone,

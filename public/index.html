@@ -2300,6 +2300,15 @@ function pendingReviewCountFor(who){
 function reportsToSendFor(who){
   return tasks.filter(t => t.reportSendOwner === who && t.awaitingClientDecision);
 }
+// Profit confirmation always routes to Shubam Sharma — same one-person
+// routing as the AGENT_MAP pattern used for call notifications.
+const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
+function iAmProfitConfirmOwner(){
+  return !!(session && (String(session.email||'').toLowerCase() === PROFIT_CONFIRM_EMAIL || session.accessRole === 'superadmin'));
+}
+function profitConfirmsPendingFor(){
+  return tasks.filter(t => t.profitConfirmStatus === 'pending');
+}
 // Can the viewer manage who sends this report / decide it's sent? The
 // reviewer, a manager over the assignee, or the current report owner.
 function canManageReportSend(t){
@@ -3256,6 +3265,10 @@ function renderDeadlineBanner(){
   if(reportsToSend.length > 0){
     const overdueN = reportsToSend.filter(t => t.reportOverdue).length;
     banners.push(`<div class="banner ${overdueN ? 'warn' : ''}"><span>📨</span><span><b>${reportsToSend.length} report${reportsToSend.length>1?'s':''} to send</b>${overdueN ? ` — ${overdueN} overdue` : ''} — ${bannerRef(reportsToSend)} · <a href="#" onclick="event.preventDefault(); openReportsToSendModal();" style="text-decoration:underline;font-weight:600;">see list</a></span></div>`);
+  }
+  const profitConfirms = profitConfirmsPendingFor();
+  if(profitConfirms.length > 0 && iAmProfitConfirmOwner()){
+    banners.push(`<div class="banner"><span>💰</span><span><b>${profitConfirms.length} task${profitConfirms.length>1?'s':''} awaiting profit confirmation</b> — ${bannerRef(profitConfirms)} · <a href="#" onclick="event.preventDefault(); openProfitConfirmsModal();" style="text-decoration:underline;font-weight:600;">see list</a></span></div>`);
   }
   if(isAdmin){
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
@@ -4736,10 +4749,16 @@ function openCompleteModal(id){
   const picker = reviewers.length
     ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
     : `<div class="modal-error" style="display:block;">There's no one else to review this yet.</div>`;
+  const linkFields = t.kind !== 'internal' ? `
+  <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+    <input type="text" id="cmpSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+  <div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+    <input type="text" id="cmpCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : '';
   document.getElementById('modalBox').innerHTML = `
   <h3>Mark Complete — ${esc(t.name)}</h3>
   <div class="modal-sub">${esc(t.clientName)||'—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
   ${picker}
+  ${linkFields}
   <div class="modal-error" id="cmpError"></div>
   <div class="modal-actions" style="flex-wrap:wrap;">
   <button class="btn" onclick="closeModal()">Cancel</button>
@@ -4756,8 +4775,10 @@ function openCompleteModal(id){
       document.getElementById('cmpError').style.display = 'block';
       return;
     }
+    const sheetLink = (document.getElementById('cmpSheetLink')||{}).value || undefined;
+    const cashbookLink = (document.getElementById('cmpCashbookLink')||{}).value || undefined;
     try {
-      await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST', body: JSON.stringify({ reviewerId }) });
+      await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST', body: JSON.stringify({ reviewerId, sheetLink, cashbookLink }) });
       closeModal(); await refreshTasks(); await refreshActivity();
     } catch(e){
       document.getElementById('cmpError').textContent = e.message;
@@ -7436,6 +7457,7 @@ function openReviewFormModal(id){
       <div><b style="color:var(--text);">Completed on:</b> ${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</div>
       <div><b style="color:var(--text);">Client committed date:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
       <div><b style="color:var(--text);">Commitment:</b> ${cs === 'met' ? '<span style="color:var(--teal);">✓ Met</span>' : cs === 'missed' ? '<span style="color:#C2410C;">✗ Missed</span>' : '—'}</div>
+      ${t.sheetLink || t.cashbookLink ? `<div><b style="color:var(--text);">Links:</b> ${t.sheetLink ? `<a href="${esc(t.sheetLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Sheet</a>` : ''}${t.sheetLink && t.cashbookLink ? ' · ' : ''}${t.cashbookLink ? `<a href="${esc(t.cashbookLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Cashbook</a>` : ''}</div>` : ''}
     </div>
     <div class="field" style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;">
       <label style="font-size:15px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600;">${t.kind === 'internal' ? 'Is this work correct as delivered?' : 'Can we send this directly to the client?'}</label>
@@ -7609,15 +7631,18 @@ async function submitReviewFinal(){
     if(!t) return;
     const owner = empById(t.reportSendOwner);
     const canReassign = canManageReportSend(t);
+    const offerProfitConfirm = t.profitConfirmStatus !== 'confirmed';
     document.getElementById('modalBox').innerHTML = `
     <h3>Send to client?</h3>
     <div class="modal-sub">${esc(t.name)} was reviewed clean — send this report directly to the client?</div>
     <div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:12px 14px; margin:12px 0; font-size:13px; color:var(--text-dim); line-height:1.8;">
       <div><b style="color:var(--text);">Sending it:</b> ${owner ? esc(owner.name) : '—'}${canReassign ? ` · <a href="#" onclick="event.preventDefault(); openReassignReportOwner('${id}');" style="color:var(--purple);">change</a>` : ''}</div>
       <div><b style="color:var(--text);">Deadline:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' <span style="color:#C2410C;font-weight:600;">· overdue</span>' : ''}</div>
+      ${t.profitConfirmStatus === 'confirmed' ? `<div><b style="color:var(--text);">Profit confirmed</b> — ready to send.</div>` : ''}
     </div>
-    <div class="modal-actions">
+    <div class="modal-actions" style="flex-wrap:wrap;">
     <button class="btn" onclick="closeModal()">Remind me later</button>
+    ${offerProfitConfirm ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitProfitConfirmRequest('${id}')" title="Send to Shubam with the sheet/cashbook links before this goes out">💰 Profit Confirm</button>` : ''}
     <button class="btn primary" onclick="submitSendToClient('${id}','yes')">✓ Sent to client</button>
     </div>
     <div style="margin-top:10px;text-align:center;"><a href="#" onclick="event.preventDefault(); submitSendToClient('${id}','no')" style="font-size:12px;color:var(--text-faint);">Won't be sent — no report needed</a></div>
@@ -7630,6 +7655,13 @@ async function submitReviewFinal(){
       closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
       showToast('info', decision === 'yes' ? 'Sent to client' : 'Not sent to client', '');
     } catch(e){ showToast('error', 'Could not record decision', e.message); }
+  }
+  async function submitProfitConfirmRequest(id){
+    try {
+      await api(`/api/tasks/${encodeURIComponent(id)}/profit-confirm`, { method:'POST' });
+      closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+      showToast('info', 'Sent for profit confirmation', 'Shubam Sharma will confirm before this goes out.');
+    } catch(e){ showToast('error', 'Could not send', e.message); }
   }
   function openReassignReportOwner(id){
     const t = findTask(id);
@@ -7681,6 +7713,42 @@ async function submitReviewFinal(){
       </div>`;
     openModal();
   }
+  // Shubam's queue — clean client tasks routed to him for profit
+  // confirmation before the report goes out. Sheet/cashbook links open in a
+  // new tab; Done hands the report-send job back to whoever it belonged to.
+  function openProfitConfirmsModal(){
+    const list = profitConfirmsPendingFor().slice().sort((a,b) => (a.profitConfirmRequestedAt||'').localeCompare(b.profitConfirmRequestedAt||''));
+    const linkTag = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">${label}</a>` : `<span style="color:var(--text-faint);">—</span>`;
+    const rows = list.map(t => {
+      const a = empById(t.assignedTo);
+      return `<tr>
+        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
+        <td class="tl-sub">${a ? esc(a.name) : '—'}</td>
+        <td>${linkTag(t.sheetLink, 'Sheet')}</td>
+        <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
+        <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);white-space:nowrap;" onclick="submitProfitConfirmDone('${t.id}')">✓ Done</button></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('modalBox').innerHTML = `
+      <div class="tasklist-modal">
+        <h3>Profit confirmations <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
+        <div class="modal-sub">Reviewed clean, waiting on your profit confirmation before the report goes out.</div>
+        ${list.length ? `<div class="tl-scroll"><table class="tl-table-fixed">
+          <thead><tr><th>Task</th><th style="width:120px;">Owner</th><th style="width:80px;">Sheet</th><th style="width:90px;">Cashbook</th><th style="width:90px;"></th></tr></thead>
+          <tbody>${rows}</tbody></table></div>`
+          : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting on you.</p>`}
+        <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
+      </div>`;
+    openModal();
+  }
+  async function submitProfitConfirmDone(id){
+    try {
+      await api(`/api/tasks/${encodeURIComponent(id)}/profit-confirm/done`, { method:'POST' });
+      await refreshTasks();
+      showToast('success', 'Profit confirmed', 'Sent back for the report to go out.');
+      openProfitConfirmsModal();
+    } catch(e){ showToast('error', 'Could not confirm', e.message); }
+  }
 function openReviewViewModal(id){
   const t = findTask(id);
   if(!t) return;
@@ -7693,7 +7761,10 @@ function openReviewViewModal(id){
       <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</div>
       ${Number(t.reviewHours) > 0 ? `<div><b style="color:var(--text);">Time spent reviewing:</b> ${Number(t.reviewHours).toFixed(2)}h</div>` : ''}
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
-      <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.awaitingClientDecision
+      ${t.sheetLink || t.cashbookLink ? `<div style="margin-top:8px;"><b style="color:var(--text);">Links:</b> ${t.sheetLink ? `<a href="${esc(t.sheetLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Sheet</a>` : ''}${t.sheetLink && t.cashbookLink ? ' · ' : ''}${t.cashbookLink ? `<a href="${esc(t.cashbookLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Cashbook</a>` : ''}</div>` : ''}
+      <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.profitConfirmStatus === 'pending'
+        ? '<span style="color:#B45309;">💰 Awaiting profit confirmation from Shubam Sharma</span>'
+        : t.awaitingClientDecision
         ? `<span style="color:#B45309;">Awaiting decision on sending to client</span> — ${esc((empById(t.reportSendOwner)||{}).name || 'unassigned')} to send${t.clientDate ? ', by ' + fmtDate(t.clientDate) : ''}${t.reportOverdue ? ' <b style="color:#C2410C;">· overdue</b>' : ''}`
         : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>'
         : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>'

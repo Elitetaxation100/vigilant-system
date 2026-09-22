@@ -436,6 +436,17 @@ function runMigrations(state) {
     // Everything that exists today was created under the client-required
     // rule, so it's a client task.
     if (t.kind === undefined) t.kind = 'client';
+    // Profit confirmation: optional evidence links attached when a client
+    // task is sent for review, and a gate a reviewer/report-owner can route
+    // through Shubam before the report actually goes out. See server.js's
+    // /profit-confirm endpoints.
+    if (t.sheetLink === undefined) t.sheetLink = null;
+    if (t.cashbookLink === undefined) t.cashbookLink = null;
+    if (t.profitConfirmStatus === undefined) t.profitConfirmStatus = null; // null | 'pending' | 'confirmed'
+    if (t.profitConfirmRequestedAt === undefined) t.profitConfirmRequestedAt = null;
+    if (t.profitConfirmRequestedBy === undefined) t.profitConfirmRequestedBy = null;
+    if (t.profitConfirmAt === undefined) t.profitConfirmAt = null;
+    if (t.profitConfirmBy === undefined) t.profitConfirmBy = null;
   });
   state._startedAtResetV1 = true;
   // ONE-TIME historical backfill: call / Slack tasks that were already
