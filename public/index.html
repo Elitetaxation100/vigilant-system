@@ -6,26 +6,27 @@
 <title>Commitment Pulse — Governance OS</title>
 <script>/* apply the saved theme before first paint — no flash */try{if(localStorage.getItem('governanceOsTheme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     /* LIGHT is the default. Dark is opt-in via [data-theme="dark"]. Every
        component styles through these tokens, so switching themes only
        redefines the block below. */
-    --bg-deep:      #EDF1F8;
-    --panel:        #FFFFFF;
-    --panel-2:      #F3F6FB;
-    --panel-border: #DBE3EF;
-    --line:         #E8EDF6;
-    --text:         #172236;
-    --text-dim:     #54627B;
-    --text-faint:   #8792A9;
+    --bg-deep:      #F3EFE4;
+    --panel:        #FFFDF8;
+    --panel-2:      #F7F2E7;
+    --panel-border: #E3DBC8;
+    --line:         #ECE5D4;
+    --text:         #21261F;
+    --text-dim:     #5B6355;
+    --text-faint:   #8A9082;
     /* accents double as saturated fills AND as text — these light values
        stay legible on white; the dark theme swaps in brighter ones below.
-       --purple is the primary blue; --teal is the success green. */
-    --purple:       #1E5FAE;
-    --purple-dim: #E1EBF8;
+       --purple is the primary (Elite Taxation forest green); --teal is a
+       secondary/success accent, kept distinct from --purple on purpose. */
+    --purple:       #1F5B45;
+    --purple-dim: #E2EBE3;
     --teal:         #0E7E93;
     --teal-dim:   #DBEFF3;
     --amber:        #B0741A;
@@ -59,7 +60,7 @@
     --text:         #E4EAF4;
     --text-dim:     #9BA9C1;
     --text-faint:   #6A7A97;
-    --purple:       #5CA0E6;
+    --purple:       #4FAE86;
     --teal:         #3BB7CC;
     --amber:        #F0B93E;
     --coral:        #F0603E;
@@ -73,8 +74,8 @@
   *{box-sizing:border-box; margin:0; padding:0;}
   body{
     background:
-      radial-gradient(1200px 500px at 90% -10%, #1E5FAE14, transparent 60%),
-      radial-gradient(900px 500px at -10% 110%, #3E86D414, transparent 60%),
+      radial-gradient(1200px 500px at 90% -10%, #1F5B4514, transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, #8B6F3D14, transparent 60%),
       var(--bg-deep);
     color:var(--text);
     font-family:var(--font-body);
@@ -87,7 +88,7 @@
   }
   ::selection{ background:var(--purple); color:#fff; }
   ::-webkit-scrollbar{width:8px; height:8px;}
-  ::-webkit-scrollbar-thumb{background:#D3D8E3; border-radius:8px;}
+  ::-webkit-scrollbar-thumb{background:#D9D2BD; border-radius:8px;}
   ::-webkit-scrollbar-track{background:transparent;}
   a{color:inherit;}
   button{font-family:inherit; cursor:pointer;}
@@ -106,14 +107,12 @@
   }
   .brand{ display:flex; align-items:center; gap:10px; padding:2px 6px 22px; }
   .brand-mark{
-    width:34px; height:34px; border-radius:9px;
-    background:linear-gradient(135deg, var(--mint-deep), var(--ink-teal));
-    color:#fff;
+    width:34px; height:34px; flex-shrink:0;
     display:flex; align-items:center; justify-content:center;
-    font-family:var(--font-display); font-weight:700; font-size:17.5px;
-    box-shadow:0 4px 16px #1E5FAE40;
+    color:var(--purple);
   }
-  .brand-text .t1{ font-family:var(--font-display); font-weight:700; font-size:16.5px; letter-spacing:.2px;}
+  .brand-mark svg{ width:100%; height:100%; }
+  .brand-text .t1{ font-family:'Playfair Display', var(--font-display), serif; font-weight:700; font-size:18px; letter-spacing:.1px; color:var(--text);}
   .brand-text .t2{ font-size:11px; color:var(--text-faint); letter-spacing:.6px; text-transform:uppercase; margin-top:1px;}
 
   .clock-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 14px; margin-bottom:16px; }
@@ -121,10 +120,10 @@
   .clock-time{ font-family:var(--font-mono); font-size:25px; font-weight:600; letter-spacing:.5px; margin-bottom:12px; color:var(--text); font-variant-numeric:tabular-nums;}
   .btn-punch{
     width:100%; border:none; border-radius:var(--radius-s); padding:9px 0;
-    background:linear-gradient(135deg, var(--purple), #164C8C); color:#fff; font-weight:700; font-size:14.5px;
+    background:linear-gradient(135deg, var(--purple), #133F30); color:#fff; font-weight:700; font-size:14.5px;
     letter-spacing:.3px; transition:transform .15s ease, box-shadow .15s ease;
   }
-  .btn-punch:hover{ transform:translateY(-1px); box-shadow:0 6px 18px #1E5FAE44; }
+  .btn-punch:hover{ transform:translateY(-1px); box-shadow:0 6px 18px color-mix(in srgb, var(--purple) 27%, transparent); }
   .btn-punch.active{ background:linear-gradient(135deg, var(--coral), #b8431f); color:#fff; }
 
   .status-row{ display:flex; align-items:center; justify-content:space-between; margin:14px 2px 6px; }
@@ -316,7 +315,7 @@
   .donut-tile .donut-legend-item{ font-size:11.5px; white-space:nowrap; }
   .donut-tile .donut-legend-item b{ margin-left:auto; padding-left:10px; font-weight:600; }
   .circle-btn{ width:36px; height:36px; border-radius:50%; flex-shrink:0; background:var(--purple); border:none; color:#fff; font-size:14px; display:flex; align-items:center; justify-content:center; transition:transform .15s ease, box-shadow .15s ease; }
-  .circle-btn:hover{ transform:translateY(-1px); box-shadow:0 6px 16px #1E5FAE44; }
+  .circle-btn:hover{ transform:translateY(-1px); box-shadow:0 6px 16px color-mix(in srgb, var(--purple) 27%, transparent); }
   .today-row-right{ flex-shrink:0; }
 
   /* ================= DASHBOARD REDESIGN — green, card-based ================= */
@@ -677,8 +676,8 @@
   /* custom scrollbar — the default one clashes with the dark theme */
   ::-webkit-scrollbar{ width:9px; height:9px; }
   ::-webkit-scrollbar-track{ background:transparent; }
-  ::-webkit-scrollbar-thumb{ background:#D3D8E3; border-radius:6px; }
-  ::-webkit-scrollbar-thumb:hover{ background:#B9C0D1; }
+  ::-webkit-scrollbar-thumb{ background:#D9D2BD; border-radius:6px; }
+  ::-webkit-scrollbar-thumb:hover{ background:#C4BCA2; }
 
   /* toast notifications — replace bare alert() popups */
   .toast-stack{ position:fixed; top:18px; right:18px; z-index:300; display:flex; flex-direction:column; gap:10px; max-width:360px; width:calc(100% - 36px); }
@@ -717,7 +716,7 @@
   .cc{
     --panel:#131F33; --panel-2:#0F1A2C; --panel-border:#27364F; --line:#1F2C43;
     --text:#E4EAF4; --text-dim:#9BA9C1; --text-faint:#6A7A97; --bg-deep:#0A1220;
-    --purple:#5CA0E6; --teal:#3BB7CC; --amber:#F0B93E; --coral:#F0603E;
+    --purple:#4FAE86; --teal:#3BB7CC; --amber:#F0B93E; --coral:#F0603E;
     background:var(--bg-deep); border-radius:20px; padding:26px 28px 32px; margin:-4px 0 4px;
     color:var(--text); font-family:var(--font-body);
     box-shadow:0 20px 50px -20px #00000055;
@@ -726,10 +725,10 @@
   .cc-header-left{ display:flex; align-items:center; gap:14px; }
   .cc-logo-mark{
     width:42px; height:42px; border-radius:11px; flex-shrink:0;
-    background:linear-gradient(135deg, #5CA0E6, #2C5FA8); color:#fff;
+    background:linear-gradient(135deg, #4FAE86, #1F5B45); color:#fff;
     display:flex; align-items:center; justify-content:center;
     font-family:var(--font-display); font-weight:800; font-size:16.5px;
-    box-shadow:0 4px 18px #5CA0E644;
+    box-shadow:0 4px 18px #4FAE8644;
   }
   .cc-title{ font-family:var(--font-display); font-weight:700; font-size:20px; color:#F5F7FA; display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .cc-live-dot{ font-size:11px; font-weight:700; letter-spacing:.6px; color:var(--teal); background:#0E7E9318; border:1px solid #0E7E9355; padding:3px 8px; border-radius:20px; }
@@ -906,7 +905,15 @@
   <!-- ============ SIDEBAR ============ -->
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">E</div>
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 4h12l6 6v20a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M21 4v6h6" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M11 18h8M11 22h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <circle cx="25" cy="27" r="7" fill="var(--panel)" stroke="currentColor" stroke-width="2"/>
+          <path d="M22 27l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
       <div class="brand-text">
         <div class="t1">Elite Taxation</div>
         <div class="t2">Governance OS</div>
@@ -1370,16 +1377,16 @@
                   <path id="ccStampArcTop" d="M 15,60 A 45,45 0 0 1 105,60"></path>
                   <path id="ccStampArcBottom" d="M 105,62 A 45,45 0 0 1 15,62"></path>
                 </defs>
-                <circle cx="60" cy="60" r="56" fill="none" stroke="#1E5FAE" stroke-width="1.4"></circle>
-                <circle cx="60" cy="60" r="47" fill="none" stroke="#1E5FAE" stroke-width="1" stroke-dasharray="2,3"></circle>
-                <text font-size="8.4" letter-spacing="1.6" fill="#1E5FAE" font-family="'Space Grotesk',sans-serif" font-weight="700">
+                <circle cx="60" cy="60" r="56" fill="none" stroke="var(--purple)" stroke-width="1.4"></circle>
+                <circle cx="60" cy="60" r="47" fill="none" stroke="var(--purple)" stroke-width="1" stroke-dasharray="2,3"></circle>
+                <text font-size="8.4" letter-spacing="1.6" fill="var(--purple)" font-family="'Space Grotesk',sans-serif" font-weight="700">
                   <textPath href="#ccStampArcTop" startOffset="50%" text-anchor="middle">ELITE TAXATION</textPath>
                 </text>
-                <text font-size="6.6" letter-spacing="1.1" fill="#1E5FAE" font-family="Inter,sans-serif">
+                <text font-size="6.6" letter-spacing="1.1" fill="var(--purple)" font-family="Inter,sans-serif">
                   <textPath href="#ccStampArcBottom" startOffset="50%" text-anchor="middle">AUCKLAND · NEW ZEALAND</textPath>
                 </text>
-                <text x="60" y="57" font-size="9.5" fill="#1E5FAE" font-family="'Space Grotesk',sans-serif" font-weight="700" text-anchor="middle">VERIFIED</text>
-                <text x="60" y="70" font-size="6.2" fill="#1E5FAE" font-family="'JetBrains Mono',monospace" text-anchor="middle">ATAINZ 11977</text>
+                <text x="60" y="57" font-size="9.5" fill="var(--purple)" font-family="'Space Grotesk',sans-serif" font-weight="700" text-anchor="middle">VERIFIED</text>
+                <text x="60" y="70" font-size="6.2" fill="var(--purple)" font-family="'JetBrains Mono',monospace" text-anchor="middle">ATAINZ 11977</text>
               </svg>
             </div>
           </div>
@@ -1836,9 +1843,9 @@
         <div class="card-hero">
           <div class="ring-wrap">
             <svg width="150" height="150" viewBox="0 0 150 150">
-              <circle cx="75" cy="75" r="64" fill="none" stroke="#E6E9F1" stroke-width="12"/>
+              <circle cx="75" cy="75" r="64" fill="none" stroke="#EAE3D2" stroke-width="12"/>
               <circle cx="75" cy="75" r="64" fill="none" stroke="url(#g1)" stroke-width="12" stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402" id="rcRing" />
-              <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F0A93E"/><stop offset="100%" stop-color="#1E5FAE"/></linearGradient></defs>
+              <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F0A93E"/><stop offset="100%" stop-color="#1F5B45"/></linearGradient></defs>
             </svg>
             <div class="ring-center"><div class="pct" id="rcPct">—</div><div class="lbl" id="rcRingLbl">Score</div></div>
           </div>
@@ -2758,7 +2765,7 @@ async function renderCallsView(){
   }
   const c = data.counts;
   document.getElementById('callsTiles').innerHTML = CALL_STATUS_TILES.map(([key,label,color]) => `
-    <div class="metric-tile" style="cursor:pointer;${key===_callsStatusFilter?'outline:2px solid var(--accent-blue,#1E5FAE);':''}" onclick="setCallsStatusFilter('${key}')" title="Click to filter the list below">
+    <div class="metric-tile" style="cursor:pointer;${key===_callsStatusFilter?'outline:2px solid var(--purple);':''}" onclick="setCallsStatusFilter('${key}')" title="Click to filter the list below">
       <div class="mt-label">${esc(label)}</div>
       <div class="mt-value"${color?` style="color:${color};"`:''}>${c[key]}</div>
     </div>`).join('');
@@ -7015,7 +7022,7 @@ function renderSlaChart(){
   }));
   const pathD = svgSmoothPath(points);
   const areaD = `${pathD} L ${points[n-1].x} ${padT + plotH} L ${points[0].x} ${padT + plotH} Z`;
-  const strokeColor = slaFeedOn ? '#1E5FAE' : '#8791A3';
+  const strokeColor = slaFeedOn ? '#1F5B45' : '#8791A3';
 
   const gridLines = [0, 25, 50, 75, 100].map(v => {
     const y = padT + plotH - (v / 100) * plotH;
