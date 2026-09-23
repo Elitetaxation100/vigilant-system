@@ -956,6 +956,10 @@
       <div class="nav-title">Performance</div>
       <div class="nav-item" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
     </div>
+    <div class="nav-section" id="callsNavSection" style="display:none;">
+      <div class="nav-title">Calls</div>
+      <div class="nav-item" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
+    </div>
     <div class="nav-section" id="clientsNavSection">
       <div class="nav-title">Clients</div>
       <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
@@ -1879,6 +1883,41 @@
         </div>
       </section>
 
+      <section class="view" id="view-calls">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Calls</h2>
+            <div class="panel-head-actions">
+              <select id="callsPeriod" onchange="renderCallsView()">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="week" selected>This week</option>
+                <option value="month">This month</option>
+                <option value="last30">Last 30 days</option>
+                <option value="last90">Last 90 days</option>
+                <option value="all">All time</option>
+                <option value="custom">Custom range…</option>
+              </select>
+              <span id="callsCustom" style="display:none;">
+                <input type="date" id="callsFrom" onchange="renderCallsView()">
+                <input type="date" id="callsTo" onchange="renderCallsView()">
+              </span>
+              <select id="callsPersonFilter" onchange="callsPersonSelectChanged()">
+                <option value="">All people</option>
+              </select>
+            </div>
+          </div>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every call tagged in Slack, day by day — filter by period or by whoever's responsible for listening. Voicemails and missed calls aren't counted.</p>
+          <div id="callsSummary" style="font-size:13px;color:var(--text-dim);margin-bottom:14px;"></div>
+          <div id="callsByPerson" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-bottom:20px;"></div>
+          <div style="max-height:60vh;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tbody id="callsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section class="view" id="view-clients">
         <div class="panel">
           <div class="panel-head">
@@ -2387,7 +2426,10 @@ function accessLabel(r){
   if(r === 'admin') return 'Admin';
   return 'Employee';
 }
-// A team is a `.team` name; an admin can assign to anyone who shares theirs.
+// A team is a `.team` name; an admin's TEAM roster (Manager Dashboard, Team
+// Board, the workload panel) is scoped to people who share theirs — this is
+// a VISIBILITY boundary, kept separate from who they can hand brand-new
+// work to (see anyEmployeeInFirm below).
 function sameTeam(a, b){
   const ta = a && typeof a.team === 'string' ? a.team.trim() : '';
   const tb = b && typeof b.team === 'string' ? b.team.trim() : '';
@@ -2402,7 +2444,12 @@ function assignableEmployees(){
   }
   return [];
 }
-function canAssignTo(empId){ return assignableEmployees().some(e => e.id === empId); }
+// Everyone — any role — can hand a brand-new task to anyone else in the firm.
+function anyEmployeeInFirm(){
+  if(!session) return [];
+  return employees;
+}
+function canAssignTo(empId){ return anyEmployeeInFirm().some(e => e.id === empId); }
 function displayedLogged(t){ return t.displayedLogged !== undefined ? t.displayedLogged : t.logged; }
 // Best hours figure for a task: actual (if more than a blip), else agreed,
 // else the estimate. A hold-inflated task is capped at its agreed hours.
@@ -2561,6 +2608,7 @@ const titles = {
   taskengine: ['Task Engine', 'Measuring what gets done'],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   performance: ['Performance', 'Your Report Card, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
+  calls: ['Calls', "Every tagged call, filterable by day, week or month and by who's responsible for listening — superadmin only"],
   timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
@@ -2571,7 +2619,7 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','command','attendance','employees','taxonomy'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','command','attendance','employees','taxonomy','calls'];
 // A shared tab strip at the top of Manager Dashboard / Team Board / Founder
 // View / Command Center — the four used to be separate, disconnected nav
 // destinations; this makes them read and navigate as one "Dashboard"
@@ -2623,6 +2671,93 @@ function setPerfTab(id){
   _perfTab = id;
   renderPerformanceView();
 }
+/* Calls — superadmin firm-wide view of every tagged call, day by day,
+   filterable by period and by whoever's responsible for listening. Mirrors
+   the date-range pattern every other reporting page uses (_prodRange etc.)
+   but adds Today/Yesterday since day-by-day is the whole point here. */
+let _callsPersonFilter = '';
+function _callsRange(){
+  const p = (document.getElementById('callsPeriod')||{}).value || 'week';
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const now = new Date();
+  document.getElementById('callsCustom').style.display = p === 'custom' ? '' : 'none';
+  if(p === 'custom'){
+    return { from: (document.getElementById('callsFrom')||{}).value || iso(new Date(now-30*864e5)),
+             to: (document.getElementById('callsTo')||{}).value || iso(now) };
+  }
+  if(p === 'today') return { from: iso(now), to: iso(now) };
+  if(p === 'yesterday'){ const y = new Date(now - 864e5); return { from: iso(y), to: iso(y) }; }
+  let from;
+  if(p === 'week'){
+    const day = now.getDay(); // 0=Sun..6=Sat, week starts Monday
+    from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (day === 0 ? 6 : day - 1));
+  }
+  else if(p === 'month'){ from = new Date(now.getFullYear(), now.getMonth(), 1); }
+  else if(p === 'last30'){ from = new Date(now - 30*864e5); }
+  else if(p === 'last90'){ from = new Date(now - 90*864e5); }
+  else if(p === 'all'){ from = new Date(2000, 0, 1); }
+  else { from = new Date(now.getFullYear(), now.getMonth(), 1); }
+  return { from: iso(from), to: iso(now) };
+}
+function callsPersonSelectChanged(){
+  _callsPersonFilter = document.getElementById('callsPersonFilter').value;
+  renderCallsView();
+}
+function setCallsPersonFilter(key){
+  _callsPersonFilter = (_callsPersonFilter === key) ? '' : key;
+  renderCallsView();
+}
+async function renderCallsView(){
+  const { from, to } = _callsRange();
+  let data;
+  try {
+    const qs = new URLSearchParams({ from, to });
+    if(_callsPersonFilter) qs.set('personId', _callsPersonFilter);
+    data = await api(`/api/calls/all?${qs.toString()}`);
+  } catch(e){
+    document.getElementById('callsBody').innerHTML = `<tr><td style="padding:14px 0;color:var(--coral);">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  // Rebuilt every render so it always reflects who actually has calls in
+  // this window; falls back to "All people" if the current pick has none.
+  const personSel = document.getElementById('callsPersonFilter');
+  const stillValid = data.byPerson.some(p => p.key === _callsPersonFilter);
+  if(!stillValid) _callsPersonFilter = '';
+  personSel.innerHTML = `<option value="">All people</option>` + data.byPerson.map(p =>
+    `<option value="${esc(p.key)}"${p.key===_callsPersonFilter?' selected':''}>${esc(p.name)} — ${p.total}</option>`
+  ).join('');
+  const totals = data.byPerson.reduce((s,p) => ({ listened: s.listened+p.listened, remaining: s.remaining+p.remaining, noAction: s.noAction+p.noAction }), { listened:0, remaining:0, noAction:0 });
+  document.getElementById('callsSummary').textContent =
+    `${data.total} call${data.total===1?'':'s'} in range · ${totals.listened} listened · ${totals.remaining} remaining · ${totals.noAction} no action needed`;
+  document.getElementById('callsByPerson').innerHTML = data.byPerson.map(p => `
+    <div class="metric-tile" style="cursor:pointer;${p.key===_callsPersonFilter?'outline:2px solid var(--accent-blue,#1E5FAE);':''}" onclick="setCallsPersonFilter('${esc(p.key)}')" title="Click to filter the list below">
+      <div class="mt-label">${esc(p.name)}</div>
+      <div class="mt-value">${p.total}</div>
+      <div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${p.listened} listened · ${p.remaining} left${p.noAction?` · ${p.noAction} no action`:''}</div>
+    </div>`).join('') || `<div style="color:var(--text-faint);font-size:13px;">No calls in this range.</div>`;
+  renderCallsRows(data.calls);
+}
+function renderCallsRows(list){
+  const groups = {}; const order = [];
+  list.forEach(c => {
+    const d = c.day || 'unknown';
+    if(!groups[d]){ groups[d] = []; order.push(d); }
+    groups[d].push(c);
+  });
+  order.sort((a,b) => b.localeCompare(a)); // most recent day first
+  const statusLabel = c => c.status === 'no_action' ? 'No action needed' : c.listened ? 'Listened' : 'Not listened yet';
+  const statusColor = c => c.status === 'no_action' ? 'var(--text-faint)' : c.listened ? 'var(--teal)' : 'var(--flag)';
+  const rows = order.map(d => {
+    const dayRows = groups[d].map(c => `
+    <tr>
+      <td><div class="tl-name">${esc(c.clientName)}</div><div class="tl-sub">${esc(c.callerPhone || '—')} · ${esc(c.agentName)}${c.team ? ' · '+esc(c.team) : ''}</div></td>
+      <td><div class="tl-name">${esc(c.responsibleName)}</div><div class="tl-sub" style="color:${statusColor(c)};">${statusLabel(c)}</div></td>
+      <td>${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener" class="verify-btn" style="text-decoration:none;display:inline-block;">Open in Slack</a>` : '<span class="tl-sub">no card</span>'}</td>
+    </tr>`).join('');
+    return `<tr><td colspan="3" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
+  }).join('');
+  document.getElementById('callsBody').innerHTML = rows || `<tr><td colspan="3" style="padding:14px 0;color:var(--text-faint);">No calls in this range.</td></tr>`;
+}
 /* Mobile: the sidebar is an off-canvas drawer under 860px. */
 function toggleMobileNav(){ document.querySelector('.app').classList.toggle('nav-open'); }
 function closeMobileNav(){ document.querySelector('.app').classList.remove('nav-open'); }
@@ -2662,6 +2797,7 @@ function showView(id, el){
   if(id === 'manager') renderManagerStatics();
   if(id === 'taskengine') renderTaskEngineVisuals();
   if(id === 'performance') renderPerformanceView();
+  if(id === 'calls') renderCallsView();
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
@@ -2879,7 +3015,7 @@ function openWaTaskModal(phone, msgIndex){
   const c = waContacts.find(x => x.phone === phone);
   if(!c) return;
   const sourceText = (msgIndex !== undefined && _waThreadMsgs[msgIndex]) ? _waThreadMsgs[msgIndex].text : (c.lastMessageText || '');
-  const pool = assignableEmployees().length ? assignableEmployees() : employees;
+  const pool = anyEmployeeInFirm().length ? anyEmployeeInFirm() : employees;
   document.getElementById('modalBox').innerHTML = `
     <h3>Create task from WhatsApp</h3>
     <div class="modal-sub">${esc(c.name)} · ${esc(c.phone)}</div>
@@ -5192,7 +5328,7 @@ async function deleteRecurring(id){
   } catch(e){ showToast('error', 'Could not remove', e.message); }
 }
 function openRecurringFormModal(){
-  const canTeam = assignableEmployees().length > 0;
+  const canTeam = anyEmployeeInFirm().length > 0;
   const noClients = clients.length === 0;
   document.getElementById('modalBox').innerHTML = `
     <h3>New daily task</h3>
@@ -5200,7 +5336,7 @@ function openRecurringFormModal(){
     ${canTeam ? `<div class="field"><label>Who does this</label>
       <select id="rtAssignee">
         <option value="__me">Me</option>
-        ${assignableEmployees().map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+        ${anyEmployeeInFirm().map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
       </select></div>` : ''}
     <div class="field"><label>Kind of task</label>
       <div style="display:flex; gap:8px;">
@@ -5411,11 +5547,9 @@ function onAtDeptChange(){
 }
 // One front door for the three assignment flows that used to be separate
 // nav items. Routes straight to whichever existing modal handles it —
-// none of that logic is duplicated or rewritten here. A plain employee
-// only ever has "myself" available, so skip the picker and go straight
-// there instead of showing a menu with two disabled options.
+// none of that logic is duplicated or rewritten here. Every role sees all
+// three choices — anyone can assign work to anyone else in the firm.
 function openCreateTaskModal(){
-  if(!isAdmin){ openAssignModal('me'); return; }
   document.getElementById('modalBox').innerHTML = `
     <h3>+ Create Task</h3>
     <div class="modal-sub">Who's this for?</div>
@@ -5424,7 +5558,7 @@ function openCreateTaskModal(){
         <div class="ct-ic">→</div><div><b>Myself</b><span>Add work to your own queue</span></div>
       </button>
       <button class="ct-choice" onclick="closeModal();openAssignModal('team')">
-        <div class="ct-ic">⇉</div><div><b>One employee</b><span>Assign a single task to someone on your team</span></div>
+        <div class="ct-ic">⇉</div><div><b>One employee</b><span>Assign a single task to anyone in the firm</span></div>
       </button>
       <button class="ct-choice" onclick="closeModal();openBulkAssignModal()">
         <div class="ct-ic">≣</div><div><b>Bulk import</b><span>Paste a list — one task per line, all to the same person</span></div>
@@ -5437,14 +5571,11 @@ function openCreateTaskModal(){
 function openAssignModal(mode){
   const isTeam = mode === 'team';
   if(isTeam){
-    const allowed = assignableEmployees();
+    const allowed = anyEmployeeInFirm();
     if(allowed.length === 0){
       document.getElementById('modalBox').innerHTML = `
-        <h3>Assign Task to Team</h3>
-        <div class="modal-sub">You're not authorized to assign work to anyone yet.</div>
-        <p style="font-size:14.5px; color:var(--text-dim); line-height:1.6;">
-          ${isSuperAdmin ? '' : 'Only a Superadmin can assign to the whole team. An Admin can only assign to employees a Superadmin has specifically allowed — ask a Superadmin to grant you access from Employee Directory → Manage access.'}
-        </p>
+        <h3>Assign Task to Someone</h3>
+        <div class="modal-sub">There's nobody else in the Employee Directory yet.</div>
         <div class="modal-actions"><button class="btn primary" onclick="closeModal()">Close</button></div>
       `;
       openModal();
@@ -5453,8 +5584,8 @@ function openAssignModal(mode){
   }
   const noClients = clients.length === 0;
   document.getElementById('modalBox').innerHTML = `
-    <h3>${isTeam ? 'Assign Task to Team' : 'Assign Task to Me'}</h3>
-    <div class="modal-sub">${isTeam ? 'Hand a piece of work to a team member.' : 'Create a task for yourself.'}</div>
+    <h3>${isTeam ? 'Assign Task' : 'Assign Task to Me'}</h3>
+    <div class="modal-sub">${isTeam ? 'Hand a piece of work to anyone in the firm.' : 'Create a task for yourself.'}</div>
     <div class="field"><label>Kind of task</label>
       <div style="display:flex; gap:8px;">
         <button type="button" class="btn small atKindBtn primary" data-kind="client" onclick="setAssignKind('client')"${noClients ? ' disabled title="Add a client first"' : ''}>Client work</button>
@@ -5478,7 +5609,7 @@ function openAssignModal(mode){
     </div>
     <div class="field" id="atServiceWrap" style="display:none;"><label>Service</label><select id="atService"></select></div>
     <div class="field" id="atDeptOtherWrap" style="display:none;"><label>Why "Other"? <span class="req-mark">*</span></label><input type="text" id="atDeptOther" placeholder="e.g. cross-department cover work"></div>
-    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee" onchange="atPlanPreview(); atSyncClientDate()">${assignableEmployees().map(e=>{
+    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee" onchange="atPlanPreview(); atSyncClientDate()">${anyEmployeeInFirm().map(e=>{
       const w = workload.find(x => x.id === e.id);
       const ct = w && w.committedThrough;
       const load = ct && ct > todayISO() ? ` — free from ${fmtDate(ct)}` : (w && w.freeCapacityNext5wd != null ? ` — ${w.freeCapacityNext5wd}h free this week` : '');
@@ -5776,7 +5907,7 @@ function renderBulkPreview(){
   if(btn) btn.disabled = ok.length === 0;
 }
 function openBulkAssignModal(){
-  const people = assignableEmployees();
+  const people = anyEmployeeInFirm();
   if(!people.length){
     document.getElementById('modalBox').innerHTML = `<h3>Bulk Assign</h3><div class="modal-sub">You're not authorized to assign work to anyone yet.</div><div class="modal-actions"><button class="btn primary" onclick="closeModal()">Close</button></div>`;
     openModal(); return;
@@ -9396,12 +9527,11 @@ async function submitManageEmployee(id){
     await refreshEmployees();
     await refreshTeams();
     renderEmployeeGrid();
-    // The "Assign to Team" entry point is visible to any Admin/Superadmin —
-    // whether they can actually assign to anyone (superadmin-granted) is
-    // enforced inside the modal itself, not by hiding the door entirely.
+    // "+ Assign Task" is visible to every role — anyone can assign work to
+    // anyone else in the firm.
     document.getElementById('assignTeamNavItem').style.display = isAdmin ? '' : 'none';
     document.getElementById('bulkAssignNavItem').style.display = isAdmin ? '' : 'none';
-    document.getElementById('assignTeamBtn').style.display = isAdmin ? '' : 'none';
+    document.getElementById('assignTeamBtn').style.display = '';
   } catch(e){
     document.getElementById('meError').textContent = e.message;
     document.getElementById('meError').style.display = 'block';
@@ -9540,6 +9670,7 @@ async function onLoginComplete(){
   document.getElementById('employeesNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('commandCenterNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
+  document.getElementById('callsNavSection').style.display = isSuperAdmin ? '' : 'none';
   // Founder View — actual founder(s) only (Manage Access → Founder), not
   // every superadmin.
   document.getElementById('founderNavSection').style.display = (isSuperAdmin && session.isFounder) ? '' : 'none';
@@ -9554,12 +9685,11 @@ async function onLoginComplete(){
   // "Who's busy until when" — manager/superadmin coordination aid, hidden
   // from plain employees.
   document.getElementById('busyBoardPanel').style.display = isAdmin ? '' : 'none';
-  // Visible to every Admin/Superadmin — actual assign permission (decided by
-  // a Superadmin via Manage Access) is enforced inside the modal, not by
-  // hiding the nav item from managers who haven't been granted anyone yet.
+  // "+ Assign Task" is visible to every role — anyone can assign work to
+  // anyone else in the firm.
   document.getElementById('assignTeamNavItem').style.display = isAdmin ? '' : 'none';
   document.getElementById('bulkAssignNavItem').style.display = isAdmin ? '' : 'none';
-  document.getElementById('assignTeamBtn').style.display = isAdmin ? '' : 'none';
+  document.getElementById('assignTeamBtn').style.display = '';
   document.getElementById('adminStatus').style.display = 'block';
   document.getElementById('adminStatus').textContent = `✓ ${session.name} · ${accessLabel(session.accessRole)}`;
   document.getElementById('adminLoginBtn').textContent = '🔓 Account';
@@ -9619,6 +9749,7 @@ function logoutSession(){
   document.getElementById('employeesNavSection').style.display = 'none';
   document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
+  document.getElementById('callsNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
   document.getElementById('mgmtNavToggle').style.display = 'none';
   document.getElementById('whatsappNavSection').style.display = 'none';

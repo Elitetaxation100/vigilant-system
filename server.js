@@ -183,11 +183,22 @@ function managersOfEmployee(state, empId) {
   if (!emp) return [];
   return teamRoster(state, emp).filter(e => e.id !== empId && isAdminRole(e.accessRole));
 }
-/** Who can `actor` assign NEW work to? Mirrors the same rule everywhere. */
+/**
+ * Whose team roster/workload does `actor` see (Manager Dashboard, Team
+ * Board, the workload panel)? This is a VISIBILITY boundary, separate from
+ * who they can hand brand-new work to (see anyEmployeeInFirm below) — an
+ * admin's team-scoped dashboard shouldn't suddenly show the whole firm just
+ * because everyone can now assign each other tasks.
+ */
 function assignableEmployees(state, actor) {
   if (actor.accessRole === 'superadmin') return state.employees;
   if (actor.accessRole === 'admin') return teamRoster(state, actor).filter(e => e.id !== actor.id);
   return [];
+}
+/** Who can `actor` hand a brand-new task to? Everyone — any role — can
+ * assign work to anyone else in the firm. */
+function anyEmployeeInFirm(state) {
+  return state.employees;
 }
 /**
  * Can `actor` act on a task that's currently assigned to `employeeId`?
@@ -1357,7 +1368,7 @@ app.get('/api/tasks/plan', requireAuth, (req, res) => {
   const state = db.get();
   const emp = findEmployee(state, req.query.assignee);
   if (!emp) return res.status(400).json({ error: 'Unknown assignee.' });
-  if (!assignableEmployees(state, req.employee).some(e => e.id === emp.id) && emp.id !== req.employee.id) {
+  if (!anyEmployeeInFirm(state).some(e => e.id === emp.id) && emp.id !== req.employee.id) {
     return res.status(403).json({ error: "You can't plan work for this person." });
   }
   const hours = Math.max(0.25, parseFloat(req.query.hours) || 3);
@@ -1468,7 +1479,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   let assignee = req.employee.id;
   if (mode === 'team') {
     assignee = assignedTo;
-    const allowed = assignableEmployees(state, req.employee).some(e => e.id === assignee);
+    const allowed = anyEmployeeInFirm(state).some(e => e.id === assignee);
     if (!allowed) return res.status(403).json({ error: "You're not authorized to assign work to this person." });
   }
   // Every task — client or internal — needs an estimated time (hours) and a
@@ -1607,7 +1618,7 @@ app.post('/api/recurring-tasks', requireAuth, (req, res) => {
   let assignee = req.employee.id;
   if (mode === 'team') {
     assignee = assignedTo;
-    const allowed = assignableEmployees(state, req.employee).some(e => e.id === assignee);
+    const allowed = anyEmployeeInFirm(state).some(e => e.id === assignee);
     if (!allowed) return res.status(403).json({ error: "You're not authorized to assign work to this person." });
   }
   if (!findEmployee(state, assignee)) return res.status(400).json({ error: 'Assignee not found.' });
@@ -3985,6 +3996,17 @@ app.get('/api/calls/mine', requireAuth, (req, res) => {
   const state = db.get();
   const { callStatsForSlackId } = require('./connector');
   res.json(callStatsForSlackId(state, req.employee.slackUserId));
+});
+// Firm-wide calls, superadmin only — every tagged call in a date window,
+// filterable to one responsible person, with a per-person breakdown so the
+// "who's behind on listening" question is answerable without Slack.
+app.get('/api/calls/all', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const { allCallsReport } = require('./connector');
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
+  const personId = req.query.personId ? String(req.query.personId) : null;
+  res.json(allCallsReport(state, { from, to, personId }));
 });
 
 // ---------------------------------------------------------------------------

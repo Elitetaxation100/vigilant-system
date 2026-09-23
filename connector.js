@@ -308,7 +308,7 @@ function endedButtons(rowId) {
 function recordingButtons(rowId, resolved) {
   if (resolved) return [buttonEl('🎧 Play Recording', 'play_recording', rowId)];
   return [buttonEl('🎧 Play Recording', 'play_recording', rowId),
-          buttonEl('✅ Mark Listened', 'mark_listened', rowId),
+          buttonEl('✅ Mark listened, done & actioned', 'mark_listened', rowId),
           buttonEl('📝 Log Outcome & Action Item', 'log_outcome', rowId),
           buttonEl("🙋 I'll Handle This", 'self_assign', rowId),
           buttonEl('🚫 No Action Needed', 'no_action', rowId)];
@@ -867,6 +867,75 @@ function callStatsForSlackId(state, slackUserId) {
     noAction: noActionCalls.length,
     noActionCalls: noActionCalls.sort(byRecent).map(shape),
     listenedCalls: listenedCalls.sort(byRecent).map(shape),
+  };
+}
+// Who's actually on the hook for listening to this call — the AGENT_MAP
+// slackIds, resolved to real employee records via their Slack user ID (same
+// mapping callStatsForSlackId uses in the other direction). An agent with no
+// slackIds (nobody listens to those calls) has no responsible person.
+function responsiblePeopleForCall(state, c) {
+  const agent = AGENT_MAP[c.agentAircallId];
+  const slackIds = (agent && agent.slackIds) || [];
+  return slackIds
+    .map(sid => (state.employees || []).find(e => e.slackUserId === sid))
+    .filter(Boolean)
+    .map(e => ({ id: e.id, name: e.name }));
+}
+// Firm-wide calls report for the superadmin Calls page — every tagged call
+// (same 'ended'/'no_action' scope as callStatsForSlackId) in a date window,
+// with a per-responsible-person breakdown. `personId` narrows the returned
+// call list to one person's calls; the breakdown always covers everyone in
+// the window regardless, so switching the filter never hides the context.
+function allCallsReport(state, { from, to, personId } = {}) {
+  const calls = (state.calls || []).filter(c => {
+    if (c.status !== 'ended' && c.status !== 'no_action') return false;
+    if (!c.occurredAt) return false;
+    const day = nzToday(new Date(c.occurredAt));
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  });
+  const shaped = calls.map(c => {
+    const responsible = responsiblePeopleForCall(state, c);
+    const agent = AGENT_MAP[c.agentAircallId];
+    const agentName = c.agentName || (agent && agent.name) || 'Unknown';
+    // Groups (and the filter dropdown) key on the responsible person(s) when
+    // there are any, else on the agent whose calls nobody's assigned to
+    // listen to — so two different "unassigned" agents don't collapse into
+    // one indistinguishable bucket.
+    const personKey = responsible.length ? responsible.map(p => p.id).sort().join(',') : `unassigned:${agentName}`;
+    return {
+      id: c.id,
+      occurredAt: c.occurredAt,
+      day: nzToday(new Date(c.occurredAt)),
+      agentName,
+      team: (agent && agent.team) || null,
+      clientName: c.clientName || 'Unknown / not saved',
+      callerPhone: c.callerPhone,
+      status: c.status,
+      listened: !!c.listenedBy,
+      finalOutcome: c.finalOutcome || null,
+      taskId: c.taskId || null,
+      responsible,
+      responsibleName: responsible.length ? responsible.map(p => p.name).join(' / ') : `${agentName} (unassigned)`,
+      personKey,
+      link: slackPermalink(c),
+    };
+  }).sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
+  const byPerson = {};
+  shaped.forEach(c => {
+    if (!byPerson[c.personKey]) byPerson[c.personKey] = { key: c.personKey, name: c.responsibleName, total: 0, listened: 0, remaining: 0, noAction: 0 };
+    const b = byPerson[c.personKey];
+    b.total++;
+    if (c.status === 'no_action') b.noAction++;
+    else if (c.listened) b.listened++;
+    else b.remaining++;
+  });
+  const filtered = personId ? shaped.filter(c => c.personKey === personId) : shaped;
+  return {
+    calls: filtered,
+    total: shaped.length,
+    byPerson: Object.values(byPerson).sort((a, b) => b.total - a.total),
   };
 }
 // A public shoutout — posted by server.js's kudos endpoint once a clean
@@ -1922,4 +1991,4 @@ function mountConnector(app) {
   console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-personal-digest,run-reminders,log,health}');
 }
 
-module.exports = { mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, postKudos };
+module.exports = { mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport, postKudos };
