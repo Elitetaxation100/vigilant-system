@@ -1270,7 +1270,7 @@
         <div class="panel" id="revProfitPanel" style="display:none;">
           <div class="panel-head"><h2>Profit confirmations</h2></div>
           <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Owner</th><th>Sheet</th><th>Cashbook</th><th></th></tr></thead>
+            <thead><tr><th>Task</th><th>Client</th><th>Owner</th><th>Sheet</th><th>Cashbook</th><th>Kudos</th><th></th></tr></thead>
             <tbody id="revProfitBody"></tbody>
           </table>
         </div>
@@ -1278,7 +1278,7 @@
         <div class="panel" id="revSendPanel" style="display:none;">
           <div class="panel-head"><h2>Reports to send</h2></div>
           <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Reviewed</th><th>Commitment</th><th></th></tr></thead>
+            <thead><tr><th>Task</th><th>Client</th><th>Reviewed</th><th>Commitment</th><th>Kudos</th><th></th></tr></thead>
             <tbody id="revSendBody"></tbody>
           </table>
         </div>
@@ -2514,6 +2514,15 @@ function canManageReportSend(t){
   if(currentViewerId === t.reportSendOwner) return true;
   if(currentViewerId === t.reviewerId || currentViewerId === t.reviewedBy) return true;
   return false;
+}
+// Mirrors the server's kudos permission exactly (POST /api/tasks/:id/kudos):
+// the reviewer, a manager over the assignee, or superadmin — deliberately
+// narrower than canManageReportSend above, since the report-send owner is
+// often just the assignee themselves, who can't give themselves kudos.
+function canGiveKudos(t){
+  if(!t || !session || session.id === t.assignedTo) return false;
+  if(t.reviewerId && t.reviewerId === session.id) return true;
+  return empManagesWork(session, t.assignedTo);
 }
 
 /* Is `emp` a manager/admin responsible for `assigneeId` (or a superadmin)?
@@ -7402,6 +7411,13 @@ function renderReviewsView(){
     </tr>`;
   }).join('');
 
+  // One toggle, one place: a clean review's Kudos action lives here —
+  // next to Profit confirmations and Reports to send, not as a reflex
+  // click in the popup right after scoring the review.
+  const kudosTag = t => t.kudosAt
+    ? `<span style="color:var(--text-faint);white-space:nowrap;">🎉 sent</span>`
+    : canGiveKudos(t) ? `<button class="verify-btn" style="border-color:#F59E0B;color:#B45309;white-space:nowrap;" onclick="openKudosModal('${t.id}')">🎉 Kudos</button>`
+    : `<span style="color:var(--text-faint);">—</span>`;
   const showProfit = iAmProfitConfirmOwner();
   const profit = showProfit ? profitConfirmsPendingFor() : [];
   document.getElementById('revProfitPanel').style.display = profit.length ? '' : 'none';
@@ -7414,6 +7430,7 @@ function renderReviewsView(){
       <td>${o ? esc(o.name) : '—'}</td>
       <td>${linkTag(t.sheetLink, 'Sheet')}</td>
       <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
+      <td>${kudosTag(t)}</td>
       <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="submitProfitConfirmDone('${t.id}')">✓ Done</button></td>
     </tr>`;
   }).join('');
@@ -7425,6 +7442,7 @@ function renderReviewsView(){
       <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</td>
       <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
       <td style="${t.reportOverdue?'color:#C2410C;font-weight:600;':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' · overdue' : ''}</td>
+      <td>${kudosTag(t)}</td>
       <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openSendToClientModal('${t.id}')">Send?</button></td>
     </tr>`).join('');
 
@@ -8279,20 +8297,22 @@ async function submitReviewFinal(){
     await refreshTasks();
     await refreshActivity({ silent: true });
     showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', `Scored ${scoreVal}/100.`);
-    // One screen for everything that follows a clean review — links, kudos,
-    // and (for client work) the send/profit-confirm decision — instead of a
-    // chain of separate popups. openSendToClientModal adapts to internal vs
-    // client and to whether kudos is still available on its own.
+    // One screen for everything that follows a clean review — links and
+    // (for client work) the send/profit-confirm decision — instead of a
+    // chain of separate popups. Kudos deliberately isn't offered here; it
+    // lives on the Reviews page next to Profit confirmations / Reports to
+    // send, one toggle per task, so it's a considered decision made from
+    // the queue rather than a reflex click mid-flow.
     if(decision === 'clean') openSendToClientModal(id);
   } catch(e){
     const el = document.getElementById('reviewScoreErr');
     el.textContent = e.message; el.style.display = 'block';
   }
 }
-  // The one screen after a clean review — links, kudos, and (for client
-  // work) the send/profit-confirm decision. Works both right after scoring
-  // a review AND when reopened later from Reports to send / View Review,
-  // since it only ever reads the task's current state.
+  // The one screen after a clean review — links and (for client work) the
+  // send/profit-confirm decision. Works both right after scoring a review
+  // AND when reopened later from Reports to send / View Review, since it
+  // only ever reads the task's current state.
   function openSendToClientModal(id){
     const t = findTask(id);
     if(!t) return;
@@ -8300,7 +8320,6 @@ async function submitReviewFinal(){
     const owner = empById(t.reportSendOwner);
     const canReassign = canManageReportSend(t);
     const offerProfitConfirm = !isInternal && t.profitConfirmStatus !== 'confirmed' && t.profitConfirmStatus !== 'pending';
-    const offerKudos = t.reviewStatus === 'clean' && !t.kudosAt;
     const linksBlock = !isInternal ? `
     <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="stcSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
@@ -8318,7 +8337,6 @@ async function submitReviewFinal(){
     ${linksBlock}
     <div class="modal-actions" style="flex-wrap:wrap;">
     <button class="btn" onclick="${isInternal ? 'closeModal()' : `submitSaveLinks('${id}', true)`}">${isInternal ? 'Close' : 'Remind me later'}</button>
-    ${offerKudos ? `<button class="btn" style="border-color:#F59E0B;color:#B45309;" onclick="openKudosModal('${id}','send')">🎉 Kudos</button>` : ''}
     ${offerProfitConfirm ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitProfitConfirmRequest('${id}')" title="Send to Shubam with the sheet/cashbook links before this goes out">💰 Profit Confirm</button>` : ''}
     ${!isInternal && t.profitConfirmStatus !== 'pending' ? `<button class="btn primary" onclick="submitSendToClient('${id}','yes')">✓ Sent to client</button>` : ''}
     </div>
@@ -8419,6 +8437,7 @@ async function submitReviewFinal(){
         <td class="tl-sub">${a ? esc(a.name) : '—'}</td>
         <td>${linkTag(t.sheetLink, 'Sheet')}</td>
         <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
+        <td>${t.kudosAt ? `<span style="color:var(--text-faint);white-space:nowrap;">🎉 sent</span>` : canGiveKudos(t) ? `<button class="verify-btn" style="border-color:#F59E0B;color:#B45309;white-space:nowrap;" onclick="openKudosModal('${t.id}','profit')">🎉 Kudos</button>` : `<span style="color:var(--text-faint);">—</span>`}</td>
         <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);white-space:nowrap;" onclick="submitProfitConfirmDone('${t.id}')">✓ Done</button></td>
       </tr>`;
     }).join('');
@@ -8427,7 +8446,7 @@ async function submitReviewFinal(){
         <h3>Profit confirmations <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
         <div class="modal-sub">Reviewed clean, waiting on your profit confirmation before the report goes out.</div>
         ${list.length ? `<div class="tl-scroll"><table class="tl-table-fixed">
-          <thead><tr><th>Task</th><th style="width:120px;">Owner</th><th style="width:80px;">Sheet</th><th style="width:90px;">Cashbook</th><th style="width:90px;"></th></tr></thead>
+          <thead><tr><th>Task</th><th style="width:120px;">Owner</th><th style="width:80px;">Sheet</th><th style="width:90px;">Cashbook</th><th style="width:80px;">Kudos</th><th style="width:90px;"></th></tr></thead>
           <tbody>${rows}</tbody></table></div>`
           : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting on you.</p>`}
         <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
@@ -8462,21 +8481,26 @@ function openReviewViewModal(id){
         : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>'
         : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>'
         : '<span style="color:var(--text-faint);">—</span>'}</div>
-      ${t.kudosAt ? `<div style="margin-top:8px;">🎉 <b style="color:var(--text);">Kudos sent</b> ${fmtDate(dayOf(t.kudosAt))} by ${esc((empById(t.kudosBy)||{}).name || '—')}</div>` : ''}
+      ${t.kudosAt ? `<div style="margin-top:8px;">🎉 <b style="color:var(--text);">Kudos sent</b> ${fmtDate(dayOf(t.kudosAt))} by ${esc((empById(t.kudosBy)||{}).name || '—')}</div>`
+        : t.reviewStatus === 'clean' ? `<div style="margin-top:8px;color:var(--text-faint);">Kudos not sent yet — from the Reviews page, next to Profit confirmations / Reports to send.</div>` : ''}
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
-      ${t.reviewStatus === 'clean' && !t.kudosAt ? `<button class="btn" style="border-color:#F59E0B;color:#B45309;" onclick="openKudosModal('${id}')">🎉 Send Kudos</button>` : ''}
       ${t.awaitingClientDecision ? `<button class="btn primary" onclick="openSendToClientModal('${id}')">Send to client…</button>` : ''}
     </div>
   `;
   openModal();
 }
-// `from` is 'send' when reached from the post-review send-to-client screen
-// (Back / after-send return there), otherwise the View Review detail.
+// `from` is where this was opened from, so Back and the post-send return
+// go to the right place: 'profit' = Shubam's Profit confirmations modal
+// (dashboard tile), 'view' = the View Review detail, otherwise (opened
+// straight from the Reviews page's own Profit confirmations / Reports to
+// send panels) there's no modal to go back to — Back and post-send both
+// just close and let the page's own tables refresh.
 function openKudosModal(id, from){
   const t = findTask(id);
   if(!t) return;
+  const backTarget = from === 'profit' ? 'openProfitConfirmsModal()' : from === 'view' ? `openReviewViewModal('${id}')` : 'closeModal()';
   document.getElementById('modalBox').innerHTML = `
     <h3>🎉 Send Kudos — ${esc(t.name)}</h3>
     <div class="modal-sub">Posts a public shoutout to the team Slack channel.</div>
@@ -8484,8 +8508,8 @@ function openKudosModal(id, from){
       <textarea id="kudosNote" placeholder="e.g. Great turnaround on a tricky one!"></textarea></div>
     <div class="modal-error" id="kudosErr"></div>
     <div class="modal-actions">
-      <button class="btn" onclick="${from === 'send' ? `openSendToClientModal('${id}')` : `openReviewViewModal('${id}')`}">← Back</button>
-      <button class="btn primary" onclick="submitKudos('${id}','${from||'view'}')">Send 🎉</button>
+      <button class="btn" onclick="${backTarget}">← Back</button>
+      <button class="btn primary" onclick="submitKudos('${id}','${from||''}')">Send 🎉</button>
     </div>`;
   openModal();
 }
@@ -8496,7 +8520,8 @@ async function submitKudos(id, from){
     await api(`/api/tasks/${encodeURIComponent(id)}/kudos`, { method:'POST', body: JSON.stringify({ note: note || undefined }) });
     await refreshTasks();
     showToast('success', 'Kudos sent! 🎉', 'Posted to the team Slack channel.');
-    if(from === 'send') openSendToClientModal(id); else closeModal();
+    if(from === 'profit') openProfitConfirmsModal();
+    else { closeModal(); if(document.getElementById('view-reviews').classList.contains('active')) renderReviewsView(); }
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* =========================================================================
