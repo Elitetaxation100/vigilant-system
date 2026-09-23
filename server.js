@@ -3997,16 +3997,20 @@ app.get('/api/calls/mine', requireAuth, (req, res) => {
   const { callStatsForSlackId } = require('./connector');
   res.json(callStatsForSlackId(state, req.employee.slackUserId));
 });
-// Firm-wide calls, superadmin only — every tagged call in a date window,
-// filterable to one responsible person, with a per-person breakdown so the
-// "who's behind on listening" question is answerable without Slack.
-app.get('/api/calls/all', requireAuth, requireSuperAdmin, (req, res) => {
+// Every tagged call in a date window, with a 5-way outcome breakdown — the
+// Calls page for everyone. A superadmin gets the whole firm (filterable by
+// owner/agent, with a firm-wide breakdown); anyone else is hard-scoped
+// inside allCallsReport() to only the calls they're responsible for
+// listening to, so the personId/agentId filters below only ever matter for
+// a superadmin's request.
+app.get('/api/calls/all', requireAuth, (req, res) => {
   const state = db.get();
   const { allCallsReport } = require('./connector');
   const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
   const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
   const personId = req.query.personId ? String(req.query.personId) : null;
-  res.json(allCallsReport(state, { from, to, personId }));
+  const agentId = req.query.agentId ? String(req.query.agentId) : null;
+  res.json(allCallsReport(state, { from, to, personId, agentId, actor: req.employee }));
 });
 
 // ---------------------------------------------------------------------------

@@ -881,13 +881,32 @@ function responsiblePeopleForCall(state, c) {
     .filter(Boolean)
     .map(e => ({ id: e.id, name: e.name }));
 }
-// Firm-wide calls report for the superadmin Calls page — every tagged call
-// (same 'ended'/'no_action' scope as callStatsForSlackId) in a date window,
-// with a per-responsible-person breakdown. `personId` narrows the returned
-// call list to one person's calls; the breakdown always covers everyone in
-// the window regardless, so switching the filter never hides the context.
-function allCallsReport(state, { from, to, personId } = {}) {
-  const calls = (state.calls || []).filter(c => {
+// The single state a call has reached, in the same order the Slack card's
+// own buttons move it through: once it's got a final outcome or a
+// self-claimed task, "listened" no longer matters for the status column —
+// this is "how far did it get", not a checklist.
+function callOutcomeStatus(c) {
+  if (c.status === 'no_action') return 'no_action';
+  if (c.finalOutcome) return 'logged_outcome';
+  if (c.taskId) return 'self_assigned';
+  if (c.listenedBy) return 'listened';
+  return 'not_listened';
+}
+const CALL_STATUS_LABELS = {
+  not_listened: 'Not listened yet',
+  listened: 'Listened',
+  self_assigned: "Handling it (I'll Handle This)",
+  logged_outcome: 'Outcome logged',
+  no_action: 'No action needed',
+};
+// Calls report — every tagged call (same 'ended'/'no_action' scope as
+// callStatsForSlackId) in a date window. A superadmin gets the whole firm,
+// with an owner (responsible-person) and agent breakdown/filter; anyone
+// else is hard-scoped server-side to only the calls they're responsible for
+// listening to — `personId`/`agentId` from the query string are ignored
+// for them, same "list endpoints scope by role" rule as everywhere else.
+function allCallsReport(state, { from, to, personId, agentId, actor } = {}) {
+  let calls = (state.calls || []).filter(c => {
     if (c.status !== 'ended' && c.status !== 'no_action') return false;
     if (!c.occurredAt) return false;
     const day = nzToday(new Date(c.occurredAt));
@@ -895,20 +914,26 @@ function allCallsReport(state, { from, to, personId } = {}) {
     if (to && day > to) return false;
     return true;
   });
+  const isSuperAdmin = actor && actor.accessRole === 'superadmin';
+  if (!isSuperAdmin) {
+    calls = calls.filter(c => responsiblePeopleForCall(state, c).some(p => p.id === (actor && actor.id)));
+  }
   const shaped = calls.map(c => {
     const responsible = responsiblePeopleForCall(state, c);
     const agent = AGENT_MAP[c.agentAircallId];
     const agentName = c.agentName || (agent && agent.name) || 'Unknown';
-    // Groups (and the filter dropdown) key on the responsible person(s) when
+    // Groups (and the owner filter) key on the responsible person(s) when
     // there are any, else on the agent whose calls nobody's assigned to
     // listen to — so two different "unassigned" agents don't collapse into
     // one indistinguishable bucket.
     const personKey = responsible.length ? responsible.map(p => p.id).sort().join(',') : `unassigned:${agentName}`;
+    const outcomeStatus = callOutcomeStatus(c);
     return {
       id: c.id,
       occurredAt: c.occurredAt,
       day: nzToday(new Date(c.occurredAt)),
       agentName,
+      agentAircallId: c.agentAircallId || null,
       team: (agent && agent.team) || null,
       clientName: c.clientName || 'Unknown / not saved',
       callerPhone: c.callerPhone,
@@ -919,10 +944,13 @@ function allCallsReport(state, { from, to, personId } = {}) {
       responsible,
       responsibleName: responsible.length ? responsible.map(p => p.name).join(' / ') : `${agentName} (unassigned)`,
       personKey,
+      outcomeStatus,
+      outcomeLabel: CALL_STATUS_LABELS[outcomeStatus],
       link: slackPermalink(c),
     };
   }).sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
   const byPerson = {};
+  const byAgent = {};
   shaped.forEach(c => {
     if (!byPerson[c.personKey]) byPerson[c.personKey] = { key: c.personKey, name: c.responsibleName, total: 0, listened: 0, remaining: 0, noAction: 0 };
     const b = byPerson[c.personKey];
@@ -930,12 +958,23 @@ function allCallsReport(state, { from, to, personId } = {}) {
     if (c.status === 'no_action') b.noAction++;
     else if (c.listened) b.listened++;
     else b.remaining++;
+    const agentKey = c.agentAircallId || c.agentName;
+    if (!byAgent[agentKey]) byAgent[agentKey] = { key: agentKey, name: c.agentName, total: 0 };
+    byAgent[agentKey].total++;
   });
-  const filtered = personId ? shaped.filter(c => c.personKey === personId) : shaped;
+  // Owner/agent filters only make sense (and are only exposed) for a
+  // superadmin — a non-superadmin's `calls` is already scoped to just them.
+  let scoped = shaped;
+  if (isSuperAdmin && personId) scoped = scoped.filter(c => c.personKey === personId);
+  if (isSuperAdmin && agentId) scoped = scoped.filter(c => c.agentAircallId === agentId);
+  const counts = { total: scoped.length, not_listened: 0, listened: 0, self_assigned: 0, logged_outcome: 0, no_action: 0 };
+  scoped.forEach(c => { counts[c.outcomeStatus]++; });
   return {
-    calls: filtered,
-    total: shaped.length,
-    byPerson: Object.values(byPerson).sort((a, b) => b.total - a.total),
+    calls: scoped,
+    counts,
+    byPerson: isSuperAdmin ? Object.values(byPerson).sort((a, b) => b.total - a.total) : [],
+    byAgent: isSuperAdmin ? Object.values(byAgent).sort((a, b) => b.total - a.total) : [],
+    isSuperAdmin,
   };
 }
 // A public shoutout — posted by server.js's kudos endpoint once a clean

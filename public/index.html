@@ -956,7 +956,7 @@
       <div class="nav-title">Performance</div>
       <div class="nav-item" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
     </div>
-    <div class="nav-section" id="callsNavSection" style="display:none;">
+    <div class="nav-section">
       <div class="nav-title">Calls</div>
       <div class="nav-item" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
     </div>
@@ -1074,7 +1074,7 @@
             <div class="mt-value" style="color:var(--coral);" id="myExtraHours">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myExtraSub"></div>
           </div>
-          <div class="metric-tile mg-tile" id="myCallsTile" style="display:none;" onclick="openMyCallsList()" title="Calls tagged to you that actually connected — voicemails and missed calls aren't counted">
+          <div class="metric-tile mg-tile" id="myCallsTile" style="display:none;" onclick="showView('calls', document.querySelector('.nav-item[data-view=&quot;calls&quot;]'))" title="Calls tagged to you that actually connected — voicemails and missed calls aren't counted">
             <div class="mt-ic">📞</div>
             <div class="mt-label">Calls remaining</div>
             <div class="mt-value" style="color:var(--amber);" id="myCallsRemaining">0</div>
@@ -1902,14 +1902,16 @@
                 <input type="date" id="callsFrom" onchange="renderCallsView()">
                 <input type="date" id="callsTo" onchange="renderCallsView()">
               </span>
-              <select id="callsPersonFilter" onchange="callsPersonSelectChanged()">
-                <option value="">All people</option>
+              <select id="callsOwnerFilter" style="display:none;" onchange="callsOwnerChanged()">
+                <option value="">All owners</option>
+              </select>
+              <select id="callsAgentFilter" style="display:none;" onchange="callsAgentChanged()">
+                <option value="">All agents</option>
               </select>
             </div>
           </div>
-          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every call tagged in Slack, day by day — filter by period or by whoever's responsible for listening. Voicemails and missed calls aren't counted.</p>
-          <div id="callsSummary" style="font-size:13px;color:var(--text-dim);margin-bottom:14px;"></div>
-          <div id="callsByPerson" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-bottom:20px;"></div>
+          <p id="callsSub" style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every call tagged in Slack, day by day. Voicemails and missed calls aren't counted.</p>
+          <div id="callsTiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px;"></div>
           <div style="max-height:60vh;overflow-y:auto;">
             <table style="width:100%;border-collapse:collapse;font-size:13px;">
               <tbody id="callsBody"></tbody>
@@ -2608,7 +2610,7 @@ const titles = {
   taskengine: ['Task Engine', 'Measuring what gets done'],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   performance: ['Performance', 'Your Report Card, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
-  calls: ['Calls', "Every tagged call, filterable by day, week or month and by who's responsible for listening — superadmin only"],
+  calls: ['Calls', "Every call tagged to you, filterable by day, week or month and by outcome — superadmins see the whole firm, filterable by owner and agent"],
   timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
@@ -2619,7 +2621,7 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','command','attendance','employees','taxonomy','calls'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','command','attendance','employees','taxonomy'];
 // A shared tab strip at the top of Manager Dashboard / Team Board / Founder
 // View / Command Center — the four used to be separate, disconnected nav
 // destinations; this makes them read and navigate as one "Dashboard"
@@ -2671,11 +2673,23 @@ function setPerfTab(id){
   _perfTab = id;
   renderPerformanceView();
 }
-/* Calls — superadmin firm-wide view of every tagged call, day by day,
-   filterable by period and by whoever's responsible for listening. Mirrors
-   the date-range pattern every other reporting page uses (_prodRange etc.)
-   but adds Today/Yesterday since day-by-day is the whole point here. */
-let _callsPersonFilter = '';
+/* Calls — every tagged call, day by day. A plain employee sees only the
+   calls they're responsible for listening to (server-enforced, see
+   allCallsReport in connector.js); a superadmin sees the whole firm with
+   Owner (responsible person) and Agent filters plus a firm-wide breakdown.
+   Mirrors the date-range pattern every other reporting page uses
+   (_prodRange etc.) but adds Today/Yesterday since day-by-day is the point. */
+const CALL_STATUS_TILES = [
+  ['total', 'Total calls', null],
+  ['not_listened', 'Not listened yet', 'var(--flag)'],
+  ['listened', 'Listened', 'var(--teal)'],
+  ['self_assigned', "Handling it", '#6D28D9'],
+  ['logged_outcome', 'Outcome logged', 'var(--teal)'],
+  ['no_action', 'No action needed', 'var(--text-faint)'],
+];
+let _callsOwnerFilter = '';
+let _callsAgentFilter = '';
+let _callsStatusFilter = '';
 function _callsRange(){
   const p = (document.getElementById('callsPeriod')||{}).value || 'week';
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -2699,12 +2713,16 @@ function _callsRange(){
   else { from = new Date(now.getFullYear(), now.getMonth(), 1); }
   return { from: iso(from), to: iso(now) };
 }
-function callsPersonSelectChanged(){
-  _callsPersonFilter = document.getElementById('callsPersonFilter').value;
+function setCallsStatusFilter(key){
+  _callsStatusFilter = (_callsStatusFilter === key) ? '' : key;
   renderCallsView();
 }
-function setCallsPersonFilter(key){
-  _callsPersonFilter = (_callsPersonFilter === key) ? '' : key;
+function callsOwnerChanged(){
+  _callsOwnerFilter = document.getElementById('callsOwnerFilter').value;
+  renderCallsView();
+}
+function callsAgentChanged(){
+  _callsAgentFilter = document.getElementById('callsAgentFilter').value;
   renderCallsView();
 }
 async function renderCallsView(){
@@ -2712,30 +2730,40 @@ async function renderCallsView(){
   let data;
   try {
     const qs = new URLSearchParams({ from, to });
-    if(_callsPersonFilter) qs.set('personId', _callsPersonFilter);
+    if(_callsOwnerFilter) qs.set('personId', _callsOwnerFilter);
+    if(_callsAgentFilter) qs.set('agentId', _callsAgentFilter);
     data = await api(`/api/calls/all?${qs.toString()}`);
   } catch(e){
     document.getElementById('callsBody').innerHTML = `<tr><td style="padding:14px 0;color:var(--coral);">${esc(e.message)}</td></tr>`;
     return;
   }
-  // Rebuilt every render so it always reflects who actually has calls in
-  // this window; falls back to "All people" if the current pick has none.
-  const personSel = document.getElementById('callsPersonFilter');
-  const stillValid = data.byPerson.some(p => p.key === _callsPersonFilter);
-  if(!stillValid) _callsPersonFilter = '';
-  personSel.innerHTML = `<option value="">All people</option>` + data.byPerson.map(p =>
-    `<option value="${esc(p.key)}"${p.key===_callsPersonFilter?' selected':''}>${esc(p.name)} — ${p.total}</option>`
-  ).join('');
-  const totals = data.byPerson.reduce((s,p) => ({ listened: s.listened+p.listened, remaining: s.remaining+p.remaining, noAction: s.noAction+p.noAction }), { listened:0, remaining:0, noAction:0 });
-  document.getElementById('callsSummary').textContent =
-    `${data.total} call${data.total===1?'':'s'} in range · ${totals.listened} listened · ${totals.remaining} remaining · ${totals.noAction} no action needed`;
-  document.getElementById('callsByPerson').innerHTML = data.byPerson.map(p => `
-    <div class="metric-tile" style="cursor:pointer;${p.key===_callsPersonFilter?'outline:2px solid var(--accent-blue,#1E5FAE);':''}" onclick="setCallsPersonFilter('${esc(p.key)}')" title="Click to filter the list below">
-      <div class="mt-label">${esc(p.name)}</div>
-      <div class="mt-value">${p.total}</div>
-      <div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${p.listened} listened · ${p.remaining} left${p.noAction?` · ${p.noAction} no action`:''}</div>
-    </div>`).join('') || `<div style="color:var(--text-faint);font-size:13px;">No calls in this range.</div>`;
-  renderCallsRows(data.calls);
+  document.getElementById('callsSub').textContent = data.isSuperAdmin
+    ? "Every call tagged in Slack, day by day. Voicemails and missed calls aren't counted."
+    : "Calls tagged to you that actually connected, day by day. Voicemails and missed calls aren't counted.";
+  const ownerSel = document.getElementById('callsOwnerFilter');
+  const agentSel = document.getElementById('callsAgentFilter');
+  ownerSel.style.display = data.isSuperAdmin ? '' : 'none';
+  agentSel.style.display = data.isSuperAdmin ? '' : 'none';
+  if(data.isSuperAdmin){
+    const ownerStillValid = data.byPerson.some(p => p.key === _callsOwnerFilter);
+    if(!ownerStillValid) _callsOwnerFilter = '';
+    ownerSel.innerHTML = `<option value="">All owners</option>` + data.byPerson.map(p =>
+      `<option value="${esc(p.key)}"${p.key===_callsOwnerFilter?' selected':''}>${esc(p.name)} — ${p.total}</option>`
+    ).join('');
+    const agentStillValid = data.byAgent.some(a => a.key === _callsAgentFilter);
+    if(!agentStillValid) _callsAgentFilter = '';
+    agentSel.innerHTML = `<option value="">All agents</option>` + data.byAgent.map(a =>
+      `<option value="${esc(a.key)}"${a.key===_callsAgentFilter?' selected':''}>${esc(a.name)} — ${a.total}</option>`
+    ).join('');
+  }
+  const c = data.counts;
+  document.getElementById('callsTiles').innerHTML = CALL_STATUS_TILES.map(([key,label,color]) => `
+    <div class="metric-tile" style="cursor:pointer;${key===_callsStatusFilter?'outline:2px solid var(--accent-blue,#1E5FAE);':''}" onclick="setCallsStatusFilter('${key}')" title="Click to filter the list below">
+      <div class="mt-label">${esc(label)}</div>
+      <div class="mt-value"${color?` style="color:${color};"`:''}>${c[key]}</div>
+    </div>`).join('');
+  const shown = _callsStatusFilter ? data.calls.filter(x => x.outcomeStatus === _callsStatusFilter) : data.calls;
+  renderCallsRows(shown);
 }
 function renderCallsRows(list){
   const groups = {}; const order = [];
@@ -2745,13 +2773,12 @@ function renderCallsRows(list){
     groups[d].push(c);
   });
   order.sort((a,b) => b.localeCompare(a)); // most recent day first
-  const statusLabel = c => c.status === 'no_action' ? 'No action needed' : c.listened ? 'Listened' : 'Not listened yet';
-  const statusColor = c => c.status === 'no_action' ? 'var(--text-faint)' : c.listened ? 'var(--teal)' : 'var(--flag)';
+  const statusColor = c => ({not_listened:'var(--flag)', listened:'var(--teal)', self_assigned:'#6D28D9', logged_outcome:'var(--teal)', no_action:'var(--text-faint)'})[c.outcomeStatus];
   const rows = order.map(d => {
     const dayRows = groups[d].map(c => `
     <tr>
       <td><div class="tl-name">${esc(c.clientName)}</div><div class="tl-sub">${esc(c.callerPhone || '—')} · ${esc(c.agentName)}${c.team ? ' · '+esc(c.team) : ''}</div></td>
-      <td><div class="tl-name">${esc(c.responsibleName)}</div><div class="tl-sub" style="color:${statusColor(c)};">${statusLabel(c)}</div></td>
+      <td><div class="tl-name">${esc(c.responsibleName)}</div><div class="tl-sub" style="color:${statusColor(c)};">${esc(c.outcomeLabel)}</div></td>
       <td>${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener" class="verify-btn" style="text-decoration:none;display:inline-block;">Open in Slack</a>` : '<span class="tl-sub">no card</span>'}</td>
     </tr>`).join('');
     return `<tr><td colspan="3" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
@@ -4184,71 +4211,14 @@ async function refreshMyCallStats(){
   document.getElementById('myCallsSub').textContent = `${stats.listened} of ${stats.total} listened`;
 }
 let _myCalls = null;
-let _myCallsFilter = 'notlistened';
-const MY_CALLS_FILTERS = [
-  ['notlistened', 'Not listened yet', 'remainingCalls'],
-  ['listened', 'Listened', 'listenedCalls'],
-  ['noaction', 'No action needed', 'noActionCalls'],
-];
-function openMyCallsList(){
-  _myCallsFilter = 'notlistened';
-  renderMyCallsList();
-}
-function setMyCallsFilter(key, el){
-  _myCallsFilter = key;
-  document.querySelectorAll('#modalBox .src-subtab').forEach(b => b.classList.remove('on'));
-  if(el) el.classList.add('on');
-  renderMyCallsListRows();
-}
 // Grouped by NZ calendar day — "Today"/"Yesterday" then the date, same
 // convention as the Delivery panel on the dashboard — instead of one flat
-// list where the date was just another column to scan past.
+// list where the date was just another column to scan past. Used by the
+// full Calls page (renderCallsRows).
 function myCallsDayLabel(dayISO){
   if(dayISO === todayISO()) return 'Today';
   if(dayISO === addDaysISO(-1)) return 'Yesterday';
   return fmtDate(dayISO);
-}
-function renderMyCallsListRows(){
-  const stats = _myCalls;
-  const def = MY_CALLS_FILTERS.find(([k]) => k === _myCallsFilter);
-  const list = stats[def[2]] || [];
-  const groups = {};
-  const order = [];
-  list.forEach(c => {
-    const d = c.occurredAt ? dayOf(c.occurredAt) : 'unknown';
-    if(!groups[d]){ groups[d] = []; order.push(d); }
-    groups[d].push(c);
-  });
-  order.sort((a,b) => b.localeCompare(a)); // most recent day first
-  const rows = order.map(d => {
-    const dayRows = groups[d].map(c => `
-    <tr>
-      <td><div class="tl-name">${esc(c.clientName)}</div><div class="tl-sub">${esc(c.callerPhone || '—')}</div></td>
-      <td>${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener" class="verify-btn" style="text-decoration:none;display:inline-block;">Open in Slack</a>` : '<span class="tl-sub">no card</span>'}</td>
-    </tr>`).join('');
-    return `<tr><td colspan="2" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
-  }).join('');
-  const body = document.getElementById('myCallsBody');
-  if(body) body.innerHTML = rows || `<tr><td colspan="2" style="padding:14px 0;color:var(--text-faint);">Nothing in this category.</td></tr>`;
-}
-function renderMyCallsList(){
-  const stats = _myCalls;
-  if(!stats) return;
-  const pills = MY_CALLS_FILTERS.map(([key,label,field]) =>
-    `<button class="src-subtab${key===_myCallsFilter?' on':''}" onclick="setMyCallsFilter('${key}', this)">${esc(label)} <span class="ct">${(stats[field]||[]).length}</span></button>`
-  ).join('');
-  document.getElementById('modalBox').innerHTML = `
-    <h3>Calls — ${stats.remaining} remaining</h3>
-    <div class="modal-sub">${stats.listened} of ${stats.total} listened so far${stats.noAction ? `, ${stats.noAction} marked no action needed` : ''}. Voicemails and missed calls aren't counted.</div>
-    <div class="src-subtabs" style="margin-top:10px;">${pills}</div>
-    <div style="max-height:55vh;overflow-y:auto;margin-top:10px;">
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <tbody id="myCallsBody"></tbody>
-      </table>
-    </div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
-  openModal();
-  renderMyCallsListRows();
 }
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
@@ -9670,7 +9640,6 @@ async function onLoginComplete(){
   document.getElementById('employeesNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('commandCenterNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
-  document.getElementById('callsNavSection').style.display = isSuperAdmin ? '' : 'none';
   // Founder View — actual founder(s) only (Manage Access → Founder), not
   // every superadmin.
   document.getElementById('founderNavSection').style.display = (isSuperAdmin && session.isFounder) ? '' : 'none';
@@ -9749,7 +9718,6 @@ function logoutSession(){
   document.getElementById('employeesNavSection').style.display = 'none';
   document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
-  document.getElementById('callsNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
   document.getElementById('mgmtNavToggle').style.display = 'none';
   document.getElementById('whatsappNavSection').style.display = 'none';
