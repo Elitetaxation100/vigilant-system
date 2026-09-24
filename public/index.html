@@ -5155,11 +5155,13 @@ function openCompleteModal(id){
   const picker = reviewers.length
     ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
     : `<div class="modal-error" style="display:block;">There's no one else to review this yet.</div>`;
-  const linkFields = t.kind !== 'internal' ? `
+  // Internal tasks get a Sheet link only — no client, no cashbook to
+  // reconcile against.
+  const linkFields = `
   <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
     <input type="text" id="cmpSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
-  <div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
-    <input type="text" id="cmpCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : '';
+  ${t.kind !== 'internal' ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+    <input type="text" id="cmpCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}`;
   document.getElementById('modalBox').innerHTML = `
   <h3>Mark Complete — ${esc(t.name)}</h3>
   <div class="modal-sub">${esc(t.clientName)||'—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
@@ -8362,14 +8364,16 @@ async function submitReviewFinal(){
     const owner = empById(t.reportSendOwner);
     const canReassign = canManageReportSend(t);
     const offerProfitConfirm = !isInternal && t.profitConfirmStatus !== 'confirmed' && t.profitConfirmStatus !== 'pending';
-    const linksBlock = !isInternal ? `
+    // Internal tasks get a Sheet link only — no client, no cashbook to
+    // reconcile against.
+    const linksBlock = `
     <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="stcSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
-    <div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
-      <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : '';
+    ${!isInternal ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}`;
     document.getElementById('modalBox').innerHTML = `
     <h3>${isInternal ? '✓ Reviewed clean' : 'Send to client?'} — ${esc(t.name)}</h3>
-    <div class="modal-sub">${isInternal ? 'Internal task — nothing to send.' : `Reviewed clean — send this report directly to the client?`}</div>
+    <div class="modal-sub">${isInternal ? 'Internal task — no client to send to.' : `Reviewed clean — send this report directly to the client?`}</div>
     ${!isInternal ? `<div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:12px 14px; margin:12px 0; font-size:13px; color:var(--text-dim); line-height:1.8;">
       <div><b style="color:var(--text);">Sending it:</b> ${owner ? esc(owner.name) : '—'}${canReassign ? ` · <a href="#" onclick="event.preventDefault(); openReassignReportOwner('${id}');" style="color:var(--purple);">change</a>` : ''}</div>
       <div><b style="color:var(--text);">Deadline:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' <span style="color:#C2410C;font-weight:600;">· overdue</span>' : ''}</div>
@@ -8378,7 +8382,7 @@ async function submitReviewFinal(){
     </div>` : ''}
     ${linksBlock}
     <div class="modal-actions" style="flex-wrap:wrap;">
-    <button class="btn" onclick="${isInternal ? 'closeModal()' : `submitSaveLinks('${id}', true)`}">${isInternal ? 'Close' : 'Remind me later'}</button>
+    <button class="btn" onclick="submitSaveLinks('${id}', true)">${isInternal ? 'Close' : 'Remind me later'}</button>
     ${offerProfitConfirm ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitProfitConfirmRequest('${id}')" title="Send to Shubam with the sheet/cashbook links before this goes out">💰 Profit Confirm</button>` : ''}
     ${!isInternal && t.profitConfirmStatus !== 'pending' ? `<button class="btn primary" onclick="submitSendToClient('${id}','yes')">✓ Sent to client</button>` : ''}
     </div>
