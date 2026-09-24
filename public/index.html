@@ -8305,6 +8305,7 @@ function openReviewScoreModal(){
     <div class="modal-error" id="reviewScoreErr"></div>
     <div class="modal-actions">
       <button class="btn" onclick="reviewScoreGoBack(${isClean})">← Back</button>
+      ${isClean && t.kind !== 'internal' ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitReviewFinal(true)" title="Score it, then send straight to Shubam with the sheet/cashbook links — skips the extra screen">💰 Profit Confirm</button>` : ''}
       <button class="btn primary" onclick="submitReviewFinal()">✓ Done</button>
     </div>
   `;
@@ -8319,7 +8320,11 @@ function reviewScoreGoBack(isClean){
   if(isClean) openReviewFormModal(_revState.id);
   else openReviewDetailFormModal();
 }
-async function submitReviewFinal(){
+// `toProfitConfirm` — set when the "💰 Profit Confirm" button (beside
+// Done, client tasks only) was clicked instead of "✓ Done": scores the
+// review exactly the same way, then routes straight to Shubam instead of
+// the intermediate send-to-client screen, in one step.
+async function submitReviewFinal(toProfitConfirm){
   const scoreEl = document.getElementById('reviewScoreInput');
   const scoreVal = scoreEl.value !== '' ? parseFloat(scoreEl.value) : NaN;
   if(!(scoreVal >= 0) || scoreVal > 100){
@@ -8337,9 +8342,13 @@ async function submitReviewFinal(){
       reviewHours: _revState.hours, screenshot: _revState.screenshot || undefined, score: scoreVal,
     }) });
     _reviewShotData = null; _revState = null;
-    closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
+    if(decision === 'clean' && toProfitConfirm){
+      await submitProfitConfirmRequest(id); // its own toast + refresh + close
+      return;
+    }
+    closeModal();
     showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', `Scored ${scoreVal}/100.`);
     // One screen for everything that follows a clean review — links and
     // (for client work) the send/profit-confirm decision — instead of a
