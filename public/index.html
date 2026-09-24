@@ -1253,7 +1253,7 @@
         <div class="panel">
           <div class="panel-head"><h2>Awaiting your review</h2></div>
           <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Employee</th><th>Submitted</th><th>Waiting</th><th>Commitment</th><th></th></tr></thead>
+            <thead><tr><th>Task</th><th>Client</th><th>Employee</th><th>Submitted</th><th>Waiting</th><th>Commitment</th><th>Sheet</th><th>Cashbook</th><th></th></tr></thead>
             <tbody id="revAwaitingBody"></tbody>
           </table>
           <div id="revAwaitingEmpty" style="display:none;padding:16px 4px;font-size:13.5px;color:var(--text-faint);">Nothing waiting for your review right now.</div>
@@ -7415,6 +7415,9 @@ function daysWaiting(t){
   return from ? Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 86400000)) : 0;
 }
 function renderReviewsView(){
+  // Hoisted so the awaiting-review table can show the same Sheet/Cashbook
+  // links (attached at Mark Complete, before review) as the panels below.
+  const linkTag = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">${label}</a>` : `<span style="color:var(--text-faint);">—</span>`;
   const awaiting = myReviewTasks().slice().sort((a,b) => {
     const riskA = a.reviewOverdue ? 1 : 0, riskB = b.reviewOverdue ? 1 : 0;
     if(riskA !== riskB) return riskB - riskA;
@@ -7430,6 +7433,8 @@ function renderReviewsView(){
       <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
       <td style="${t.reviewOverdue?'color:#C2410C;font-weight:600;':''}">${daysWaiting(t)}d</td>
       <td>${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reviewOverdue ? ' · overdue' : ''}</td>
+      <td>${linkTag(t.sheetLink, 'Sheet')}</td>
+      <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
       <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Review</button></td>
     </tr>`;
   }).join('');
@@ -7459,7 +7464,6 @@ function renderReviewsView(){
   const showProfit = iAmProfitConfirmOwner();
   const profit = showProfit ? profitConfirmsPendingFor() : [];
   document.getElementById('revProfitPanel').style.display = profit.length ? '' : 'none';
-  const linkTag = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">${label}</a>` : `<span style="color:var(--text-faint);">—</span>`;
   document.getElementById('revProfitBody').innerHTML = profit.map(t => {
     const o = empById(t.assignedTo);
     return `<tr>
