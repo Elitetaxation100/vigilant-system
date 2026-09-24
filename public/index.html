@@ -5291,10 +5291,48 @@ function renderRecurringList(){
         <div style="font-weight:600;font-size:13.5px;">${esc(rt.name)}${rt.active ? '' : ' <span style="font-weight:400;color:var(--text-faint);">(paused)</span>'}</div>
         <div style="font-size:12px;color:var(--text-faint);">${esc(who ? who.name : '—')} · ⏱ ${rt.tat}h · every ${rt.weekdaysOnly ? 'working day' : 'day'}</div>
       </div>
+      <button class="btn small" onclick="openEditRecurringModal('${rt.id}')">Edit</button>
       <button class="btn small" onclick="toggleRecurring('${rt.id}', ${!rt.active})">${rt.active ? 'Pause' : 'Resume'}</button>
       <button class="btn small coral" onclick="deleteRecurring('${rt.id}')">Delete</button>
     </div>`;
   }).join('')}</div>`;
+}
+// Change the name / estimated time / weekday-only setting on a daily task
+// that's already been created — e.g. fixing a wrong default duration —
+// without deleting and re-adding it (which would lose its history).
+function openEditRecurringModal(id){
+  const rt = _recurringCache.find(r => r.id === id);
+  if(!rt) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Edit daily task</h3>
+    <div class="modal-sub">${esc((empById(rt.assignedTo)||{}).name || '—')}</div>
+    <div class="field"><label>Task name</label><input type="text" id="rtEditName" value="${esc(rt.name)}"></div>
+    <div class="field"><label>Time it takes (hours)</label><input type="number" id="rtEditTat" value="${rt.tat}" min="0.05" step="0.05"></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;"><input type="checkbox" id="rtEditWeekdaysOnly" ${rt.weekdaysOnly ? 'checked' : ''} style="width:auto;"> Skip Sundays &amp; public holidays</label></div>
+    <div class="modal-error" id="rtEditErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openRecurringModal()">Back</button>
+      <button class="btn primary" onclick="submitEditRecurring('${id}')">Save</button>
+    </div>`;
+  openModal();
+  window.__stickyModal = true;
+}
+async function submitEditRecurring(id){
+  const errEl = document.getElementById('rtEditErr');
+  errEl.style.display = 'none';
+  const name = (document.getElementById('rtEditName').value || '').trim();
+  if(!name){ errEl.textContent = 'Give this daily task a name.'; errEl.style.display = 'block'; return; }
+  const tat = parseFloat(document.getElementById('rtEditTat').value);
+  if(!(tat > 0)){ errEl.textContent = 'Give it an estimated time in hours.'; errEl.style.display = 'block'; return; }
+  try {
+    await api(`/api/recurring-tasks/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({
+      name, tat, weekdaysOnly: document.getElementById('rtEditWeekdaysOnly').checked,
+    }) });
+    window.__stickyModal = false;
+    showToast('success', 'Daily task updated', '');
+    await refreshTasks();
+    openRecurringModal();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 async function toggleRecurring(id, active){
   try {
@@ -5337,7 +5375,7 @@ function openRecurringFormModal(){
       </div>
     </div>
     <div class="field"><label>Task name</label><input type="text" id="rtName" placeholder="e.g. Review rideshare clients"></div>
-    <div class="field"><label>Time it takes (hours)</label><input type="number" id="rtTat" value="0.5" min="0.05" step="0.05"></div>
+    <div class="field"><label>Time it takes (hours)</label><input type="number" id="rtTat" placeholder="e.g. 1.5" min="0.05" step="0.05"></div>
     <div class="field"><label style="display:flex;align-items:center;gap:8px;font-weight:500;cursor:pointer;"><input type="checkbox" id="rtWeekdaysOnly" checked style="width:auto;"> Skip Sundays &amp; public holidays</label></div>
     <div class="modal-error" id="rtErr"></div>
     <div class="modal-actions">
