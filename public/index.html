@@ -2459,6 +2459,19 @@ function anyEmployeeInFirm(){
   return employees;
 }
 function canAssignTo(empId){ return anyEmployeeInFirm().some(e => e.id === empId); }
+// Same list as anyEmployeeInFirm, ordered for the "Assign to" picker: the
+// assigning manager's own team first (alphabetically), then everyone else
+// (alphabetically) — so a manager sees their own people without scrolling
+// past the whole firm every time.
+function assigneeOptionsForPicker(){
+  const myTeam = (currentViewer() || {}).team || '';
+  return anyEmployeeInFirm().slice().sort((a, b) => {
+    const aMine = myTeam && a.team === myTeam ? 0 : 1;
+    const bMine = myTeam && b.team === myTeam ? 0 : 1;
+    if(aMine !== bMine) return aMine - bMine;
+    return a.name.localeCompare(b.name);
+  });
+}
 function displayedLogged(t){ return t.displayedLogged !== undefined ? t.displayedLogged : t.logged; }
 // Best hours figure for a task: actual (if more than a blip), else agreed,
 // else the estimate. A hold-inflated task is capped at its agreed hours.
@@ -2695,17 +2708,27 @@ function setPerfTab(id){
    Owner (responsible person) and Agent filters plus a firm-wide breakdown.
    Mirrors the date-range pattern every other reporting page uses
    (_prodRange etc.) but adds Today/Yesterday since day-by-day is the point. */
-const CALL_STATUS_TILES = [
-  ['total', 'Total calls', null],
-  ['not_listened', 'Not listened yet', 'var(--flag)'],
+// Three top-level tiles — a segmented control, not independent toggles:
+// every call is in exactly one of "acknowledged" (anything past "not
+// listened yet" — listened, sorted, outcome logged, or no action needed)
+// or "not acknowledged" (not_listened), and "all" is everything. Clicking
+// "Acknowledged calls" expands the 4-way breakdown below it so the detail
+// is one click deeper instead of six tiles competing for attention.
+const CALLS_PRIMARY_TILES = [
+  ['all', 'All calls', null],
+  ['acknowledged', 'Acknowledged calls', 'var(--teal)'],
+  ['not_acknowledged', 'Not acknowledged', 'var(--flag)'],
+];
+const CALLS_DETAIL_TILES = [
   ['listened', 'Listened', 'var(--teal)'],
-  ['self_assigned', "Handling it", '#6D28D9'],
+  ['self_assigned', 'Sorted calls', '#6D28D9'],
   ['logged_outcome', 'Outcome logged', 'var(--teal)'],
   ['no_action', 'No action needed', 'var(--text-faint)'],
 ];
 let _callsOwnerFilter = '';
 let _callsAgentFilter = '';
-let _callsStatusFilter = '';
+let _callsPrimaryFilter = 'all';
+let _callsDetailFilter = '';
 function _callsRange(){
   const p = (document.getElementById('callsPeriod')||{}).value || 'week';
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -2729,8 +2752,13 @@ function _callsRange(){
   else { from = new Date(now.getFullYear(), now.getMonth(), 1); }
   return { from: iso(from), to: iso(now) };
 }
-function setCallsStatusFilter(key){
-  _callsStatusFilter = (_callsStatusFilter === key) ? '' : key;
+function setCallsPrimaryFilter(key){
+  _callsPrimaryFilter = key;
+  _callsDetailFilter = '';
+  renderCallsView();
+}
+function setCallsDetailFilter(key){
+  _callsDetailFilter = (_callsDetailFilter === key) ? '' : key;
   renderCallsView();
 }
 function callsOwnerChanged(){
@@ -2773,12 +2801,25 @@ async function renderCallsView(){
     ).join('');
   }
   const c = data.counts;
-  document.getElementById('callsTiles').innerHTML = CALL_STATUS_TILES.map(([key,label,color]) => `
-    <div class="metric-tile" style="cursor:pointer;${key===_callsStatusFilter?'outline:2px solid var(--purple);':''}" onclick="setCallsStatusFilter('${key}')" title="Click to filter the list below">
+  const acknowledgedCount = c.total - c.not_listened;
+  const primaryCount = { all: c.total, acknowledged: acknowledgedCount, not_acknowledged: c.not_listened };
+  const primaryHtml = CALLS_PRIMARY_TILES.map(([key,label,color]) => `
+    <div class="metric-tile" style="cursor:pointer;${key===_callsPrimaryFilter?'outline:2px solid var(--purple);':''}" onclick="setCallsPrimaryFilter('${key}')" title="Click to filter the list below">
       <div class="mt-label">${esc(label)}</div>
-      <div class="mt-value"${color?` style="color:${color};"`:''}>${c[key]}</div>
+      <div class="mt-value"${color?` style="color:${color};"`:''}>${primaryCount[key]}</div>
     </div>`).join('');
-  const shown = _callsStatusFilter ? data.calls.filter(x => x.outcomeStatus === _callsStatusFilter) : data.calls;
+  const detailHtml = _callsPrimaryFilter === 'acknowledged' ? CALLS_DETAIL_TILES.map(([key,label,color]) => `
+    <div class="metric-tile" style="cursor:pointer;${key===_callsDetailFilter?'outline:2px solid var(--purple);':''}" onclick="setCallsDetailFilter('${key}')" title="Click to filter further">
+      <div class="mt-label">${esc(label)}</div>
+      <div class="mt-value" style="color:${color};">${c[key]}</div>
+    </div>`).join('') : '';
+  document.getElementById('callsTiles').innerHTML = primaryHtml + detailHtml;
+  let shown = data.calls;
+  if(_callsPrimaryFilter === 'not_acknowledged') shown = shown.filter(x => x.outcomeStatus === 'not_listened');
+  else if(_callsPrimaryFilter === 'acknowledged'){
+    shown = shown.filter(x => x.outcomeStatus !== 'not_listened');
+    if(_callsDetailFilter) shown = shown.filter(x => x.outcomeStatus === _callsDetailFilter);
+  }
   renderCallsRows(shown);
 }
 function renderCallsRows(list){
@@ -5635,7 +5676,7 @@ function openAssignModal(mode){
     </div>
     <div class="field" id="atServiceWrap" style="display:none;"><label>Service</label><select id="atService"></select></div>
     <div class="field" id="atDeptOtherWrap" style="display:none;"><label>Why "Other"? <span class="req-mark">*</span></label><input type="text" id="atDeptOther" placeholder="e.g. cross-department cover work"></div>
-    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee" onchange="atPlanPreview(); atSyncClientDate()">${anyEmployeeInFirm().map(e=>{
+    ${isTeam ? `<div class="field"><label>Assign to</label><select id="atAssignee" onchange="atPlanPreview(); atSyncClientDate()"><option value="">— Choose —</option>${assigneeOptionsForPicker().map(e=>{
       const w = workload.find(x => x.id === e.id);
       const ct = w && w.committedThrough;
       const load = ct && ct > todayISO() ? ` — free from ${fmtDate(ct)}` : (w && w.freeCapacityNext5wd != null ? ` — ${w.freeCapacityNext5wd}h free this week` : '');
@@ -5791,6 +5832,7 @@ async function submitAssign(mode){
   if(!name){ showErr('Please enter a task name.'); return; }
   const isInternal = _assignKind === 'internal';
   const assignedTo = mode === 'team' ? document.getElementById('atAssignee').value : currentViewerId;
+  if(mode === 'team' && !assignedTo){ showErr('Choose who to assign this to.'); return; }
   const deadline = document.getElementById('atDeadline').value;
   const tat = parseFloat(document.getElementById('atTat').value);
   if(!(tat > 0)){ showErr('Enter the estimated time in hours — it\'s required.'); return; }

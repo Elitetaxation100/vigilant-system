@@ -895,7 +895,7 @@ function callOutcomeStatus(c) {
 const CALL_STATUS_LABELS = {
   not_listened: 'Not listened yet',
   listened: 'Listened',
-  self_assigned: "Handling it (I'll Handle This)",
+  self_assigned: 'Sorted calls',
   logged_outcome: 'Outcome logged',
   no_action: 'No action needed',
 };
