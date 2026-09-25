@@ -409,6 +409,9 @@ function createTask(state, o) {
     sentToClient: null, sentToClientAt: null, sentToClientBy: null, reworkStartedAt: null, faultType: null,
     reworkHistory: [], dateHistory: [], tatHistory: [], source: o.source || 'call', sourceRef: o.sourceRef || null,
     estMinutes: mins, priority: null,
+    productivityAllocatedHoursSnapshot: tat, // already accepted at creation — snapshot immediately
+    reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
+    reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
   };
   state.tasks.unshift(task);
   activity(state, task.assignedTo, `Task from ${task.source === 'call' ? 'a call' : 'Slack'}: "${esc(task.name)}" (${tat}h)${assignee ? ` — assigned to <b>${esc(assignee.name)}</b>` : ' — unassigned'}.`, { source: task.source });

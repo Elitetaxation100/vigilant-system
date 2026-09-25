@@ -328,6 +328,114 @@ function commitmentOutcome(t) {
   return 'missed';
 }
 
+// Human-readable reason a not-yet-completed task earns no productivity
+// credit — used by the Exceptions/Open Work section and the drill-down's
+// excluded-task table (spec §6/§13).
+const OPEN_STATUS_REASONS = {
+  awaiting_acceptance: 'Awaiting acceptance',
+  accepted: 'In progress',
+  on_hold: 'On hold',
+  rework: 'Needs rework',
+  window_proposed: 'Window proposed',
+};
+
+// ---------------------------------------------------------------------------
+// PRODUCTIVITY REBUILD — the strict binary qualification rule (spec §5).
+// Deliberately separate from commitmentOutcome() above: that function keeps
+// its existing contract (task-list at-risk/on-track badges, judged the
+// moment work is submitted for review) untouched; this one is the stricter,
+// productivity-specific gate that additionally requires a clean review AND,
+// for client work, actual dispatch by the external date.
+//
+// Three independently-reported stages (never blended into one verdict, so a
+// slow reviewer or a missed email is never silently read as the processor's
+// failure — spec §11):
+//   processor — t.completedAt (the most recent FINAL submission — already
+//     refreshed by /resubmit on every rework round, so a corrected
+//     resubmission is judged on ITS OWN timestamp, not the original rough
+//     one) vs t.internalDeadline.
+//   reviewer  — clean / error / pending.
+//   sender    — sent_on_time / sent_late / not_sent / sending_not_required
+//     (client work only; calculated from timestamps, never stored).
+// ---------------------------------------------------------------------------
+function productivityQualifies(t) {
+  const isInternal = t.kind === 'internal';
+  const submissionMet = (t.completedAt && t.internalDeadline)
+    ? nzDay(t.completedAt) <= t.internalDeadline : null;
+  // 'done' is the existing terminal review state for "closed, no formal
+  // review needed" (see /api/tasks/:id/done) — just as final as 'clean',
+  // only self-certified instead of reviewer-certified. Treated the same as
+  // 'clean' for the qualifying gate; kept as its own stage value so the
+  // drill-down can still show which one actually happened.
+  const reviewOk = t.reviewStatus === 'clean' || t.reviewStatus === 'done';
+  const stages = {
+    processor: submissionMet == null ? null : (submissionMet ? 'met' : 'missed'),
+    reviewer: reviewOk ? t.reviewStatus : t.reviewStatus === 'error' ? 'error' : (t.status === 'completed' ? 'pending' : null),
+    sender: null,
+  };
+  const snapshot = Number(t.productivityAllocatedHoursSnapshot);
+  const creditHours = snapshot > 0 ? snapshot : 0;
+
+  if (t.status !== 'completed') {
+    return { qualifies: false, creditedHours: 0, exclusionReason: OPEN_STATUS_REASONS[t.status] || 'Not yet delivered', stages };
+  }
+  if (t.reviewStatus === 'error') {
+    return { qualifies: false, creditedHours: 0, exclusionReason: 'Needs rework', stages };
+  }
+  if (!reviewOk) {
+    return { qualifies: false, creditedHours: 0, exclusionReason: 'Awaiting review', stages };
+  }
+
+  if (isInternal) {
+    stages.sender = 'sending_not_required';
+    if (!submissionMet) return { qualifies: false, creditedHours: 0, exclusionReason: 'Internal milestone missed', stages };
+    return { qualifies: true, creditedHours: creditHours, exclusionReason: null, stages };
+  }
+
+  if (!t.clientDate) {
+    return { qualifies: false, creditedHours: 0, exclusionReason: 'No external commitment date', stages };
+  }
+  if (t.reportDeliveryStatus === 'sending_not_required') {
+    stages.sender = 'sending_not_required';
+    return { qualifies: false, creditedHours: 0, exclusionReason: 'Sending not required', stages };
+  }
+  if (!t.sentToClient || !t.sentToClientAt) {
+    stages.sender = 'not_sent';
+    return { qualifies: false, creditedHours: 0, exclusionReason: 'Client report not sent', stages };
+  }
+  const sentOnTime = nzDay(t.sentToClientAt) <= effectiveClientDate(t);
+  stages.sender = sentOnTime ? 'sent_on_time' : 'sent_late';
+  if (!submissionMet) {
+    return { qualifies: false, creditedHours: 0, exclusionReason: 'Internal milestone missed', stages };
+  }
+  if (!sentOnTime) {
+    return { qualifies: false, creditedHours: 0, exclusionReason: 'Client report sent late', stages };
+  }
+  return { qualifies: true, creditedHours: creditHours, exclusionReason: null, stages };
+}
+// The date a completed task counts against for reporting-period purposes
+// (spec §14) — the day its qualifying event actually happened, not the day
+// it was marked complete. A client task not yet sent temporarily buckets on
+// completedAt until dispatch happens, at which point it moves to that
+// period — it can never land in two periods at once because this is always
+// computed fresh from current state, never cached.
+function productivityPeriodDate(t) {
+  if (t.kind === 'internal') return t.completedAt;
+  return t.sentToClientAt || t.completedAt;
+}
+// Report Sent scoring (spec §8) — 5 points per eligible client report,
+// scored against the same population as Productivity (the assignee), not
+// the report-sender, matching how the spec's own Ranjit example frames "12
+// eligible client reports" as his numbers regardless of who clicked send.
+function reportSentFor(t) {
+  if (t.kind === 'internal' || t.status !== 'completed' || !['clean', 'done'].includes(t.reviewStatus)) return null; // not eligible to be scored at all
+  if (!t.clientDate) return { eligible: false, reason: 'no_external_date' };
+  if (t.reportDeliveryStatus === 'sending_not_required') return { eligible: false, reason: 'sending_not_required' };
+  if (!t.sentToClient || !t.sentToClientAt) return { eligible: true, points: 0, outcome: 'not_sent' };
+  const onTime = nzDay(t.sentToClientAt) <= effectiveClientDate(t);
+  return { eligible: true, points: onTime ? 5 : 0, outcome: onTime ? 'sent_on_time' : 'sent_late' };
+}
+
 function taskForClient(t) {
   // The hold screenshot can be a megabyte of base64 — never ship it in the
   // task list (fetched every few seconds by every open tab). It's pulled on
@@ -375,27 +483,34 @@ function taskForClient(t) {
 // made the auto figure read as broken rather than accurate. A flat number
 // everyone understands beats a measured one nobody trusts.
 // ---------------------------------------------------------------------------
-// The firm's working day is 9h with a 1h break = 8h of productive time.
-const CAP_SEED = 8.0;
+// Productivity rebuild: the firm's working day is 8h, with 30 min reserved
+// for meetings and 30 min as a general operational buffer — 7h of
+// productivity capacity. Fixed, not measured (see the note above this block
+// on why a flat number beats an auto-estimated one).
+const CAP_SEED = 7.0;
 function capacityOf(emp) {
   return CAP_SEED;
 }
 
 // ---------------------------------------------------------------------------
-// P1 — CAPACITY FROM ATTENDANCE. A person's capacity for one day is their
-// base productive hours, scaled by whether they were actually available:
-// a full day is the base, an approved half-day is half, an approved leave
-// day or a non-working day is zero, and a day they punched a short shift is
-// what they were on the clock for. Everything downstream — the planner,
-// workload, the productivity denominator — sums dayCapacity() across the
-// range instead of assuming a flat full day every working day.
+// CAPACITY FROM APPROVED ADJUSTMENTS ONLY. A person's capacity for one day
+// is their base productive hours, scaled only by an APPROVED leave/workshop
+// request or a non-working day: a full day is the base, an approved half-day
+// is half, an approved custom-hours request deducts exactly that many hours,
+// an approved leave/workshop day or a non-working day is zero. Everything
+// downstream — the planner, workload, the productivity denominator — sums
+// dayCapacity() across the range instead of assuming a flat full day.
 //
-// Absence is deliberately NOT inferred from a missing punch: with attendance
-// tracking still patchy, an unknown past day counts as a normal PRESENT day.
-// Only an approved leave request or an actually-recorded short shift pulls a
-// day's capacity down.
+// Deliberately NEVER derived from Punch In/Punch Out or any other attendance
+// clock reading — the productivity spec explicitly forbids it. Absence is
+// never inferred from a missing punch either: an unrecorded day is a normal
+// full-capacity day unless there's an approved leave request covering it.
 // ---------------------------------------------------------------------------
-const LEAVE_TYPES = ['ANNUAL', 'SICK', 'UNPAID', 'OTHER'];
+// WORKSHOP — a Saturday training/workshop day: approved the same way as any
+// other leave (same audit trail), but conceptually different (it's firm
+// work, just not productivity-capacity work) — kept as its own type rather
+// than folded into OTHER so it reports separately. See dayCapacity() below.
+const LEAVE_TYPES = ['ANNUAL', 'SICK', 'UNPAID', 'WORKSHOP', 'OTHER'];
 function baseHoursOf(emp) {
   const b = Number(emp && emp.baseHoursPerDay);
   return b > 0 ? b : capacityOf(emp);
@@ -404,26 +519,26 @@ function approvedLeaveOn(state, empId, dateISO) {
   return (state.leaveRequests || []).find(l => l.employeeId === empId
     && l.status === 'approved' && dateISO >= l.from && dateISO <= l.to) || null;
 }
-// PRESENT · HALF · PARTIAL · LEAVE · HOLIDAY
+// PRESENT · HALF · CUSTOM · LEAVE · WORKSHOP · HOLIDAY
 function attendanceStatus(state, emp, dateISO) {
   if (!cal.isWorkingDay(dateISO)) return 'HOLIDAY';
   const leave = approvedLeaveOn(state, emp.id, dateISO);
-  if (leave) return leave.halfDay ? 'HALF' : 'LEAVE';
-  const rec = (state.attendance[emp.id] || {})[dateISO];
-  if (dateISO < todayISO() && rec && rec.logoutAt && (rec.secondsWorked || 0) > 0) {
-    const h = rec.secondsWorked / 3600;
-    if (h >= 1 && h < baseHoursOf(emp) * 0.9) return 'PARTIAL';
+  if (leave) {
+    if (leave.type === 'WORKSHOP') return 'WORKSHOP';
+    if (leave.hours > 0) return 'CUSTOM';
+    return leave.halfDay ? 'HALF' : 'LEAVE';
   }
   return 'PRESENT';
 }
 function dayCapacity(state, emp, dateISO) {
   const base = baseHoursOf(emp);
-  switch (attendanceStatus(state, emp, dateISO)) {
-    case 'HOLIDAY': case 'LEAVE': return 0;
+  const status = attendanceStatus(state, emp, dateISO);
+  switch (status) {
+    case 'HOLIDAY': case 'LEAVE': case 'WORKSHOP': return 0;
     case 'HALF': return Math.round((base / 2) * 100) / 100;
-    case 'PARTIAL': {
-      const rec = (state.attendance[emp.id] || {})[dateISO] || { secondsWorked: base * 3600 };
-      return Math.round(Math.min(base, rec.secondsWorked / 3600) * 100) / 100;
+    case 'CUSTOM': {
+      const leave = approvedLeaveOn(state, emp.id, dateISO);
+      return Math.round(Math.max(0, base - Number(leave.hours || 0)) * 100) / 100;
     }
     default: return base;
   }
@@ -697,6 +812,9 @@ function buildRecurringInstance(state, rt, dateISO) {
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
+    productivityAllocatedHoursSnapshot: Number(rt.tat) || null, // accepted immediately — snapshot now
+    reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
+    reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [],
     holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
     source: 'recurring', sourceRef: rt.id, recurringTemplateId: rt.id,
@@ -1578,6 +1696,9 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
+    productivityAllocatedHoursSnapshot: status === 'accepted' ? (parseFloat(tat) || 3) : null,
+    reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
+    reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
     holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [], overAllocated,
     // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
@@ -1917,6 +2038,11 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
   } else {
     t.status = 'accepted';
     t.acceptedAt = new Date().toISOString();
+    // Productivity rebuild — freeze the allocated-hours value Productivity
+    // scores against, once, at first acceptance. A later authorised tat
+    // change (see /set-dates) is still recorded in tatHistory but never
+    // moves this snapshot, so historical productivity can't be rewritten.
+    if (t.productivityAllocatedHoursSnapshot == null) t.productivityAllocatedHoursSnapshot = Number(t.tat) || null;
     logEvent(state, t.assignedTo, `Accepted "${escHtml(t.name)}" — now due ${t.internalDeadline || 'as agreed'}.`);
   }
   t.timerStartedAt = null; // not running — Start begins the clock
@@ -2220,27 +2346,78 @@ app.patch('/api/tasks/:id/links', requireAuth, (req, res) => {
 // other task event is, so both see the same outcome. Allowed for the
 // reviewer/a manager over the assignee, OR whoever the report-send job is
 // currently assigned to (defaults to the original assignee).
+// Fixed reasons for waiving a client report's send requirement (spec §6) —
+// deliberately a closed list, not free text, so "sending not required"
+// can't become a vague catch-all for "didn't get to it."
+const REPORT_WAIVE_REASONS = {
+  client_cancelled: 'Client cancelled the engagement',
+  duplicate_task: 'Duplicate task',
+  incorporated: 'Work incorporated into another approved report',
+  client_instruction: 'Written client instruction not to proceed',
+  admin_correction: 'Administrator-approved correction',
+};
 app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  const allowed = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.id === t.reportSendOwner;
-  if (!allowed) {
-    return res.status(403).json({ error: "You can't make this decision on someone else's review." });
-  }
   if (t.reviewStatus !== 'clean' || !t.awaitingClientDecision) {
     return res.status(400).json({ error: 'This task has no pending client-send decision.' });
   }
   const { decision } = req.body || {};
   if (!['yes', 'no'].includes(decision)) return res.status(400).json({ error: 'Decision must be yes or no.' });
-  t.sentToClient = decision === 'yes';
+
+  if (decision === 'yes') {
+    // Confirming it was actually sent stays open to the same people who
+    // could always make this call — reviewer/manager, or whoever the report-
+    // send job belongs to (often the assignee themselves, which is fine
+    // here: this is evidence of real work done, not a self-granted waiver).
+    const allowed = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.id === t.reportSendOwner;
+    if (!allowed) return res.status(403).json({ error: "You can't make this decision on someone else's review." });
+    const channel = ['email', 'whatsapp', 'portal', 'physical', 'other'].includes((req.body || {}).channel) ? req.body.channel : null;
+    const reference = ((req.body || {}).reference == null ? '' : String(req.body.reference)).trim().slice(0, 300);
+    if (!channel) return res.status(400).json({ error: 'Choose how the report was sent (email, WhatsApp, portal, etc).' });
+    if (!reference) return res.status(400).json({ error: 'Give some evidence or reference for the send (e.g. the email subject, or a note).' });
+    t.sentToClient = true;
+    t.sentToClientAt = new Date().toISOString();
+    t.sentToClientBy = req.employee.id;
+    t.reportDeliveryChannel = channel;
+    t.reportDeliveryReference = reference;
+    t.reportDeliveryStatus = null; // superseded by the sentToClient fact itself
+    t.awaitingClientDecision = false;
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent directly to the client by <b>${escHtml(req.employee.name)}</b> (${channel}).`);
+    managersOfEmployee(state, t.assignedTo).forEach(m => {
+      logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was sent directly to the client.`);
+    });
+    db.save();
+    return res.json({ task: taskForClient(t) });
+  }
+
+  // decision === 'no' — a WAIVER, not a shrug. Verified during the
+  // productivity rebuild audit: the old version of this endpoint let the
+  // bare report-send-owner (which defaults to the assignee themselves) mark
+  // their own client task "not sent" with zero friction — a processor could
+  // quietly exclude their own failed delivery from scoring. Now requires an
+  // actual reviewer/manager (or superadmin), never a self-match on
+  // reportSendOwner alone, plus one of the fixed reasons above.
+  const allowedWaive = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.accessRole === 'superadmin';
+  if (!allowedWaive) {
+    return res.status(403).json({ error: "Only a reviewer, manager or superadmin can mark a report as not needing to be sent." });
+  }
+  const reasonKey = (req.body || {}).waivedReason;
+  if (!REPORT_WAIVE_REASONS[reasonKey]) {
+    return res.status(400).json({ error: 'Pick a reason: ' + Object.values(REPORT_WAIVE_REASONS).join(', ') + '.' });
+  }
+  t.sentToClient = false;
   t.sentToClientAt = new Date().toISOString();
   t.sentToClientBy = req.employee.id;
+  t.reportDeliveryStatus = 'sending_not_required';
+  t.reportDeliveryWaivedReason = reasonKey;
+  t.reportDeliveryWaivedBy = req.employee.id;
+  t.reportDeliveryWaivedAt = new Date().toISOString();
   t.awaitingClientDecision = false;
-  const outcome = decision === 'yes' ? 'sent directly to the client' : 'held back — not sent to the client';
-  logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was ${outcome} by <b>${escHtml(req.employee.name)}</b>.`);
-  const managers = managersOfEmployee(state, t.assignedTo);
-  managers.forEach(m => {
+  const outcome = `held back — not sent to the client (${REPORT_WAIVE_REASONS[reasonKey]})`;
+  logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was ${outcome}, by <b>${escHtml(req.employee.name)}</b>.`);
+  managersOfEmployee(state, t.assignedTo).forEach(m => {
     logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was ${outcome}.`);
   });
   db.save();
@@ -2747,37 +2924,9 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
   res.json({ rows, assignments });
 });
 
-// ---------------------------------------------------------------------------
-// P3 — COMPOSITE PRODUCTIVITY SCORE. One number, 0–100, from five sub-scores
-// that each answer a different question, weighted per department (weights
-// sum to 1). A factor with no data in the range is dropped and the rest
-// renormalised. Below a signal threshold (min tasks OR 10 working days) the
-// score is withheld ("building").
-//
-//   E  Efficiency  100 × allocated / worked          (capped at 100)
-//   T  Timeliness  100 × met / (met + missed)        (client-dated work only)
-//   R  Rework      100 − min(40, 40 × processorReworkRounds / reviewedTasks)
-//   N  Reminders   100 − min(30, 15 × chaseEvents / openTasks)
-//   C  Coverage    100 × worked / allocated          (denominator is allocated,
-//                                                     never capacity)
-// ---------------------------------------------------------------------------
-const DEFAULT_WEIGHTS = { E: 0.20, T: 0.30, R: 0.15, N: 0.10, C: 0.25, slackTolerancePct: 10, minTasksForScore: 5 };
-const WEIGHT_KEYS = ['E', 'T', 'R', 'N', 'C'];
-function weightsForTeam(state, team) {
-  const store = (state.productivityWeights && typeof state.productivityWeights === 'object') ? state.productivityWeights : {};
-  const base = { ...DEFAULT_WEIGHTS, ...(store._default || {}) };
-  return { ...base, ...((team && store[team]) || {}) };
-}
-function compositeScore(f, weights) {
-  // f: { E, T, R, N, C } each null (no data) or 0..100
-  let wsum = 0, psum = 0;
-  for (const k of WEIGHT_KEYS) {
-    if (f[k] == null) continue;
-    const w = Number(weights[k]) || 0;
-    wsum += w; psum += w * f[k];
-  }
-  return wsum > 0 ? Math.round(psum / wsum) : null;
-}
+// The retired P3 composite-score (five weighted factors) and P4 allocation
+// scorecard used to live here — removed entirely as part of the
+// productivity rebuild (see productivityQualifies/productivityFor below).
 
 // The firm's fiscal year runs 1 April – 31 March. YTD figures count from
 // the fiscal-year start that contains `refISO`, not calendar January.
@@ -2804,233 +2953,107 @@ function floorAtGoLive(fromISO, toISO) {
   return fromISO < SYSTEM_GO_LIVE ? SYSTEM_GO_LIVE : fromISO;
 }
 
+// Shapes one task into a drill-down row (spec §13's qualified/excluded task
+// tables) — client, allocated (the frozen snapshot, not live tat), status,
+// the three-stage responsibility breakdown, credited hours, and why.
+function productivityTaskRow(t, result) {
+  return {
+    id: t.id, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+    kind: t.kind, status: t.status,
+    allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
+    internalDeadline: t.internalDeadline, completedAt: t.completedAt,
+    clientDate: t.clientDate, sentToClientAt: t.sentToClientAt,
+    stages: result.stages,
+    creditedHours: result.creditedHours, qualifies: result.qualifies,
+    exclusionReason: result.exclusionReason,
+  };
+}
+// Open/unfinished work — spec §6's Exceptions section. Deliberately NOT
+// period-scoped (always "what's outstanding right now"), unlike the
+// qualified/excluded tables above which are bucketed by period.
+function productivityOpenRow(state, t) {
+  const responsible = findEmployee(state, t.assignedTo);
+  return {
+    id: t.id, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+    allocatedHours: Number(t.tat) || 0, status: t.status,
+    internalDeadline: t.internalDeadline, clientDate: t.clientDate,
+    holdReason: t.holdReason || null, responsibleName: responsible ? responsible.name : '—',
+    lastActivity: t.heldAt || t.reworkStartedAt || t.acceptedAt || t.assignedAt || null,
+    nextAction: OPEN_STATUS_REASONS[t.status] || t.status,
+  };
+}
 function productivityFor(state, empIds, fromISO, toISO) {
   const from = fromISO, to = toISO;
   const inRange = d => d && nzDay(d) >= from && nzDay(d) <= to;
   const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
-  // YTD counts from the fiscal-year start, but never earlier than go-live —
-  // there's no real worked-hours data before then.
-  const yearStart = floorAtGoLive(fiscalYearStart(to), to);
+  const r2 = n => Math.round(n * 100) / 100;
 
   return empIds.map(id => {
     const emp = findEmployee(state, id) || { id, name: '—' };
-    const done = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed' && inRange(t.completedAt));
-    const allocated = done.reduce((s, t) => s + (Number(t.tat) || 0), 0);
-    const worked = done.reduce((s, t) => s + taskHours(t), 0);
-    const dated = done.filter(t => t.clientDate);
-    const met = dated.filter(t => commitmentOutcome(t) === 'met').length;
-    const missed = dated.filter(t => commitmentOutcome(t) === 'missed').length;
-    const reworkRounds = done.reduce((s, t) => s + (t.reworkCount || 0), 0);
-    // P2: how many times this person was DELIBERATELY chased in the range —
-    // a manager's Nudge or a Slack escalation. The system's own once-a-day
-    // "due soon / overdue" auto-reminder (channel 'auto') is excluded: it's
-    // a helper, not a mark against the person, so it doesn't feed the score
-    // or show in the Chased column.
-    const myTaskIds = new Set(state.tasks.filter(t => t.assignedTo === id).map(t => t.id));
-    const chaseEvents = (state.taskEvents || [])
-      .filter(e => e.type === 'reminded' && e.channel !== 'auto' && myTaskIds.has(e.taskId) && inRange(e.at)).length;
-    const cap = capacityOf(emp);
-    // P1: capacity is the sum of each working day's real availability
-    // (attendance + approved leave), not a flat full day every working day.
     const capacityHours = capacityHoursBetween(state, emp, from, to);
     const leave = leaveDaysBetween(state, id, from, to);
-    // shift hours actually logged in the range (from the punch clock)
-    const shiftSeconds = Object.entries(state.attendance[id] || {})
-      .filter(([d]) => d >= from && d <= to).reduce((s, [, v]) => s + (v.secondsWorked || 0), 0);
-    const shiftHours = Math.round((shiftSeconds / 3600) * 100) / 100;
-    // year-to-date cumulative worked hours
-    const ytdWorked = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed'
-      && nzDay(t.completedAt) >= yearStart && nzDay(t.completedAt) <= to)
-      .reduce((s, t) => s + taskHours(t), 0);
-    // monthly trend across the range (reporting is monthly / fiscal-year)
-    const months = {};
+
+    // Completed tasks landing in THIS period, bucketed by their qualifying
+    // event date (spec §14) — not completedAt.
+    const done = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed' && inRange(productivityPeriodDate(t)));
+    const qualified = [], excluded = [];
     done.forEach(t => {
-      const mk = nzDay(t.completedAt).slice(0, 7) + '-01';       // YYYY-MM-01, NZ calendar month
-      (months[mk] = months[mk] || { monthStart: mk, tasks: 0, worked: 0, allocated: 0 });
-      months[mk].tasks += 1; months[mk].worked += taskHours(t); months[mk].allocated += Number(t.tat) || 0;
+      const result = productivityQualifies(t);
+      (result.qualifies ? qualified : excluded).push(productivityTaskRow(t, result));
     });
-    const r2 = n => Math.round(n * 100) / 100;
+    const qualifiedHours = r2(qualified.reduce((s, x) => s + x.creditedHours, 0));
+    const rawPct = capacityHours > 0 ? (qualifiedHours / capacityHours) * 100 : null;
+    // One decimal, capped at 100 — anything qualified beyond capacity shows
+    // as "additional qualifying output" instead of pushing past 100%.
+    const productivityPct = rawPct == null ? null : Math.min(100, Math.round(rawPct * 10) / 10);
+    const additionalHours = rawPct != null && rawPct > 100 ? r2(qualifiedHours - capacityHours) : 0;
 
-    // ---- P3 composite score ----
-    const weights = weightsForTeam(state, emp.team);
-    const reviewedDone = done.filter(t => t.reviewStatus === 'clean' || t.reviewStatus === 'error');
-    // The reviewer's 0-100 score from the Review wizard (t.reviewScore) is
-    // captured on both clean and error reviews but was never rolled up
-    // anywhere — this is that rollup, averaged over whatever was scored in
-    // the window. Informational only; it doesn't feed the composite score.
-    const scoredReviews = done.filter(t => t.reviewScore != null);
-    const avgReviewScore = scoredReviews.length
-      ? r2(scoredReviews.reduce((s, t) => s + t.reviewScore, 0) / scoredReviews.length) : null;
-    const processorReworkRounds = done.reduce((s, t) => {
-      const hist = (t.reworkHistory || []).filter(h => h && h.faultType === 'processor').length;
-      if (hist) return s + hist;
-      if (t.reviewStatus === 'error' && t.faultType === 'processor') return s + (t.reworkCount || 1);
-      return s;
-    }, 0);
-    const openMine = state.tasks.filter(t => t.assignedTo === id && !['completed', 'pending_approval'].includes(t.status));
-    const openTasks = done.length + openMine.length;
-    // P4 — coverage is judged against fairTarget = min(assigned load, capacity):
-    // hours the person could actually have delivered, never raw capacity, and
-    // never the impossible slice of an over-allocated plate.
-    const openDueInRange = openMine.reduce((s, t) => s + (t.internalDeadline && inRange(t.internalDeadline) ? (Number(t.tat) || 0) : 0), 0);
-    const assignedLoad = allocated + openDueInRange;
-    const fairTarget = Math.min(assignedLoad, capacityHours > 0 ? capacityHours : assignedLoad);
-    const clampPct = n => Math.max(0, Math.min(100, Math.round(n)));
-    const factors = {
-      E: worked > 0 ? clampPct(100 * allocated / worked) : null,
-      T: (met + missed) > 0 ? clampPct(100 * met / (met + missed)) : null,
-      R: reviewedDone.length > 0 ? clampPct(100 - Math.min(40, 40 * processorReworkRounds / reviewedDone.length)) : null,
-      N: openTasks > 0 ? clampPct(100 - Math.min(30, 15 * chaseEvents / openTasks)) : null,
-      C: assignedLoad > 0 ? clampPct(100 * worked / Math.max(fairTarget, 0.01)) : null,
-    };
-    const rawScore = compositeScore(factors, weights);
-    const minTasks = Number(weights.minTasksForScore) > 0 ? Number(weights.minTasksForScore) : 5;
-    const enoughSignal = done.length >= minTasks || workingDays >= 10;
-    const scoreStatus = rawScore == null ? 'no-data' : (enoughSignal ? 'ready' : 'building');
+    // Internal milestone met/missed — over every completed task with both
+    // timestamps, independent of whether it went on to qualify overall (so
+    // review/send delays don't hide a processor's own on-time record).
+    const withMilestone = done.filter(t => t.completedAt && t.internalDeadline);
+    const milestoneResults = withMilestone.map(t => productivityQualifies(t).stages.processor);
+    const milestonesMet = milestoneResults.filter(s => s === 'met').length;
 
-    // A SECOND score, measured against the person's FULL capacity instead of
-    // fairTarget. Every factor is identical except coverage (C), which now
-    // divides worked hours by capacity, not by what the manager actually
-    // handed out. So capacityScore <= productivityScore, and the whole gap
-    // between them is unallocated capacity — the manager's allocation gap,
-    // not the person's. `allocationGapHours` is that gap in hours.
-    // only meaningful once there's a delivery score to compare against.
-    const capacityCoverage = (rawScore == null) ? null
-      : (capacityHours > 0 ? clampPct(100 * worked / capacityHours) : factors.C);
-    const capacityFactors = { ...factors, C: capacityCoverage };
-    const capacityScore = (rawScore == null) ? null : compositeScore(capacityFactors, weights);
-    const allocationGapHours = r2(Math.max(0, capacityHours - assignedLoad));
-    const scoreGap = (rawScore != null && capacityScore != null) ? rawScore - capacityScore : null;
+    // Report Sent — 5 pts per eligible client report (spec §8).
+    let reportsRequired = 0, reportsOnTime = 0, reportsLate = 0, reportsReadyNotSent = 0, reportsNoDate = 0, reportPoints = 0, reportMaxPoints = 0;
+    done.forEach(t => {
+      const r = reportSentFor(t);
+      if (!r) return;
+      if (r.reason === 'no_external_date') { reportsNoDate++; return; }
+      if (r.reason === 'sending_not_required') return; // excluded from scoring entirely
+      reportsRequired++; reportMaxPoints += 5; reportPoints += r.points;
+      if (r.outcome === 'sent_on_time') reportsOnTime++;
+      else if (r.outcome === 'sent_late') reportsLate++;
+      else if (r.outcome === 'not_sent') reportsReadyNotSent++;
+    });
+
+    // Open/unfinished work (spec §6) — current state, not period-scoped.
+    const openWork = state.tasks.filter(t => t.assignedTo === id && t.status !== 'completed');
+    const excludedRows = excluded.concat(
+      openWork.filter(t => t.internalDeadline && inRange(t.internalDeadline))
+        .map(t => productivityTaskRow(t, { qualifies: false, creditedHours: 0, exclusionReason: OPEN_STATUS_REASONS[t.status] || t.status, stages: { processor: null, reviewer: null, sender: null } }))
+    );
+
+    // Allocation-gap informational line (spec §9) — kept as plain info for
+    // managers, never scored, never weighted.
+    const assignedLoad = r2(qualifiedHours + openWork.reduce((s, t) => s + (t.internalDeadline && inRange(t.internalDeadline) ? (Number(t.tat) || 0) : 0), 0));
+    const unallocatedHours = r2(Math.max(0, capacityHours - assignedLoad));
 
     return {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
-      tasks: done.length,
-      allocatedHours: r2(allocated), workedHours: r2(worked),
-      capacityHours: r2(capacityHours), effectiveCapacity: cap, capacityAuto: false, workingDays,
-      leaveDays: leave.equivalent, baseHoursPerDay: Number(emp.baseHoursPerDay) > 0 ? Number(emp.baseHoursPerDay) : null,
-      shiftHours,
-      utilisationPct: capacityHours > 0 ? Math.round((worked / capacityHours) * 100) : null,
-      efficiency: worked > 0 ? r2(allocated / worked) : null,
-      throughput: workingDays > 0 ? r2(done.length / workingDays) : null,
-      onTimeRate: (met + missed) > 0 ? Math.round((met / (met + missed)) * 100) : null,
-      met, missed, reworkRounds, chaseEvents,
-      // P3
-      factors, productivityScore: rawScore, scoreStatus, reviewedTasks: reviewedDone.length,
-      processorReworkRounds, openTasksInRange: openTasks,
-      // Reviewer's 0-100 score from the Review wizard, averaged over reviews
-      // in range that carry one — informational only, not part of the score.
-      avgReviewScore, reviewScoreCount: scoredReviews.length,
-      // second score — coverage measured against full capacity, and the gap
-      capacityFactors, capacityScore, capacityCoverage,
-      allocationGapHours, scoreGap,
-      // P4 — the fairness denominator the score is measured against
-      assignedLoad: r2(assignedLoad), fairTarget: r2(fairTarget),
-      weightsApplied: { E: weights.E, T: weights.T, R: weights.R, N: weights.N, C: weights.C },
-      cumulativeYtdWorked: r2(ytdWorked), fiscalYearStart: yearStart,
-      monthly: Object.values(months).sort((a, b) => a.monthStart.localeCompare(b.monthStart))
-        .map(m => ({ ...m, worked: r2(m.worked), allocated: r2(m.allocated) })),
+      capacityHours: r2(capacityHours), workingDays, leaveDays: leave.equivalent,
+      qualifiedHours, productivityPct, additionalHours,
+      notScorable: capacityHours <= 0,
+      milestonesMet, milestonesTotal: withMilestone.length,
+      reportsRequired, reportsOnTime, reportsLate, reportsReadyNotSent, reportsNoDate,
+      reportPoints, reportMaxPoints,
+      reportSentRate: reportMaxPoints > 0 ? Math.round((reportPoints / reportMaxPoints) * 1000) / 10 : null,
+      outstandingReports: reportsReadyNotSent + reportsLate,
+      qualifiedTasks: qualified, excludedTasks: excludedRows, openWork: openWork.map(t => productivityOpenRow(state, t)),
+      assignedLoad, unallocatedHours,
     };
   });
-}
-
-// ---------------------------------------------------------------------------
-// P4 — RESPONSIBILITY SPLIT. The manager owns filling each person's week to
-// capacity; an under-filled week is theirs to explain (a tagged reason) or it
-// counts against their allocation accuracy. The employee owns delivering the
-// fill — measured against fairTarget = min(assigned load, capacity), so idle
-// time the manager created never lands on the person doing the work. SOP /
-// brief-unclear rework is the manager's; only processor-fault rework touches
-// the employee's score (see the R factor above).
-// ---------------------------------------------------------------------------
-const UNDER_ALLOC_REASONS = {
-  CLIENT_DELAY:      "Waiting on the client before work can be allocated",
-  AWAITING_INPUT:    "Blocked on another team, a partner, or a third party",
-  SCHEDULING_GAP:    "Didn't line up enough work for the week",
-  DELIBERATE_BUFFER: "Capacity held back on purpose (crunch / training ahead)",
-  LOW_SEASON:        "Genuine low workload across the team",
-  ONBOARDING:        "New joiner still ramping up",
-};
-function isoWeekStart(dateISO) {
-  const d = new Date(dateISO.slice(0, 10) + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); // back to Monday
-  return d.toISOString().slice(0, 10);
-}
-function weeksInRange(fromISO, toISO) {
-  const weeks = [];
-  let w = isoWeekStart(fromISO);
-  const end = isoWeekStart(toISO);
-  while (w <= end) {
-    weeks.push(w);
-    w = new Date(new Date(w + 'T00:00:00Z').getTime() + 7 * 86400000).toISOString().slice(0, 10);
-  }
-  return weeks;
-}
-// Σ tat of a person's work that was theirs to land in [fromISO, toISO] —
-// anything they completed in it, plus anything still open whose internal
-// deadline falls inside it.
-function allocatedInWindow(state, empId, fromISO, toISO) {
-  return state.tasks.filter(t => {
-    if (t.assignedTo !== empId) return false;
-    const dueIn = t.status !== 'completed' && t.internalDeadline && t.internalDeadline >= fromISO && t.internalDeadline <= toISO;
-    const doneIn = t.status === 'completed' && nzDay(t.completedAt) >= fromISO && nzDay(t.completedAt) <= toISO;
-    return dueIn || doneIn;
-  }).reduce((s, t) => s + (Number(t.tat) || 0), 0);
-}
-function allocationScorecard(state, teamName, fromISO, toISO) {
-  const r2 = n => Math.round(n * 100) / 100;
-  const roster = state.employees.filter(e => (e.team || '').trim() === teamName);
-  const reports = roster.filter(e => !isAdminRole(e.accessRole));
-  const people = reports.length ? reports : roster;
-  const slack = (Number(weightsForTeam(state, teamName).slackTolerancePct) || 10) / 100;
-  const weeks = weeksInRange(fromISO, toISO);
-  const notes = state.allocationNotes || [];
-  let sumAbsGap = 0, sumCap = 0, underWeeks = 0, untaggedWeeks = 0, overWeeks = 0;
-
-  const rows = people.map(e => {
-    let rAlloc = 0, rCap = 0;
-    const weekDetail = weeks.map(w => {
-      const wEnd = new Date(new Date(w + 'T00:00:00Z').getTime() + 6 * 86400000).toISOString().slice(0, 10);
-      const wf = w < fromISO ? fromISO : w;
-      const wt = wEnd > toISO ? toISO : wEnd;
-      const alloc = allocatedInWindow(state, e.id, wf, wt);
-      const capH = capacityHoursBetween(state, e, wf, wt);
-      rAlloc += alloc; rCap += capH;
-      if (capH > 0) { sumAbsGap += Math.abs(alloc - capH); sumCap += capH; }
-      const under = capH > 0 && alloc < capH * (1 - slack);
-      const over = capH > 0 && alloc > capH;
-      const note = notes.find(n => n.employeeId === e.id && n.weekStart === w) || null;
-      if (under) { underWeeks += 1; if (!note) untaggedWeeks += 1; }
-      if (over) overWeeks += 1;
-      return {
-        weekStart: w, allocated: r2(alloc), capacity: r2(capH),
-        under, over, reasonCode: note ? note.reasonCode : null, note: note ? note.note : null,
-      };
-    });
-    const sopReworkRounds = state.tasks.filter(t => t.assignedTo === e.id && t.status === 'completed'
-      && nzDay(t.completedAt) >= fromISO && nzDay(t.completedAt) <= toISO)
-      .reduce((s, t) => s + (t.reworkHistory || []).filter(h => h && h.faultType === 'sop').length, 0);
-    return {
-      id: e.id, name: e.name,
-      allocatedHours: r2(rAlloc), capacityHours: r2(rCap),
-      loadPct: rCap > 0 ? Math.round((rAlloc / rCap) * 100) : null,
-      status: rCap === 0 ? 'na' : rAlloc > rCap ? 'over' : rAlloc < rCap * (1 - slack) ? 'light' : 'balanced',
-      untaggedWeeks: weekDetail.filter(wd => wd.under && !wd.reasonCode).map(wd => wd.weekStart),
-      weeks: weekDetail,
-      sopReworkRounds,
-    };
-  });
-
-  return {
-    team: teamName,
-    slackTolerancePct: Math.round(slack * 100),
-    allocationAccuracy: sumCap > 0 ? Math.max(0, Math.round(100 - Math.min(100, (100 * sumAbsGap) / sumCap))) : null,
-    underAllocatedWeeks: underWeeks,
-    untaggedUnderAllocatedWeeks: untaggedWeeks,
-    overAllocatedWeeks: overWeeks,
-    sopReworkRounds: rows.reduce((s, r) => s + r.sopReworkRounds, 0),
-    reasons: UNDER_ALLOC_REASONS,
-    rows,
-  };
 }
 
 app.get('/api/productivity', requireAuth, (req, res) => {
@@ -3054,161 +3077,45 @@ app.get('/api/productivity', requireAuth, (req, res) => {
 
   const people = productivityFor(state, ids, from, to);
   const sum = (k) => people.reduce((s, p) => s + (p[k] || 0), 0);
-  const totalAlloc = sum('allocatedHours'), totalWorked = sum('workedHours'), totalCap = sum('capacityHours');
-
-  // Roll-up composite: build each factor from the summed raw inputs, then
-  // weight. When everyone in scope shares one team, use that team's weights;
-  // otherwise the firm default. Compare within a department, not across.
-  const teamsInScope = [...new Set(people.filter(p => p.tasks > 0).map(p => p.team))];
-  const rollWeights = teamsInScope.length === 1 ? weightsForTeam(state, teamsInScope[0]) : weightsForTeam(state, null);
-  const tMet = sum('met'), tMissed = sum('missed'), tReviewed = sum('reviewedTasks');
-  const tProcRework = sum('processorReworkRounds'), tChase = sum('chaseEvents'), tOpen = sum('openTasksInRange');
-  const tFairTarget = sum('fairTarget');
-  const clampPct = n => Math.max(0, Math.min(100, Math.round(n)));
-  const rollFactors = {
-    E: totalWorked > 0 ? clampPct(100 * totalAlloc / totalWorked) : null,
-    T: (tMet + tMissed) > 0 ? clampPct(100 * tMet / (tMet + tMissed)) : null,
-    R: tReviewed > 0 ? clampPct(100 - Math.min(40, 40 * tProcRework / tReviewed)) : null,
-    N: tOpen > 0 ? clampPct(100 - Math.min(30, 15 * tChase / tOpen)) : null,
-    C: tFairTarget > 0 ? clampPct(100 * totalWorked / tFairTarget) : null,
-  };
-  // Roll-up second score — coverage against summed full capacity.
-  const rollCapFactors = { ...rollFactors, C: totalCap > 0 ? clampPct(100 * totalWorked / totalCap) : rollFactors.C };
-  const rollCapScore = compositeScore(rollCapFactors, rollWeights);
-  const tAllocationGap = Math.round(Math.max(0, totalCap - sum('assignedLoad')) * 100) / 100;
-
-  // P4 — the manager's allocation scorecard for their own team, shown when
-  // the caller manages a team and isn't narrowed to a single person.
-  const managesTeam = isAdminRole(me.accessRole) && me.team && me.team.trim() && me.team !== 'Unassigned';
-  const allocation = (managesTeam && ids.length > 1) ? allocationScorecard(state, me.team.trim(), from, to) : null;
+  // Team/firm totals: summed hours over summed capacity, never an average of
+  // individual percentages (spec §15/§16) — a person with more capacity
+  // should weigh more in the team figure, not count the same as everyone else.
+  const totalQualified = sum('qualifiedHours'), totalCap = sum('capacityHours');
+  const rawTotalPct = totalCap > 0 ? (totalQualified / totalCap) * 100 : null;
+  const totalReportPoints = sum('reportPoints'), totalReportMax = sum('reportMaxPoints');
 
   res.json({
     from, to, requestedFrom, goLive: SYSTEM_GO_LIVE,
     goLiveApplied: from !== requestedFrom,
     fiscalYearStart: floorAtGoLive(fiscalYearStart(to), to),
     scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
-    // The Productivity table hides people with no delivered work in the range
-    // (noise). The Report Card picker asks for ?full=1 so a manager/founder can
-    // pull up anyone on their roster, output or not.
-    people: (req.query.full === '1') ? people : people.filter(p => p.tasks > 0 || ids.length === 1),
-    weights: rollWeights,
-    allocation,
+    // Spec §15 — show everyone in scope, including zero-output people, with
+    // a plain reason rather than hiding them.
+    people,
     totals: {
-      tasks: sum('tasks'),
-      allocatedHours: Math.round(totalAlloc * 100) / 100,
-      workedHours: Math.round(totalWorked * 100) / 100,
       capacityHours: Math.round(totalCap * 100) / 100,
-      utilisationPct: totalCap > 0 ? Math.round((totalWorked / totalCap) * 100) : null,
-      efficiency: totalWorked > 0 ? Math.round((totalAlloc / totalWorked) * 100) / 100 : null,
-      chaseEvents: tChase,
-      factors: rollFactors,
-      productivityScore: compositeScore(rollFactors, rollWeights),
-      capacityFactors: rollCapFactors,
-      capacityScore: rollCapScore,
-      allocationGapHours: tAllocationGap,
-      cumulativeYtdWorked: Math.round(sum('cumulativeYtdWorked') * 100) / 100,
+      qualifiedHours: Math.round(totalQualified * 100) / 100,
+      productivityPct: rawTotalPct == null ? null : Math.min(100, Math.round(rawTotalPct * 10) / 10),
+      additionalHours: rawTotalPct != null && rawTotalPct > 100 ? Math.round((totalQualified - totalCap) * 100) / 100 : 0,
+      notScorable: totalCap <= 0,
+      milestonesMet: sum('milestonesMet'), milestonesTotal: sum('milestonesTotal'),
+      reportsRequired: sum('reportsRequired'), reportsOnTime: sum('reportsOnTime'),
+      reportsLate: sum('reportsLate'), reportsReadyNotSent: sum('reportsReadyNotSent'), reportsNoDate: sum('reportsNoDate'),
+      reportPoints: totalReportPoints, reportMaxPoints: totalReportMax,
+      reportSentRate: totalReportMax > 0 ? Math.round((totalReportPoints / totalReportMax) * 1000) / 10 : null,
+      outstandingReports: sum('outstandingReports'),
+      assignedLoad: Math.round(sum('assignedLoad') * 100) / 100,
+      unallocatedHours: Math.round(sum('unallocatedHours') * 100) / 100,
     },
   });
 });
 
-// P3 — per-department score weights. Any admin can read; only a superadmin
-// sets them. E+T+R+N+C must sum to 1. `team: null` edits the firm default;
-// `weights: null` clears a team's override (falls back to default).
-app.get('/api/productivity/weights', requireAuth, requireAdmin, (req, res) => {
-  const state = db.get();
-  const store = state.productivityWeights || {};
-  const teams = [...new Set(state.employees.map(e => e.team).filter(t => t && t !== 'Unassigned'))].sort();
-  res.json({
-    default: { ...DEFAULT_WEIGHTS, ...(store._default || {}) },
-    byTeam: Object.fromEntries(teams.map(t => [t, store[t] ? { ...DEFAULT_WEIGHTS, ...(store._default || {}), ...store[t] } : null])),
-    baseDefault: DEFAULT_WEIGHTS,
-    teams,
-  });
-});
-app.put('/api/productivity/weights', requireAuth, requireSuperAdmin, (req, res) => {
-  const state = db.get();
-  const body = req.body || {};
-  const team = body.team == null ? '_default' : String(body.team);
-  if (!state.productivityWeights || typeof state.productivityWeights !== 'object') state.productivityWeights = {};
-  if (body.weights === null && team !== '_default') {
-    delete state.productivityWeights[team];
-    db.save();
-    return res.json({ ok: true, cleared: team });
-  }
-  const w = body.weights || {};
-  const nums = {};
-  for (const k of WEIGHT_KEYS) {
-    const v = Number(w[k]);
-    if (!(v >= 0 && v <= 1)) return res.status(400).json({ error: `Weight ${k} must be between 0 and 1.` });
-    nums[k] = Math.round(v * 1000) / 1000;
-  }
-  const total = WEIGHT_KEYS.reduce((s, k) => s + nums[k], 0);
-  if (Math.abs(total - 1) > 0.001) return res.status(400).json({ error: `The five weights must add up to 1 — they add up to ${total.toFixed(3)}.` });
-  const slack = Number(w.slackTolerancePct);
-  nums.slackTolerancePct = (slack >= 0 && slack <= 50) ? Math.round(slack) : DEFAULT_WEIGHTS.slackTolerancePct;
-  const minT = Number(w.minTasksForScore);
-  nums.minTasksForScore = (minT >= 1 && minT <= 50) ? Math.round(minT) : DEFAULT_WEIGHTS.minTasksForScore;
-  state.productivityWeights[team] = nums;
-  logEvent(state, req.employee.id, `Updated productivity weights for <b>${escHtml(team === '_default' ? 'the firm default' : team)}</b>.`);
-  db.save();
-  res.json({ ok: true, team, weights: nums });
-});
-
-// P4 — allocation notes. When a person's week comes in under capacity, the
-// manager tags why: an honest reason (SCHEDULING_GAP) keeps the flag on
-// their scorecard; a neutral one (CLIENT_DELAY, LOW_SEASON) clears it. One
-// note per person per ISO week; a manager over that person, or a superadmin.
-app.get('/api/allocation-notes', requireAuth, requireAdmin, (req, res) => {
-  const state = db.get();
-  const me = req.employee;
-  const all = state.allocationNotes || [];
-  const rows = me.accessRole === 'superadmin'
-    ? all
-    : all.filter(n => canManageEmployee(state, me, n.employeeId) || n.byId === me.id);
-  res.json({ notes: rows, reasons: UNDER_ALLOC_REASONS });
-});
-app.post('/api/allocation-notes', requireAuth, requireAdmin, (req, res) => {
-  const state = db.get();
-  const me = req.employee;
-  const b = req.body || {};
-  if (!b.employeeId || !findEmployee(state, b.employeeId)) return res.status(400).json({ error: 'Which person?' });
-  if (!canManageEmployee(state, me, b.employeeId)) return res.status(403).json({ error: 'Not your report.' });
-  if (!UNDER_ALLOC_REASONS[b.reasonCode]) return res.status(400).json({ error: 'Pick a valid reason.' });
-  if (typeof b.weekStart !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.weekStart)) return res.status(400).json({ error: 'Which week?' });
-  const weekStart = isoWeekStart(b.weekStart);
-  if (!Array.isArray(state.allocationNotes)) state.allocationNotes = [];
-  if (typeof state.allocationNoteSeq !== 'number') state.allocationNoteSeq = 0;
-  const now = new Date().toISOString();
-  let note = state.allocationNotes.find(n => n.employeeId === b.employeeId && n.weekStart === weekStart);
-  if (note) {
-    note.reasonCode = b.reasonCode;
-    note.note = (b.note == null ? '' : String(b.note)).slice(0, 300);
-    note.byId = me.id; note.at = now;
-  } else {
-    note = {
-      id: 'an-' + (++state.allocationNoteSeq),
-      employeeId: b.employeeId, weekStart, reasonCode: b.reasonCode,
-      note: (b.note == null ? '' : String(b.note)).slice(0, 300),
-      byId: me.id, at: now,
-    };
-    state.allocationNotes.push(note);
-  }
-  db.save();
-  res.json({ note });
-});
-app.delete('/api/allocation-notes/:id', requireAuth, requireAdmin, (req, res) => {
-  const state = db.get();
-  const me = req.employee;
-  const i = (state.allocationNotes || []).findIndex(n => n.id === req.params.id);
-  if (i < 0) return res.status(404).json({ error: 'Note not found.' });
-  const n = state.allocationNotes[i];
-  if (me.accessRole !== 'superadmin' && n.byId !== me.id && !canManageEmployee(state, me, n.employeeId)) {
-    return res.status(403).json({ error: 'Not yours to remove.' });
-  }
-  state.allocationNotes.splice(i, 1);
-  db.save();
-  res.json({ ok: true });
-});
+// Productivity rebuild removed the composite-score weights editor and the
+// allocation-notes scorecard entirely (both were part of the retired P3/P4
+// system) — GET/PUT /api/productivity/weights and the /api/allocation-notes
+// endpoints are gone. state.productivityWeights is no longer written to;
+// state.allocationNotes[] is left in place, untouched, as a read-only
+// historical record (nothing reads or writes it any more).
 
 // ---------------------------------------------------------------------------
 // WORKLOAD — who's occupied until when and how much they've cleared today,
@@ -3749,6 +3656,16 @@ app.post('/api/leave', requireAuth, (req, res) => {
   const type = LEAVE_TYPES.includes(b.type) ? b.type : 'ANNUAL';
   const halfDay = (b.halfDay === 'AM' || b.halfDay === 'PM') ? b.halfDay : null;
   if (halfDay && from !== to) return res.status(400).json({ error: 'A half day must be a single date.' });
+  // Custom/partial hours (e.g. "2 hours off") — an alternative to halfDay,
+  // not combinable with it; also a single-date-only request, same as a half
+  // day. Capped at a normal day's hours (checked against 7h in dayCapacity).
+  let hours = null;
+  if (b.hours !== undefined && b.hours !== null && b.hours !== '') {
+    hours = Number(b.hours);
+    if (!(hours > 0)) return res.status(400).json({ error: 'Custom hours must be a positive number.' });
+    if (from !== to) return res.status(400).json({ error: 'Custom-hours leave must be a single date.' });
+    if (halfDay) return res.status(400).json({ error: "Use either half-day or custom hours, not both." });
+  }
   const employeeId = b.employeeId || me.id;
   if (employeeId !== me.id && !canManageEmployee(state, me, employeeId)) {
     return res.status(403).json({ error: 'You can only request time off for yourself or your team.' });
@@ -3763,14 +3680,14 @@ app.post('/api/leave', requireAuth, (req, res) => {
   const now = new Date().toISOString();
   const l = {
     id: 'lv-' + (++state.leaveSeq),
-    employeeId, from, to, type, halfDay,
+    employeeId, from, to, type, halfDay, hours,
     reason: (b.reason == null ? '' : String(b.reason)).slice(0, 400),
     status: selfApprove ? 'approved' : 'pending',
     createdBy: me.id, createdAt: now,
     decidedBy: selfApprove ? me.id : null, decidedAt: selfApprove ? now : null, decisionNote: null,
   };
   state.leaveRequests.push(l);
-  logEvent(state, employeeId, `Time off ${selfApprove ? 'booked' : 'requested'} — ${from}${to !== from ? ' to ' + to : ''}${halfDay ? ' (half day)' : ''}${employeeId !== me.id ? ` by <b>${escHtml(me.name)}</b>` : ''}.`);
+  logEvent(state, employeeId, `Time off ${selfApprove ? 'booked' : 'requested'} — ${from}${to !== from ? ' to ' + to : ''}${halfDay ? ' (half day)' : ''}${hours ? ` (${hours}h)` : ''}${employeeId !== me.id ? ` by <b>${escHtml(me.name)}</b>` : ''}.`);
   db.save();
   res.status(201).json({ leave: publicLeave(state, l) });
 });
@@ -3809,6 +3726,50 @@ app.post('/api/leave/:id/cancel', requireAuth, (req, res) => {
   logEvent(state, l.employeeId, `Time off ${l.from}${l.to !== l.from ? '–' + l.to : ''} cancelled by ${escHtml(me.name)}.`);
   db.save();
   res.json({ leave: publicLeave(state, l) });
+});
+
+// ---------------------------------------------------------------------------
+// HOLIDAY CALENDAR — admin-manageable, replacing the hardcoded list that
+// used to live only in calendar.js (still there as the one-time seed / a
+// last-resort fallback if this table is ever emptied — see cal.setHolidays).
+// Every add/remove re-syncs calendar.js's in-memory working-day Set
+// immediately, so date math (commitment dates, capacity, query freezes)
+// reflects the change without a restart. Superadmin only — a wrong entry
+// here silently shifts every deadline and capacity number in the firm.
+// ---------------------------------------------------------------------------
+app.get('/api/holidays', requireAuth, (req, res) => {
+  const state = db.get();
+  res.json({ holidays: (state.holidays || []).slice().sort((a, b) => a.date.localeCompare(b.date)) });
+});
+app.post('/api/holidays', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const b = req.body || {};
+  const date = typeof b.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.date) ? b.date : null;
+  if (!date) return res.status(400).json({ error: 'Give a valid date (YYYY-MM-DD).' });
+  const name = (b.name == null ? '' : String(b.name)).trim().slice(0, 120);
+  if (!name) return res.status(400).json({ error: 'Give the holiday a name.' });
+  if ((state.holidays || []).some(h => h.date === date)) return res.status(409).json({ error: 'That date is already on the calendar.' });
+  state.holidays = state.holidays || [];
+  state.holidays.push({ date, name, addedBy: req.employee.id, addedAt: new Date().toISOString() });
+  cal.setHolidays(state.holidays.map(h => h.date));
+  logEvent(state, req.employee.id, `Added <b>${escHtml(name)}</b> (${date}) to the holiday calendar.`);
+  db.save();
+  res.status(201).json({ holidays: state.holidays.slice().sort((a, b) => a.date.localeCompare(b.date)) });
+});
+app.delete('/api/holidays/:date', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const date = req.params.date;
+  const before = (state.holidays || []).length;
+  state.holidays = (state.holidays || []).filter(h => h.date !== date);
+  if (state.holidays.length === before) return res.status(404).json({ error: 'Not on the calendar.' });
+  // Never let the working-day engine silently fall back to empty — if this
+  // was the last entry, cal.setHolidays() ignores an empty list and the
+  // hardcoded default keeps standing (see calendar.js) rather than opening
+  // every date up as a working day.
+  cal.setHolidays(state.holidays.length ? state.holidays.map(h => h.date) : cal.DEFAULT_HOLIDAYS.map(([d]) => d));
+  logEvent(state, req.employee.id, `Removed ${date} from the holiday calendar.`);
+  db.save();
+  res.json({ holidays: state.holidays.slice().sort((a, b) => a.date.localeCompare(b.date)) });
 });
 
 // ---------------------------------------------------------------------------
@@ -3869,6 +3830,9 @@ app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
     completedAt: null, reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
+    productivityAllocatedHoursSnapshot: 0, // accepted immediately, tat starts at 0
+    reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
+    reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [],
     source, sourceRef: b.sourceRef || null,
     estMinutes: b.estMinutes != null && !isNaN(Number(b.estMinutes)) ? Number(b.estMinutes) : null,
@@ -4123,6 +4087,9 @@ app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAcces
     reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
     reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
     sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
+    productivityAllocatedHoursSnapshot: status === 'accepted' ? (Number(numTat) || null) : null,
+    reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
+    reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], holdReasonCode: null,
     dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
     source: 'whatsapp', sourceRef: c.phone,

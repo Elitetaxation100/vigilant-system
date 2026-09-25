@@ -26,6 +26,7 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const cal = require('./calendar');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
@@ -382,6 +383,17 @@ function runMigrations(state) {
   if (typeof state.kudosSeq !== 'number') state.kudosSeq = 0;
   if (!Array.isArray(state.kudosRecommendations)) state.kudosRecommendations = [];
   if (typeof state.kudosRecSeq !== 'number') state.kudosRecSeq = 0;
+  // Productivity rebuild — the working-day holiday calendar moves from a
+  // hardcoded list (calendar.js) to an admin-manageable table, seeded once
+  // from that same list so nothing changes on day one. { date, name,
+  // addedBy, addedAt }. calendar.js's isWorkingDay() etc. actually read from
+  // its own in-memory Set — cal.setHolidays() below is what keeps that Set
+  // in sync with this table, called here (boot) and again by server.js
+  // whenever an admin adds/removes a date.
+  if (!Array.isArray(state.holidays) || !state.holidays.length) {
+    state.holidays = cal.DEFAULT_HOLIDAYS.map(([date, name]) => ({ date, name, addedBy: null, addedAt: null }));
+  }
+  cal.setHolidays(state.holidays.map(h => h.date));
   // Soft-delete: removed tasks / clients move to these holding areas so a
   // superadmin (or whoever removed it) can restore them. Nothing is ever
   // hard-deleted through the app any more.
@@ -505,6 +517,26 @@ function runMigrations(state) {
     if (t.profitConfirmRequestedBy === undefined) t.profitConfirmRequestedBy = null;
     if (t.profitConfirmAt === undefined) t.profitConfirmAt = null;
     if (t.profitConfirmBy === undefined) t.profitConfirmBy = null;
+    // Productivity rebuild — the allocated-hours value Productivity scores
+    // against, frozen at Accept so a later authorised tat change never
+    // silently rewrites historical productivity. Backfilled here from the
+    // task's current tat for anything accepted before this field existed —
+    // the best available value, per the migration plan (don't invent history
+    // that was never recorded). See server.js productivityQualifies().
+    if (t.productivityAllocatedHoursSnapshot === undefined) {
+      t.productivityAllocatedHoursSnapshot = t.acceptedAt ? (Number(t.tat) || null) : null;
+    }
+    // Client report delivery — stored facts only ('not_ready'|'ready_to_send'
+    // |'not_sent'|'sending_not_required'); on-time/late is always calculated
+    // from sentToClientAt vs the commitment date, never stored. Waiver fields
+    // are only meaningful when status === 'sending_not_required' — see
+    // server.js's tightened /send-to-client permission.
+    if (t.reportDeliveryStatus === undefined) t.reportDeliveryStatus = null;
+    if (t.reportDeliveryChannel === undefined) t.reportDeliveryChannel = null;
+    if (t.reportDeliveryReference === undefined) t.reportDeliveryReference = null;
+    if (t.reportDeliveryWaivedReason === undefined) t.reportDeliveryWaivedReason = null;
+    if (t.reportDeliveryWaivedBy === undefined) t.reportDeliveryWaivedBy = null;
+    if (t.reportDeliveryWaivedAt === undefined) t.reportDeliveryWaivedAt = null;
     // IA Phase 6 — canonical department, additive alongside the existing
     // free-text team (never overwritten or removed — see the one-time
     // backfill below, which is the only thing that ever sets department on

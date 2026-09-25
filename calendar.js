@@ -12,30 +12,50 @@
 // with NZ Mondayisation already applied.
 // ---------------------------------------------------------------------------
 
-const HOLIDAYS = new Set([
+// Default/seed list — used to populate state.holidays[] the first time the
+// admin-managed table is empty (see db.js migration + server.js
+// /api/holidays). Once state.holidays[] exists, THAT is the real source;
+// this array only matters as the one-time seed and as a last-resort
+// fallback if the table is ever empty (see setHolidays below).
+const DEFAULT_HOLIDAYS = [
   // 2026 (observed)
-  '2026-01-01', '2026-01-02',                 // New Year's Day, Day after
-  '2026-01-26',                                // Auckland Anniversary
-  '2026-02-06',                                // Waitangi Day
-  '2026-04-03', '2026-04-06',                  // Good Friday, Easter Monday
-  '2026-04-27',                                // ANZAC Day (observed, 25th falls Sat)
-  '2026-06-01',                                // King's Birthday
-  '2026-07-10',                                // Matariki
-  '2026-10-26',                                // Labour Day
-  '2026-12-25', '2026-12-28',                  // Christmas, Boxing Day (observed)
+  ['2026-01-01', "New Year's Day"], ['2026-01-02', 'Day after New Year\'s Day'],
+  ['2026-01-26', 'Auckland Anniversary'],
+  ['2026-02-06', 'Waitangi Day'],
+  ['2026-04-03', 'Good Friday'], ['2026-04-06', 'Easter Monday'],
+  ['2026-04-27', 'ANZAC Day (observed, 25th falls Sat)'],
+  ['2026-06-01', "King's Birthday"],
+  ['2026-07-10', 'Matariki'],
+  ['2026-10-26', 'Labour Day'],
+  ['2026-12-25', 'Christmas Day'], ['2026-12-28', 'Boxing Day (observed)'],
   // 2027 (observed)
-  '2027-01-01', '2027-01-04',                  // New Year's Day, Day after (observed)
-  '2027-02-01',                                // Auckland Anniversary
-  '2027-02-08',                                // Waitangi Day (observed, 6th falls Sat)
-  '2027-03-26', '2027-03-29',                  // Good Friday, Easter Monday
-  '2027-04-26',                                // ANZAC Day (observed, 25th falls Sun)
-  '2027-06-07',                                // King's Birthday
-  '2027-06-25',                                // Matariki
-  '2027-10-25',                                // Labour Day
-  '2027-12-27', '2027-12-28',                  // Christmas, Boxing Day (observed)
-]);
+  ['2027-01-01', "New Year's Day"], ['2027-01-04', "Day after New Year's Day (observed)"],
+  ['2027-02-01', 'Auckland Anniversary'],
+  ['2027-02-08', 'Waitangi Day (observed, 6th falls Sat)'],
+  ['2027-03-26', 'Good Friday'], ['2027-03-29', 'Easter Monday'],
+  ['2027-04-26', 'ANZAC Day (observed, 25th falls Sun)'],
+  ['2027-06-07', "King's Birthday"],
+  ['2027-06-25', 'Matariki'],
+  ['2027-10-25', 'Labour Day'],
+  ['2027-12-27', 'Christmas Day (observed)'], ['2027-12-28', 'Boxing Day (observed)'],
+];
 
-// Extra firm close-down days can be added at boot from state or env.
+let HOLIDAYS = new Set(DEFAULT_HOLIDAYS.map(([d]) => d));
+
+// Replaces the active holiday set wholesale — called at boot (and after any
+// admin add/remove) with the dates from state.holidays[], so that table
+// becomes the real source of truth instead of the hardcoded list above. A
+// firm-wide closure day is just another entry here (see server.js
+// FIRM_CLOSURE handling) — never left empty by mistake: an empty/invalid
+// list is ignored and the previous set (or the hardcoded default) stands.
+function setHolidays(list) {
+  if (!Array.isArray(list) || !list.length) return;
+  const clean = list.filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  if (!clean.length) return;
+  HOLIDAYS = new Set(clean);
+}
+
+// Extra firm close-down days can be added on top from state or env.
 function loadExtraHolidays(list) {
   (list || []).forEach(d => { if (/^\d{4}-\d{2}-\d{2}$/.test(d)) HOLIDAYS.add(d); });
 }
@@ -136,5 +156,7 @@ module.exports = {
   nextWorkingDay,
   queryShift,
   loadExtraHolidays,
-  _holidays: HOLIDAYS,
+  setHolidays,
+  DEFAULT_HOLIDAYS,
+  get _holidays() { return HOLIDAYS; }, // debug handle — a getter so it never goes stale after setHolidays()
 };

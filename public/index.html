@@ -1655,7 +1655,7 @@
           <div class="stat-card mg-tile" onclick="openMgTileList('ontrack')"><div class="label">On Track</div><div class="value teal" id="statOnTrack">0</div><div class="delta">due &gt; 1 day out</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('atrisk')"><div class="label">At Risk</div><div class="value amber" id="statAtRisk">0</div><div class="delta">due in ≤ 1 day</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('overdue')"><div class="label">Overdue</div><div class="value coral" id="statOverdueTasks">0</div><div class="delta" id="mgOverdueSub">—</div></div>
-          <div class="stat-card mg-tile" onclick="openMgTileList('productivity')"><div class="label">Team Productivity</div><div class="value" id="mgKpiProd">—</div><div class="delta" id="mgKpiProdSub">worked vs planned hrs</div></div>
+          <div class="stat-card mg-tile" onclick="openMgTileList('productivity')"><div class="label">Team Productivity</div><div class="value" id="mgKpiProd">—</div><div class="delta" id="mgKpiProdSub">qualified ÷ capacity hrs</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('commitment')"><div class="label">Commitment Met</div><div class="value teal" id="mgKpiCommit">—</div><div class="delta">on/before client date</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('accuracy')"><div class="label">Accuracy</div><div class="value" id="mgKpiAcc">—</div><div class="delta">error-free on review</div></div>
           <div class="stat-card mg-tile" onclick="openMgTileList('pending')"><div class="label">Awaiting Review</div><div class="value amber" id="mgKpiPending">0</div><div class="delta" id="mgPendingSub">—</div></div>
@@ -1691,23 +1691,9 @@
             <div id="riskFlagsWrap"></div>
           </details>
           <details class="panel panel-fold">
-            <summary><h2>Productivity</h2><span class="fold-hint">worked vs planned hrs</span></summary>
-            <div class="status-toggle" style="margin-bottom:12px;">
-              <button id="prodMonthBtn" class="on" onclick="event.stopPropagation(); setProductivityPeriod('month')">This Month</button>
-              <button id="prodYearBtn" onclick="event.stopPropagation(); setProductivityPeriod('year')">Fiscal Year</button>
-            </div>
-            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Hours worked vs. hours planned (TAT) for tasks completed in this period. Reporting runs monthly and by fiscal year (Apr–Mar).</p>
-            <div id="productivityWrap"></div>
-          </details>
-          <details class="panel panel-fold">
             <summary><h2>Commitment</h2><span class="fold-hint">delivered on/before client date</span></summary>
             <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Share of completed tasks delivered on or before the client's agreed date.</p>
             <div id="commitmentWrap"></div>
-          </details>
-          <details class="panel panel-fold">
-            <summary><h2>Allocation</h2><span class="fold-hint">did you fill the team's capacity?</span></summary>
-            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Your job is to fill each person's week to capacity. An under-filled week is yours to explain — tag a reason, or it counts against your allocation accuracy.</p>
-            <div id="allocationWrap">Loading…</div>
           </details>
         </div>
         <aside class="mg-side">
@@ -1782,7 +1768,7 @@
         <div class="perf-tab" id="tab-productivity" style="display:none;">
         <div class="panel">
           <div class="panel-head">
-            <h2>Productivity — allocated vs worked</h2>
+            <h2>Productivity — team</h2>
             <div class="panel-head-actions">
               <select id="prodPeriod" onchange="renderProductivityView()">
                 <option value="week">This week</option>
@@ -1800,11 +1786,14 @@
               </span>
             </div>
           </div>
-          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Productivity = worked hours ÷ capacity hours for each person. Click a tile to see exactly how that number was calculated, task by task.</p>
-          <div id="prodScoreCard"></div>
-          <div class="top-grid" id="prodTiles" style="margin-top:16px;"></div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-top:18px;" id="prodBody"></div>
-          <div id="prodTrend" style="margin-top:18px;"></div>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Qualified delivered allocated hours ÷ adjusted capacity — a task counts only once it's final-sendable, met the internal milestone, and (for client work) was actually sent to the client by the external date. Click anyone's row for the full calculation.</p>
+          <div id="prodTotals"></div>
+          <div style="max-height:60vh;overflow-y:auto;margin-top:16px;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <thead><tr><th>Person</th><th>Team</th><th style="text-align:right;">Capacity</th><th style="text-align:right;">Qualified</th><th style="text-align:right;">Productivity</th><th style="text-align:right;">Milestones</th><th style="text-align:right;">Reports on time</th><th></th></tr></thead>
+              <tbody id="prodBody"></tbody>
+            </table>
+          </div>
         </div>
         </div>
         <!-- Report Card is the default tab — the only one of the three
@@ -1833,62 +1822,24 @@
                 <input type="date" id="rcTo" onchange="renderReportCard()">
               </span>
             </div>
-            <div>
-              <label style="font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); font-weight:600; display:block; margin-bottom:4px;">Headline number</label>
-              <select id="rcHeadlineMode" onchange="renderReportCard()">
-                <option value="delivery" selected>Delivery score (efficiency, on-time, rework…)</option>
-                <option value="productivity">Productivity % (worked ÷ capacity)</option>
-              </select>
-            </div>
           </div>
         </div>
 
-        <div class="card-hero">
-          <div class="ring-wrap">
-            <svg width="150" height="150" viewBox="0 0 150 150">
-              <circle cx="75" cy="75" r="64" fill="none" stroke="#EAE3D2" stroke-width="12"/>
-              <circle cx="75" cy="75" r="64" fill="none" stroke="url(#g1)" stroke-width="12" stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402" id="rcRing" />
-              <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F0A93E"/><stop offset="100%" stop-color="#1F5B45"/></linearGradient></defs>
-            </svg>
-            <div class="ring-center"><div class="pct" id="rcPct">—</div><div class="lbl" id="rcRingLbl">Score</div></div>
-          </div>
-          <div class="rc-meta">
-            <h2 id="rcName">—</h2>
-            <div class="role" id="rcRole">—</div>
-            <div class="rc-stats">
-              <div class="rc-stat"><div class="v" id="rcOnTime" style="color:var(--teal);">—</div><div class="l">On-time</div></div>
-              <div class="rc-stat"><div class="v" id="rcUtil" style="color:#5B4FCF;">—</div><div class="l">Utilisation</div></div>
-              <div class="rc-stat"><div class="v" id="rcEff" style="color:#B45309;">—</div><div class="l">Efficiency</div></div>
-              <div class="rc-stat"><div class="v" id="rcCommitment" style="color:var(--teal);">—</div><div class="l">Commitment Met</div></div>
-              <div class="rc-stat"><div class="v" id="rcStreak" style="color:#C2410C;">—</div><div class="l">Best Streak</div></div>
-            </div>
-            <div class="badges-row" id="badgesRow"></div>
-          </div>
-        </div>
+        <div id="rcName" style="font-size:19px;font-weight:700;margin-bottom:2px;">—</div>
+        <div id="rcRole" style="font-size:13px;color:var(--text-faint);margin-bottom:14px;">—</div>
 
-        <div id="rcScoreCard" style="margin-top:18px;"></div>
-        <div class="top-grid" id="rcTiles" style="margin-top:16px;"></div>
+        <div id="rcCards"></div>
 
         <div class="panel" style="margin-top:16px;">
-          <div class="panel-head"><h2 style="font-size:15.5px;">How this score is built</h2></div>
-          <div id="rcExplain"></div>
-          <div id="rcWeightsEditor" style="margin-top:14px;"></div>
+          <div class="panel-head"><h2 style="font-size:15.5px;">Report Sent</h2></div>
+          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">A separate, per-report count of on-time client dispatch — the same dispatch fact also decides whether a task's hours qualify for Productivity above, by design, not double-counted.</p>
+          <div id="rcReportSent"></div>
         </div>
 
         <div class="panel" style="margin-top:16px;">
-          <div class="panel-head"><h2 style="font-size:15.5px;">Monthly — worked vs allocated</h2></div>
-          <div id="rcTrend"></div>
-        </div>
-
-        <div class="panel" style="margin-top:16px;">
-          <div class="panel-head"><h2 style="font-size:15.5px;">Delivery this period</h2></div>
-          <div id="rcDelivery"></div>
-        </div>
-
-        <div class="panel" style="margin-top:16px;">
-          <div class="panel-head"><h2 style="font-size:15.5px;">Still open, counted toward this period's load</h2></div>
-          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">Not delivered yet, but due in this period — this is the other half of "assigned load" behind the Coverage factor and the allocation gap above.</p>
-          <div id="rcOpenDue"></div>
+          <div class="panel-head"><h2 style="font-size:15.5px;">Exceptions — open work</h2></div>
+          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">Not yet delivered — zero productivity credit until it clears all three gates. Shown regardless of the period selected above.</p>
+          <div id="rcOpenWork"></div>
         </div>
         </div>
       </section>
@@ -2001,6 +1952,24 @@
         </div>
 
         <div class="panel">
+          <div class="panel-head"><h2>Firm holiday calendar</h2></div>
+          <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;max-width:70ch;">Drives every date calculation in the app — commitment dates, capacity, query freezes. Add a date once, and it's removed from everyone's productivity capacity for that day (never double-deducted against leave). Regional/observed dates change yearly — keep this current.</p>
+          <div class="field" style="max-width:420px;margin-top:12px;">
+            <label>Add a date</label>
+            <div style="display:flex;gap:8px;">
+              <input type="date" id="holAddDate" style="flex:0 0 170px;">
+              <input type="text" id="holAddName" placeholder="e.g. Labour Day" style="flex:1;">
+              <button class="btn primary small" onclick="addHoliday()">Add</button>
+            </div>
+          </div>
+          <div class="modal-error" id="holErr" style="display:none;margin-top:10px;"></div>
+          <div class="tl-scroll" style="margin-top:14px;"><table id="holTable">
+            <thead><tr><th>Date</th><th>Name</th><th style="width:70px;"></th></tr></thead>
+            <tbody id="holBody"></tbody>
+          </table></div>
+        </div>
+
+        <div class="panel">
           <div class="panel-head"><h2>Privacy report</h2></div>
           <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;max-width:70ch;">Task titles and descriptions that look like they contain a phone number or email address — client contact details belong on the Client record, not here. This is a read-only scan: nothing below has been changed. Use "Rename" to fix one deliberately.</p>
           <div id="piiSummary" style="font-size:13.5px;margin:10px 0;"></div>
@@ -2061,7 +2030,6 @@ let isSuperAdmin = false;
 let currentViewerId = null;
 let employees = [];
 let clients = [];
-let productivityPeriod = 'month';
 let tasks = [];
 let activityLog = [];
 let workload = []; // per-employee occupancy from /api/workload — who's booked until when
@@ -6425,7 +6393,6 @@ function renderManagerStatics(){
   renderManagerTeamStats();
   renderRiskFlags();
   renderClientOwnership();
-  renderProductivity();
   renderCommitment();
   renderAccuracy();
   renderNeedsAttention();
@@ -6473,108 +6440,18 @@ function ccDonut(pct, label, sub){
       <div class="cc-donut-sub">${sub}</div>
     </div>`;
 }
-/* The Manager Dashboard "Team Productivity" tile shows the precise
-   worked-hours ÷ capacity-hours figure (server-computed, leave-aware) — not
-   the 5-factor composite score. That detailed breakdown (efficiency,
-   on-time, rework, etc.) lives on the Report Card / Productivity page's
-   "Detailed breakdown" toggle instead. Falls back to the raw worked/planned
-   ratio already rendered if the fetch fails. */
+/* The Manager Dashboard "Team Productivity" tile mirrors the same
+   qualified-hours ÷ capacity-hours figure shown on the Performance page —
+   sum-of-hours, never an average of individual percentages. */
 async function refreshMgScore(){
   try {
     const d = await api('/api/productivity');
-    const s = d.totals.utilisationPct;
+    const s = d.totals.productivityPct;
     const el = document.getElementById('mgKpiProd'), sub = document.getElementById('mgKpiProdSub');
     if(el && s != null){ el.textContent = s + '%'; el.style.color = scoreColor(s); }
-    else if(el){ el.textContent = '—'; }
-    if(sub) sub.textContent = 'worked ÷ capacity hrs';
-    renderAllocationPanel(d.allocation);
+    else if(el){ el.textContent = d.totals.notScorable ? 'n/a' : '—'; }
+    if(sub) sub.textContent = 'qualified ÷ capacity hrs';
   } catch(e){ /* keep the raw ratio */ }
-}
-/* P4 — the manager's allocation scorecard. Their job is to fill each
-   person's week to capacity; an under-filled week must carry a reason or it
-   counts against their allocation accuracy. */
-let _allocData = null;
-function renderAllocationPanel(a){
-  const wrap = document.getElementById('allocationWrap');
-  if(!wrap) return;
-  _allocData = a;
-  if(!a){ wrap.innerHTML = `<div style="font-size:13.5px;color:var(--text-faint);">Allocation tracking shows once you're managing a team.</div>`; return; }
-  const acc = a.allocationAccuracy;
-  const pill = s => ({
-    balanced:'<span class="badge completed dot">balanced</span>',
-    light:'<span class="badge awaiting dot">under-filled</span>',
-    over:'<span class="badge overdue dot">over capacity</span>',
-    na:'<span class="badge dot" style="opacity:.5;">no capacity</span>',
-  }[s] || s);
-  const head = `<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:baseline;margin-bottom:12px;">
-    <div><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-faint);">Allocation accuracy</div>
-      <div style="font-size:26px;font-weight:700;font-family:var(--font-mono);color:${acc==null?'var(--text-faint)':acc>=85?'var(--teal)':acc>=65?'var(--amber)':'var(--coral)'};">${acc==null?'—':acc+'%'}</div></div>
-    <div style="font-size:13px;color:var(--text-dim);">
-      ${a.underAllocatedWeeks} under-allocated person-week${a.underAllocatedWeeks===1?'':'s'}
-      ${a.untaggedUnderAllocatedWeeks>0?` · <b style="color:#C2410C;">${a.untaggedUnderAllocatedWeeks} untagged</b>`:' · all tagged'}
-      ${a.overAllocatedWeeks?` · ${a.overAllocatedWeeks} over capacity`:''}
-      ${a.sopReworkRounds?` · ${a.sopReworkRounds} SOP-fault rework round${a.sopReworkRounds===1?'':'s'} (yours, not the processor's)`:''}
-    </div>
-  </div>`;
-  const rows = a.rows.map(r => {
-    const load = r.loadPct==null?0:Math.min(140, r.loadPct);
-    const barCol = r.status==='over' ? '#F0603E' : r.status==='light' ? '#E8A33D' : 'var(--teal)';
-    const untag = (r.untaggedWeeks||[]).length;
-    const tagBtn = untag>0 ? `<button class="btn-ghost btn-sm" onclick="openAllocTag('${r.id}')">Tag ${untag} week${untag===1?'':'s'}</button>` : '';
-    const tagged = r.weeks.filter(w=>w.reasonCode);
-    const byReason = {};
-    tagged.forEach(w=>{ byReason[w.reasonCode] = (byReason[w.reasonCode]||0)+1; });
-    const taggedLine = tagged.length
-      ? `<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">${Object.entries(byReason).map(([code,n])=>`${n} wk${n===1?'':'s'} · ${esc(a.reasons[code]||code)}`).join('  ·  ')}</div>`
-      : '';
-    return `<div class="to-row">
-      <div class="to-main">
-        <b>${esc(r.name)}</b> — ${r.allocatedHours}h of ${r.capacityHours}h ${pill(r.status)}
-        <div class="cap-bar-track" style="margin-top:5px;max-width:240px;"><div class="cap-bar-fill" style="width:${Math.round(load/140*100)}%;background:${barCol};"></div></div>
-        ${taggedLine}
-      </div>
-      ${tagBtn}
-    </div>`;
-  }).join('');
-  wrap.innerHTML = head + (rows || '<div style="font-size:13px;color:var(--text-faint);">No reports on your team yet.</div>');
-}
-function openAllocTag(empId){
-  const a = _allocData; if(!a) return;
-  const row = a.rows.find(r=>r.id===empId); if(!row) return;
-  const weeks = row.untaggedWeeks || [];
-  const reasonOpts = Object.entries(a.reasons).map(([k,v])=>`<option value="${k}">${esc(v)}</option>`).join('');
-  document.getElementById('modalBox').innerHTML = `
-    <div class="tasklist-modal">
-      <h3>Tag under-allocation — ${esc(row.name)}</h3>
-      <div class="modal-sub">An honest reason (didn't line up work) stays on your scorecard; a neutral one (client delay, low season) clears it.</div>
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">
-        <label style="font-size:12px;color:var(--text-faint);">Week${weeks.length>1?'s':''}
-          <select id="atWeek" ${weeks.length<=1?'disabled':''}>
-            ${weeks.length>1?`<option value="__all">All ${weeks.length} untagged weeks</option>`:''}
-            ${weeks.map(w=>`<option value="${w}">${fmtDate(w)}</option>`).join('')}
-          </select>
-        </label>
-        <label style="font-size:12px;color:var(--text-faint);">Reason <select id="atReason">${reasonOpts}</select></label>
-        <label style="font-size:12px;color:var(--text-faint);">Note (optional) <input type="text" id="atNote" maxlength="300" placeholder="context for the record"></label>
-      </div>
-      <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitAllocTag('${empId}')">Save</button></div>
-    </div>`;
-  openModal();
-}
-async function submitAllocTag(empId){
-  const a = _allocData; const row = a.rows.find(r=>r.id===empId);
-  const wsel = document.getElementById('atWeek').value;
-  const weeks = wsel === '__all' ? (row.untaggedWeeks||[]) : [wsel];
-  const reasonCode = document.getElementById('atReason').value;
-  const note = document.getElementById('atNote').value || undefined;
-  try {
-    for(const weekStart of weeks){
-      await api('/api/allocation-notes', { method:'POST', body: JSON.stringify({ employeeId: empId, weekStart, reasonCode, note }) });
-    }
-    closeModal();
-    showToast('success', 'Tagged', `${weeks.length} week${weeks.length===1?'':'s'} recorded.`);
-    renderManagerStatics();
-  } catch(e){ showToast('error', 'Could not save', e.message); }
 }
 async function renderCommandCenter(){
   if(!document.getElementById('ccStatTotal') || !isSuperAdmin) return;
@@ -6941,110 +6818,36 @@ function _prodRange(){
   else { from = fiscalYearStartDate(now); }   // 'year' = fiscal year
   return { from: iso(from), to: iso(now) };
 }
-/* P3 — composite productivity score. Five weighted factors, 0–100 each:
-   E efficiency · T timeliness · R rework quality · N reminder discipline ·
-   C delivery coverage. Weights are per-department and sum to 1. */
-const PF_META = { E:['Efficiency','allocated ÷ worked'], T:['On-time','met ÷ dated'], R:['Rework','processor faults'], N:['Reminders','chases ÷ tasks'], C:['Coverage','worked ÷ allocated'] };
-function pfColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? 'var(--teal)' : v>=60 ? 'var(--amber)' : 'var(--coral)'; }
+// Productivity rebuild — the six approved cards (spec §12), shared by the
+// Report Card (one person) and reused conceptually for team/firm totals.
+// `p` is one row from /api/productivity's `people[]` or the `totals` object
+// — both carry the same field names, so this works for either.
 function scoreColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? 'var(--teal)' : v>=60 ? 'var(--amber)' : 'var(--coral)'; }
-function factorBarsHtml(factors, weights){
-  return `<div class="pfactors">` + ['E','T','R','N','C'].map(k=>{
-    const v = factors ? factors[k] : null;
-    const w = weights && weights[k]!=null ? weights[k] : null;
-    return `<div class="pf" title="${PF_META[k][1]}${w!=null?` · weight ${(+w).toFixed(2)}`:''}">
-      <div class="pf-top"><span>${PF_META[k][0]}</span><b>${v==null?'—':v}</b></div>
-      <div class="pf-track">${v==null?'':`<div class="pf-fill" style="width:${v}%;background:${pfColor(v)};"></div>`}</div>
-      ${w!=null?`<div style="font-size:10px;color:var(--text-faint);margin-top:2px;">w ${(+w).toFixed(2)}</div>`:''}
-    </div>`;
-  }).join('') + `</div>`;
-}
-async function renderWeightsEditor(containerId){
-  const wrap = document.getElementById(containerId || 'rcWeightsEditor');
-  if(!wrap) return;
-  if(!isSuperAdmin){ wrap.innerHTML=''; return; }
-  let cfg;
-  try { cfg = await api('/api/productivity/weights'); }
-  catch(e){ wrap.innerHTML=''; return; }
-  const teams = ['_default', ...cfg.teams];
-  const rowFor = t => {
-    const w = t==='_default' ? cfg.default : (cfg.byTeam[t] || cfg.default);
-    const overridden = t!=='_default' && !!cfg.byTeam[t];
-    const id = 'pw_'+t.replace(/[^a-z0-9]/gi,'');
-    return `<details class="panel panel-fold" style="margin:6px 0;"><summary><b>${t==='_default'?'Firm default':esc(t)}</b>${overridden?' <span class="badge completed dot" style="font-size:10px;">custom</span>':''}</summary>
-      <div class="pw-grid" data-pw="${esc(t)}" id="${id}">
-        ${['E','T','R','N','C'].map(k=>`<div><label>${PF_META[k][0]} (${k})</label><input type="number" step="0.05" min="0" max="1" data-k="${k}" value="${(+w[k]).toFixed(2)}" oninput="pwSum('${id}')"></div>`).join('')}
-        <div><label>Slack tol. %</label><input type="number" step="1" min="0" max="50" data-k="slackTolerancePct" value="${w.slackTolerancePct??10}"></div>
-        <div><label>Min tasks</label><input type="number" step="1" min="1" max="50" data-k="minTasksForScore" value="${w.minTasksForScore??5}"></div>
-      </div>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:8px;">
-        <span class="pw-sum" id="${id}_sum"></span>
-        <button class="btn primary small" onclick="saveWeights('${esc(t)}','${id}')">Save</button>
-        ${overridden?`<button class="btn small" onclick="saveWeights('${esc(t)}','${id}',true)">Reset to default</button>`:''}
-      </div>
-    </details>`;
-  };
-  wrap.innerHTML = `<details class="panel panel-fold" style="margin-top:14px;"><summary><h2 style="display:inline;font-size:15px;">Score weights</h2> <span class="fold-hint">per department · must sum to 1</span></summary>
-    <p style="font-size:12.5px;color:var(--text-dim);margin:6px 0 4px;">Each department's five weights add up to 1. A heavier weight says that factor matters more for that team — so a score means different things per team, and people are only compared within a department.</p>
-    ${teams.map(rowFor).join('')}</details>`;
-  teams.forEach(t=>pwSum('pw_'+t.replace(/[^a-z0-9]/gi,'')));
-}
-function pwSum(gridId){
-  const g = document.getElementById(gridId); if(!g) return;
-  let s=0; g.querySelectorAll('input[data-k]').forEach(i=>{ if(['E','T','R','N','C'].includes(i.dataset.k)) s+=parseFloat(i.value)||0; });
-  const el = document.getElementById(gridId+'_sum');
-  if(el){ const ok=Math.abs(s-1)<0.001; el.textContent = `Σ = ${s.toFixed(2)}`; el.style.color = ok ? 'var(--teal)' : '#F0603E'; }
-}
-async function saveWeights(team, gridId, reset){
-  const body = { team: team==='_default' ? null : team };
-  if(reset){ body.weights = null; }
-  else {
-    const g = document.getElementById(gridId); const w = {};
-    g.querySelectorAll('input[data-k]').forEach(i=>{ w[i.dataset.k] = parseFloat(i.value)||0; });
-    body.weights = w;
-  }
-  try {
-    await api('/api/productivity/weights', { method:'PUT', body: JSON.stringify(body) });
-    showToast('success', reset?'Reset to default':'Weights saved', 'The score recomputes on the next load.');
-    renderProductivityView();
-  } catch(e){ showToast('error', 'Could not save', e.message); }
-}
-// Precise, no weights — just worked hours over capacity hours. The 5-factor
-// composite (efficiency, on-time, rework, coverage, etc.) lives on the
-// Report Card only; this page never shows that math, only a link to it.
-function simpleScoreCardHtml(pct, workedHours, capacityHours, sub){
-  const big = pct==null
-    ? `<span style="color:var(--text-faint);">—</span>`
-    : `${pct}<small>%</small>`;
-  return `<div class="pscore">
-    <div>
-      <div class="pscore-label">Productivity</div>
-      <div class="pscore-big" style="color:${scoreColor(pct)};">${big}</div>
-      <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">worked ${workedHours.toFixed(1)}h ÷ capacity ${capacityHours.toFixed(0)}h${sub?' · '+esc(sub):''}</div>
-    </div>
+function productivityCardsHtml(p, opts){
+  opts = opts || {};
+  const pctColor = p.notScorable ? 'var(--text-faint)' : scoreColor(p.productivityPct);
+  const pctBig = p.notScorable ? 'Not scorable' : (p.productivityPct==null ? '—' : `${p.productivityPct}<small>%</small>`);
+  const card = (label, value, sub, color) => `<div class="metric-tile">
+    <div class="mt-label">${esc(label)}</div>
+    <div class="mt-value"${color?` style="color:${color};"`:''}>${value}</div>
+    ${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}
   </div>`;
+  return `<div class="top-grid">
+    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays?` − ${p.leaveDays} leave`:''}`)}
+    ${card('Qualified Delivered Allocated Hours', p.qualifiedHours.toFixed(1)+'h', null)}
+    ${card('Productivity', pctBig, p.notScorable ? 'No available capacity in this period' : (p.additionalHours>0 ? `Additional qualifying output: ${p.additionalHours.toFixed(1)}h` : null), pctColor)}
+    ${card('Internal Milestones Met', `${p.milestonesMet}/${p.milestonesTotal}`, null)}
+    ${card('Client Reports Sent On Time', `${p.reportsOnTime}/${p.reportsRequired}`, p.reportSentRate==null?null:`${p.reportSentRate}%`)}
+    ${card('Outstanding Client Reports', p.outstandingReports, p.outstandingReports>0?'ready or overdue, not yet sent':null, p.outstandingReports>0?'var(--coral)':null)}
+  </div>
+  ${!opts.hideCalcLink ? `<div style="margin-top:10px;"><a href="#" onclick="event.preventDefault(); ${opts.calcOnclick}" style="font-size:12.5px;color:var(--purple);font-weight:600;">View calculation →</a></div>` : ''}`;
 }
-// Jump straight to that person's Report Card — the only place the
-// efficiency / on-time / rework / coverage math is shown.
+// Jump straight to that person's Report Card.
 function openReportCardFor(id){
   _rcPersonId = id;
   _perfTab = 'report';
   showView('performance', document.querySelector('.nav-item[data-view="performance"]'));
 }
-function prodEmpTileHtml(p){
-  const pct = p.utilisationPct;
-  const color = pct==null ? 'var(--text-faint)' : pct>110 ? 'var(--coral)' : pct>=75 ? 'var(--teal)' : pct>=40 ? 'var(--amber)' : 'var(--coral)';
-  return `<div class="metric-tile mg-tile" onclick="openProdCalcModal('${p.id}')" title="How ${esc(p.name)}'s ${pct==null?'—':pct+'%'} was calculated">
-    <div class="mt-label">${esc(p.name)}</div>
-    <div style="font-size:11px;color:var(--text-faint);margin:-6px 0 10px;">${esc(p.team)}</div>
-    <div class="mt-value" style="color:${color};">${pct==null?'—':pct+'<small>%</small>'}</div>
-    <div style="font-size:11px;color:var(--text-faint);margin-top:4px;">${p.workedHours.toFixed(1)}h worked / ${p.capacityHours.toFixed(0)}h capacity</div>
-    <div style="font-size:11.5px;color:var(--purple);margin-top:10px;font-weight:600;">View calculation →</div>
-  </div>`;
-}
-// The exact arithmetic behind a tile's % — capacity built up day by day,
-// worked hours built up task by task — shown inline, not a navigation
-// away. The composite score (efficiency/on-time/rework/etc.) stays on the
-// Report Card only; a link to it here is optional, not the default.
 let _prodData = null;
 // Real elapsed hours on a task right now — banked time plus whatever's
 // accrued since the timer last started, if it's still running. Mirrors the
@@ -7055,77 +6858,64 @@ function liveElapsed(t){
   if(t.status === 'completed' || !t.timerStartedAt) return logged;
   return logged + (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
 }
-function openProdCalcModal(id){
-  const d = _prodData;
-  if(!d) return;
-  const p = (d.people || []).find(x => x.id === id);
+// Three-stage responsibility labels (spec §11/§13) — processor / reviewer /
+// sender never blended into one verdict.
+const STAGE_LABELS = {
+  met:'Met', missed:'Missed', clean:'Clean', done:'Closed (no review)', error:'Error', pending:'Pending',
+  sent_on_time:'Sent on time', sent_late:'Sent late', not_sent:'Not sent', sending_not_required:'Not required',
+};
+function stageLabel(s){ return s ? esc(STAGE_LABELS[s] || s) : '<span style="color:var(--text-faint);">—</span>'; }
+function taskCalcTableHtml(rows, showReason){
+  if(!rows.length) return `<p style="font-size:12.5px;color:var(--text-faint);padding:8px 0;">None.</p>`;
+  return `<div style="overflow-x:auto;max-height:26vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+    <thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">
+      <th style="padding:5px 6px 5px 0;">Task</th><th style="padding:5px 6px;">Client</th><th style="padding:5px 6px;">Processor</th><th style="padding:5px 6px;">Reviewer</th><th style="padding:5px 6px;">Sender</th><th style="padding:5px 6px;text-align:right;">Hours</th>${showReason?'<th style="padding:5px 6px;">Reason</th>':''}</tr></thead>
+    <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:5px 6px 5px 0;font-weight:600;">${esc(r.name)}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.clientName)}</td>
+      <td style="padding:5px 6px;">${stageLabel(r.stages.processor)}</td>
+      <td style="padding:5px 6px;">${stageLabel(r.stages.reviewer)}</td>
+      <td style="padding:5px 6px;">${stageLabel(r.stages.sender)}</td>
+      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${r.allocatedHours.toFixed(1)}h</td>
+      ${showReason?`<td style="padding:5px 6px;color:var(--coral);">${esc(r.exclusionReason||'')}</td>`:''}
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+function openWorkTableHtml(rows){
+  if(!rows.length) return `<p style="font-size:12.5px;color:var(--text-faint);padding:8px 0;">Nothing open right now.</p>`;
+  return `<div style="overflow-x:auto;max-height:30vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+    <thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">
+      <th style="padding:5px 6px 5px 0;">Task</th><th style="padding:5px 6px;">Client</th><th style="padding:5px 6px;text-align:right;">Allocated</th><th style="padding:5px 6px;">Status</th><th style="padding:5px 6px;">Internal due</th><th style="padding:5px 6px;">External date</th><th style="padding:5px 6px;">Next action</th></tr></thead>
+    <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:5px 6px 5px 0;font-weight:600;">${esc(r.name)}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.clientName)}</td>
+      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${r.allocatedHours.toFixed(1)}h</td>
+      <td style="padding:5px 6px;">${esc((r.status||'').replace('_',' '))}${r.holdReason?' · '+esc(r.holdReason):''}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${r.internalDeadline?fmtDate(r.internalDeadline):'—'}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${r.clientDate?fmtDate(r.clientDate):'—'}</td>
+      <td style="padding:5px 6px;color:var(--text-faint);">${esc(r.nextAction||'')}</td>
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+// The drill-down — spec §13: qualified + excluded task tables (sum of
+// qualified credited hours must equal the headline number exactly, since
+// both read the same server-computed rows, never recomputed client-side),
+// plus the plain allocation-gap info line (spec §9 — informational only).
+function openProductivityCalcModal(p){
   if(!p) return;
-  const from = d.from, to = d.to;
-  const done = tasks.filter(t => t.assignedTo === id && t.status === 'completed'
-    && t.completedAt && dayOf(t.completedAt) >= from && dayOf(t.completedAt) <= to)
-    .sort((a,b) => (a.completedAt||'').localeCompare(b.completedAt||''));
-  const sumWorked = done.reduce((s,t) => s + taskHrs(t), 0);
-  const pct = p.utilisationPct;
-  const perDay = p.baseHoursPerDay || p.effectiveCapacity || 8;
-  const capLabel = `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays ? ` − ${p.leaveDays} leave` : ''} × ${perDay}h/day`;
-
-  const mine = tasks.filter(t => t.assignedTo === id);
-  const inProgress = mine.filter(t => !['completed','on_hold','pending_approval'].includes(t.status))
-    .sort((a,b) => liveElapsed(b) - liveElapsed(a));
-  const onHold = mine.filter(t => t.status === 'on_hold')
-    .sort((a,b) => liveElapsed(b) - liveElapsed(a));
-  const wipHours = inProgress.reduce((s,t) => s + liveElapsed(t), 0);
-  const holdHours = onHold.reduce((s,t) => s + liveElapsed(t), 0);
-
-  const table = (cols, rowsHtml, emptyMsg) => `<div style="overflow-x:auto;max-height:30vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0;background:var(--panel);">
-        ${cols.map(c => `<th style="padding:6px 8px 6px 0;${c.right?'text-align:right;':''}">${c.label}</th>`).join('')}</tr></thead>
-      <tbody>${rowsHtml || `<tr><td colspan="${cols.length}" style="padding:10px;text-align:center;color:var(--text-faint);">${emptyMsg}</td></tr>`}</tbody>
-    </table></div>`;
-
-  const doneRows = done.map(t => `<tr style="border-top:1px solid var(--panel-border);">
-      <td style="padding:6px 8px 6px 0;font-weight:600;">${esc(t.name)}</td>
-      <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
-      <td style="padding:6px 8px;color:var(--text-dim);">${fmtDate(dayOf(t.completedAt))}</td>
-      <td style="padding:6px 8px;font-family:var(--font-mono);text-align:right;">${taskHrs(t).toFixed(1)}h</td>
-    </tr>`).join('');
-  const wipRows = inProgress.map(t => `<tr style="border-top:1px solid var(--panel-border);">
-      <td style="padding:6px 8px 6px 0;font-weight:600;">${esc(t.name)}</td>
-      <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
-      <td style="padding:6px 8px;">${miniState(t) || esc((t.status||'').replace('_',' '))}</td>
-      <td style="padding:6px 8px;font-family:var(--font-mono);text-align:right;">${liveElapsed(t).toFixed(1)}h</td>
-    </tr>`).join('');
-  const holdRows = onHold.map(t => `<tr style="border-top:1px solid var(--panel-border);">
-      <td style="padding:6px 8px 6px 0;font-weight:600;">${esc(t.name)}</td>
-      <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
-      <td style="padding:6px 8px;color:var(--text-dim);">${esc(t.holdReason || '—')}</td>
-      <td style="padding:6px 8px;font-family:var(--font-mono);text-align:right;">${liveElapsed(t).toFixed(1)}h</td>
-    </tr>`).join('');
-
   document.getElementById('modalBox').innerHTML = `
     <div class="calc-modal">
-    <h3>${esc(p.name)} — ${pct==null?'—':pct+'%'} productivity</h3>
-    <div class="modal-sub">worked hours ÷ capacity hours · ${fmtDate(from)}–${fmtDate(to)} · every hour counted from go-live, never earlier</div>
-    <div style="margin:14px 0;padding:12px 14px;border-radius:10px;background:var(--panel-2);font-size:13.5px;line-height:1.7;">
-      <b>Capacity</b> — ${capLabel} = <b>${p.capacityHours.toFixed(0)}h</b><br>
-      <b>Worked</b> — sum of hours on the ${done.length} completed task${done.length===1?'':'s'} below = <b>${sumWorked.toFixed(1)}h</b>
-      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--panel-border);font-family:var(--font-mono);">
-        ${sumWorked.toFixed(1)}h ÷ ${p.capacityHours.toFixed(0)}h = <b style="color:${scoreColor(pct)};">${pct==null?'—':pct+'%'}</b>
-      </div>
+    <h3>${esc(p.name)} — calculation</h3>
+    <div class="modal-sub">${p.capacityHours.toFixed(1)}h capacity · ${p.qualifiedHours.toFixed(1)}h qualified${p.notScorable?' · not scorable — no available capacity in this period':''}</div>
+    <div style="font-size:13px;font-weight:600;margin:14px 0 6px;">Qualified — full allocated hours credited</div>
+    ${taskCalcTableHtml(p.qualifiedTasks, false)}
+    <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Excluded — zero hours credited</div>
+    ${taskCalcTableHtml(p.excludedTasks, true)}
+    <div style="margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:12.5px;color:var(--text-dim);">
+      Capacity ${p.capacityHours.toFixed(1)}h · Assigned ${p.assignedLoad.toFixed(1)}h · Unallocated ${p.unallocatedHours.toFixed(1)}h — manager allocation, not scored
     </div>
-    <div style="font-size:13px;font-weight:600;margin:14px 0 6px;">Completed — counted above</div>
-    ${table([{label:'Task'},{label:'Client'},{label:'Completed'},{label:'Hours',right:true}], doneRows, 'No completed work counted in this period.')}
-
-    <div style="font-size:13px;font-weight:600;margin:18px 0 2px;">In progress — not counted in the % <span style="font-weight:400;color:var(--text-faint);">(${wipHours.toFixed(1)}h logged so far)</span></div>
-    <p style="font-size:11.5px;color:var(--text-faint);margin:0 0 6px;">Shown for context only — a task only counts toward productivity once it's delivered.</p>
-    ${table([{label:'Task'},{label:'Client'},{label:'Status'},{label:'Hours',right:true}], wipRows, 'Nothing in progress right now.')}
-
-    <div style="font-size:13px;font-weight:600;margin:18px 0 2px;">On hold — not counted in the % <span style="font-weight:400;color:var(--text-faint);">(${holdHours.toFixed(1)}h logged so far)</span></div>
-    ${table([{label:'Task'},{label:'Client'},{label:'Hold reason'},{label:'Hours',right:true}], holdRows, 'Nothing on hold right now.')}
-
     <div class="modal-actions" style="margin-top:16px;">
       <button class="btn" onclick="closeModal()">Close</button>
-      <button class="btn" onclick="closeModal(); openReportCardFor('${id}');">Full Report Card →</button>
     </div>
     </div>`;
   openModal();
@@ -7136,49 +6926,21 @@ async function renderProductivityView(){
   const { from: reqFrom, to } = _prodRange();
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}`); }
-  catch(e){ body.innerHTML = `<div style="color:var(--text-faint);padding:20px;text-align:center;grid-column:1/-1;">${esc(e.message)}</div>`; return; }
+  catch(e){ body.innerHTML = `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
   _prodData = data;
-  const T = data.totals;
-  // the server floors every window at go-live (7 Sept 2026) — no real data
-  // before then. Show the range the numbers were actually computed over.
-  const from = data.from || reqFrom;
-  const rangeLbl = `${data.scope} · ${fmtDate(from)}–${fmtDate(to)}${data.goLiveApplied ? ' · from go-live' : ''}`;
-  const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}</div>`;
-  document.getElementById('prodScoreCard').innerHTML = simpleScoreCardHtml(T.utilisationPct, T.workedHours, T.capacityHours, rangeLbl);
-  document.getElementById('prodTiles').innerHTML =
-    tile('Worked hours', T.workedHours.toFixed(1), `of ${T.allocatedHours.toFixed(1)} allocated`) +
-    tile('Utilisation', T.utilisationPct==null?'—':T.utilisationPct+'%', `vs ${T.capacityHours.toFixed(0)}h capacity`) +
-    tile('Efficiency', T.efficiency==null?'—':T.efficiency.toFixed(2)+'×', T.efficiency>=1?'under budget':'over budget') +
-    tile('Tasks delivered', T.tasks, rangeLbl) +
-    tile('Fiscal YTD', T.cumulativeYtdWorked.toFixed(0)+'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`);
-
-  const rows = data.people.slice().sort((a,b)=>(b.utilisationPct??-1)-(a.utilisationPct??-1) || b.workedHours-a.workedHours);
-  body.innerHTML = rows.length ? rows.map(prodEmpTileHtml).join('')
-    : `<div style="text-align:center;color:var(--text-faint);padding:22px;grid-column:1/-1;">No completed work in this range.</div>`;
-
-  // monthly trend — worked vs allocated, per month, summed across the scope
-  const mk = {};
-  data.people.forEach(p => (p.monthly||[]).forEach(m => {
-    (mk[m.monthStart] = mk[m.monthStart] || { monthStart:m.monthStart, worked:0, allocated:0, tasks:0 });
-    mk[m.monthStart].worked += m.worked; mk[m.monthStart].allocated += m.allocated; mk[m.monthStart].tasks += m.tasks;
-  }));
-  const series = Object.values(mk).sort((a,b)=>a.monthStart.localeCompare(b.monthStart));
-  const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
-  const monthLbl = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
-  document.getElementById('prodTrend').innerHTML = series.length === 0 ? ''
-    : series.length === 1
-    ? `<p style="font-size:13px;color:var(--text-faint);">Only one month (${monthLbl(series[0].monthStart)}) in this range so far — a trend needs at least two to compare.</p>`
-    : `
-    <div class="label" style="margin-bottom:8px;">Monthly — <span style="color:var(--teal,var(--teal));">worked</span> vs <span style="color:var(--text-faint);">allocated</span></div>
-    <div style="display:flex;gap:12px;align-items:flex-end;height:120px;overflow-x:auto;padding-bottom:4px;">
-      ${series.map(s => `<div style="flex:0 0 54px;text-align:center;">
-        <div style="height:100px;display:flex;gap:3px;align-items:flex-end;justify-content:center;">
-          <div style="width:16px;background:var(--teal,var(--teal));height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
-          <div style="width:16px;background:var(--panel-border);height:${Math.round(s.allocated/max*100)}%;border-radius:2px 2px 0 0;" title="${s.allocated.toFixed(1)}h allocated"></div>
-        </div>
-        <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${monthLbl(s.monthStart)}</div>
-      </div>`).join('')}
-    </div>`;
+  document.getElementById('prodTotals').innerHTML = productivityCardsHtml(data.totals, { hideCalcLink: true });
+  const rows = data.people.slice().sort((a,b) => (b.productivityPct??-1) - (a.productivityPct??-1));
+  body.innerHTML = rows.length ? rows.map(p => `<tr style="cursor:pointer;" onclick="openProductivityCalcModal(_prodData.people.find(x=>x.id==='${esc(p.id)}'))">
+      <td><div class="tl-name">${esc(p.name)}</div></td>
+      <td class="tl-sub">${esc(p.team)}</td>
+      <td style="text-align:right;font-family:var(--font-mono);">${p.capacityHours.toFixed(1)}h</td>
+      <td style="text-align:right;font-family:var(--font-mono);">${p.qualifiedHours.toFixed(1)}h</td>
+      <td style="text-align:right;font-weight:700;color:${p.notScorable?'var(--text-faint)':scoreColor(p.productivityPct)};">${p.notScorable?'—':(p.productivityPct==null?'—':p.productivityPct+'%')}</td>
+      <td style="text-align:right;">${p.milestonesMet}/${p.milestonesTotal}</td>
+      <td style="text-align:right;">${p.reportsOnTime}/${p.reportsRequired}</td>
+      <td><span style="color:var(--purple);font-size:12px;font-weight:600;">View →</span></td>
+    </tr>`).join('')
+    : `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-faint);">No one in scope.</td></tr>`;
 }
 
 function renderChartBuilder(){
@@ -8260,51 +8022,6 @@ function renderClientOwnership(){
 }
 
 /* =========================================================================
-   PRODUCTIVITY — hours worked vs. decided (TAT) hours, weekly/monthly
-   ========================================================================= */
-function periodBounds(period){
-  const now = new Date();
-  if(period === 'year'){
-    const start = fiscalYearStartDate(now);
-    const end = new Date(start.getFullYear() + 1, 3, 1);
-    return { start, end };
-  }
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-  return { start, end };
-}
-function setProductivityPeriod(period){
-  productivityPeriod = period;
-  document.getElementById('prodMonthBtn').classList.toggle('on', period === 'month');
-  const yb = document.getElementById('prodYearBtn'); if(yb) yb.classList.toggle('on', period === 'year');
-  renderProductivity();
-}
-function renderProductivity(){
-  const wrap = document.getElementById('productivityWrap');
-  if(!wrap) return;
-  const { start, end } = periodBounds(productivityPeriod);
-  const inPeriod = t => t.completedAt && new Date(t.completedAt) >= start && new Date(t.completedAt) < end;
-  const _t = mgTasks();
-  const rows = mgEmps().map(e => {
-    const done = _t.filter(t => t.assignedTo === e.id && t.status === 'completed' && inPeriod(t));
-    const worked = done.reduce((s,t) => s + t.logged, 0);
-    const planned = done.reduce((s,t) => s + t.tat, 0);
-    const pct = planned > 0 ? Math.round((worked / planned) * 100) : null;
-    return { name: e.name, worked, planned, pct, count: done.length };
-  }).filter(r => r.count > 0);
-  if(rows.length === 0){
-    wrap.innerHTML = `<p style="font-size:14px; color:var(--text-faint);">No tasks completed in this period yet.</p>`;
-    return;
-  }
-  wrap.innerHTML = rows.map(r => `
-    <div class="flag-row">
-      <span>${esc(r.name)}</span>
-      <span style="color:var(--text-faint); font-family:'JetBrains Mono',monospace; font-size:12.5px;">${r.worked.toFixed(1)}h worked / ${r.planned.toFixed(1)}h planned</span>
-      <span class="flag-count" style="${r.pct !== null && r.pct <= 100 ? 'background:var(--teal-dim); color:var(--teal);' : ''}">${r.pct === null ? '—' : r.pct + '%'}</span>
-    </div>`).join('');
-}
-
-/* =========================================================================
    COMMITMENT — % of completed tasks delivered on/before the agreed client date
    ========================================================================= */
 function renderCommitment(){
@@ -8639,12 +8356,30 @@ async function submitReviewFinal(toProfitConfirm){
       ${t.profitConfirmStatus === 'confirmed' ? `<div><b style="color:var(--text);">Profit confirmed</b> — ready to send.</div>` : ''}
     </div>` : ''}
     ${linksBlock}
+    ${!isInternal && t.profitConfirmStatus !== 'pending' ? `
+    <div class="field"><label>How was it sent <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required to confirm sent)</span></label>
+      <select id="stcChannel"><option value="">— Choose —</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="portal">Client portal</option><option value="physical">Physical delivery</option><option value="other">Other</option></select></div>
+    <div class="field"><label>Evidence / reference <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(e.g. email subject line)</span></label>
+      <input type="text" id="stcReference" placeholder="e.g. Emailed GST return PDF, subject 'FY26 GST Return'"></div>` : ''}
+    <div class="modal-error" id="stcErr"></div>
     <div class="modal-actions" style="flex-wrap:wrap;">
     <button class="btn" onclick="submitSaveLinks('${id}', true)">${isInternal ? 'Close' : 'Remind me later'}</button>
     ${offerProfitConfirm ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitProfitConfirmRequest('${id}')" title="Send to Shubam with the sheet/cashbook links before this goes out">💰 Profit Confirm</button>` : ''}
     ${!isInternal && t.profitConfirmStatus !== 'pending' ? `<button class="btn primary" onclick="submitSendToClient('${id}','yes')">✓ Sent to client</button>` : ''}
     </div>
-    ${!isInternal && t.profitConfirmStatus !== 'pending' ? `<div style="margin-top:10px;text-align:center;"><a href="#" onclick="event.preventDefault(); submitSendToClient('${id}','no')" style="font-size:12px;color:var(--text-faint);">Won't be sent — no report needed</a></div>` : ''}
+    ${!isInternal && t.profitConfirmStatus !== 'pending' && (iCanReview(t) || isSuperAdmin) ? `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--panel-border);">
+      <div style="font-size:12px;color:var(--text-faint);margin-bottom:4px;">Genuinely doesn't need to go out?</div>
+      <select id="stcWaiveReason" style="font-size:12.5px;margin-bottom:6px;">
+        <option value="">— Why not required? —</option>
+        <option value="client_cancelled">Client cancelled the engagement</option>
+        <option value="duplicate_task">Duplicate task</option>
+        <option value="incorporated">Work incorporated into another approved report</option>
+        <option value="client_instruction">Written client instruction not to proceed</option>
+        <option value="admin_correction">Administrator-approved correction</option>
+      </select>
+      <div><a href="#" onclick="event.preventDefault(); submitSendToClient('${id}','no')" style="font-size:12px;color:var(--text-faint);">Won't be sent — mark not required</a></div>
+    </div>` : ''}
     `;
     openModal();
   }
@@ -8663,12 +8398,26 @@ async function submitReviewFinal(toProfitConfirm){
     } catch(e){ showToast('error', 'Could not save links', e.message); }
   }
   async function submitSendToClient(id, decision){
+    const errEl = document.getElementById('stcErr');
+    const showErr = m => { if(errEl){ errEl.textContent = m; errEl.style.display = 'block'; } };
+    const body = { decision };
+    if(decision === 'yes'){
+      const channel = (document.getElementById('stcChannel')||{}).value || '';
+      const reference = (document.getElementById('stcReference')||{}).value.trim() || '';
+      if(!channel){ showErr('Choose how the report was sent.'); return; }
+      if(!reference){ showErr('Give some evidence or reference for the send.'); return; }
+      body.channel = channel; body.reference = reference;
+    } else {
+      const waivedReason = (document.getElementById('stcWaiveReason')||{}).value || '';
+      if(!waivedReason){ showErr('Pick a reason it\'s not required.'); return; }
+      body.waivedReason = waivedReason;
+    }
     try {
       await submitSaveLinks(id, false);
-      await api(`/api/tasks/${encodeURIComponent(id)}/send-to-client`, { method:'POST', body: JSON.stringify({ decision }) });
+      await api(`/api/tasks/${encodeURIComponent(id)}/send-to-client`, { method:'POST', body: JSON.stringify(body) });
       closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
-      showToast('info', decision === 'yes' ? 'Sent to client' : 'Not sent to client', '');
-    } catch(e){ showToast('error', 'Could not record decision', e.message); }
+      showToast('info', decision === 'yes' ? 'Sent to client' : 'Marked not required', '');
+    } catch(e){ showErr(e.message); }
   }
   async function submitProfitConfirmRequest(id){
     try {
@@ -9057,7 +8806,7 @@ async function renderReportCard(){
   const { from: reqFrom, to, period } = _rcRange();
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&full=1`); }
-  catch(e){ document.getElementById('rcExplain').innerHTML = `<p style="color:var(--text-faint);">${esc(e.message)}</p>`; return; }
+  catch(e){ document.getElementById('rcCards').innerHTML = `<p style="color:var(--text-faint);">${esc(e.message)}</p>`; return; }
   _rcData = data;
   // the server floors the window at go-live (7 Sept 2026) — there's no real
   // data before then. Use the effective range it returns for every label.
@@ -9086,183 +8835,18 @@ async function renderReportCard(){
   document.getElementById('rcName').textContent = p.name;
   document.getElementById('rcRole').textContent = `${p.jobTitle || emp.jobTitle || 'Team member'} · ${p.team} · ${periodLbl}`;
 
-  // ---- hero ring: either the delivery score (composite, falls back to
-  // on-time while building) or the plain productivity % (worked ÷ capacity)
-  // — whichever the "Headline number" toggle is set to. Same two numbers
-  // shown everywhere else (Productivity page tiles use the % one; the
-  // composite breakdown below the ring is unaffected either way. ----
-  const headlineMode = (document.getElementById('rcHeadlineMode')||{}).value || 'delivery';
-  const scoreReady = p.scoreStatus === 'ready' && p.productivityScore != null;
-  let ringVal, ringLbl;
-  if(headlineMode === 'productivity'){
-    ringVal = p.utilisationPct;
-    ringLbl = 'Productivity %';
-  } else {
-    ringVal = scoreReady ? p.productivityScore
-                : (p.productivityScore != null ? p.productivityScore : (p.onTimeRate != null ? p.onTimeRate : null));
-    ringLbl = scoreReady ? 'Delivery /100'
-                : p.scoreStatus === 'building' ? 'Delivery (building)' : 'Delivery score';
-  }
-  document.getElementById('rcRingLbl').textContent = ringLbl;
-  document.getElementById('rcPct').textContent = ringVal == null ? '—' : Math.round(ringVal);
-  const C = 402;
-  document.getElementById('rcRing').setAttribute('stroke-dashoffset', ringVal == null ? C : C - C * Math.max(0,Math.min(100,ringVal)) / 100);
+  document.getElementById('rcCards').innerHTML = productivityCardsHtml(p, { calcOnclick: `openProductivityCalcModal(_rcData.people.find(x=>x.id==='${esc(p.id)}'))` });
 
-  // ---- best streak of completed tasks (kept from the old card) ----
-  const mine = tasks.filter(t => t.assignedTo === _rcPersonId);
-  let streak = 0, best = 0;
-  for(const t of mine){ if(t.status === 'completed'){ streak++; best = Math.max(best, streak); } else streak = 0; }
+  document.getElementById('rcReportSent').innerHTML = `<div class="top-grid">
+    <div class="metric-tile"><div class="mt-label">Required</div><div class="mt-value">${p.reportsRequired}</div></div>
+    <div class="metric-tile"><div class="mt-label">Sent on time</div><div class="mt-value" style="color:var(--teal);">${p.reportsOnTime}</div></div>
+    <div class="metric-tile"><div class="mt-label">Sent late</div><div class="mt-value" style="color:${p.reportsLate>0?'var(--coral)':'var(--text-faint)'};">${p.reportsLate}</div></div>
+    <div class="metric-tile"><div class="mt-label">Ready, not sent</div><div class="mt-value" style="color:${p.reportsReadyNotSent>0?'var(--coral)':'var(--text-faint)'};">${p.reportsReadyNotSent}</div></div>
+    <div class="metric-tile"><div class="mt-label">No external date</div><div class="mt-value">${p.reportsNoDate}</div></div>
+    <div class="metric-tile"><div class="mt-label">Rate</div><div class="mt-value" style="color:${scoreColor(p.reportSentRate)};">${p.reportSentRate==null?'—':p.reportSentRate+'%'}</div><div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${p.reportPoints}/${p.reportMaxPoints} pts</div></div>
+  </div>`;
 
-  const setV = (id,val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
-  setV('rcOnTime', p.onTimeRate == null ? '—' : p.onTimeRate + '%');
-  setV('rcUtil', p.utilisationPct == null ? '—' : p.utilisationPct + '%');
-  setV('rcEff', p.efficiency == null ? '—' : p.efficiency.toFixed(2) + '×');
-  const commitMet = p.met + p.missed > 0 ? Math.round(p.met / (p.met + p.missed) * 100) + '%' : '—';
-  setV('rcCommitment', commitMet);
-  setV('rcStreak', best > 0 ? '🔥 ' + best : '—');
-
-  document.getElementById('badgesRow').innerHTML = scoreReady && p.productivityScore >= 85
-    ? '<div class="badge-emoji" title="Score 85+">🎯</div>' + (best >= 5 ? '<div class="badge-emoji" title="5+ streak">🔥</div>' : '') + (p.utilisationPct != null && p.utilisationPct >= 90 ? '<div class="badge-emoji" title="90%+ utilisation">⭐</div>' : '')
-    : `<div style="font-size:13px; color:var(--text-faint);">${p.scoreStatus === 'building' ? 'Score still building — needs ≥5 delivered tasks or ≥10 working days in range.' : p.scoreStatus === 'no-data' ? 'No delivered work in this period yet.' : 'No badges earned this period.'}</div>`;
-
-  // ---- score card: delivery score is the headline; capacity score sits
-  //      beneath it, smaller and muted (it's context, not the person's grade) ----
-  const dScore = p.productivityScore, cScore = p.capacityScore;
-  const first = esc(p.name.split(' ')[0]);
-  const gap = (p.scoreGap != null) ? p.scoreGap : (dScore != null && cScore != null ? dScore - cScore : null);
-  const gapH = p.allocationGapHours || 0;
-  const bigN = v => v == null ? `<span style="color:var(--text-faint);">—</span>` : `${Math.round(v)}<small>/100</small>`;
-  document.getElementById('rcScoreCard').innerHTML = `
-    <div class="pscore" style="align-items:stretch;">
-      <div style="display:flex;flex-direction:column;justify-content:center;min-width:190px;">
-        <div class="pscore-label">Delivery score${p.scoreStatus === 'building' ? ' · building' : ''}</div>
-        <div class="pscore-big" style="color:${scoreColor(dScore)};">${bigN(dScore)}</div>
-        <div style="font-size:11px;color:var(--text-faint);margin-top:4px;max-width:230px;">how well ${first} handled the work they were given — the fair read on ${first}</div>
-        ${cScore != null ? `<div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--panel-border);">
-          <span style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-faint);">Capacity score</span>
-          <span style="font-family:var(--font-mono);font-size:17px;font-weight:700;color:var(--text-dim);margin-left:7px;">${Math.round(cScore)}</span><span style="font-size:11px;color:var(--text-faint);">/100</span>
-          <div style="font-size:10.5px;color:var(--text-faint);margin-top:2px;max-width:230px;">same score measured against ${first}'s full ${p.capacityHours.toFixed(0)}h capacity${gapH > 0.5 ? ` — ${gap} pts lower because of the allocation gap` : ''}</div>
-        </div>` : ''}
-      </div>
-      ${factorBarsHtml(p.factors, p.weightsApplied)}
-    </div>
-    ${(dScore != null && cScore != null) ? `<div style="margin-top:12px;padding:13px 16px;border-radius:12px;border:1px solid ${gapH > 0.5 ? 'var(--amber,#B45309)' : 'var(--panel-border)'};background:var(--panel-2);font-size:13px;line-height:1.55;">
-      ${gapH > 0.5
-        ? `<b style="color:var(--amber,#B45309);">${gap} point${gap===1?'':'s'} of the gap between these two scores is not ${first}'s.</b>
-           It's unallocated work. ${first} was given <b>${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : p.allocatedHours.toFixed(1)}h</b> against <b>${p.capacityHours.toFixed(0)}h</b> of capacity this period, leaving <b>${gapH.toFixed(1)}h</b> unfilled. Closing that is the manager's job — work allocation — not something ${first} can fix by working harder.`
-        : `<b>${first} was allocated close to full capacity</b> (${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : p.allocatedHours.toFixed(1)}h of ${p.capacityHours.toFixed(0)}h), so the two scores line up. No allocation gap this period.`}
-    </div>` : ''}`;
-
-  // ---- metric tiles ----
-  const tile = (label, val, sub) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value">${val}</div>${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">${sub}</div>`:''}</div>`;
-  document.getElementById('rcTiles').innerHTML =
-    tile('Tasks delivered', p.tasks, `${p.met} met · ${p.missed} missed commitment`) +
-    tile('Worked hours', p.workedHours.toFixed(1), `of ${p.allocatedHours.toFixed(1)}h allocated`) +
-    tile('Capacity', p.capacityHours.toFixed(0) + 'h', `${p.workingDays} working days${goLiveFloored ? ' since go-live' : ''}${p.leaveDays ? ` · −${p.leaveDays} leave` : ''}`) +
-    tile('Allocated', p.assignedLoad != null ? p.assignedLoad.toFixed(1) + 'h' : p.allocatedHours.toFixed(1) + 'h', 'work the manager handed out') +
-    tile('Allocation gap', (p.allocationGapHours || 0).toFixed(1) + 'h', (p.allocationGapHours || 0) > 0.5 ? 'unfilled capacity — manager to close' : 'fully allocated') +
-    tile('Utilisation', p.utilisationPct == null ? '—' : p.utilisationPct + '%', 'worked ÷ capacity') +
-    tile('Efficiency', p.efficiency == null ? '—' : p.efficiency.toFixed(2) + '×', p.efficiency == null ? '' : p.efficiency >= 1 ? 'at/under estimate' : 'over estimate') +
-    tile('Throughput', p.throughput == null ? '—' : p.throughput.toFixed(1), 'tasks per working day') +
-    tile('Rework rounds', p.processorReworkRounds || 0, `${p.reviewedTasks} reviewed`) +
-    tile('Reviewer score', p.avgReviewScore == null ? '—' : p.avgReviewScore.toFixed(0), p.reviewScoreCount ? `avg of ${p.reviewScoreCount} scored review${p.reviewScoreCount===1?'':'s'}` : 'no scored reviews yet') +
-    tile('Chased', p.chaseEvents || 0, 'deliberate nudges in range') +
-    tile('Fiscal YTD', p.cumulativeYtdWorked.toFixed(0) + 'h', `worked since ${fmtDate(data.fiscalYearStart || from)}`);
-
-  // ---- factor-by-factor explanation ----
-  const w = p.weightsApplied || {};
-  const f = p.factors || {};
-  const line = (k, title, math, note) => {
-    const v = f[k], wk = w[k];
-    const contrib = (v != null && wk != null) ? (v * wk) : null;
-    return `<tr>
-      <td style="font-weight:600;">${title} <span style="color:var(--text-faint);font-weight:400;">(${k})</span></td>
-      <td style="font-family:var(--font-mono);color:${pfColor(v)};">${v == null ? '—' : v}</td>
-      <td style="font-family:var(--font-mono);color:var(--text-faint);">${wk == null ? '—' : (+wk).toFixed(2)}</td>
-      <td style="font-family:var(--font-mono);">${contrib == null ? '—' : contrib.toFixed(1)}</td>
-      <td style="font-size:12.5px;color:var(--text-dim);">${math}${note ? ` <span style="color:var(--text-faint);">— ${note}</span>` : ''}</td>
-    </tr>`;
-  };
-  const eff = p.efficiency, fairT = p.fairTarget;
-  document.getElementById('rcExplain').innerHTML = `
-    <p style="font-size:12.5px;color:var(--text-dim);margin:0 0 10px;">Score = Σ(factor × weight) ÷ Σ(weight), over the factors that have data. A factor shows “—” when there's nothing to measure it on yet — it's then left out of the score, not counted as zero.</p>
-    <div style="overflow-x:auto;"><table class="rc-explain-table" style="width:100%;border-collapse:collapse;font-size:13.5px;">
-      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">
-        <th style="padding:6px 10px 6px 0;">Factor</th><th style="padding:6px 10px;">0–100</th><th style="padding:6px 10px;">Weight</th><th style="padding:6px 10px;">×</th><th style="padding:6px 10px;">Based on</th></tr></thead>
-      <tbody>
-        ${line('E','Efficiency', `allocated ${p.allocatedHours.toFixed(1)}h ÷ worked ${p.workedHours.toFixed(1)}h`, eff == null ? 'no work logged' : `${(eff*100).toFixed(0)}% of estimate used`)}
-        ${line('T','On-time', `${p.met} met ÷ ${p.met + p.missed} client-dated`, p.met + p.missed === 0 ? 'no dated tasks' : '')}
-        ${line('R','Rework quality', `${p.processorReworkRounds} processor-fault round(s) ÷ ${p.reviewedTasks} reviewed`, p.reviewedTasks === 0 ? 'nothing reviewed yet' : '')}
-        ${line('N','Reminder discipline', `${p.chaseEvents} chase(s) ÷ ${p.openTasksInRange} open task(s)`, p.openTasksInRange === 0 ? 'no open work' : '')}
-        ${line('C','Delivery coverage', `worked ${p.workedHours.toFixed(1)}h ÷ fair target ${fairT != null ? fairT.toFixed(1) : '—'}h`, `fair target = min(assigned ${p.assignedLoad != null ? p.assignedLoad.toFixed(1) : '—'}h, capacity ${p.capacityHours.toFixed(0)}h)`)}
-      </tbody>
-    </table></div>
-    <p style="font-size:12.5px;color:var(--text-dim);margin:12px 0 0;">
-      <b>The capacity score</b> swaps that last factor for coverage against <b>full capacity</b>:
-      worked ${p.workedHours.toFixed(1)}h ÷ ${p.capacityHours.toFixed(0)}h = <b style="color:${pfColor(p.capacityCoverage)};">${p.capacityCoverage == null ? '—' : p.capacityCoverage}</b>
-      (vs ${f.C == null ? '—' : f.C} against fair target). Everything else stays the same. The drop is the ${(p.allocationGapHours||0).toFixed(1)}h the manager left unallocated.
-    </p>`;
-  renderWeightsEditor('rcWeightsEditor');
-
-  // ---- monthly trend (worked vs allocated) ----
-  const series = (p.monthly || []).slice().sort((a,b)=>a.monthStart.localeCompare(b.monthStart));
-  const max = Math.max(1, ...series.map(s=>Math.max(s.worked, s.allocated)));
-  const monthLbl = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-NZ',{month:'short',year:'2-digit'});
-  document.getElementById('rcTrend').innerHTML = series.length === 0
-    ? '<p style="font-size:13px;color:var(--text-faint);">No delivered work in this period.</p>'
-    : series.length === 1
-    ? `<p style="font-size:13px;color:var(--text-faint);">Only one month (${monthLbl(series[0].monthStart)}) in this period so far — a trend needs at least two to compare.</p>`
-    : `
-    <div class="label" style="margin-bottom:8px;"><span style="color:var(--teal,var(--teal));">worked</span> vs <span style="color:var(--text-faint);">allocated</span>, per month</div>
-    <div style="display:flex;gap:14px;align-items:flex-end;height:130px;overflow-x:auto;padding-bottom:4px;">
-      ${series.map(s => `<div style="flex:0 0 56px;text-align:center;">
-        <div style="height:104px;display:flex;gap:4px;align-items:flex-end;justify-content:center;">
-          <div style="width:17px;background:var(--teal,var(--teal));height:${Math.round(s.worked/max*100)}%;border-radius:2px 2px 0 0;" title="${s.worked.toFixed(1)}h worked"></div>
-          <div style="width:17px;background:var(--panel-border);height:${Math.round(s.allocated/max*100)}%;border-radius:2px 2px 0 0;" title="${s.allocated.toFixed(1)}h allocated"></div>
-        </div>
-        <div style="font-size:10px;color:var(--text-faint);margin-top:3px;">${monthLbl(s.monthStart)}</div>
-        <div style="font-size:10px;color:var(--text-faint);">${s.tasks} task${s.tasks===1?'':'s'}</div>
-      </div>`).join('')}
-    </div>`;
-
-  // ---- delivered tasks in the period ----
-  const delivered = tasks.filter(t => t.assignedTo === _rcPersonId && t.status === 'completed'
-    && t.completedAt && dayOf(t.completedAt) >= from && dayOf(t.completedAt) <= to)
-    .sort((a,b)=>(b.completedAt||'').localeCompare(a.completedAt||''));
-  document.getElementById('rcDelivery').innerHTML = delivered.length ? `
-    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">
-        <th style="padding:6px 10px 6px 0;">Task</th><th style="padding:6px 10px;">Client</th><th style="padding:6px 10px;">Delivered</th><th style="padding:6px 10px;">Est.</th><th style="padding:6px 10px;">Actual</th><th style="padding:6px 10px;">Commitment</th></tr></thead>
-      <tbody>${delivered.map(t => `<tr style="border-top:1px solid var(--panel-border);">
-        <td style="padding:7px 10px 7px 0;font-weight:600;">${esc(t.name)}</td>
-        <td style="padding:7px 10px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
-        <td style="padding:7px 10px;color:var(--text-dim);">${fmtDate(dayOf(t.completedAt))}</td>
-        <td style="padding:7px 10px;font-family:var(--font-mono);">${Number(t.tat) > 0 ? Number(t.tat).toFixed(1)+'h' : '—'}</td>
-        <td style="padding:7px 10px;font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
-        <td style="padding:7px 10px;">${t.clientDate ? commitmentBadge(t) : '<span style="color:var(--text-faint);">no date</span>'}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>` : '<p style="font-size:13px;color:var(--text-faint);">No tasks delivered in this period.</p>';
-
-  // ---- still-open tasks due in the period — the other half of assignedLoad
-  // (allocatedHours above + this = p.assignedLoad, the Coverage denominator) ----
-  const openDue = tasks.filter(t => t.assignedTo === _rcPersonId
-    && !['completed', 'pending_approval'].includes(t.status)
-    && t.internalDeadline && t.internalDeadline >= from && t.internalDeadline <= to)
-    .sort((a,b)=>(a.internalDeadline||'').localeCompare(b.internalDeadline||''));
-  const openAlloc = openDue.reduce((s,t)=>s+(Number(t.tat)||0),0);
-  document.getElementById('rcOpenDue').innerHTML = (openDue.length ? `
-    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
-      <thead><tr style="text-align:left;color:var(--text-faint);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">
-        <th style="padding:6px 10px 6px 0;">Task</th><th style="padding:6px 10px;">Client</th><th style="padding:6px 10px;">Due</th><th style="padding:6px 10px;">Allocated</th><th style="padding:6px 10px;">Status</th></tr></thead>
-      <tbody>${openDue.map(t => `<tr style="border-top:1px solid var(--panel-border);">
-        <td style="padding:7px 10px 7px 0;font-weight:600;">${esc(t.name)}</td>
-        <td style="padding:7px 10px;color:var(--text-dim);">${esc(t.clientName || '—')}</td>
-        <td style="padding:7px 10px;color:var(--text-dim);">${fmtDate(t.internalDeadline)}</td>
-        <td style="padding:7px 10px;font-family:var(--font-mono);">${Number(t.tat) > 0 ? Number(t.tat).toFixed(1)+'h' : '—'}</td>
-        <td style="padding:7px 10px;">${miniState(t) || esc((t.status||'').replace('_',' '))}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>` : '<p style="font-size:13px;color:var(--text-faint);">No open tasks due in this period.</p>')
-    + `<p style="font-size:12px;color:var(--text-faint);margin-top:10px;">${p.allocatedHours.toFixed(1)}h delivered + ${openAlloc.toFixed(1)}h still open = ${(p.allocatedHours+openAlloc).toFixed(1)}h assigned load, every hour counted from go-live (${fmtDate(data.goLive || from)}) — never earlier.</p>`;
+  document.getElementById('rcOpenWork').innerHTML = openWorkTableHtml(p.openWork || []);
 }
 
 /* =========================================================================
@@ -9536,6 +9120,38 @@ async function renderTaxonomyView(){
   } catch(e){ _taxWorking = []; }
   taxRenderList();
   renderPiiReport();
+  renderHolidaysPanel();
+}
+/* Admin-managed firm holiday calendar — the productivity rebuild's source
+   of truth for calendar.js's working-day engine (see server.js /api/holidays,
+   calendar.js setHolidays). Superadmin only, audited on every add/remove. */
+async function renderHolidaysPanel(){
+  const body = document.getElementById('holBody');
+  if(!body) return;
+  let holidays = [];
+  try { holidays = (await api('/api/holidays')).holidays; } catch(e){ /* non-fatal */ }
+  body.innerHTML = holidays.length ? holidays.map(h => `<tr>
+      <td style="font-family:var(--font-mono);">${fmtDate(h.date)}</td>
+      <td>${esc(h.name)}</td>
+      <td><button class="btn small" style="border-color:var(--coral);color:var(--coral);" onclick="removeHoliday('${h.date}')">Remove</button></td>
+    </tr>`).join('') : `<tr><td colspan="3" style="text-align:center;color:var(--text-faint);padding:16px;">No holidays on the calendar.</td></tr>`;
+}
+async function addHoliday(){
+  const errEl = document.getElementById('holErr');
+  const date = (document.getElementById('holAddDate')||{}).value;
+  const name = (document.getElementById('holAddName')||{}).value || '';
+  try {
+    await api('/api/holidays', { method:'POST', body: JSON.stringify({ date, name }) });
+    document.getElementById('holAddDate').value = '';
+    document.getElementById('holAddName').value = '';
+    errEl.style.display = 'none';
+    renderHolidaysPanel();
+    showToast('success', 'Added', `${name} (${date})`);
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+async function removeHoliday(date){
+  try { await api('/api/holidays/' + date, { method:'DELETE' }); renderHolidaysPanel(); }
+  catch(e){ showToast('error', 'Could not remove', e.message); }
 }
 function taxRenderList(){
   const wrap = document.getElementById('taxDeptList');
