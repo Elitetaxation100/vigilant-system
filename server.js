@@ -2303,28 +2303,51 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
-// Kudos — a public shoutout in the team Slack channel for a clean review.
-// Same permission as reviewing the work in the first place (or superadmin);
-// once per task, so it can't be spammed on the same piece of work.
-app.post('/api/tasks/:id/kudos', requireAuth, (req, res) => {
+// ---------------------------------------------------------------------------
+// KUDOS — firm-wide, star-leveled recognition (see connector.js
+// KUDOS_LEVELS / canAwardKudosTo). Not tied to a specific task or review
+// any more. Awarding is gated by the recipient's team (or superadmin /
+// Shubam firm-wide); recommending is open to anyone but themselves. The
+// actual state changes live in connector.js so the Slack App Home buttons
+// use exactly the same logic as these HTTP routes.
+// ---------------------------------------------------------------------------
+app.get('/api/kudos', requireAuth, (req, res) => {
   const state = db.get();
-  const t = findTask(state, req.params.id);
-  if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (t.reviewStatus !== 'clean') return res.status(400).json({ error: 'Kudos is for clean reviews only.' });
-  if (!canReviewWorkOf(state, req.employee, t.assignedTo, t) && req.employee.accessRole !== 'superadmin') {
-    return res.status(403).json({ error: "You're not authorized to send kudos for this task." });
-  }
-  if (t.kudosAt) return res.status(400).json({ error: 'Kudos already sent for this task.' });
-  const note = String((req.body || {}).note || '').trim().slice(0, 300);
-  t.kudosAt = new Date().toISOString();
-  t.kudosBy = req.employee.id;
-  logEvent(state, t.assignedTo, `🎉 <b>${escHtml(req.employee.name)}</b> sent kudos for "${escHtml(t.name)}"${note ? ' — ' + escHtml(note) : ''}.`);
-  notify(state, t.assignedTo, 'kudos', `🎉 ${req.employee.name} sent you kudos for "${t.name}"${note ? ' — ' + note : ''}!`, t.id);
-  db.save();
-  // Best-effort — the kudos is already recorded above regardless of Slack.
-  require('./connector').postKudos(state, t, req.employee.name, note)
-    .catch(e => console.error('[kudos] slack post failed:', e && e.message));
-  res.json({ task: taskForClient(t) });
+  const list = (state.kudos || []).slice().sort((a, b) => (b.awardedAt || '').localeCompare(a.awardedAt || ''));
+  res.json({ kudos: list });
+});
+app.post('/api/kudos', requireAuth, async (req, res) => {
+  const state = db.get();
+  const { awardKudos } = require('./connector');
+  const r = await awardKudos(state, { toId: (req.body || {}).toId, byId: req.employee.id, level: (req.body || {}).level, note: (req.body || {}).note });
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  res.json({ kudos: r.kudos });
+});
+app.get('/api/kudos/recommendations', requireAuth, (req, res) => {
+  const state = db.get();
+  const list = (state.kudosRecommendations || []).slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  res.json({ recommendations: list });
+});
+app.post('/api/kudos/recommend', requireAuth, async (req, res) => {
+  const state = db.get();
+  const { recommendKudos } = require('./connector');
+  const r = await recommendKudos(state, { toId: (req.body || {}).toId, byId: req.employee.id, note: (req.body || {}).note });
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  res.json({ recommendation: r.recommendation });
+});
+app.post('/api/kudos/recommendations/:id/award', requireAuth, async (req, res) => {
+  const state = db.get();
+  const { resolveKudosRecommendation } = require('./connector');
+  const r = await resolveKudosRecommendation(state, { recId: req.params.id, byId: req.employee.id, action: 'award', level: (req.body || {}).level, note: (req.body || {}).note });
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  res.json({ recommendation: r.recommendation, kudos: r.kudos });
+});
+app.post('/api/kudos/recommendations/:id/dismiss', requireAuth, async (req, res) => {
+  const state = db.get();
+  const { resolveKudosRecommendation } = require('./connector');
+  const r = await resolveKudosRecommendation(state, { recId: req.params.id, byId: req.employee.id, action: 'dismiss' });
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  res.json({ recommendation: r.recommendation });
 });
 
 // Resubmit — the assignee fixes a task they've already accepted the
@@ -4124,7 +4147,7 @@ require('./connector').mountConnector(app);
 // buttons to share instead of re-implementing the same transitions —
 // required lazily from there (after this file has fully loaded), same
 // pattern connector.js already uses elsewhere.
-module.exports = { resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml };
+module.exports = { resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee };
 
 // ---------------------------------------------------------------------------
 // Static frontend

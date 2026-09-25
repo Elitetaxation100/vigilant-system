@@ -372,6 +372,16 @@ function runMigrations(state) {
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];
   if (typeof state.callSeq !== 'number') state.callSeq = 0;
+  // Kudos — firm-wide public recognition, star-leveled (3/4/5/legendary).
+  // Replaces the old one-off per-review kudos (task.kudosAt/kudosBy, now
+  // unused going forward — historical values are left on old tasks, just
+  // never read). Anyone can recommend; only the team's kudos manager (or
+  // Shubam/superadmin) can award, either directly or by approving a
+  // recommendation. See server.js kudosManagerEmailFor().
+  if (!Array.isArray(state.kudos)) state.kudos = [];
+  if (typeof state.kudosSeq !== 'number') state.kudosSeq = 0;
+  if (!Array.isArray(state.kudosRecommendations)) state.kudosRecommendations = [];
+  if (typeof state.kudosRecSeq !== 'number') state.kudosRecSeq = 0;
   // Soft-delete: removed tasks / clients move to these holding areas so a
   // superadmin (or whoever removed it) can restore them. Nothing is ever
   // hard-deleted through the app any more.

@@ -62,6 +62,38 @@ const AGENT_MAP = {
   '1674408': { name: 'Anjana Pandey',   team: 'Rideshare + Rental', mandatory: false, slackIds: [] }, // nobody listens to these — no tag, no nag
   '1937711': { name: 'Disha Chaudhary', team: 'Rideshare + Rental', mandatory: true,  slackIds: ['U0BNQHX4F4K'] }, // Khushi
 };
+// Kudos — firm-wide recognition, star-leveled. Who can AWARD kudos to
+// someone depends on the recipient's employee team (substring match, so
+// "Companies & Rental Team" satisfies both the companies and rental
+// rules): Shubam has whole-firm authority; everyone else's rule is scoped
+// to their own patch. A superadmin can always award, same as everywhere
+// else in the app. Anyone can RECOMMEND kudos for anyone (except
+// themselves) — recommending needs no authority, only awarding does.
+const KUDOS_MANAGERS = [
+  { match: t => /rideshare|admin/.test(t), email: 'disha@elitetaxation.co.nz' },
+  { match: t => /compan|rental/.test(t), email: 'parvinder@elitetaxation.co.nz' },
+  { match: t => /marketing/.test(t), email: 'vishal@elitetaxation.co.nz' },
+];
+const KUDOS_FIRMWIDE_EMAIL = 'shubham@elitetaxation.co.nz';
+function kudosManagerEmailFor(team) {
+  const t = String(team || '').toLowerCase();
+  const rule = KUDOS_MANAGERS.find(r => r.match(t));
+  return rule ? rule.email : null;
+}
+function canAwardKudosTo(actor, toEmployee) {
+  if (!actor || !toEmployee) return false;
+  if (actor.accessRole === 'superadmin') return true;
+  const email = String(actor.email || '').toLowerCase();
+  if (email === KUDOS_FIRMWIDE_EMAIL) return true;
+  const mgrEmail = kudosManagerEmailFor(toEmployee.team);
+  return !!mgrEmail && email === mgrEmail;
+}
+const KUDOS_LEVELS = {
+  '3star':     { label: '3-Star',    stars: 3, badge: '⭐⭐⭐' },
+  '4star':     { label: '4-Star',    stars: 4, badge: '⭐⭐⭐⭐' },
+  '5star':     { label: '5-Star',    stars: 5, badge: '⭐⭐⭐⭐⭐' },
+  'legendary': { label: 'Legendary', stars: 0, badge: '🏆 Legendary' },
+};
 const TRANSFER_MERGE_MINUTES = 15;
 const RECORDING_MATCH_MINUTES = 120;
 // Digest: reminder about un-listened mandatory calls + overdue call/Slack
@@ -977,18 +1009,138 @@ function allCallsReport(state, { from, to, personId, agentId, actor } = {}) {
     isSuperAdmin,
   };
 }
-// A public shoutout — posted by server.js's kudos endpoint once a clean
-// review is recorded. Best-effort: the kudos itself is already saved by
-// the time this runs, so a Slack outage here doesn't lose anything.
-async function postKudos(state, task, byName, note) {
-  const assignee = (state.employees || []).find(e => e.id === task.assignedTo);
-  const mention = assignee && assignee.slackUserId ? `<@${assignee.slackUserId}>` : esc((assignee && assignee.name) || 'someone');
-  const text = `🎉 *Kudos to ${mention}!*\n${esc(byName)} gave a shoutout for great work on *${esc(task.name)}*${task.clientName ? ' (' + esc(task.clientName) + ')' : ''}.` + (note ? `\n> ${esc(note)}` : '');
+// ---------------------------------------------------------------------------
+// KUDOS — firm-wide recognition, star-leveled (see KUDOS_LEVELS above).
+// Core mutation functions, shared by the HTTP endpoints (server.js) and
+// the Slack App Home buttons below — one place owns the actual state
+// changes + notifications + the public Slack post, so the two entry
+// points can't drift apart. Each returns {ok:true,...} or {ok:false,error}
+// rather than throwing, so both an HTTP 400 and a Slack error can read it.
+// ---------------------------------------------------------------------------
+async function postKudosAnnouncement(toEmployee, byName, level, note) {
+  const mention = toEmployee.slackUserId ? `<@${toEmployee.slackUserId}>` : esc(toEmployee.name);
+  const badge = (KUDOS_LEVELS[level] || {}).badge || level;
+  const text = `${badge} *Kudos to ${mention}!*\n${esc(byName)} gave them ${badge} recognition.` + (note ? `\n> ${esc(note)}` : '');
   await slack('chat.postMessage', {
     channel: cfg().slackChannel,
-    text: `🎉 Kudos to ${(assignee && assignee.name) || 'someone'}!`,
+    text: `${badge} Kudos to ${toEmployee.name}!`,
     blocks: [{ type: 'section', text: { type: 'mrkdwn', text } }],
+  }).catch(e => clog('error', 'kudos slack post failed: ' + (e && e.message)));
+}
+async function awardKudos(state, { toId, byId, level, note }) {
+  const { findEmployee, logEvent, notify, escHtml } = require('./server');
+  const to = findEmployee(state, toId);
+  const by = findEmployee(state, byId);
+  if (!to || !by) return { ok: false, error: 'Person not found.' };
+  if (!KUDOS_LEVELS[level]) return { ok: false, error: 'Pick a level: 3-Star, 4-Star, 5-Star or Legendary.' };
+  if (!canAwardKudosTo(by, to)) return { ok: false, error: "You're not authorized to award kudos to this person." };
+  const cleanNote = String(note || '').trim().slice(0, 300);
+  state.kudosSeq = (state.kudosSeq || 0) + 1;
+  const row = { id: 'kd' + state.kudosSeq, toId: to.id, byId: by.id, level, note: cleanNote || null, awardedAt: new Date().toISOString() };
+  state.kudos.push(row);
+  const badge = (KUDOS_LEVELS[level] || {}).badge || level;
+  const label = (KUDOS_LEVELS[level] || {}).label || level;
+  logEvent(state, to.id, `${badge} <b>${escHtml(by.name)}</b> awarded you ${escHtml(label)} kudos${cleanNote ? ' — ' + escHtml(cleanNote) : ''}.`);
+  notify(state, to.id, 'kudos', `${badge} ${by.name} awarded you ${label} kudos!`, null);
+  db.save();
+  postKudosAnnouncement(to, by.name, level, cleanNote).catch(() => {});
+  return { ok: true, kudos: row };
+}
+async function recommendKudos(state, { toId, byId, note }) {
+  const { findEmployee, logEvent, notify, escHtml } = require('./server');
+  const to = findEmployee(state, toId);
+  const by = findEmployee(state, byId);
+  if (!to || !by) return { ok: false, error: 'Person not found.' };
+  if (to.id === by.id) return { ok: false, error: "You can't recommend kudos for yourself." };
+  const cleanNote = String(note || '').trim().slice(0, 300);
+  if (!cleanNote) return { ok: false, error: 'Say why — a short reason is required.' };
+  state.kudosRecSeq = (state.kudosRecSeq || 0) + 1;
+  const row = {
+    id: 'kr' + state.kudosRecSeq, toId: to.id, byId: by.id, note: cleanNote,
+    createdAt: new Date().toISOString(), status: 'pending', resolvedBy: null, resolvedAt: null, awardedKudosId: null,
+  };
+  state.kudosRecommendations.push(row);
+  const mgrEmail = kudosManagerEmailFor(to.team);
+  const mgr = mgrEmail ? (state.employees || []).find(e => String(e.email || '').toLowerCase() === mgrEmail) : null;
+  logEvent(state, to.id, `<b>${escHtml(by.name)}</b> recommended you for kudos — "${escHtml(cleanNote)}".`);
+  if (mgr) notify(state, mgr.id, 'kudos_recommend', `${by.name} recommended ${to.name} for kudos.`, null);
+  db.save();
+  return { ok: true, recommendation: row };
+}
+async function resolveKudosRecommendation(state, { recId, byId, action, level, note }) {
+  const { findEmployee } = require('./server');
+  const rec = (state.kudosRecommendations || []).find(r => r.id === recId);
+  if (!rec) return { ok: false, error: 'Recommendation not found.' };
+  if (rec.status !== 'pending') return { ok: false, error: 'This recommendation was already resolved.' };
+  const to = findEmployee(state, rec.toId);
+  const by = findEmployee(state, byId);
+  if (!to || !by) return { ok: false, error: 'Person not found.' };
+  if (!canAwardKudosTo(by, to)) return { ok: false, error: "You're not authorized to resolve this." };
+  if (action === 'dismiss') {
+    rec.status = 'dismissed'; rec.resolvedBy = by.id; rec.resolvedAt = new Date().toISOString();
+    db.save();
+    return { ok: true, recommendation: rec };
+  }
+  if (action !== 'award') return { ok: false, error: 'Unknown action.' };
+  const r = await awardKudos(state, { toId: rec.toId, byId: by.id, level, note: note || rec.note });
+  if (!r.ok) return r;
+  rec.status = 'awarded'; rec.resolvedBy = by.id; rec.resolvedAt = new Date().toISOString(); rec.awardedKudosId = r.kudos.id;
+  db.save();
+  return { ok: true, recommendation: rec, kudos: r.kudos };
+}
+// Slack App Home entry points — open modals, then hand off to the same
+// awardKudos/recommendKudos core functions the HTTP endpoints use. Unlike
+// the app's own picker, Slack's users_select can't be filtered to just
+// who the giver is authorized for, so an unauthorized pick still reaches
+// awardKudos and gets rejected there — reported back by DM.
+async function openGiveKudosModalSlack(payload) {
+  await slack('views.open', {
+    trigger_id: payload.trigger_id,
+    view: { type: 'modal', callback_id: 'kudos_give_modal',
+      title: { type: 'plain_text', text: 'Give Kudos' }, submit: { type: 'plain_text', text: 'Award' }, close: { type: 'plain_text', text: 'Cancel' },
+      blocks: [
+        { type: 'input', block_id: 'to', label: { type: 'plain_text', text: 'Who' }, element: { type: 'users_select', action_id: 'v' } },
+        { type: 'input', block_id: 'level', label: { type: 'plain_text', text: 'Level' }, element: { type: 'static_select', action_id: 'v',
+          options: Object.entries(KUDOS_LEVELS).map(([key, lv]) => ({ text: { type: 'plain_text', text: lv.badge, emoji: true }, value: key })) } },
+        { type: 'input', block_id: 'note', optional: true, label: { type: 'plain_text', text: 'Note' }, element: { type: 'plain_text_input', action_id: 'v', multiline: true } },
+      ] },
   });
+}
+async function openRecommendKudosModalSlack(payload) {
+  await slack('views.open', {
+    trigger_id: payload.trigger_id,
+    view: { type: 'modal', callback_id: 'kudos_recommend_modal',
+      title: { type: 'plain_text', text: 'Recommend Kudos' }, submit: { type: 'plain_text', text: 'Recommend' }, close: { type: 'plain_text', text: 'Cancel' },
+      blocks: [
+        { type: 'input', block_id: 'to', label: { type: 'plain_text', text: 'Who' }, element: { type: 'users_select', action_id: 'v' } },
+        { type: 'input', block_id: 'note', label: { type: 'plain_text', text: 'Why' }, element: { type: 'plain_text_input', action_id: 'v', multiline: true } },
+      ] },
+  });
+}
+async function submitGiveKudosSlack(payload) {
+  const state = db.get();
+  const by = empBySlackId(state, payload.user.id);
+  if (!by) { await dm(payload.user.id, "⚠️ Your Slack account isn't linked to a Governance OS login, so I can't tell who you are."); return; }
+  const v = payload.view.state.values;
+  const toSlackId = v.to && v.to.v.selected_user;
+  const to = toSlackId ? empBySlackId(state, toSlackId) : null;
+  const level = v.level && v.level.v.selected_option && v.level.v.selected_option.value;
+  const note = (v.note && v.note.v.value) || '';
+  if (!to) { await dm(payload.user.id, "⚠️ Couldn't find that person in the task manager — pick someone whose Slack account is linked."); return; }
+  const r = await awardKudos(state, { toId: to.id, byId: by.id, level, note });
+  await dm(payload.user.id, r.ok ? `🏆 Kudos awarded to ${to.name}!` : `⚠️ ${r.error}`);
+}
+async function submitRecommendKudosSlack(payload) {
+  const state = db.get();
+  const by = empBySlackId(state, payload.user.id);
+  if (!by) { await dm(payload.user.id, "⚠️ Your Slack account isn't linked to a Governance OS login, so I can't tell who you are."); return; }
+  const v = payload.view.state.values;
+  const toSlackId = v.to && v.to.v.selected_user;
+  const to = toSlackId ? empBySlackId(state, toSlackId) : null;
+  const note = (v.note && v.note.v.value) || '';
+  if (!to) { await dm(payload.user.id, "⚠️ Couldn't find that person in the task manager — pick someone whose Slack account is linked."); return; }
+  const r = await recommendKudos(state, { toId: to.id, byId: by.id, note });
+  await dm(payload.user.id, r.ok ? `👍 Recommendation sent for ${to.name} — their manager will review it.` : `⚠️ ${r.error}`);
 }
 async function postTaskCard(row, task, ownerSlackId, byName, selfAssigned) {
   const blocks = [
@@ -1259,6 +1411,7 @@ async function handleInteractivity(payload) {
       mark_listened: onMarkListened, no_action: onNoAction, self_assign: onSelfAssign,
       task_done: onTaskDone, task_start: onTaskStart, play_recording: onPlayRecording, log_outcome: openLogOutcomeModal,
       task_snooze: onTaskSnooze, task_need_time: onTaskNeedTime,
+      kudos_give: openGiveKudosModalSlack, kudos_recommend: openRecommendKudosModalSlack,
     };
     if (map[a.action_id]) await map[a.action_id](payload, a.value);
     else clog('info', 'unhandled block action', { action: a.action_id });
@@ -1268,6 +1421,8 @@ async function handleInteractivity(payload) {
       if (cb === 'log_outcome_modal') await submitLogOutcome(payload);
       else if (cb === 'convert_to_task_modal') await submitConvert(payload);
       else if (cb === 'need_time_modal') await submitNeedTime(payload);
+      else if (cb === 'kudos_give_modal') await submitGiveKudosSlack(payload);
+      else if (cb === 'kudos_recommend_modal') await submitRecommendKudosSlack(payload);
     } catch (e) {
       clog('error', 'modal submit "' + cb + '" failed: ' + (e && e.stack || e));
       if (payload.user && payload.user.id) {
@@ -1416,6 +1571,23 @@ function buildHomeView(state, slackUserId) {
     const overdue = overdueIntegrationTasks(state).length;
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🔒 Founder view*\n• ${unlogged} mandatory calls not yet logged\n• ${overdue} call/Slack tasks overdue` } });
   }
+  // Kudos — everyone gets "Recommend"; "Give" only shows for whoever has
+  // award authority over at least one person (their team's kudos manager,
+  // Shubam firm-wide, or superadmin — see canAwardKudosTo).
+  blocks.push({ type: 'divider' });
+  const recentKudos = (state.kudos || []).slice().sort((a, b) => (b.awardedAt || '').localeCompare(a.awardedAt || '')).slice(0, 3);
+  const kudosLines = recentKudos.length
+    ? recentKudos.map(k => {
+        const to = (state.employees || []).find(e => e.id === k.toId);
+        const badge = (KUDOS_LEVELS[k.level] || {}).badge || k.level;
+        return `• ${badge} ${esc((to && to.name) || 'someone')}`;
+      }).join('\n')
+    : '_Nobody yet — be the first to recommend someone._';
+  blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🏆 Kudos*\n${kudosLines}` } });
+  const canGiveAny = emp && (state.employees || []).some(e => canAwardKudosTo(emp, e));
+  const kudosButtons = [{ type: 'button', text: { type: 'plain_text', text: '👍 Recommend Kudos', emoji: true }, action_id: 'kudos_recommend' }];
+  if (canGiveAny) kudosButtons.push({ type: 'button', text: { type: 'plain_text', text: '🏆 Give Kudos', emoji: true }, action_id: 'kudos_give', style: 'primary' });
+  if (emp) blocks.push({ type: 'actions', elements: kudosButtons });
   blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `Updated ${new Date().toLocaleString('en-NZ', { timeZone: DIGEST_TZ })}` }] });
   return { type: 'home', blocks };
 }
@@ -2030,4 +2202,7 @@ function mountConnector(app) {
   console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-personal-digest,run-reminders,log,health}');
 }
 
-module.exports = { mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport, postKudos };
+module.exports = {
+  mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
+  awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
+};

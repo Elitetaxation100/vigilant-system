@@ -960,8 +960,11 @@
       <div class="nav-item" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadge" style="display:none;"></span></div>
     </div>
     <div class="nav-section">
-      <div class="nav-title">Performance</div>
-      <div class="nav-item" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
+      <details class="nav-drop" id="perfNavGroup">
+        <summary class="nav-item nav-sub"><span class="nav-icon">▾</span> Performance</summary>
+        <div class="nav-item nav-sub" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
+        <div class="nav-item nav-sub" data-view="kudos" onclick="showView('kudos', this)"><span class="nav-icon">🏆</span> Kudos</div>
+      </details>
     </div>
     <div class="nav-section">
       <div class="nav-title">Calls</div>
@@ -1270,7 +1273,7 @@
         <div class="panel" id="revProfitPanel" style="display:none;">
           <div class="panel-head"><h2>Profit confirmations</h2></div>
           <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Owner</th><th>Sheet</th><th>Cashbook</th><th>Kudos</th><th></th></tr></thead>
+            <thead><tr><th>Task</th><th>Client</th><th>Owner</th><th>Sheet</th><th>Cashbook</th><th></th></tr></thead>
             <tbody id="revProfitBody"></tbody>
           </table>
         </div>
@@ -1278,7 +1281,7 @@
         <div class="panel" id="revSendPanel" style="display:none;">
           <div class="panel-head"><h2>Reports to send</h2></div>
           <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Reviewed</th><th>Commitment</th><th>Kudos</th><th></th></tr></thead>
+            <thead><tr><th>Task</th><th>Client</th><th>Reviewed</th><th>Commitment</th><th></th></tr></thead>
             <tbody id="revSendBody"></tbody>
           </table>
         </div>
@@ -1927,6 +1930,30 @@
         </div>
       </section>
 
+      <section class="view" id="view-kudos">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Kudos</h2>
+            <div class="panel-head-actions">
+              <button class="btn" onclick="openRecommendKudosModal()">👍 Recommend Kudos</button>
+              <button class="btn primary" id="giveKudosBtn" style="display:none;" onclick="openGiveKudosModal()">🏆 Give Kudos</button>
+            </div>
+          </div>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Visible to everyone. Anyone can recommend someone for kudos — your team's manager (Shubam firm-wide) reviews recommendations and awards the star level.</p>
+        </div>
+
+        <div class="panel" id="kudosRecPanel" style="display:none;">
+          <div class="panel-head"><h2>Recommended <span style="font-weight:500;color:var(--text-faint);font-size:14px;" id="kudosRecCount"></span></h2></div>
+          <div id="kudosRecList" style="display:flex;flex-direction:column;gap:10px;"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Kudos wall</h2></div>
+          <div id="kudosWall" style="display:flex;flex-direction:column;gap:10px;"></div>
+          <div id="kudosEmpty" style="display:none;padding:16px 4px;font-size:13.5px;color:var(--text-faint);">No kudos awarded yet — be the first to recommend someone.</div>
+        </div>
+      </section>
+
       <section class="view" id="view-clients">
         <div class="panel">
           <div class="panel-head">
@@ -2516,6 +2543,38 @@ const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
 function iAmProfitConfirmOwner(){
   return !!(session && (String(session.email||'').toLowerCase() === PROFIT_CONFIRM_EMAIL || session.accessRole === 'superadmin'));
 }
+// Kudos — mirrors connector.js KUDOS_MANAGERS / canAwardKudosTo exactly
+// (team substring match, or Shubam firm-wide, or superadmin). Keep these
+// two in sync if the mapping ever changes.
+const KUDOS_LEVELS = {
+  '3star':     { label: '3-Star',    badge: '⭐⭐⭐' },
+  '4star':     { label: '4-Star',    badge: '⭐⭐⭐⭐' },
+  '5star':     { label: '5-Star',    badge: '⭐⭐⭐⭐⭐' },
+  'legendary': { label: 'Legendary', badge: '🏆 Legendary' },
+};
+const KUDOS_MANAGERS = [
+  { match: t => /rideshare|admin/i.test(t||''), email: 'disha@elitetaxation.co.nz' },
+  { match: t => /compan|rental/i.test(t||''), email: 'parvinder@elitetaxation.co.nz' },
+  { match: t => /marketing/i.test(t||''), email: 'vishal@elitetaxation.co.nz' },
+];
+function kudosManagerEmailFor(team){
+  const rule = KUDOS_MANAGERS.find(r => r.match(team));
+  return rule ? rule.email : null;
+}
+function canAwardKudosTo(toEmp){
+  if(!session || !toEmp) return false;
+  if(isSuperAdmin) return true;
+  const myEmail = String(session.email||'').toLowerCase();
+  if(myEmail === PROFIT_CONFIRM_EMAIL) return true; // Shubam — whole firm
+  const mgrEmail = kudosManagerEmailFor(toEmp.team);
+  return !!mgrEmail && myEmail === mgrEmail;
+}
+function iCanAwardKudosToAnyone(){
+  if(!session) return false;
+  if(isSuperAdmin) return true;
+  const myEmail = String(session.email||'').toLowerCase();
+  return myEmail === PROFIT_CONFIRM_EMAIL || KUDOS_MANAGERS.some(r => r.email === myEmail);
+}
 function profitConfirmsPendingFor(){
   return tasks.filter(t => t.profitConfirmStatus === 'pending');
 }
@@ -2528,16 +2587,6 @@ function canManageReportSend(t){
   if(currentViewerId === t.reviewerId || currentViewerId === t.reviewedBy) return true;
   return false;
 }
-// Mirrors the server's kudos permission exactly (POST /api/tasks/:id/kudos):
-// the reviewer, a manager over the assignee, or superadmin — deliberately
-// narrower than canManageReportSend above, since the report-send owner is
-// often just the assignee themselves, who can't give themselves kudos.
-function canGiveKudos(t){
-  if(!t || !session || session.id === t.assignedTo) return false;
-  if(t.reviewerId && t.reviewerId === session.id) return true;
-  return empManagesWork(session, t.assignedTo);
-}
-
 /* Is `emp` a manager/admin responsible for `assigneeId` (or a superadmin)?
    Used for self-assignment approval and as one of the two ways to review. */
 function empManagesWork(emp, assigneeId){
@@ -2640,6 +2689,7 @@ const titles = {
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   performance: ['Performance', 'Your Report Card, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
   calls: ['Calls', "Every call tagged to you, filterable by day, week or month and by outcome — superadmins see the whole firm, filterable by owner and agent"],
+  kudos: ['Kudos', 'Firm-wide recognition, visible to everyone — anyone can recommend, your team\'s manager (or Shubam, firm-wide) awards the star level'],
   timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
@@ -2842,6 +2892,167 @@ function renderCallsRows(list){
   }).join('');
   document.getElementById('callsBody').innerHTML = rows || `<tr><td colspan="3" style="padding:14px 0;color:var(--text-faint);">No calls in this range.</td></tr>`;
 }
+/* =========================================================================
+   KUDOS — firm-wide recognition wall + recommendations. Visible to
+   everyone; awarding is gated server-side (canAwardKudosTo, mirrored
+   client-side above) but the page itself has nothing hidden — anyone can
+   see who's been recognized and who's been recommended.
+   ========================================================================= */
+async function renderKudosView(){
+  const giveBtn = document.getElementById('giveKudosBtn');
+  if(giveBtn) giveBtn.style.display = iCanAwardKudosToAnyone() ? '' : 'none';
+  let kudosData, recData;
+  try {
+    kudosData = await api('/api/kudos');
+    recData = await api('/api/kudos/recommendations');
+  } catch(e){
+    document.getElementById('kudosWall').innerHTML = `<div style="color:var(--coral);">${esc(e.message)}</div>`;
+    return;
+  }
+  const pending = recData.recommendations.filter(r => r.status === 'pending');
+  document.getElementById('kudosRecPanel').style.display = pending.length ? '' : 'none';
+  document.getElementById('kudosRecCount').textContent = pending.length ? '· ' + pending.length : '';
+  document.getElementById('kudosRecList').innerHTML = pending.map(r => {
+    const to = empById(r.toId), by = empById(r.byId);
+    const canResolve = canAwardKudosTo(to || {});
+    return `<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;background:var(--panel-2);">
+      <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);font-weight:400;">recommended by ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(r.createdAt))}</span></div>
+      <div style="font-size:13px;color:var(--text-dim);margin-top:4px;">"${esc(r.note)}"</div>
+      ${canResolve ? `<div style="margin-top:8px;display:flex;gap:8px;">
+        <button class="btn small primary" onclick="openAwardRecommendationModal('${r.id}')">🏆 Award</button>
+        <button class="btn small" onclick="dismissKudosRecommendation('${r.id}')">Dismiss</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+
+  const list = kudosData.kudos;
+  document.getElementById('kudosEmpty').style.display = list.length ? 'none' : '';
+  document.getElementById('kudosWall').innerHTML = list.map(k => {
+    const to = empById(k.toId), by = empById(k.byId);
+    const lvl = KUDOS_LEVELS[k.level] || { label: k.level, badge: k.level };
+    const legendary = k.level === 'legendary';
+    return `<div style="border:1px solid ${legendary?'#D4AF37':'var(--panel-border)'};border-radius:10px;padding:12px 14px;background:${legendary?'linear-gradient(135deg,#FFF8E1,var(--panel))':'var(--panel)'};${legendary?'box-shadow:0 2px 12px rgba(212,175,55,.3);':''}">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;">
+        <div style="font-size:14px;"><b>${esc(to ? to.name : '—')}</b></div>
+        <div style="font-size:13px;font-weight:700;${legendary?'color:#B8860B;':'color:var(--amber);'}">${lvl.badge}</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-faint);margin-top:2px;">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(k.awardedAt))}</div>
+      ${k.note ? `<div style="font-size:13px;color:var(--text-dim);margin-top:6px;">"${esc(k.note)}"</div>` : ''}
+    </div>`;
+  }).join('');
+}
+function openGiveKudosModal(){
+  const eligible = anyEmployeeInFirm().filter(e => canAwardKudosTo(e)).sort((a,b)=>a.name.localeCompare(b.name));
+  if(!eligible.length){ showToast('error', 'Nobody to award', "You're not set up as a kudos manager for any team."); return; }
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🏆 Give Kudos</h3>
+    <div class="modal-sub">Posts publicly to the Kudos wall and the team Slack channel.</div>
+    <div class="field"><label>To</label><select id="gkTo"><option value="">— Choose —</option>${eligible.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="field"><label>Level</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        ${Object.entries(KUDOS_LEVELS).map(([key,lv]) => `<button type="button" class="btn small gkLevelBtn" data-level="${key}" onclick="setGiveKudosLevel('${key}')">${lv.badge}</button>`).join('')}
+      </div>
+    </div>
+    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">(optional)</span></label>
+      <textarea id="gkNote" placeholder="e.g. Nailed a tricky GST reconciliation under pressure"></textarea></div>
+    <div class="modal-error" id="gkErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitGiveKudos()">Award 🏆</button>
+    </div>`;
+  window._gkLevel = null;
+  openModal();
+}
+function setGiveKudosLevel(key){
+  window._gkLevel = key;
+  document.querySelectorAll('.gkLevelBtn').forEach(b => b.classList.toggle('primary', b.dataset.level === key));
+}
+async function submitGiveKudos(){
+  const toId = document.getElementById('gkTo').value;
+  const errEl = document.getElementById('gkErr');
+  if(!toId){ errEl.textContent = 'Choose who to award kudos to.'; errEl.style.display = 'block'; return; }
+  if(!window._gkLevel){ errEl.textContent = 'Pick a level.'; errEl.style.display = 'block'; return; }
+  const note = document.getElementById('gkNote').value.trim();
+  try {
+    await api('/api/kudos', { method:'POST', body: JSON.stringify({ toId, level: window._gkLevel, note: note || undefined }) });
+    closeModal();
+    showToast('success', 'Kudos awarded! 🏆', 'Posted to the Kudos wall and Slack.');
+    if(document.getElementById('view-kudos').classList.contains('active')) renderKudosView();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+function openRecommendKudosModal(){
+  const others = anyEmployeeInFirm().filter(e => e.id !== currentViewerId).sort((a,b)=>a.name.localeCompare(b.name));
+  document.getElementById('modalBox').innerHTML = `
+    <h3>👍 Recommend Kudos</h3>
+    <div class="modal-sub">Their team's manager will review it and decide the star level.</div>
+    <div class="field"><label>Who</label><select id="rkTo"><option value="">— Choose —</option>${others.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="field"><label>Why <span class="req-mark">*</span></label><textarea id="rkNote" placeholder="e.g. Stayed late to get the annuals out before the deadline"></textarea></div>
+    <div class="modal-error" id="rkErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitRecommendKudos()">Recommend 👍</button>
+    </div>`;
+  openModal();
+}
+async function submitRecommendKudos(){
+  const toId = document.getElementById('rkTo').value;
+  const note = document.getElementById('rkNote').value.trim();
+  const errEl = document.getElementById('rkErr');
+  if(!toId){ errEl.textContent = 'Choose who to recommend.'; errEl.style.display = 'block'; return; }
+  if(!note){ errEl.textContent = 'Say why — a short reason is required.'; errEl.style.display = 'block'; return; }
+  try {
+    await api('/api/kudos/recommend', { method:'POST', body: JSON.stringify({ toId, note }) });
+    closeModal();
+    showToast('success', 'Recommendation sent', 'Their manager will review it.');
+    if(document.getElementById('view-kudos').classList.contains('active')) renderKudosView();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+function openAwardRecommendationModal(recId){
+  api('/api/kudos/recommendations').then(r => {
+    const rec = (r.recommendations || []).find(x => x.id === recId);
+    if(!rec) return;
+    const to = empById(rec.toId);
+    document.getElementById('modalBox').innerHTML = `
+      <h3>🏆 Award Kudos — ${esc(to ? to.name : '—')}</h3>
+      <div class="modal-sub">Recommended by ${esc((empById(rec.byId)||{}).name || '—')}: "${esc(rec.note)}"</div>
+      <div class="field"><label>Level</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${Object.entries(KUDOS_LEVELS).map(([key,lv]) => `<button type="button" class="btn small arLevelBtn" data-level="${key}" onclick="setAwardRecLevel('${key}')">${lv.badge}</button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">(optional — overrides the recommendation note)</span></label>
+        <textarea id="arNote" placeholder="${esc(rec.note)}"></textarea></div>
+      <div class="modal-error" id="arErr"></div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn primary" onclick="submitAwardRecommendation('${recId}')">Award 🏆</button>
+      </div>`;
+    window._arLevel = null;
+    openModal();
+  });
+}
+function setAwardRecLevel(key){
+  window._arLevel = key;
+  document.querySelectorAll('.arLevelBtn').forEach(b => b.classList.toggle('primary', b.dataset.level === key));
+}
+async function submitAwardRecommendation(recId){
+  const errEl = document.getElementById('arErr');
+  if(!window._arLevel){ errEl.textContent = 'Pick a level.'; errEl.style.display = 'block'; return; }
+  const note = document.getElementById('arNote').value.trim();
+  try {
+    await api(`/api/kudos/recommendations/${encodeURIComponent(recId)}/award`, { method:'POST', body: JSON.stringify({ level: window._arLevel, note: note || undefined }) });
+    closeModal();
+    showToast('success', 'Kudos awarded! 🏆', 'Posted to the Kudos wall and Slack.');
+    if(document.getElementById('view-kudos').classList.contains('active')) renderKudosView();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+async function dismissKudosRecommendation(recId){
+  try {
+    await api(`/api/kudos/recommendations/${encodeURIComponent(recId)}/dismiss`, { method:'POST' });
+    showToast('info', 'Dismissed', '');
+    if(document.getElementById('view-kudos').classList.contains('active')) renderKudosView();
+  } catch(e){ showToast('error', 'Could not dismiss', e.message); }
+}
 /* Mobile: the sidebar is an off-canvas drawer under 860px. */
 function toggleMobileNav(){ document.querySelector('.app').classList.toggle('nav-open'); }
 function closeMobileNav(){ document.querySelector('.app').classList.remove('nav-open'); }
@@ -2881,6 +3092,7 @@ function showView(id, el){
   if(id === 'manager') renderManagerStatics();
   if(id === 'taskengine') renderTaskEngineVisuals();
   if(id === 'performance') renderPerformanceView();
+  if(id === 'kudos') renderKudosView();
   if(id === 'calls') renderCallsView();
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
@@ -2892,6 +3104,10 @@ function showView(id, el){
     renderMgmtTabs(id);
     const grp = document.getElementById('mgmtNavGroup');
     if(grp) grp.open = true; // never land on a page whose own nav row is hidden inside a collapsed dropdown
+  }
+  if(['performance','kudos'].includes(id)){
+    const perfGrp = document.getElementById('perfNavGroup');
+    if(perfGrp) perfGrp.open = true;
   }
   window.scrollTo({top:0, behavior:'smooth'});
 }
@@ -7498,13 +7714,6 @@ function renderReviewsView(){
     </tr>`;
   }).join('');
 
-  // One toggle, one place: a clean review's Kudos action lives here —
-  // next to Profit confirmations and Reports to send, not as a reflex
-  // click in the popup right after scoring the review.
-  const kudosTag = t => t.kudosAt
-    ? `<span style="color:var(--text-faint);white-space:nowrap;">🎉 sent</span>`
-    : canGiveKudos(t) ? `<button class="verify-btn" style="border-color:#F59E0B;color:#B45309;white-space:nowrap;" onclick="openKudosModal('${t.id}')">🎉 Kudos</button>`
-    : `<span style="color:var(--text-faint);">—</span>`;
   const showProfit = iAmProfitConfirmOwner();
   const profit = showProfit ? profitConfirmsPendingFor() : [];
   document.getElementById('revProfitPanel').style.display = profit.length ? '' : 'none';
@@ -7516,7 +7725,6 @@ function renderReviewsView(){
       <td>${o ? esc(o.name) : '—'}</td>
       <td>${linkTag(t.sheetLink, 'Sheet')}</td>
       <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
-      <td>${kudosTag(t)}</td>
       <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="submitProfitConfirmDone('${t.id}')">✓ Done</button></td>
     </tr>`;
   }).join('');
@@ -7527,8 +7735,7 @@ function renderReviewsView(){
       <td><div class="tl-name">${esc(t.name)}</div></td>
       <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</td>
       <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
-      <td style="${t.reportOverdue?'color:#C2410C;font-weight:600;':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' · overdue' : ''}</td>
-      <td>${kudosTag(t)}</td>
+      <td style="${t.reportOverdue?'color:#C2410C;font-weight:600;':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}</td>
       <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openSendToClientModal('${t.id}')">Send?</button></td>
     </tr>`).join('');
 
@@ -8534,7 +8741,6 @@ async function submitReviewFinal(toProfitConfirm){
         <td class="tl-sub">${a ? esc(a.name) : '—'}</td>
         <td>${linkTag(t.sheetLink, 'Sheet')}</td>
         <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
-        <td>${t.kudosAt ? `<span style="color:var(--text-faint);white-space:nowrap;">🎉 sent</span>` : canGiveKudos(t) ? `<button class="verify-btn" style="border-color:#F59E0B;color:#B45309;white-space:nowrap;" onclick="openKudosModal('${t.id}','profit')">🎉 Kudos</button>` : `<span style="color:var(--text-faint);">—</span>`}</td>
         <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);white-space:nowrap;" onclick="submitProfitConfirmDone('${t.id}')">✓ Done</button></td>
       </tr>`;
     }).join('');
@@ -8543,7 +8749,7 @@ async function submitReviewFinal(toProfitConfirm){
         <h3>Profit confirmations <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
         <div class="modal-sub">Reviewed clean, waiting on your profit confirmation before the report goes out.</div>
         ${list.length ? `<div class="tl-scroll"><table class="tl-table-fixed">
-          <thead><tr><th>Task</th><th style="width:120px;">Owner</th><th style="width:80px;">Sheet</th><th style="width:90px;">Cashbook</th><th style="width:80px;">Kudos</th><th style="width:90px;"></th></tr></thead>
+          <thead><tr><th>Task</th><th style="width:120px;">Owner</th><th style="width:80px;">Sheet</th><th style="width:90px;">Cashbook</th><th style="width:90px;"></th></tr></thead>
           <tbody>${rows}</tbody></table></div>`
           : `<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting on you.</p>`}
         <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>
@@ -8578,8 +8784,6 @@ function openReviewViewModal(id){
         : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>'
         : t.sentToClient === false ? '<span style="color:var(--text-faint);">Not sent to client</span>'
         : '<span style="color:var(--text-faint);">—</span>'}</div>
-      ${t.kudosAt ? `<div style="margin-top:8px;">🎉 <b style="color:var(--text);">Kudos sent</b> ${fmtDate(dayOf(t.kudosAt))} by ${esc((empById(t.kudosBy)||{}).name || '—')}</div>`
-        : t.reviewStatus === 'clean' ? `<div style="margin-top:8px;color:var(--text-faint);">Kudos not sent yet — from the Reviews page, next to Profit confirmations / Reports to send.</div>` : ''}
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -8587,39 +8791,6 @@ function openReviewViewModal(id){
     </div>
   `;
   openModal();
-}
-// `from` is where this was opened from, so Back and the post-send return
-// go to the right place: 'profit' = Shubam's Profit confirmations modal
-// (dashboard tile), 'view' = the View Review detail, otherwise (opened
-// straight from the Reviews page's own Profit confirmations / Reports to
-// send panels) there's no modal to go back to — Back and post-send both
-// just close and let the page's own tables refresh.
-function openKudosModal(id, from){
-  const t = findTask(id);
-  if(!t) return;
-  const backTarget = from === 'profit' ? 'openProfitConfirmsModal()' : from === 'view' ? `openReviewViewModal('${id}')` : 'closeModal()';
-  document.getElementById('modalBox').innerHTML = `
-    <h3>🎉 Send Kudos — ${esc(t.name)}</h3>
-    <div class="modal-sub">Posts a public shoutout to the team Slack channel.</div>
-    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">(optional)</span></label>
-      <textarea id="kudosNote" placeholder="e.g. Great turnaround on a tricky one!"></textarea></div>
-    <div class="modal-error" id="kudosErr"></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="${backTarget}">← Back</button>
-      <button class="btn primary" onclick="submitKudos('${id}','${from||''}')">Send 🎉</button>
-    </div>`;
-  openModal();
-}
-async function submitKudos(id, from){
-  const note = document.getElementById('kudosNote').value.trim();
-  const errEl = document.getElementById('kudosErr');
-  try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/kudos`, { method:'POST', body: JSON.stringify({ note: note || undefined }) });
-    await refreshTasks();
-    showToast('success', 'Kudos sent! 🎉', 'Posted to the team Slack channel.');
-    if(from === 'profit') openProfitConfirmsModal();
-    else { closeModal(); if(document.getElementById('view-reviews').classList.contains('active')) renderReviewsView(); }
-  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* =========================================================================
    TASK TRAIL — the full "who did what, when" for one task, built from the
