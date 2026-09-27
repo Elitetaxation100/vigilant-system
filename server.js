@@ -3073,6 +3073,13 @@ function productivityFor(state, empIds, fromISO, toISO) {
   const from = fromISO, to = toISO;
   const inRange = d => d && nzDay(d) >= from && nzDay(d) <= to;
   const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
+  // Firm-wide Workshop Saturdays inside the period — same for every
+  // employee, since the calendar itself is firm-wide (see /api/capacity-calendar).
+  // Surfaced separately from leaveDays so the capacity card can explain
+  // BOTH kinds of deduction; without this, a workshop-only gap between
+  // "N working days" and the displayed hours had no visible explanation.
+  const workshopDays = (state.capacityCalendarAdjustments || [])
+    .filter(a => a.active && a.type === 'WORKSHOP' && a.date >= from && a.date <= to).length;
   const r2 = n => Math.round(n * 100) / 100;
   const v2At = state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT;
 
@@ -3144,7 +3151,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
 
     return {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
-      capacityHours: r2(capacityHours), workingDays, leaveDays: leave.equivalent,
+      capacityHours: r2(capacityHours), workingDays, leaveDays: leave.equivalent, workshopDays,
       qualifiedHours, productivityPct, rawUtilisationPct, additionalHours,
       notScorable: capacityHours <= 0,
       commitmentMet, commitmentTotal, commitmentPct,
@@ -3191,6 +3198,9 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   // straight onto totals (rather than never including it) is the fix for
   // the team-summary card's "undefined working days" display bug.
   const totalWorkingDays = people.length ? people[0].workingDays : Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to));
+  // same firm-wide fact as workingDays above — not a per-person sum.
+  const totalWorkshopDays = people.length ? people[0].workshopDays : (state.capacityCalendarAdjustments || [])
+    .filter(a => a.active && a.type === 'WORKSHOP' && a.date >= from && a.date <= to).length;
 
   res.json({
     from, to, requestedFrom, goLive: SYSTEM_GO_LIVE,
@@ -3204,6 +3214,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
     totals: {
       capacityHours: Math.round(totalCap * 100) / 100,
       workingDays: totalWorkingDays, leaveDays: Math.round(sum('leaveDays') * 100) / 100,
+      workshopDays: totalWorkshopDays,
       qualifiedHours: Math.round(totalQualified * 100) / 100,
       productivityPct: rawTotalPct == null ? null : Math.min(100, Math.round(rawTotalPct * 10) / 10),
       rawUtilisationPct: rawTotalPct == null ? null : Math.round(rawTotalPct * 10) / 10,

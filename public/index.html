@@ -6860,7 +6860,7 @@ function productivityCardsHtml(p, opts){
   return `<div class="top-grid">
     ${card('Productivity', pctBig, p.notScorable ? 'No available capacity in this period' : null, pctColor)}
     ${card('Qualifying Completed Allocated Hours', p.qualifiedHours.toFixed(1)+'h', null)}
-    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays?` − ${p.leaveDays} leave`:''}`)}
+    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays?` − ${p.leaveDays} leave`:''}${p.workshopDays?` − ${p.workshopDays} workshop Sat${p.workshopDays===1?'':'s'}`:''}`)}
     ${card('Capacity Not Converted Into Completed Output', p.capacityNotConverted.toFixed(1)+'h', `${p.assignedOpenHours.toFixed(1)}h assigned &amp; open · ${p.trulyUnallocatedHours.toFixed(1)}h truly unallocated`)}
     ${card('Internal Commitment Met', commitmentPct, commitmentSub, p.commitmentPct==null?null:scoreColor(p.commitmentPct))}
   </div>
