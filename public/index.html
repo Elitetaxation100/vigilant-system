@@ -1790,7 +1790,7 @@
           <div id="prodTotals"></div>
           <div style="max-height:60vh;overflow-y:auto;margin-top:16px;">
             <table style="width:100%;border-collapse:collapse;font-size:13px;">
-              <thead><tr><th>Person</th><th>Team</th><th style="text-align:right;">Capacity</th><th style="text-align:right;">Qualified</th><th style="text-align:right;">Productivity</th><th style="text-align:right;">Milestones</th><th style="text-align:right;">Reports on time</th><th></th></tr></thead>
+              <thead><tr><th>Person</th><th>Team</th><th style="text-align:right;">Capacity</th><th style="text-align:right;">Qualified</th><th style="text-align:right;">Productivity</th><th style="text-align:right;">Internal Commitment</th><th style="text-align:right;">Reports on time</th><th></th></tr></thead>
               <tbody id="prodBody"></tbody>
             </table>
           </div>
@@ -1966,6 +1966,27 @@
           <div class="tl-scroll" style="margin-top:14px;"><table id="holTable">
             <thead><tr><th>Date</th><th>Name</th><th style="width:70px;"></th></tr></thead>
             <tbody id="holBody"></tbody>
+          </table></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Capacity calendar — Workshop Saturdays</h2></div>
+          <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;max-width:70ch;">Firm-wide, superadmin-only. A workshop Saturday stays a counted working day but contributes zero Productivity capacity for every affected employee — different from the holiday calendar above, which removes a date from the working-day count entirely. Never double-deducted against personal leave on the same date.</p>
+          <div id="v2CutoffInfo" style="font-size:12.5px;color:var(--text-faint);margin:8px 0 4px;"></div>
+          <div class="field" style="max-width:520px;margin-top:12px;">
+            <label>Mark a Saturday as a workshop</label>
+            <div style="display:flex;gap:8px;">
+              <input type="date" id="ccAddDate" style="flex:0 0 170px;">
+              <input type="text" id="ccAddName" placeholder="Workshop name" style="flex:1;">
+              <input type="text" id="ccAddReason" placeholder="Reason" style="flex:1;">
+              <button class="btn primary small" onclick="previewWorkshop()">Preview</button>
+            </div>
+          </div>
+          <div id="ccPreview"></div>
+          <div class="modal-error" id="ccErr" style="display:none;margin-top:10px;"></div>
+          <div class="tl-scroll" style="margin-top:14px;"><table id="ccTable">
+            <thead><tr><th>Date</th><th>Name</th><th>Status</th><th>Created by</th><th style="width:80px;"></th></tr></thead>
+            <tbody id="ccBody"></tbody>
           </table></div>
         </div>
 
@@ -6818,10 +6839,12 @@ function _prodRange(){
   else { from = fiscalYearStartDate(now); }   // 'year' = fiscal year
   return { from: iso(from), to: iso(now) };
 }
-// Productivity rebuild — the six approved cards (spec §12), shared by the
-// Report Card (one person) and reused conceptually for team/firm totals.
-// `p` is one row from /api/productivity's `people[]` or the `totals` object
-// — both carry the same field names, so this works for either.
+// Productivity correction — the approved card set, shared by the Report
+// Card (one person) and reused conceptually for team/firm totals. `p` is
+// one row from /api/productivity's `people[]` or the `totals` object —
+// both carry the same field names, so this works for either. Report Sent
+// deliberately stays its OWN separate panel (#rcReportSent) — never blended
+// into this row, so a lower Productivity % never reads as a dispatch problem.
 function scoreColor(v){ return v==null ? 'var(--text-faint)' : v>=80 ? 'var(--teal)' : v>=60 ? 'var(--amber)' : 'var(--coral)'; }
 function productivityCardsHtml(p, opts){
   opts = opts || {};
@@ -6832,14 +6855,17 @@ function productivityCardsHtml(p, opts){
     <div class="mt-value"${color?` style="color:${color};"`:''}>${value}</div>
     ${sub?`<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>`:''}
   </div>`;
+  const commitmentPct = p.commitmentPct==null ? '—' : p.commitmentPct+'%';
+  const commitmentSub = p.commitmentTotal ? `${p.commitmentMet}/${p.commitmentTotal} on time` : 'no dated tasks in period';
   return `<div class="top-grid">
+    ${card('Productivity', pctBig, p.notScorable ? 'No available capacity in this period' : null, pctColor)}
+    ${card('Qualifying Completed Allocated Hours', p.qualifiedHours.toFixed(1)+'h', null)}
     ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays?` − ${p.leaveDays} leave`:''}`)}
-    ${card('Qualified Delivered Allocated Hours', p.qualifiedHours.toFixed(1)+'h', null)}
-    ${card('Productivity', pctBig, p.notScorable ? 'No available capacity in this period' : (p.additionalHours>0 ? `Additional qualifying output: ${p.additionalHours.toFixed(1)}h` : null), pctColor)}
-    ${card('Internal Milestones Met', `${p.milestonesMet}/${p.milestonesTotal}`, null)}
-    ${card('Client Reports Sent On Time', `${p.reportsOnTime}/${p.reportsRequired}`, p.reportSentRate==null?null:`${p.reportSentRate}%`)}
-    ${card('Outstanding Client Reports', p.outstandingReports, p.outstandingReports>0?'ready or overdue, not yet sent':null, p.outstandingReports>0?'var(--coral)':null)}
+    ${card('Capacity Not Converted Into Completed Output', p.capacityNotConverted.toFixed(1)+'h', `${p.assignedOpenHours.toFixed(1)}h assigned &amp; open · ${p.trulyUnallocatedHours.toFixed(1)}h truly unallocated`)}
+    ${card('Internal Commitment Met', commitmentPct, commitmentSub, p.commitmentPct==null?null:scoreColor(p.commitmentPct))}
   </div>
+  <p style="font-size:12px;color:var(--text-faint);margin:10px 0 0;max-width:70ch;line-height:1.5;">Productivity shows completed allocated hours as a percentage of adjusted capacity. A lower percentage does not automatically mean poor employee performance — capacity not yet converted into completed output may include work still in progress, work awaiting review, or capacity management hasn't allocated. Not an employee penalty.</p>
+  ${p.additionalHours>0 ? `<p style="font-size:12px;color:var(--text-dim);margin:6px 0 0;">Raw capacity utilisation: <b>${p.rawUtilisationPct}%</b> — additional qualifying output: <b>${p.additionalHours.toFixed(1)}h</b> beyond the 100% cap.</p>` : ''}
   ${!opts.hideCalcLink ? `<div style="margin-top:10px;"><a href="#" onclick="event.preventDefault(); ${opts.calcOnclick}" style="font-size:12.5px;color:var(--purple);font-weight:600;">View calculation →</a></div>` : ''}`;
 }
 // Jump straight to that person's Report Card.
@@ -6858,25 +6884,33 @@ function liveElapsed(t){
   if(t.status === 'completed' || !t.timerStartedAt) return logged;
   return logged + (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
 }
-// Three-stage responsibility labels (spec §11/§13) — processor / reviewer /
-// sender never blended into one verdict.
+// Three-stage responsibility labels — processor / reviewer / sender never
+// blended into one verdict. Sender is informational only (Report Sent is a
+// fully separate metric) — it's shown in its own column, never as a reason
+// a task scored zero Productivity.
 const STAGE_LABELS = {
   met:'Met', missed:'Missed', clean:'Clean', done:'Closed (no review)', error:'Error', pending:'Pending',
   sent_on_time:'Sent on time', sent_late:'Sent late', not_sent:'Not sent', sending_not_required:'Not required',
+};
+const RULE_LABELS = { historical:'Historical', v2:'V2 (Clean review)' };
+const QUALIFYING_EVENT_LABELS = {
+  sent_for_review:'Sent for review', marked_done:'Marked done', clean_review:'Clean review', no_review_authorized:'No-review authorised',
 };
 function stageLabel(s){ return s ? esc(STAGE_LABELS[s] || s) : '<span style="color:var(--text-faint);">—</span>'; }
 function taskCalcTableHtml(rows, showReason){
   if(!rows.length) return `<p style="font-size:12.5px;color:var(--text-faint);padding:8px 0;">None.</p>`;
   return `<div style="overflow-x:auto;max-height:26vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">
     <thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">
-      <th style="padding:5px 6px 5px 0;">Task</th><th style="padding:5px 6px;">Client</th><th style="padding:5px 6px;">Processor</th><th style="padding:5px 6px;">Reviewer</th><th style="padding:5px 6px;">Sender</th><th style="padding:5px 6px;text-align:right;">Hours</th>${showReason?'<th style="padding:5px 6px;">Reason</th>':''}</tr></thead>
+      <th style="padding:5px 6px 5px 0;">Task</th><th style="padding:5px 6px;">Client</th><th style="padding:5px 6px;">Rule</th><th style="padding:5px 6px;">Qualifying event</th><th style="padding:5px 6px;">Processor</th><th style="padding:5px 6px;">Reviewer</th><th style="padding:5px 6px;">Report</th><th style="padding:5px 6px;text-align:right;">Hours</th>${showReason?'<th style="padding:5px 6px;">Reason</th>':''}</tr></thead>
     <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--panel-border);">
-      <td style="padding:5px 6px 5px 0;font-weight:600;">${esc(r.name)}</td>
+      <td style="padding:5px 6px 5px 0;font-weight:600;">${esc(r.name)}${r.dataException?' <span title="Data exception" style="color:var(--coral);">⚠</span>':''}</td>
       <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.clientName)}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${r.rule?esc(RULE_LABELS[r.rule]||r.rule):'—'}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${r.qualifyingEventType?esc(QUALIFYING_EVENT_LABELS[r.qualifyingEventType]||r.qualifyingEventType)+(r.qualifyingEventAt?' · '+fmtDate(dayOf(r.qualifyingEventAt)):''):'—'}</td>
       <td style="padding:5px 6px;">${stageLabel(r.stages.processor)}</td>
       <td style="padding:5px 6px;">${stageLabel(r.stages.reviewer)}</td>
       <td style="padding:5px 6px;">${stageLabel(r.stages.sender)}</td>
-      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${r.allocatedHours.toFixed(1)}h</td>
+      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${r.allocatedHours.toFixed(1)}h${r.zeroHourTask?' <span style="color:var(--text-faint);">(0h)</span>':''}</td>
       ${showReason?`<td style="padding:5px 6px;color:var(--coral);">${esc(r.exclusionReason||'')}</td>`:''}
     </tr>`).join('')}</tbody>
   </table></div>`;
@@ -6897,12 +6931,15 @@ function openWorkTableHtml(rows){
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
-// The drill-down — spec §13: qualified + excluded task tables (sum of
-// qualified credited hours must equal the headline number exactly, since
-// both read the same server-computed rows, never recomputed client-side),
-// plus the plain allocation-gap info line (spec §9 — informational only).
+// The drill-down — qualified + excluded task tables (sum of qualified
+// credited hours must equal the headline number exactly, since both read
+// the same server-computed rows, never recomputed client-side), the
+// capacity-not-converted breakdown, and a missed-Internal-Commitment list
+// (filtered client-side from the same rows — no separate endpoint needed).
 function openProductivityCalcModal(p){
   if(!p) return;
+  const allRows = (p.qualifiedTasks||[]).concat(p.excludedTasks||[]);
+  const missedCommitment = allRows.filter(r => r.stages && r.stages.processor === 'missed');
   document.getElementById('modalBox').innerHTML = `
     <div class="calc-modal">
     <h3>${esc(p.name)} — calculation</h3>
@@ -6911,8 +6948,10 @@ function openProductivityCalcModal(p){
     ${taskCalcTableHtml(p.qualifiedTasks, false)}
     <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Excluded — zero hours credited</div>
     ${taskCalcTableHtml(p.excludedTasks, true)}
+    <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Internal Commitment — missed (${missedCommitment.length})</div>
+    ${taskCalcTableHtml(missedCommitment, false)}
     <div style="margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:12.5px;color:var(--text-dim);">
-      Capacity ${p.capacityHours.toFixed(1)}h · Assigned ${p.assignedLoad.toFixed(1)}h · Unallocated ${p.unallocatedHours.toFixed(1)}h — manager allocation, not scored
+      Capacity ${p.capacityHours.toFixed(1)}h · Capacity not converted ${p.capacityNotConverted.toFixed(1)}h (${p.assignedOpenHours.toFixed(1)}h assigned &amp; open · ${p.trulyUnallocatedHours.toFixed(1)}h truly unallocated) — not an employee penalty
     </div>
     <div class="modal-actions" style="margin-top:16px;">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -6936,7 +6975,7 @@ async function renderProductivityView(){
       <td style="text-align:right;font-family:var(--font-mono);">${p.capacityHours.toFixed(1)}h</td>
       <td style="text-align:right;font-family:var(--font-mono);">${p.qualifiedHours.toFixed(1)}h</td>
       <td style="text-align:right;font-weight:700;color:${p.notScorable?'var(--text-faint)':scoreColor(p.productivityPct)};">${p.notScorable?'—':(p.productivityPct==null?'—':p.productivityPct+'%')}</td>
-      <td style="text-align:right;">${p.milestonesMet}/${p.milestonesTotal}</td>
+      <td style="text-align:right;">${p.commitmentPct==null?'—':p.commitmentPct+'%'}</td>
       <td style="text-align:right;">${p.reportsOnTime}/${p.reportsRequired}</td>
       <td><span style="color:var(--purple);font-size:12px;font-weight:600;">View →</span></td>
     </tr>`).join('')
@@ -8643,6 +8682,9 @@ function openTaskTrailModal(id){
       <button class="btn" onclick="closeModal()">Close</button>
       ${empManagesWork(currentViewer(), t.assignedTo) ? `<button class="btn" style="border-color:#6D28D9;color:#6D28D9;" onclick="openCorrectNameModal('${id}')" title="Fix a garbled or wrong title">Rename task</button>` : ''}
       ${isSuperAdmin ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="openCorrectLoggedModal('${id}')" title="Fix a bad logged-hours value — e.g. a forgotten timer">Correct logged hours (${t.logged.toFixed(1)}h)</button>` : ''}
+      ${t.reviewStatus === 'done' && !t.noReviewAuthorizedAt && currentViewerId !== t.assignedTo && empManagesWork(currentViewer(), t.assignedTo)
+        ? `<button class="btn" style="border-color:var(--teal);color:var(--teal);" onclick="openAuthorizeNoReviewModal('${id}')" title="Required for this task to earn Productivity credit under the current rule">Authorise no-review credit</button>` : ''}
+      ${t.noReviewAuthorizedAt ? `<span style="font-size:12px;color:var(--text-faint);align-self:center;">✓ No-review authorised by ${esc((empById(t.noReviewAuthorizedBy)||{}).name || '—')}, ${fmtDate(dayOf(t.noReviewAuthorizedAt))}</span>` : ''}
     </div>
   `;
   openModal();
@@ -8711,6 +8753,36 @@ async function submitCorrectName(id){
     await api(`/api/tasks/${encodeURIComponent(id)}/correct-name`, { method:'POST', body: JSON.stringify({ name }) });
     await refreshTasks();
     showToast('success', 'Task renamed', '');
+    openTaskTrailModal(id);
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+// Manager authorisation for a no-review ('done') task to earn V2
+// Productivity credit — the credited period is the authorisation moment,
+// not the original completion, so approving this well after the fact never
+// silently rewrites an already-reported period (see server.js).
+function openAuthorizeNoReviewModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Authorise no-review credit</h3>
+    <div class="modal-sub">${esc(t.name)} — closed without review; this earns nothing toward Productivity until authorised.</div>
+    <div class="field"><label>Reason</label>
+      <input type="text" id="nrReason" placeholder="e.g. routine internal task, no review needed"></div>
+    <div class="modal-error" id="nrErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openTaskTrailModal('${id}')">← Back</button>
+      <button class="btn primary" onclick="submitAuthorizeNoReview('${id}')">Authorise</button>
+    </div>`;
+  openModal();
+}
+async function submitAuthorizeNoReview(id){
+  const reason = document.getElementById('nrReason').value.trim();
+  const errEl = document.getElementById('nrErr');
+  if(!reason){ errEl.textContent = 'Give a reason.'; errEl.style.display = 'block'; return; }
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/authorize-no-review`, { method:'POST', body: JSON.stringify({ reason }) });
+    await refreshTasks();
+    showToast('success', 'Authorised', 'This task now earns Productivity credit.');
     openTaskTrailModal(id);
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
@@ -9121,6 +9193,7 @@ async function renderTaxonomyView(){
   taxRenderList();
   renderPiiReport();
   renderHolidaysPanel();
+  renderCapacityCalendarPanel();
 }
 /* Admin-managed firm holiday calendar — the productivity rebuild's source
    of truth for calendar.js's working-day engine (see server.js /api/holidays,
@@ -9152,6 +9225,71 @@ async function addHoliday(){
 async function removeHoliday(date){
   try { await api('/api/holidays/' + date, { method:'DELETE' }); renderHolidaysPanel(); }
   catch(e){ showToast('error', 'Could not remove', e.message); }
+}
+/* Superadmin-managed firm-wide Workshop Saturday calendar — see server.js
+   isFirmWorkshopDay/attendanceStatus, /api/capacity-calendar. Two-step
+   preview-then-confirm so a past date's recalculation impact is always
+   shown before it's saved (never a silent one-click mutation). */
+let _ccPreview = null;
+async function renderCapacityCalendarPanel(){
+  const body = document.getElementById('ccBody');
+  if(!body) return;
+  try {
+    const prod = await api('/api/productivity?scope=me');
+    const v2 = prod.v2EffectiveAt;
+    const local = v2 ? new Date(v2).toLocaleString('en-NZ', { timeZone:'Pacific/Auckland', dateStyle:'long', timeStyle:'short' }) : '—';
+    document.getElementById('v2CutoffInfo').innerHTML = `<b>Productivity V2 cutoff:</b> ${esc(local)} NZ (${esc(v2||'—')} UTC) — read-only under normal operation.`;
+  } catch(e){ /* non-fatal */ }
+  let rows = [];
+  try { rows = (await api('/api/capacity-calendar')).adjustments; } catch(e){ /* non-fatal */ }
+  body.innerHTML = rows.length ? rows.map(a => `<tr>
+      <td style="font-family:var(--font-mono);">${fmtDate(a.date)}</td>
+      <td>${esc(a.name)}</td>
+      <td>${a.active ? '<span style="color:var(--teal);">Active</span>' : `<span style="color:var(--text-faint);">Cancelled</span>`}</td>
+      <td style="font-size:12px;color:var(--text-faint);">${esc((empById(a.createdBy)||{}).name || '—')}</td>
+      <td>${a.active ? `<button class="btn small" style="border-color:var(--coral);color:var(--coral);" onclick="cancelWorkshop('${a.id}')">Cancel</button>` : ''}</td>
+    </tr>`).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--text-faint);padding:16px;">No workshop Saturdays configured.</td></tr>`;
+}
+async function previewWorkshop(){
+  const errEl = document.getElementById('ccErr');
+  const date = (document.getElementById('ccAddDate')||{}).value;
+  const name = (document.getElementById('ccAddName')||{}).value || '';
+  const reason = (document.getElementById('ccAddReason')||{}).value || '';
+  errEl.style.display = 'none';
+  try {
+    const preview = await api('/api/capacity-calendar/preview', { method:'POST', body: JSON.stringify({ date, name, reason }) });
+    _ccPreview = { date, name, reason };
+    document.getElementById('ccPreview').innerHTML = `
+      <div style="margin-top:10px;padding:12px 14px;border-radius:8px;background:var(--panel-2);font-size:13px;color:var(--text-dim);">
+        ${preview.isPast ? '<p style="color:var(--coral);font-weight:600;margin:0 0 8px;">⚠ This is a historical capacity change. It will recalculate Productivity for employees whose selected reporting periods include this date.</p>' : ''}
+        <div>Workshop date: <b>${fmtDate(preview.date)}</b></div>
+        <div>Affected employees: <b>${preview.affectedEmployees}</b></div>
+        <div>Capacity hours removed: <b>${preview.capacityHoursRemoved}h</b></div>
+        <div>Reporting periods affected: <b>${preview.reportingPeriodsAffected.length ? esc(preview.reportingPeriodsAffected.join(', ')) : 'none current'}</b></div>
+        <button class="btn primary small" style="margin-top:10px;" onclick="confirmWorkshop(${preview.isPast})">Confirm — mark as workshop</button>
+      </div>`;
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+async function confirmWorkshop(isPast){
+  const errEl = document.getElementById('ccErr');
+  if(!_ccPreview) return;
+  try {
+    await api('/api/capacity-calendar', { method:'POST', body: JSON.stringify({ ..._ccPreview, confirmedPastImpact: isPast || undefined }) });
+    document.getElementById('ccAddDate').value = '';
+    document.getElementById('ccAddName').value = '';
+    document.getElementById('ccAddReason').value = '';
+    document.getElementById('ccPreview').innerHTML = '';
+    _ccPreview = null;
+    errEl.style.display = 'none';
+    renderCapacityCalendarPanel();
+    showToast('success', 'Workshop day added', 'Capacity is updated immediately.');
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+async function cancelWorkshop(id){
+  const reason = prompt('Reason for cancelling this workshop day:');
+  if(!reason) return;
+  try { await api(`/api/capacity-calendar/${encodeURIComponent(id)}/cancel`, { method:'POST', body: JSON.stringify({ reason }) }); renderCapacityCalendarPanel(); }
+  catch(e){ showToast('error', 'Could not cancel', e.message); }
 }
 function taxRenderList(){
   const wrap = document.getElementById('taxDeptList');

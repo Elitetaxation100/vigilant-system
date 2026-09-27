@@ -84,6 +84,15 @@ const EXEMPTING_REASONS = new Set(Object.keys(HOLD_REASONS).filter(k => HOLD_REA
 // Working days between the internal due date and what the client is told.
 const DISPATCH_BUFFER_WD = 3;
 
+// Productivity historical/V2 cutover — a FIXED literal, never derived from
+// deploy/migration/restart time (see db.js's one-time seed of
+// state.productivityV2EffectiveAt). NZ local: 28 Sept 2026, 00:00:00 NZDT
+// (UTC+13) — chosen just past NZ's DST transition (last Sunday of Sept) to
+// avoid an ambiguous local time, and inclusive of every task completed
+// through 27 Sept. A task completed before this counts under the lenient
+// historical rule; on/after it, the new Clean-review rule applies.
+const PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT = '2026-09-27T11:00:00.000Z';
+
 const app = express();
 // By default CORS is wide open (any origin) so the app works out of the box
 // wherever it's deployed. Once you have a real deployed URL, set
@@ -340,93 +349,99 @@ const OPEN_STATUS_REASONS = {
 };
 
 // ---------------------------------------------------------------------------
-// PRODUCTIVITY REBUILD — the strict binary qualification rule (spec §5).
-// Deliberately separate from commitmentOutcome() above: that function keeps
-// its existing contract (task-list at-risk/on-track badges, judged the
-// moment work is submitted for review) untouched; this one is the stricter,
-// productivity-specific gate that additionally requires a clean review AND,
-// for client work, actual dispatch by the external date.
+// PRODUCTIVITY — historical/V2 split (correction #2). Client report dispatch
+// NEVER gates Productivity — Report Sent (reportSentFor, below) is fully
+// separate and untouched; its outcome only rides along here informationally
+// as stages.sender. Deliberately separate from commitmentOutcome() above:
+// that function keeps its existing contract (task-list at-risk/on-track
+// badges) untouched.
 //
-// Three independently-reported stages (never blended into one verdict, so a
-// slow reviewer or a missed email is never silently read as the processor's
-// failure — spec §11):
-//   processor — t.completedAt (the most recent FINAL submission — already
-//     refreshed by /resubmit on every rework round, so a corrected
-//     resubmission is judged on ITS OWN timestamp, not the original rough
-//     one) vs t.internalDeadline.
-//   reviewer  — clean / error / pending.
-//   sender    — sent_on_time / sent_late / not_sent / sending_not_required
-//     (client work only; calculated from timestamps, never stored).
+// A task completed before state.productivityV2EffectiveAt (v2At) credits on
+// the same "sent for review or marked done" event the app already used,
+// full stop — no review outcome or dispatch required (retroactively
+// requiring one would be unfair to work done under different expectations).
+// On/after v2At, full credit requires a genuinely Clean review, or a
+// manager's explicit no-review authorisation (see /authorize-no-review).
+//
+// Three independently-reported stages (never blended into one verdict):
+//   processor — t.completedAt (refreshed by /resubmit on every rework
+//     round, so a corrected resubmission is judged on ITS OWN timestamp)
+//     vs t.internalDeadline.
+//   reviewer  — clean / done / error / pending.
+//   sender    — informational only, from reportSentFor; never affects qualifies.
+// `reportInfo` is reportSentFor(t), computed once by the caller and passed
+// in so this never re-derives Report Sent logic itself (no duplicate rules).
 // ---------------------------------------------------------------------------
-function productivityQualifies(t) {
+function productivityQualifies(t, v2At, reportInfo) {
   const isInternal = t.kind === 'internal';
   const submissionMet = (t.completedAt && t.internalDeadline)
     ? nzDay(t.completedAt) <= t.internalDeadline : null;
-  // 'done' is the existing terminal review state for "closed, no formal
-  // review needed" (see /api/tasks/:id/done) — just as final as 'clean',
-  // only self-certified instead of reviewer-certified. Treated the same as
-  // 'clean' for the qualifying gate; kept as its own stage value so the
-  // drill-down can still show which one actually happened.
-  const reviewOk = t.reviewStatus === 'clean' || t.reviewStatus === 'done';
   const stages = {
     processor: submissionMet == null ? null : (submissionMet ? 'met' : 'missed'),
-    reviewer: reviewOk ? t.reviewStatus : t.reviewStatus === 'error' ? 'error' : (t.status === 'completed' ? 'pending' : null),
-    sender: null,
+    reviewer: t.reviewStatus === 'clean' ? 'clean' : t.reviewStatus === 'done' ? 'done'
+             : t.reviewStatus === 'error' ? 'error' : (t.status === 'completed' ? 'pending' : null),
+    sender: isInternal ? 'sending_not_required'
+           : (reportInfo ? (reportInfo.eligible ? reportInfo.outcome : reportInfo.reason) : null),
   };
-  const snapshot = Number(t.productivityAllocatedHoursSnapshot);
-  const creditHours = snapshot > 0 ? snapshot : 0;
+  const base = { stages };
+  const exclude = (reason, extra) => ({
+    ...base, qualifies: false, creditedHours: 0, exclusionReason: reason, dataException: false,
+    rule: null, qualifyingEventType: null, qualifyingEventAt: null, periodDate: null, ...extra,
+  });
 
   if (t.status !== 'completed') {
-    return { qualifies: false, creditedHours: 0, exclusionReason: OPEN_STATUS_REASONS[t.status] || 'Not yet delivered', stages };
-  }
-  if (t.reviewStatus === 'error') {
-    return { qualifies: false, creditedHours: 0, exclusionReason: 'Needs rework', stages };
-  }
-  if (!reviewOk) {
-    return { qualifies: false, creditedHours: 0, exclusionReason: 'Awaiting review', stages };
+    return exclude(OPEN_STATUS_REASONS[t.status] || 'Not yet delivered');
   }
 
-  if (isInternal) {
-    stages.sender = 'sending_not_required';
-    if (!submissionMet) return { qualifies: false, creditedHours: 0, exclusionReason: 'Internal milestone missed', stages };
-    return { qualifies: true, creditedHours: creditHours, exclusionReason: null, stages };
+  // Missing/invalid allocated-hours snapshot is a data exception, never a
+  // silent zero-hour "qualify" — a genuinely zero-hour task (snapshot === 0,
+  // explicitly valid) still qualifies, just credits nothing (zeroHourTask).
+  const rawSnapshot = t.productivityAllocatedHoursSnapshot;
+  const snapshotNum = Number(rawSnapshot);
+  const snapshotValid = rawSnapshot !== null && rawSnapshot !== undefined && Number.isFinite(snapshotNum) && snapshotNum >= 0;
+  if (!snapshotValid) return exclude('Missing allocated-hours snapshot', { dataException: true });
+  const creditHours = snapshotNum;
+
+  const completedMs = Date.parse(t.completedAt);
+  const cutoffMs = Date.parse(v2At);
+  if (!Number.isFinite(completedMs)) return exclude('Invalid completion timestamp', { dataException: true });
+
+  const qualify = (rule, eventType, eventAt) => ({
+    ...base, qualifies: true, creditedHours: creditHours, exclusionReason: null, dataException: false,
+    rule, qualifyingEventType: eventType, qualifyingEventAt: eventAt, periodDate: eventAt,
+    zeroHourTask: creditHours === 0,
+  });
+
+  if (completedMs < cutoffMs) {
+    // Historical rule — unconditional on review outcome or dispatch.
+    const type = t.reviewStatus === 'done' ? 'marked_done' : 'sent_for_review';
+    return qualify('historical', type, t.completedAt);
   }
 
-  if (!t.clientDate) {
-    return { qualifies: false, creditedHours: 0, exclusionReason: 'No external commitment date', stages };
+  // V2 rule — genuinely Clean, or a manager-authorised no-review exception.
+  if (t.reviewStatus === 'error') return exclude('Review contains errors');
+  if (t.reviewStatus === 'clean') return qualify('v2', 'clean_review', t.reviewedAt);
+  if (t.reviewStatus === 'done') {
+    // periodDate is the AUTHORISATION timestamp, never backdated to the
+    // original completedAt — authorising a task long after it was closed
+    // must never silently rewrite an already-reported historical period.
+    if (t.noReviewAuthorizedAt) return qualify('v2', 'no_review_authorized', t.noReviewAuthorizedAt);
+    return exclude('No authorised no-review approval');
   }
-  if (t.reportDeliveryStatus === 'sending_not_required') {
-    stages.sender = 'sending_not_required';
-    return { qualifies: false, creditedHours: 0, exclusionReason: 'Sending not required', stages };
-  }
-  if (!t.sentToClient || !t.sentToClientAt) {
-    stages.sender = 'not_sent';
-    return { qualifies: false, creditedHours: 0, exclusionReason: 'Client report not sent', stages };
-  }
-  const sentOnTime = nzDay(t.sentToClientAt) <= effectiveClientDate(t);
-  stages.sender = sentOnTime ? 'sent_on_time' : 'sent_late';
-  if (!submissionMet) {
-    return { qualifies: false, creditedHours: 0, exclusionReason: 'Internal milestone missed', stages };
-  }
-  if (!sentOnTime) {
-    return { qualifies: false, creditedHours: 0, exclusionReason: 'Client report sent late', stages };
-  }
-  return { qualifies: true, creditedHours: creditHours, exclusionReason: null, stages };
+  return exclude('Review pending'); // sent for review, not yet actioned (covers rework-resubmitted-not-yet-reviewed too)
 }
-// The date a completed task counts against for reporting-period purposes
-// (spec §14) — the day its qualifying event actually happened, not the day
-// it was marked complete. A client task not yet sent temporarily buckets on
-// completedAt until dispatch happens, at which point it moves to that
-// period — it can never land in two periods at once because this is always
-// computed fresh from current state, never cached.
-function productivityPeriodDate(t) {
-  if (t.kind === 'internal') return t.completedAt;
-  return t.sentToClientAt || t.completedAt;
+// The date a completed task counts against for reporting-period purposes —
+// the day its qualifying event actually happened (see qualifyingEventAt
+// above), not the day it was marked complete. Excluded/incomplete tasks
+// still need a bucket for display purposes, so fall back to completedAt.
+function productivityPeriodDate(t, v2At, reportInfo) {
+  const r = productivityQualifies(t, v2At, reportInfo);
+  return r.periodDate || t.completedAt;
 }
-// Report Sent scoring (spec §8) — 5 points per eligible client report,
-// scored against the same population as Productivity (the assignee), not
-// the report-sender, matching how the spec's own Ranjit example frames "12
-// eligible client reports" as his numbers regardless of who clicked send.
+// Report Sent scoring — 5 points per eligible client report, scored against
+// the same population as Productivity (the assignee), not the report-sender.
+// Completely independent of productivityQualifies — dispatch never gates
+// Productivity, and this never reads the V2 cutoff.
 function reportSentFor(t) {
   if (t.kind === 'internal' || t.status !== 'completed' || !['clean', 'done'].includes(t.reviewStatus)) return null; // not eligible to be scored at all
   if (!t.clientDate) return { eligible: false, reason: 'no_external_date' };
@@ -519,9 +534,21 @@ function approvedLeaveOn(state, empId, dateISO) {
   return (state.leaveRequests || []).find(l => l.employeeId === empId
     && l.status === 'approved' && dateISO >= l.from && dateISO <= l.to) || null;
 }
+// Firm-wide Superadmin-managed Workshop Saturdays (state.capacityCalendarAdjustments)
+// — deliberately separate from personal leave and from state.holidays[]:
+// a holiday makes calendar.js's isWorkingDay() false (removed from the
+// working-day COUNT itself), but a workshop Saturday must stay a counted
+// working day while contributing zero capacity, so it can't reuse either
+// existing mechanism. See /api/capacity-calendar below.
+function isFirmWorkshopDay(state, dateISO) {
+  return (state.capacityCalendarAdjustments || []).some(a => a.active && a.type === 'WORKSHOP' && a.date === dateISO);
+}
 // PRESENT · HALF · CUSTOM · LEAVE · WORKSHOP · HOLIDAY
 function attendanceStatus(state, emp, dateISO) {
   if (!cal.isWorkingDay(dateISO)) return 'HOLIDAY';
+  // Firm-wide workshop takes precedence over personal leave so a day is
+  // only ever deducted once, however the two happen to overlap.
+  if (isFirmWorkshopDay(state, dateISO)) return 'WORKSHOP';
   const leave = approvedLeaveOn(state, emp.id, dateISO);
   if (leave) {
     if (leave.type === 'WORKSHOP') return 'WORKSHOP';
@@ -815,6 +842,7 @@ function buildRecurringInstance(state, rt, dateISO) {
     productivityAllocatedHoursSnapshot: Number(rt.tat) || null, // accepted immediately — snapshot now
     reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
     reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
+    noReviewAuthorizedBy: null, noReviewAuthorizedAt: null, noReviewAuthorizedReason: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [],
     holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
     source: 'recurring', sourceRef: rt.id, recurringTemplateId: rt.id,
@@ -1699,6 +1727,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     productivityAllocatedHoursSnapshot: status === 'accepted' ? (parseFloat(tat) || 3) : null,
     reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
     reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
+    noReviewAuthorizedBy: null, noReviewAuthorizedAt: null, noReviewAuthorizedReason: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], // reworkHistory: [{ round, startedAt, endedAt, durationHours, reviewNote, faultType }]
     holdReasonCode: null, dateHistory: [], tatHistory: [], queries: [], overAllocated,
     // calls-into-tasks (Phase 0): where this task came from. Tasks made in the
@@ -2117,6 +2146,33 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   t.closedBy = req.employee.id; t.closedAt = t.completedAt;
   const kind = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'call' : 'Slack') + ' task' : 'no review needed';
   logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (${kind}).`);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
+// Manager/superadmin authorisation for a no-review completion to earn V2
+// productivity credit — closes the loophole where /done has always let the
+// assignee self-certify their own work with zero oversight. Applies to
+// every task kind alike (internal and client). Settable any time relative
+// to /done; productivityQualifies uses the AUTHORISATION timestamp (never
+// the original completedAt) as the credited period, so approving one long
+// after the fact never silently rewrites an already-reported period.
+app.post('/api/tasks/:id/authorize-no-review', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (req.employee.id === t.assignedTo) {
+    return res.status(403).json({ error: "You can't authorise your own task to skip review." });
+  }
+  const isManager = isAdminRole(req.employee.accessRole) &&
+    (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo));
+  if (!isManager) return res.status(403).json({ error: 'Only a manager or superadmin can authorise a no-review task.' });
+  const reason = String((req.body || {}).reason || '').trim();
+  if (!reason) return res.status(400).json({ error: 'Give a reason.' });
+  t.noReviewAuthorizedBy = req.employee.id;
+  t.noReviewAuthorizedAt = new Date().toISOString();
+  t.noReviewAuthorizedReason = reason;
+  logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> authorised "${escHtml(t.name)}" as a no-review completion — ${escHtml(reason)}.`);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -2953,9 +3009,9 @@ function floorAtGoLive(fromISO, toISO) {
   return fromISO < SYSTEM_GO_LIVE ? SYSTEM_GO_LIVE : fromISO;
 }
 
-// Shapes one task into a drill-down row (spec §13's qualified/excluded task
-// tables) — client, allocated (the frozen snapshot, not live tat), status,
-// the three-stage responsibility breakdown, credited hours, and why.
+// Shapes one task into a drill-down row — client, allocated (the frozen
+// snapshot, not live tat), status, the three-stage responsibility
+// breakdown, credited hours, and why (or why not).
 function productivityTaskRow(t, result) {
   return {
     id: t.id, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
@@ -2966,6 +3022,14 @@ function productivityTaskRow(t, result) {
     stages: result.stages,
     creditedHours: result.creditedHours, qualifies: result.qualifies,
     exclusionReason: result.exclusionReason,
+    dataException: !!result.dataException,
+    zeroHourTask: !!result.zeroHourTask,
+    rule: result.rule || null,
+    qualifyingEventType: result.qualifyingEventType || null,
+    qualifyingEventAt: result.qualifyingEventAt || null,
+    reviewedAt: t.reviewStatus === 'clean' ? t.reviewedAt : null,
+    noReviewAuthorized: !!t.noReviewAuthorizedAt,
+    reportStatus: result.stages ? result.stages.sender : null, // informational only, never the exclusion reason
   };
 }
 // Open/unfinished work — spec §6's Exceptions section. Deliberately NOT
@@ -2987,38 +3051,49 @@ function productivityFor(state, empIds, fromISO, toISO) {
   const inRange = d => d && nzDay(d) >= from && nzDay(d) <= to;
   const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
   const r2 = n => Math.round(n * 100) / 100;
+  const v2At = state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT;
 
   return empIds.map(id => {
     const emp = findEmployee(state, id) || { id, name: '—' };
     const capacityHours = capacityHoursBetween(state, emp, from, to);
     const leave = leaveDaysBetween(state, id, from, to);
 
-    // Completed tasks landing in THIS period, bucketed by their qualifying
-    // event date (spec §14) — not completedAt.
-    const done = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed' && inRange(productivityPeriodDate(t)));
+    // Compute qualification ONCE per completed task (reused for period
+    // bucketing, the qualified/excluded split, and the commitment stat) —
+    // never re-derived, so it can't drift between the different readings.
+    const allCompleted = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed');
+    const computed = allCompleted.map(t => {
+      const reportInfo = reportSentFor(t);
+      const result = productivityQualifies(t, v2At, reportInfo);
+      return { t, reportInfo, result };
+    });
+    // Bucketed by their qualifying event date, not completedAt.
+    const done = computed.filter(x => inRange(x.result.periodDate || x.t.completedAt));
     const qualified = [], excluded = [];
-    done.forEach(t => {
-      const result = productivityQualifies(t);
+    done.forEach(({ t, result }) => {
       (result.qualifies ? qualified : excluded).push(productivityTaskRow(t, result));
     });
     const qualifiedHours = r2(qualified.reduce((s, x) => s + x.creditedHours, 0));
     const rawPct = capacityHours > 0 ? (qualifiedHours / capacityHours) * 100 : null;
     // One decimal, capped at 100 — anything qualified beyond capacity shows
-    // as "additional qualifying output" instead of pushing past 100%.
+    // as "additional qualifying output" instead of pushing past 100%; the
+    // raw (uncapped) figure is exposed alongside it, never hidden.
     const productivityPct = rawPct == null ? null : Math.min(100, Math.round(rawPct * 10) / 10);
+    const rawUtilisationPct = rawPct == null ? null : Math.round(rawPct * 10) / 10;
     const additionalHours = rawPct != null && rawPct > 100 ? r2(qualifiedHours - capacityHours) : 0;
 
-    // Internal milestone met/missed — over every completed task with both
-    // timestamps, independent of whether it went on to qualify overall (so
-    // review/send delays don't hide a processor's own on-time record).
-    const withMilestone = done.filter(t => t.completedAt && t.internalDeadline);
-    const milestoneResults = withMilestone.map(t => productivityQualifies(t).stages.processor);
-    const milestonesMet = milestoneResults.filter(s => s === 'met').length;
+    // Internal Commitment — fully separate from Productivity. Over every
+    // completed task with both timestamps, in period, independent of
+    // whether it went on to qualify (so review/send delays don't hide a
+    // processor's own on-time record).
+    const withCommitment = done.filter(x => x.t.completedAt && x.t.internalDeadline);
+    const commitmentMet = withCommitment.filter(x => x.result.stages.processor === 'met').length;
+    const commitmentTotal = withCommitment.length;
+    const commitmentPct = commitmentTotal > 0 ? Math.round((commitmentMet / commitmentTotal) * 1000) / 10 : null;
 
-    // Report Sent — 5 pts per eligible client report (spec §8).
+    // Report Sent — fully separate, 5 pts per eligible client report.
     let reportsRequired = 0, reportsOnTime = 0, reportsLate = 0, reportsReadyNotSent = 0, reportsNoDate = 0, reportPoints = 0, reportMaxPoints = 0;
-    done.forEach(t => {
-      const r = reportSentFor(t);
+    done.forEach(({ reportInfo: r }) => {
       if (!r) return;
       if (r.reason === 'no_external_date') { reportsNoDate++; return; }
       if (r.reason === 'sending_not_required') return; // excluded from scoring entirely
@@ -3028,30 +3103,34 @@ function productivityFor(state, empIds, fromISO, toISO) {
       else if (r.outcome === 'not_sent') reportsReadyNotSent++;
     });
 
-    // Open/unfinished work (spec §6) — current state, not period-scoped.
+    // Open/unfinished work — current state, not period-scoped.
     const openWork = state.tasks.filter(t => t.assignedTo === id && t.status !== 'completed');
     const excludedRows = excluded.concat(
       openWork.filter(t => t.internalDeadline && inRange(t.internalDeadline))
         .map(t => productivityTaskRow(t, { qualifies: false, creditedHours: 0, exclusionReason: OPEN_STATUS_REASONS[t.status] || t.status, stages: { processor: null, reviewer: null, sender: null } }))
     );
 
-    // Allocation-gap informational line (spec §9) — kept as plain info for
-    // managers, never scored, never weighted.
-    const assignedLoad = r2(qualifiedHours + openWork.reduce((s, t) => s + (t.internalDeadline && inRange(t.internalDeadline) ? (Number(t.tat) || 0) : 0), 0));
-    const unallocatedHours = r2(Math.max(0, capacityHours - assignedLoad));
+    // Capacity not converted into completed output — the gap could be
+    // truly unallocated capacity, OR work already assigned that's still in
+    // progress or awaiting review; never labelled a blanket employee
+    // penalty. assignedOpenHours sums both the still-open tasks (live tat)
+    // and the completed-but-excluded tasks (frozen snapshot) due in period.
+    const capacityNotConverted = r2(Math.max(0, capacityHours - qualifiedHours));
+    const assignedOpenHours = r2(excludedRows.reduce((s, r) => s + (r.allocatedHours || 0), 0));
+    const trulyUnallocatedHours = r2(Math.max(0, capacityNotConverted - assignedOpenHours));
 
     return {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
       capacityHours: r2(capacityHours), workingDays, leaveDays: leave.equivalent,
-      qualifiedHours, productivityPct, additionalHours,
+      qualifiedHours, productivityPct, rawUtilisationPct, additionalHours,
       notScorable: capacityHours <= 0,
-      milestonesMet, milestonesTotal: withMilestone.length,
+      commitmentMet, commitmentTotal, commitmentPct,
       reportsRequired, reportsOnTime, reportsLate, reportsReadyNotSent, reportsNoDate,
       reportPoints, reportMaxPoints,
       reportSentRate: reportMaxPoints > 0 ? Math.round((reportPoints / reportMaxPoints) * 1000) / 10 : null,
       outstandingReports: reportsReadyNotSent + reportsLate,
       qualifiedTasks: qualified, excludedTasks: excludedRows, openWork: openWork.map(t => productivityOpenRow(state, t)),
-      assignedLoad, unallocatedHours,
+      capacityNotConverted, assignedOpenHours, trulyUnallocatedHours,
     };
   });
 }
@@ -3078,34 +3157,45 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const people = productivityFor(state, ids, from, to);
   const sum = (k) => people.reduce((s, p) => s + (p[k] || 0), 0);
   // Team/firm totals: summed hours over summed capacity, never an average of
-  // individual percentages (spec §15/§16) — a person with more capacity
-  // should weigh more in the team figure, not count the same as everyone else.
+  // individual percentages — a person with more capacity should weigh more
+  // in the team figure, not count the same as everyone else.
   const totalQualified = sum('qualifiedHours'), totalCap = sum('capacityHours');
   const rawTotalPct = totalCap > 0 ? (totalQualified / totalCap) * 100 : null;
   const totalReportPoints = sum('reportPoints'), totalReportMax = sum('reportMaxPoints');
+  const totalCommitmentMet = sum('commitmentMet'), totalCommitmentTotal = sum('commitmentTotal');
+  // workingDays is the same shared calendar fact for everyone in one call
+  // (only per-day capacity *deductions* are person-specific) — copying it
+  // straight onto totals (rather than never including it) is the fix for
+  // the team-summary card's "undefined working days" display bug.
+  const totalWorkingDays = people.length ? people[0].workingDays : Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to));
 
   res.json({
     from, to, requestedFrom, goLive: SYSTEM_GO_LIVE,
     goLiveApplied: from !== requestedFrom,
     fiscalYearStart: floorAtGoLive(fiscalYearStart(to), to),
+    v2EffectiveAt: state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT,
     scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
-    // Spec §15 — show everyone in scope, including zero-output people, with
-    // a plain reason rather than hiding them.
+    // Show everyone in scope, including zero-output people, with a plain
+    // reason rather than hiding them.
     people,
     totals: {
       capacityHours: Math.round(totalCap * 100) / 100,
+      workingDays: totalWorkingDays, leaveDays: Math.round(sum('leaveDays') * 100) / 100,
       qualifiedHours: Math.round(totalQualified * 100) / 100,
       productivityPct: rawTotalPct == null ? null : Math.min(100, Math.round(rawTotalPct * 10) / 10),
+      rawUtilisationPct: rawTotalPct == null ? null : Math.round(rawTotalPct * 10) / 10,
       additionalHours: rawTotalPct != null && rawTotalPct > 100 ? Math.round((totalQualified - totalCap) * 100) / 100 : 0,
       notScorable: totalCap <= 0,
-      milestonesMet: sum('milestonesMet'), milestonesTotal: sum('milestonesTotal'),
+      commitmentMet: totalCommitmentMet, commitmentTotal: totalCommitmentTotal,
+      commitmentPct: totalCommitmentTotal > 0 ? Math.round((totalCommitmentMet / totalCommitmentTotal) * 1000) / 10 : null,
       reportsRequired: sum('reportsRequired'), reportsOnTime: sum('reportsOnTime'),
       reportsLate: sum('reportsLate'), reportsReadyNotSent: sum('reportsReadyNotSent'), reportsNoDate: sum('reportsNoDate'),
       reportPoints: totalReportPoints, reportMaxPoints: totalReportMax,
       reportSentRate: totalReportMax > 0 ? Math.round((totalReportPoints / totalReportMax) * 1000) / 10 : null,
       outstandingReports: sum('outstandingReports'),
-      assignedLoad: Math.round(sum('assignedLoad') * 100) / 100,
-      unallocatedHours: Math.round(sum('unallocatedHours') * 100) / 100,
+      capacityNotConverted: Math.round(sum('capacityNotConverted') * 100) / 100,
+      assignedOpenHours: Math.round(sum('assignedOpenHours') * 100) / 100,
+      trulyUnallocatedHours: Math.round(sum('trulyUnallocatedHours') * 100) / 100,
     },
   });
 });
@@ -3773,6 +3863,129 @@ app.delete('/api/holidays/:date', requireAuth, requireSuperAdmin, (req, res) => 
 });
 
 // ---------------------------------------------------------------------------
+// CAPACITY CALENDAR — Superadmin-managed, firm-wide Workshop Saturdays.
+// Deliberately separate from state.holidays[]: a holiday removes a date
+// from the working-day COUNT itself (cal.isWorkingDay → false); a workshop
+// Saturday must stay a counted working day while contributing zero capacity
+// (see isFirmWorkshopDay/attendanceStatus above) — different mechanisms,
+// so this is its own table, never a hard delete (cancel only, full audit).
+// ---------------------------------------------------------------------------
+function capacityCalendarImpact(state, dateISO) {
+  const affected = state.employees.filter(e => dayCapacity(state, e, dateISO) > 0);
+  const today = todayISO();
+  const periods = [];
+  const monthStart = today.slice(0, 7) + '-01';
+  if (dateISO >= monthStart && dateISO <= today) periods.push('This month');
+  const fyStart = fiscalYearStart(today);
+  if (dateISO >= fyStart && dateISO <= today) periods.push('This fiscal year');
+  return {
+    isPast: dateISO < today,
+    affectedEmployees: affected.length,
+    capacityHoursRemoved: Math.round(affected.length * CAP_SEED * 100) / 100,
+    reportingPeriodsAffected: periods,
+  };
+}
+function validateWorkshopDate(state, b) {
+  const date = typeof b.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.date) ? b.date : null;
+  if (!date) return { error: 'Give a valid date (YYYY-MM-DD).' };
+  if (cal.parse(date).getUTCDay() !== 6) return { error: 'Workshop days must be a Saturday.' };
+  const name = (b.name == null ? '' : String(b.name)).trim().slice(0, 120);
+  if (!name) return { error: 'Give the workshop a name.' };
+  const reason = (b.reason == null ? '' : String(b.reason)).trim().slice(0, 300);
+  if (!reason) return { error: 'Give a reason.' };
+  if ((state.capacityCalendarAdjustments || []).some(a => a.active && a.date === date)) {
+    return { error: 'That Saturday already has an active workshop record.' };
+  }
+  return { date, name, reason };
+}
+app.get('/api/capacity-calendar', requireAuth, (req, res) => {
+  const state = db.get();
+  res.json({ adjustments: (state.capacityCalendarAdjustments || []).slice().sort((a, b) => b.date.localeCompare(a.date)) });
+});
+app.post('/api/capacity-calendar/preview', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const v = validateWorkshopDate(state, req.body || {});
+  if (v.error) return res.status(400).json({ error: v.error });
+  res.json({ date: v.date, name: v.name, reason: v.reason, ...capacityCalendarImpact(state, v.date) });
+});
+app.post('/api/capacity-calendar', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const b = req.body || {};
+  const v = validateWorkshopDate(state, b);
+  if (v.error) return res.status(400).json({ error: v.error });
+  const impact = capacityCalendarImpact(state, v.date);
+  if (impact.isPast && b.confirmedPastImpact !== true) {
+    return res.status(409).json({ error: 'This is a historical capacity change — confirm the impact preview first.', ...impact });
+  }
+  state.capacityCalendarAdjustments = state.capacityCalendarAdjustments || [];
+  const record = {
+    id: 'cc-' + (state.capacityCalendarAdjustments.length + 1) + '-' + Date.now(),
+    date: v.date, type: 'WORKSHOP', scope: 'FIRM_WIDE', name: v.name, reason: v.reason,
+    createdBy: req.employee.id, createdAt: new Date().toISOString(), active: true,
+    cancelledBy: null, cancelledAt: null, cancellationReason: null,
+  };
+  state.capacityCalendarAdjustments.push(record);
+  logEvent(state, req.employee.id, `Marked ${v.date} as a firm-wide Workshop day (<b>${escHtml(v.name)}</b>) — ${escHtml(v.reason)}. ${impact.affectedEmployees} people affected, ${impact.capacityHoursRemoved}h removed.`);
+  db.save();
+  res.status(201).json({ adjustment: record });
+});
+app.post('/api/capacity-calendar/:id/cancel', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const rec = (state.capacityCalendarAdjustments || []).find(a => a.id === req.params.id);
+  if (!rec) return res.status(404).json({ error: 'Not found.' });
+  if (!rec.active) return res.status(400).json({ error: 'Already cancelled.' });
+  const reason = String((req.body || {}).reason || '').trim();
+  if (!reason) return res.status(400).json({ error: 'Give a reason.' });
+  rec.active = false; rec.cancelledBy = req.employee.id; rec.cancelledAt = new Date().toISOString(); rec.cancellationReason = reason;
+  logEvent(state, req.employee.id, `Cancelled the ${rec.date} Workshop day (<b>${escHtml(rec.name)}</b>) — ${escHtml(reason)}.`);
+  db.save();
+  res.json({ adjustment: rec });
+});
+
+// ---------------------------------------------------------------------------
+// PRODUCTIVITY V2 CUTOFF — read-only under normal operation (see the fixed
+// PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT literal seeded once by db.js). This
+// is an emergency-correction path only: preview (no save) then confirm
+// (saves + audits), both superadmin-only, so the cutoff can never move via
+// a single silent call.
+// ---------------------------------------------------------------------------
+function productivityV2Impact(state, atISO) {
+  const newMs = Date.parse(atISO);
+  const curMs = Date.parse(state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT);
+  let taskCountAffected = 0;
+  state.tasks.forEach(t => {
+    if (t.status !== 'completed' || !t.completedAt) return;
+    const ms = Date.parse(t.completedAt);
+    if (!Number.isFinite(ms)) return;
+    const wasHistorical = ms < curMs, willBeHistorical = ms < newMs;
+    if (wasHistorical !== willBeHistorical) taskCountAffected++;
+  });
+  return { taskCountAffected };
+}
+app.post('/api/admin/productivity-v2-effective-at/preview', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const at = (req.body || {}).at;
+  if (typeof at !== 'string' || !Number.isFinite(Date.parse(at))) return res.status(400).json({ error: 'Give a valid ISO timestamp.' });
+  res.json({ at, current: state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT, ...productivityV2Impact(state, at) });
+});
+app.post('/api/admin/productivity-v2-effective-at/confirm', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const b = req.body || {};
+  const at = b.at;
+  if (typeof at !== 'string' || !Number.isFinite(Date.parse(at))) return res.status(400).json({ error: 'Give a valid ISO timestamp.' });
+  const reason = String(b.reason || '').trim();
+  if (!reason) return res.status(400).json({ error: 'Give a reason.' });
+  const from = state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT;
+  const impact = productivityV2Impact(state, at);
+  state.productivityV2History = state.productivityV2History || [];
+  state.productivityV2History.push({ from, to: at, by: req.employee.id, at: new Date().toISOString(), reason, taskCountAffected: impact.taskCountAffected });
+  state.productivityV2EffectiveAt = at;
+  logEvent(state, req.employee.id, `Emergency-corrected the Productivity V2 cutoff from ${from} to ${at} — ${escHtml(reason)} (${impact.taskCountAffected} tasks reclassified).`);
+  db.save();
+  res.json({ v2EffectiveAt: at, history: state.productivityV2History });
+});
+
+// ---------------------------------------------------------------------------
 // INTEGRATION API (calls-into-tasks, Phase 1) — the endpoint the Slack
 // connector calls when someone turns a call card or a message into a task.
 // Authenticated with a single shared secret (INTEGRATION_SECRET env var),
@@ -3833,6 +4046,7 @@ app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
     productivityAllocatedHoursSnapshot: 0, // accepted immediately, tat starts at 0
     reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
     reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
+    noReviewAuthorizedBy: null, noReviewAuthorizedAt: null, noReviewAuthorizedReason: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [],
     source, sourceRef: b.sourceRef || null,
     estMinutes: b.estMinutes != null && !isNaN(Number(b.estMinutes)) ? Number(b.estMinutes) : null,
@@ -4090,6 +4304,7 @@ app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAcces
     productivityAllocatedHoursSnapshot: status === 'accepted' ? (Number(numTat) || null) : null,
     reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
     reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
+    noReviewAuthorizedBy: null, noReviewAuthorizedAt: null, noReviewAuthorizedReason: null,
     reworkStartedAt: null, faultType: null, reworkHistory: [], holdReasonCode: null,
     dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
     source: 'whatsapp', sourceRef: c.phone,

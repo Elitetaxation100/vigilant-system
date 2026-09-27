@@ -150,6 +150,7 @@ function queryShift(q, todayISO) {
 
 module.exports = {
   isWorkingDay,
+  parse,
   addWorkingDays,
   workingDaysBetween,
   workingDaysStrictlyBetween,

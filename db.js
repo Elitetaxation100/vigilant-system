@@ -394,6 +394,18 @@ function runMigrations(state) {
     state.holidays = cal.DEFAULT_HOLIDAYS.map(([date, name]) => ({ date, name, addedBy: null, addedAt: null }));
   }
   cal.setHolidays(state.holidays.map(h => h.date));
+  // Productivity correction — the historical/V2 qualification cutoff. A
+  // FIXED literal (never new Date()/deploy time — see server.js's matching
+  // constant), seeded once; read-only after that except through the
+  // superadmin emergency-correction endpoints (preview+confirm), which
+  // append to productivityV2History rather than editing silently.
+  if (state.productivityV2EffectiveAt === undefined) {
+    state.productivityV2EffectiveAt = '2026-09-27T11:00:00.000Z'; // must match server.js PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT
+  }
+  if (!Array.isArray(state.productivityV2History)) state.productivityV2History = [];
+  // Superadmin-managed firm-wide Workshop Saturday calendar — see
+  // server.js's isFirmWorkshopDay/attendanceStatus and /api/capacity-calendar.
+  if (!Array.isArray(state.capacityCalendarAdjustments)) state.capacityCalendarAdjustments = [];
   // Soft-delete: removed tasks / clients move to these holding areas so a
   // superadmin (or whoever removed it) can restore them. Nothing is ever
   // hard-deleted through the app any more.
@@ -526,6 +538,13 @@ function runMigrations(state) {
     if (t.productivityAllocatedHoursSnapshot === undefined) {
       t.productivityAllocatedHoursSnapshot = t.acceptedAt ? (Number(t.tat) || null) : null;
     }
+    // Productivity correction — manager/superadmin authorisation for a
+    // no-review ('done') task to earn V2 credit. Never set by migration
+    // (nothing historical needs it — see the historical/V2 split in
+    // server.js productivityQualifies()); additive-only defaults.
+    if (t.noReviewAuthorizedBy === undefined) t.noReviewAuthorizedBy = null;
+    if (t.noReviewAuthorizedAt === undefined) t.noReviewAuthorizedAt = null;
+    if (t.noReviewAuthorizedReason === undefined) t.noReviewAuthorizedReason = null;
     // Client report delivery — stored facts only ('not_ready'|'ready_to_send'
     // |'not_sent'|'sending_not_required'); on-time/late is always calculated
     // from sentToClientAt vs the commitment date, never stored. Waiver fields

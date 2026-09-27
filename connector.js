@@ -412,6 +412,7 @@ function createTask(state, o) {
     productivityAllocatedHoursSnapshot: tat, // already accepted at creation — snapshot immediately
     reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
     reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
+    noReviewAuthorizedBy: null, noReviewAuthorizedAt: null, noReviewAuthorizedReason: null,
   };
   state.tasks.unshift(task);
   activity(state, task.assignedTo, `Task from ${task.source === 'call' ? 'a call' : 'Slack'}: "${esc(task.name)}" (${tat}h)${assignee ? ` — assigned to <b>${esc(assignee.name)}</b>` : ' — unassigned'}.`, { source: task.source });
