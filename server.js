@@ -372,7 +372,19 @@ const OPEN_STATUS_REASONS = {
 // `reportInfo` is reportSentFor(t), computed once by the caller and passed
 // in so this never re-derives Report Sent logic itself (no duplicate rules).
 // ---------------------------------------------------------------------------
-function productivityQualifies(t, v2At, reportInfo) {
+// An employee "holds reviewer authority" if they manage people (admin/
+// superadmin) or have ever been nominated as the reviewer on someone
+// else's task — evidence they're genuinely trusted to check others' work,
+// not just a role flag. Used only to let a V2-rule "marked done" task
+// self-certify without a separate manager authorisation (see below) —
+// ordinary staff with no such track record still need it, so the
+// self-certification loophole stays closed for everyone else.
+function isReviewerCapable(state, employeeId) {
+  const emp = findEmployee(state, employeeId);
+  if (emp && isAdminRole(emp.accessRole)) return true;
+  return state.tasks.some(t => t.reviewerId === employeeId && t.assignedTo !== employeeId);
+}
+function productivityQualifies(state, t, v2At, reportInfo) {
   const isInternal = t.kind === 'internal';
   const submissionMet = (t.completedAt && t.internalDeadline)
     ? nzDay(t.completedAt) <= t.internalDeadline : null;
@@ -418,14 +430,19 @@ function productivityQualifies(t, v2At, reportInfo) {
     return qualify('historical', type, t.completedAt);
   }
 
-  // V2 rule — genuinely Clean, or a manager-authorised no-review exception.
+  // V2 rule — genuinely Clean, a manager-authorised no-review exception, a
+  // self-certified no-review from someone with real reviewer authority, or
+  // the report actually reaching the client (real-world proof of
+  // completion, independent of whether it was formally reviewed first).
   if (t.reviewStatus === 'error') return exclude('Review contains errors');
+  if (t.sentToClient === true) return qualify('v2', 'report_dispatched', t.sentToClientAt);
   if (t.reviewStatus === 'clean') return qualify('v2', 'clean_review', t.reviewedAt);
   if (t.reviewStatus === 'done') {
     // periodDate is the AUTHORISATION timestamp, never backdated to the
     // original completedAt — authorising a task long after it was closed
     // must never silently rewrite an already-reported historical period.
     if (t.noReviewAuthorizedAt) return qualify('v2', 'no_review_authorized', t.noReviewAuthorizedAt);
+    if (isReviewerCapable(state, t.assignedTo)) return qualify('v2', 'self_certified_reviewer', t.completedAt);
     return exclude('No authorised no-review approval');
   }
   return exclude('Review pending'); // sent for review, not yet actioned (covers rework-resubmitted-not-yet-reviewed too)
@@ -434,8 +451,8 @@ function productivityQualifies(t, v2At, reportInfo) {
 // the day its qualifying event actually happened (see qualifyingEventAt
 // above), not the day it was marked complete. Excluded/incomplete tasks
 // still need a bucket for display purposes, so fall back to completedAt.
-function productivityPeriodDate(t, v2At, reportInfo) {
-  const r = productivityQualifies(t, v2At, reportInfo);
+function productivityPeriodDate(state, t, v2At, reportInfo) {
+  const r = productivityQualifies(state, t, v2At, reportInfo);
   return r.periodDate || t.completedAt;
 }
 // Report Sent scoring — 5 points per eligible client report, scored against
@@ -3070,7 +3087,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const allCompleted = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed');
     const computed = allCompleted.map(t => {
       const reportInfo = reportSentFor(t);
-      const result = productivityQualifies(t, v2At, reportInfo);
+      const result = productivityQualifies(state, t, v2At, reportInfo);
       return { t, reportInfo, result };
     });
     // Bucketed by their qualifying event date, not completedAt.

@@ -6895,6 +6895,7 @@ const STAGE_LABELS = {
 const RULE_LABELS = { historical:'Historical', v2:'V2 (Clean review)' };
 const QUALIFYING_EVENT_LABELS = {
   sent_for_review:'Sent for review', marked_done:'Marked done', clean_review:'Clean review', no_review_authorized:'No-review authorised',
+  report_dispatched:'Report sent to client', self_certified_reviewer:'Self-certified (reviewer)',
 };
 function stageLabel(s){ return s ? esc(STAGE_LABELS[s] || s) : '<span style="color:var(--text-faint);">—</span>'; }
 function taskCalcTableHtml(rows, showReason){
