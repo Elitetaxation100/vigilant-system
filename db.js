@@ -535,8 +535,23 @@ function runMigrations(state) {
     // task's current tat for anything accepted before this field existed —
     // the best available value, per the migration plan (don't invent history
     // that was never recorded). See server.js productivityQualifies().
+    // `|| null` below is deliberately NOT used — Number(t.tat) can be a
+    // genuine 0 (e.g. a Slack/call task with no estimate attached), and `0
+    // || null` would wrongly discard that real value as if it were missing.
     if (t.productivityAllocatedHoursSnapshot === undefined) {
-      t.productivityAllocatedHoursSnapshot = t.acceptedAt ? (Number(t.tat) || null) : null;
+      const tatNum = Number(t.tat);
+      t.productivityAllocatedHoursSnapshot = (t.acceptedAt && Number.isFinite(tatNum)) ? tatNum : null;
+    }
+    // ONE-TIME CORRECTION: the line above used to read `Number(t.tat) ||
+    // null`, which silently turned a real tat of 0 into a "missing
+    // snapshot" data exception for every already-accepted task that has
+    // one (mainly Slack/call-integration tasks, which allow a 0 estimate).
+    // Repair anything already carrying that false null — the snapshot is
+    // corrected to the real (possibly zero) tat; nothing else on the task
+    // changes, and this can never fire twice for the same task since the
+    // condition stops matching once corrected.
+    if (t.productivityAllocatedHoursSnapshot === null && t.acceptedAt && Number.isFinite(Number(t.tat))) {
+      t.productivityAllocatedHoursSnapshot = Number(t.tat);
     }
     // Productivity correction — manager/superadmin authorisation for a
     // no-review ('done') task to earn V2 credit. Never set by migration

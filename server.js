@@ -2071,7 +2071,13 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
     // scores against, once, at first acceptance. A later authorised tat
     // change (see /set-dates) is still recorded in tatHistory but never
     // moves this snapshot, so historical productivity can't be rewritten.
-    if (t.productivityAllocatedHoursSnapshot == null) t.productivityAllocatedHoursSnapshot = Number(t.tat) || null;
+    // `|| null` is deliberately not used — tat can be a genuine 0 (e.g. a
+    // Slack/call task with no estimate attached), and `0 || null` would
+    // wrongly store that as "missing" instead of a real zero-hour snapshot.
+    if (t.productivityAllocatedHoursSnapshot == null) {
+      const tatNum = Number(t.tat);
+      t.productivityAllocatedHoursSnapshot = Number.isFinite(tatNum) ? tatNum : null;
+    }
     logEvent(state, t.assignedTo, `Accepted "${escHtml(t.name)}" — now due ${t.internalDeadline || 'as agreed'}.`);
   }
   t.timerStartedAt = null; // not running — Start begins the clock
