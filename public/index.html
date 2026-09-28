@@ -1903,7 +1903,6 @@
             <div class="panel-head-actions">
               <button class="btn" onclick="openRecommendKudosModal()">👍 Recommend Kudos</button>
               <button class="btn primary" id="giveKudosBtn" style="display:none;" onclick="openGiveKudosModal()">🏆 Give Kudos</button>
-              <button class="btn primary" id="givePointsBtn" style="display:none;" onclick="openGivePointsModal()">🪙 Award Points</button>
             </div>
           </div>
           <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Visible to everyone. Anyone can recommend someone for kudos — your team's manager (Shubam firm-wide) reviews recommendations and awards the star level.</p>
@@ -3321,9 +3320,6 @@ async function submitEmailTask(emailId){
 async function renderKudosView(){
   const giveBtn = document.getElementById('giveKudosBtn');
   if(giveBtn) giveBtn.style.display = iCanAwardKudosToAnyone() ? '' : 'none';
-  const givePtsBtn = document.getElementById('givePointsBtn');
-  const me = currentViewer();
-  if(givePtsBtn) givePtsBtn.style.display = (me && (me.accessRole === 'admin' || me.accessRole === 'superadmin')) ? '' : 'none';
   renderPointsWall();
   let kudosData, recData;
   try {
@@ -3355,7 +3351,8 @@ async function renderKudosView(){
     const to = empById(k.toId), by = empById(k.byId);
     const lvl = KUDOS_LEVELS[k.level] || { label: k.level, badge: k.level };
     const legendary = k.level === 'legendary';
-    return `<div style="border:1px solid ${legendary?'#D4AF37':'var(--panel-border)'};border-radius:10px;padding:12px 14px;background:${legendary?'linear-gradient(135deg,#FFF8E1,var(--panel))':'var(--panel)'};${legendary?'box-shadow:0 2px 12px rgba(212,175,55,.3);':''}">
+    return `<div style="position:relative;border:1px solid ${legendary?'#D4AF37':'var(--panel-border)'};border-radius:10px;padding:12px 14px;background:${legendary?'linear-gradient(135deg,#FFF8E1,var(--panel))':'var(--panel)'};${legendary?'box-shadow:0 2px 12px rgba(212,175,55,.3);':''}">
+      ${isSuperAdmin ? `<div onclick="deleteKudosAward('${esc(k.id)}')" title="Remove (founder only)" style="position:absolute;top:8px;right:8px;cursor:pointer;color:var(--text-faint);font-size:13px;">✕</div>` : ''}
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;">
         <div style="font-size:14px;"><b>${esc(to ? to.name : '—')}</b></div>
         <div style="font-size:13px;font-weight:700;${legendary?'color:#B8860B;':'color:var(--amber);'}">${lvl.badge}</div>
@@ -3364,6 +3361,12 @@ async function renderKudosView(){
       ${k.note ? `<div style="font-size:13px;color:var(--text-dim);margin-top:6px;">"${esc(k.note)}"</div>` : ''}
     </div>`;
   }).join('');
+}
+// Founder-only cleanup for a test/mistaken entry — see connector.js deleteKudos.
+async function deleteKudosAward(id){
+  if(!confirm('Remove this kudos award? This cannot be undone.')) return;
+  try { await api(`/api/kudos/${encodeURIComponent(id)}`, { method:'DELETE' }); renderKudosView(); }
+  catch(e){ showToast('error', 'Could not remove', e.message); }
 }
 function openGiveKudosModal(){
   const eligible = anyEmployeeInFirm().filter(e => canAwardKudosTo(e)).sort((a,b)=>a.name.localeCompare(b.name));
@@ -4488,7 +4491,8 @@ async function renderPointsWall(){
   document.getElementById('pointsEmpty').style.display = _pointsData.length ? 'none' : '';
   wall.innerHTML = _pointsData.map(p => {
     const to = empById(p.toId), by = empById(p.byId);
-    return `<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;background:var(--panel);">
+    return `<div style="position:relative;border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;background:var(--panel);">
+      ${isSuperAdmin ? `<div onclick="deletePointsAward('${esc(p.id)}')" title="Remove (founder only)" style="position:absolute;top:8px;right:8px;cursor:pointer;color:var(--text-faint);font-size:13px;">✕</div>` : ''}
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;">
         <div style="font-size:14px;"><b>${esc(to ? to.name : '—')}</b></div>
         <div style="font-size:13px;font-weight:700;color:var(--amber);">🪙 ${p.amount.toLocaleString()}</div>
@@ -4499,6 +4503,12 @@ async function renderPointsWall(){
     </div>`;
   }).join('');
   _pointsData.forEach(p => renderPointsReactions(p, 'wall-react-'));
+}
+// Founder-only cleanup for a test/mistaken entry — see connector.js deletePoints.
+async function deletePointsAward(id){
+  if(!confirm('Remove this points award? This cannot be undone.')) return;
+  try { await api(`/api/points/${encodeURIComponent(id)}`, { method:'DELETE' }); await renderPointsWall(); }
+  catch(e){ showToast('error', 'Could not remove', e.message); }
 }
 function openPointsPanel(){
   const mine = _pointsData.filter(p => p.toId === currentViewerId).sort((a,b) => (b.awardedAt||'').localeCompare(a.awardedAt||''));

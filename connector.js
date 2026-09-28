@@ -1419,6 +1419,32 @@ async function awardPoints(state, { toId, byId, amount, note }) {
   db.save();
   return { ok: true, points: row };
 }
+// Remove a Kudos award — founder (superadmin) only, e.g. to clean up a test
+// or mistaken entry. Kudos has no edit path, just delete: the wall is a
+// public record, so fixing a bad entry means removing it, not silently
+// rewriting history.
+function deleteKudos(state, { kudosId, byId }) {
+  const { findEmployee } = require('./server');
+  const by = findEmployee(state, byId);
+  if (!by || by.accessRole !== 'superadmin') return { ok: false, error: 'Only the founder can remove a kudos award.' };
+  const idx = (state.kudos || []).findIndex(k => k.id === kudosId);
+  if (idx < 0) return { ok: false, error: 'Kudos award not found.' };
+  state.kudos.splice(idx, 1);
+  db.save();
+  return { ok: true };
+}
+// Remove a Points award — same founder-only, delete-not-edit contract as
+// deleteKudos above.
+function deletePoints(state, { pointsId, byId }) {
+  const { findEmployee } = require('./server');
+  const by = findEmployee(state, byId);
+  if (!by || by.accessRole !== 'superadmin') return { ok: false, error: 'Only the founder can remove a points award.' };
+  const idx = (state.points || []).findIndex(p => p.id === pointsId);
+  if (idx < 0) return { ok: false, error: 'Points award not found.' };
+  state.points.splice(idx, 1);
+  db.save();
+  return { ok: true };
+}
 // Toggle/replace the caller's own reaction on a points award — one reaction
 // per employee per award (clicking the same emoji again removes it).
 function reactToPoints(state, { pointsId, empId, emoji }) {
@@ -2610,5 +2636,5 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  agentRouting, awardPoints, reactToPoints,
+  agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
 };
