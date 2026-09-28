@@ -3361,6 +3361,43 @@ async function renderKudosView(){
     </div>`;
   }).join('');
 }
+// Firm-wide "someone got kudos" broadcast — same shape as Points'
+// refreshPoints/showPointsAnnouncement: everyone hears the popper/applause
+// when someone gets kudos, not just the recipient (who gets their own
+// celebration via the notify()-driven path in refreshNotifications).
+// Polled alongside Points rather than folded into renderKudosView, so it
+// fires for every viewer regardless of which page they're on, not just
+// people sitting on the Kudos view.
+let _kudosData = [];
+async function refreshKudosAnnouncements(){
+  if(!session) return;
+  try {
+    const d = await api('/api/kudos');
+    _kudosData = d.kudos || [];
+    if(_kudosData.length){
+      let lastSeen = null;
+      try { lastSeen = localStorage.getItem('govOsLastSeenKudosId'); } catch(e){}
+      const newest = _kudosData[0]; // server returns newest-first
+      if(lastSeen !== newest.id){
+        const lastIdx = lastSeen ? _kudosData.findIndex(k => k.id === lastSeen) : -1;
+        const toShow = lastSeen && lastIdx > 0 ? _kudosData.slice(0, lastIdx) : (lastSeen ? [] : [newest]);
+        toShow.slice().reverse().forEach(row => showKudosAnnouncement(row));
+        try { localStorage.setItem('govOsLastSeenKudosId', newest.id); } catch(e){}
+      }
+    }
+  } catch(e){ /* non-fatal */ }
+}
+function showKudosAnnouncement(row){
+  if(row.toId === currentViewerId) return;
+  if(document.getElementById('modalOverlay').classList.contains('active')) return;
+  if(document.querySelector('.celebration-overlay')) return;
+  const toEmp = empById(row.toId), byEmp = empById(row.byId);
+  const lvl = KUDOS_LEVELS[row.level] || { label: row.level, badge: row.level };
+  showCelebration({
+    title: `${lvl.badge} ${toEmp ? toEmp.name : 'Someone'} just got ${lvl.label} kudos!`,
+    subtitle: `From ${byEmp ? byEmp.name : 'someone'}${row.note ? ' — ' + row.note : ''}`,
+  });
+}
 function openGiveKudosModal(){
   const eligible = anyEmployeeInFirm().filter(e => canAwardKudosTo(e)).sort((a,b)=>a.name.localeCompare(b.name));
   if(!eligible.length){ showToast('error', 'Nobody to award', "You're not set up as a kudos manager for any team."); return; }
@@ -10248,6 +10285,7 @@ async function onLoginComplete(){
   await refreshNotifications();
   await refreshWaAwaitingBadge();
   await refreshPoints();
+  await refreshKudosAnnouncements();
   initPushClient();
   await loadPunchState();
 
@@ -10332,6 +10370,11 @@ function startPolling(){
     await refreshClients();
     await refreshWaAwaitingBadge();
     await refreshPoints();
+    await refreshKudosAnnouncements();
+    // If someone's actually sitting on the Kudos page, keep its wall (and
+    // the Points panel on it) current too — refreshPoints above only
+    // covers the topbar badge/firm-wide popup, not this view's own lists.
+    if(document.getElementById('view-kudos').classList.contains('active')) renderKudosView();
   }, 8000);
 }
 function stopPolling(){ if(pollHandle){ clearInterval(pollHandle); pollHandle = null; } }
