@@ -14,6 +14,7 @@
 const crypto = require('crypto');
 const https = require('https');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const db = require('./db');
 const cal = require('./calendar');
 
@@ -43,6 +44,13 @@ const cfg = () => ({
   // Supabase Edge Function; CRM_API_KEY needs `update-contact` permission.
   crmApiUrl: process.env.CRM_API_URL || 'https://ceqqphhqjqyfxxmaaglw.supabase.co/functions/v1/crm-api',
   crmApiKey: process.env.CRM_API_KEY || '',
+  // Gmail activity log (visibility only, like Calls — no Slack posting, no
+  // task conversion). The full service-account key JSON, as a single-line
+  // env var value — never committed to the repo. Domain-wide delegation
+  // lets it impersonate any of the 4 mailbox addresses for the metadata
+  // scope only (no message body access).
+  gmailServiceAccountJson: process.env.GMAIL_SERVICE_ACCOUNT_JSON || '',
+  gmailPollMinutes: Number(process.env.GMAIL_POLL_MINUTES) || 7,
 });
 
 // Agent → team routing. Mirrors the Apps Script AGENT_MAP. slackIds = who to
@@ -1013,6 +1021,274 @@ function allCallsReport(state, { from, to, personId, agentId, actor } = {}) {
     isSuperAdmin,
   };
 }
+
+// ---------------------------------------------------------------------------
+// EMAIL (Gmail) — a firm-wide visibility/audit log for 4 individual staff
+// mailboxes, tagged to whichever employee owns the mailbox (employee.
+// gmailAddress). Deliberately mirrors Calls' shape (log/filter, no task
+// conversion, no Slack posting, no AI) rather than WhatsApp's (which IS a
+// triage/convert-to-task feature) — email here is visibility only.
+//
+// Unlike Aircall's AGENT_MAP (a routing table, because who LISTENS to a
+// call can be a different person than who took it), Gmail mailbox ownership
+// is 1:1 and real: the mailbox owner IS the responsible person, so there is
+// no separate routing/delegation layer to build.
+//
+// Auth: domain-wide delegation. A GCP service account (its key JSON in
+// GMAIL_SERVICE_ACCOUNT_JSON) impersonates each mailbox address in turn for
+// the `gmail.metadata` scope only (headers/subject/snippet — no message
+// body), via a self-signed JWT exchanged for a short-lived access token.
+// Polling (not Pub/Sub push) — no urgency here, and it avoids a second
+// public webhook endpoint + a 7-day watch-renewal job for a read-only log.
+// ---------------------------------------------------------------------------
+const GMAIL_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.metadata';
+const _gmailTokenCache = {}; // mailboxAddress -> { token, expiresAt }
+
+function gmailServiceAccount() {
+  const raw = cfg().gmailServiceAccountJson;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { clog('error', 'GMAIL_SERVICE_ACCOUNT_JSON is not valid JSON'); return null; }
+}
+
+// Mints (and caches, until near-expiry) a short-lived OAuth2 access token
+// impersonating `mailboxAddress`, via a self-signed JWT assertion — the
+// standard domain-wide-delegation flow, no separate consent screen per
+// mailbox.
+async function gmailAccessToken(mailboxAddress) {
+  const cached = _gmailTokenCache[mailboxAddress];
+  if (cached && cached.expiresAt > Date.now() + 60000) return cached.token;
+  const sa = gmailServiceAccount();
+  if (!sa) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const assertion = jwt.sign({
+    iss: sa.client_email, sub: mailboxAddress, scope: GMAIL_SCOPE,
+    aud: GMAIL_TOKEN_URL, iat: now, exp: now + 3600,
+  }, sa.private_key, { algorithm: 'RS256' });
+  const body = new URLSearchParams({
+    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion,
+  }).toString();
+  const r = await httpsRequest(GMAIL_TOKEN_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body,
+  });
+  if (r.status !== 200 || !r.json || !r.json.access_token) {
+    clog('error', 'gmail token exchange failed', { mailboxAddress, status: r.status, error: r.json && r.json.error });
+    return null;
+  }
+  _gmailTokenCache[mailboxAddress] = { token: r.json.access_token, expiresAt: Date.now() + (r.json.expires_in || 3600) * 1000 };
+  return r.json.access_token;
+}
+
+// Thin Gmail API wrapper. In non-production with no service account
+// configured, reads from a local fixture file instead of calling Google —
+// the seam that makes pollGmailMailbox exercisable in the test harness with
+// zero live credentials (see test/fixtures/gmail-messages.json).
+async function gmailApi(mailboxAddress, path) {
+  if (!cfg().gmailServiceAccountJson && process.env.NODE_ENV !== 'production') {
+    return gmailApiFixture(mailboxAddress, path);
+  }
+  const token = await gmailAccessToken(mailboxAddress);
+  if (!token) return { status: 0, json: null, error: 'no gmail access token' };
+  return httpsRequest('https://gmail.googleapis.com/gmail/v1/users/me/' + path, {
+    headers: { Authorization: 'Bearer ' + token },
+  });
+}
+
+let _gmailFixtureCache = null;
+function gmailApiFixture(mailboxAddress, path) {
+  if (_gmailFixtureCache === null) {
+    try {
+      const fs = require('fs');
+      const p = require('path').join(__dirname, 'test', 'fixtures', 'gmail-messages.json');
+      _gmailFixtureCache = JSON.parse(fs.readFileSync(p, 'utf8'));
+    } catch (e) { _gmailFixtureCache = {}; }
+  }
+  const mailbox = _gmailFixtureCache[mailboxAddress] || { historyId: '1', messages: [] };
+  if (path.startsWith('history/list') || path.startsWith('messages?')) {
+    return { status: 200, json: { historyId: mailbox.historyId, messages: mailbox.messages.map(m => ({ id: m.id })) } };
+  }
+  const idMatch = path.match(/^messages\/([^?]+)/);
+  const msg = idMatch && mailbox.messages.find(m => m.id === idMatch[1]);
+  return { status: msg ? 200 : 404, json: msg ? gmailMessageShape(msg) : null };
+}
+// Shapes a fixture message the same way a real `format=metadata` response
+// does — { id, threadId, internalDate, labelIds, snippet, payload:{headers} }.
+function gmailMessageShape(m) {
+  return {
+    id: m.id, threadId: m.threadId, internalDate: String(m.internalDate),
+    labelIds: m.labelIds || [], snippet: m.snippet || '',
+    payload: { headers: [
+      { name: 'From', value: m.from || '' }, { name: 'To', value: m.to || '' }, { name: 'Subject', value: m.subject || '' },
+    ] },
+  };
+}
+
+function findEmail(state, gmailMessageId) { return (state.emails || []).find(e => e.gmailMessageId === gmailMessageId); }
+function gmailHeader(headers, name) { const h = (headers || []).find(x => x.name === name); return h ? h.value : ''; }
+function gmailAddressesOf(headerValue) {
+  return String(headerValue || '').split(',').map(s => {
+    const m = s.match(/<([^>]+)>/);
+    return (m ? m[1] : s).trim().toLowerCase();
+  }).filter(Boolean);
+}
+
+// Polls one mailbox, incrementally via history.list once a cursor exists,
+// else bootstraps with a 1-day window on first run. Dedupes by
+// gmailMessageId (mirrors findCall's dedupe by aircallId).
+async function pollGmailMailbox(mailboxAddress, employeeId) {
+  const state = db.get();
+  const emp = (state.employees || []).find(e => e.id === employeeId);
+  const ownerName = emp ? emp.name : 'Unknown';
+  const cursor = state.emailPollCursor[mailboxAddress];
+  let listPath = cursor
+    ? `history/list?startHistoryId=${encodeURIComponent(cursor)}&historyTypes=messageAdded`
+    : `messages?q=${encodeURIComponent('newer_than:1d')}`;
+  const listResp = await gmailApi(mailboxAddress, listPath);
+  if (listResp.status !== 200 || !listResp.json) {
+    clog('warn', 'gmail poll: list failed', { mailboxAddress, status: listResp.status });
+    return { mailboxAddress, ok: false, added: 0 };
+  }
+  const history = listResp.json.history || [];
+  const messageIds = cursor
+    ? [...new Set(history.flatMap(h => (h.messagesAdded || []).map(m => m.message.id)))]
+    : (listResp.json.messages || []).map(m => m.id);
+  let added = 0;
+  for (const gmailMessageId of messageIds) {
+    if (findEmail(state, gmailMessageId)) continue;
+    const msgResp = await gmailApi(mailboxAddress, `messages/${encodeURIComponent(gmailMessageId)}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`);
+    if (msgResp.status !== 200 || !msgResp.json) continue;
+    const m = msgResp.json;
+    const headers = m.payload && m.payload.headers;
+    const fromAddress = gmailAddressesOf(gmailHeader(headers, 'From'))[0] || '';
+    const toAddresses = gmailAddressesOf(gmailHeader(headers, 'To'));
+    const direction = fromAddress === mailboxAddress ? 'outbound' : 'inbound';
+    // Replied: for an inbound message, does the SAME thread already contain
+    // an outbound message (from the mailbox owner) with a later internalDate?
+    // Cheap approximation from what's already in state.emails for this
+    // thread — avoids a second live thread-fetch per message.
+    const threadSiblings = (state.emails || []).filter(e => e.threadId === m.threadId);
+    const replied = direction === 'inbound'
+      ? threadSiblings.some(e => e.direction === 'outbound' && e.occurredAt > new Date(Number(m.internalDate)).toISOString())
+      : false;
+    state.emailSeq = (state.emailSeq || 0) + 1;
+    state.emails.push({
+      id: 'email' + state.emailSeq, gmailMessageId, threadId: m.threadId,
+      occurredAt: new Date(Number(m.internalDate)).toISOString(),
+      direction, fromAddress, toAddresses, subject: gmailHeader(headers, 'Subject'),
+      mailboxOwner: employeeId, agentName: ownerName,
+      status: (m.labelIds || []).includes('UNREAD') ? 'unread' : 'read',
+      replied, labelIds: m.labelIds || [], snippet: m.snippet || '',
+      listenedBy: null, listenedAt: null, finalOutcome: null, createdVia: 'gmail-poller',
+    });
+    if (state.emails.length > 5000) state.emails.shift();
+    added++;
+    // A newly-ingested outbound message answers any earlier-still-open
+    // inbound sibling in the same thread — retroactively flips `replied`
+    // rather than waiting for that older row to be re-polled itself.
+    if (direction === 'outbound') {
+      const occurredAt = new Date(Number(m.internalDate)).toISOString();
+      state.emails.filter(e => e.threadId === m.threadId && e.direction === 'inbound' && !e.replied && e.occurredAt < occurredAt)
+        .forEach(e => { e.replied = true; });
+    }
+  }
+  // Refresh read/unread on already-logged unread rows for this mailbox —
+  // a cheap per-message label re-check (bounded by how many are still
+  // unread), not a re-fetch of content, so the log doesn't go stale between
+  // a message arriving unread and someone later reading it in Gmail itself.
+  const stillUnread = (state.emails || []).filter(e => e.mailboxOwner === employeeId && e.status === 'unread');
+  for (const row of stillUnread) {
+    const r = await gmailApi(mailboxAddress, `messages/${encodeURIComponent(row.gmailMessageId)}?format=metadata`);
+    if (r.status === 200 && r.json && Array.isArray(r.json.labelIds)) {
+      row.status = r.json.labelIds.includes('UNREAD') ? 'unread' : 'read';
+    }
+  }
+  if (listResp.json.historyId) state.emailPollCursor[mailboxAddress] = listResp.json.historyId;
+  db.save();
+  clog('info', 'gmail poll', { mailboxAddress, added, refreshed: stillUnread.length });
+  return { mailboxAddress, ok: true, added };
+}
+
+function emailOutcomeStatus(e) {
+  if (e.direction === 'outbound') return 'no_action';
+  if (e.replied) return 'replied';
+  if (e.status === 'unread') return 'unread';
+  return 'read';
+}
+const EMAIL_STATUS_LABELS = { no_action: 'Sent (no action needed)', replied: 'Replied', unread: 'Unread', read: 'Read, not replied' };
+
+function emailStatsForEmployee(state, employeeId) {
+  const cutoff = nzToday(new Date(Date.now() - 86400000));
+  const mine = (state.emails || []).filter(e => e.mailboxOwner === employeeId && e.direction === 'inbound'
+    && e.occurredAt && nzToday(new Date(e.occurredAt)) >= cutoff);
+  const shape = e => ({ id: e.id, fromAddress: e.fromAddress, subject: e.subject, occurredAt: e.occurredAt });
+  const byRecent = (a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || '');
+  const remaining = mine.filter(e => !e.replied);
+  const repliedRows = mine.filter(e => e.replied);
+  return {
+    total: mine.length, replied: repliedRows.length, remaining: remaining.length,
+    remainingEmails: remaining.sort(byRecent).map(shape), repliedEmails: repliedRows.sort(byRecent).map(shape),
+  };
+}
+
+// Email report — every logged message in a date window. A superadmin gets
+// the whole firm with an owner filter + breakdown; anyone else is
+// hard-scoped server-side to their own mailbox — personId is ignored for
+// them, same "list endpoints scope by role" rule as Calls/everywhere else.
+function allEmailsReport(state, { from, to, personId, actor } = {}) {
+  let emails = (state.emails || []).filter(e => {
+    if (!e.occurredAt) return false;
+    const day = nzToday(new Date(e.occurredAt));
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  });
+  const isSuperAdmin = actor && actor.accessRole === 'superadmin';
+  if (!isSuperAdmin) emails = emails.filter(e => e.mailboxOwner === (actor && actor.id));
+  const shaped = emails.map(e => {
+    const outcomeStatus = emailOutcomeStatus(e);
+    return {
+      id: e.id, occurredAt: e.occurredAt, day: nzToday(new Date(e.occurredAt)),
+      agentName: e.agentName, mailboxOwner: e.mailboxOwner, direction: e.direction,
+      fromAddress: e.fromAddress, toAddresses: e.toAddresses, subject: e.subject, snippet: e.snippet,
+      status: e.status, replied: e.replied, finalOutcome: e.finalOutcome || null,
+      outcomeStatus, outcomeLabel: EMAIL_STATUS_LABELS[outcomeStatus],
+    };
+  }).sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
+  const byPerson = {};
+  shaped.forEach(e => {
+    if (!byPerson[e.mailboxOwner]) byPerson[e.mailboxOwner] = { key: e.mailboxOwner, name: e.agentName, total: 0, unread: 0, replied: 0, noAction: 0 };
+    const b = byPerson[e.mailboxOwner];
+    b.total++;
+    if (e.outcomeStatus === 'no_action') b.noAction++;
+    else if (e.outcomeStatus === 'replied') b.replied++;
+    else if (e.outcomeStatus === 'unread') b.unread++;
+  });
+  let scoped = shaped;
+  if (isSuperAdmin && personId) scoped = scoped.filter(e => e.mailboxOwner === personId);
+  const counts = { total: scoped.length, unread: 0, read: 0, replied: 0, no_action: 0 };
+  scoped.forEach(e => { counts[e.outcomeStatus]++; });
+  return {
+    emails: scoped, counts,
+    byPerson: isSuperAdmin ? Object.values(byPerson).sort((a, b) => b.total - a.total) : [],
+    isSuperAdmin,
+  };
+}
+
+// Scheduler tick — polls every mailbox with a gmailAddress set. Gated on the
+// service account being configured (matches the `if (!cfg().slackBotToken)
+// return;` guard style used by the digest tick).
+async function pollAllGmailMailboxes() {
+  if (!cfg().gmailServiceAccountJson && process.env.NODE_ENV === 'production') return { polled: 0 };
+  const state = db.get();
+  const mailboxes = (state.employees || []).filter(e => e.gmailAddress);
+  const results = [];
+  for (const emp of mailboxes) {
+    try { results.push(await pollGmailMailbox(emp.gmailAddress, emp.id)); }
+    catch (e) { clog('error', 'gmail poll threw: ' + (e && e.stack || e), { mailboxAddress: emp.gmailAddress }); }
+  }
+  return { polled: results.length, results };
+}
+
 // ---------------------------------------------------------------------------
 // KUDOS — firm-wide recognition, star-leveled (see KUDOS_LEVELS above).
 // Core mutation functions, shared by the HTTP endpoints (server.js) and
@@ -1837,6 +2113,7 @@ async function runPersonalDigests(reason) {
 // hourly tick; fires the digest once per DIGEST_HOURS slot per day + the
 // reminder pass every tick
 let _schedTimer = null;
+let _gmailSchedTimer = null;
 function startSchedulers() {
   if (_schedTimer) return;
   const tick = async () => {
@@ -1868,6 +2145,16 @@ function startSchedulers() {
   _schedTimer = setInterval(tick, 10 * 60 * 1000); // every 10 min
   if (_schedTimer.unref) _schedTimer.unref();
   setTimeout(tick, 15000);
+
+  // Gmail poll — a separate timer, deliberately NOT nested inside the tick
+  // above (which early-returns without a Slack bot token; Gmail has nothing
+  // to do with Slack and shouldn't be gated on it).
+  if (cfg().gmailServiceAccountJson || process.env.NODE_ENV !== 'production') {
+    const gmailTick = () => { pollAllGmailMailboxes().catch(e => clog('error', 'gmail scheduler tick threw: ' + (e && e.stack || e))); };
+    _gmailSchedTimer = setInterval(gmailTick, cfg().gmailPollMinutes * 60 * 1000);
+    if (_gmailSchedTimer.unref) _gmailSchedTimer.unref();
+    setTimeout(gmailTick, 20000);
+  }
   console.log('[connector] schedulers started — digest NZ hours ' + DIGEST_HOURS.join(',') + '; personal digest NZ hours ' + PERSONAL_DIGEST_HOURS.join(',') + '; reminders ' + (REMINDERS_ON ? 'ON' : 'OFF') + (REMINDER_DRY_RUN ? ' (dry-run)' : ''));
 }
 
@@ -1979,6 +2266,13 @@ function mountConnector(app) {
         aircall: !!(c.aircallApiId && c.aircallApiToken), aircallWebhookToken: !!c.aircallWebhookToken,
         gemini: !!c.geminiApiKey,
         interaktWebhookSecret: !!c.interaktWebhookSecret, interaktApiKey: !!c.interaktApiKey, interaktChannel: !!c.interaktChannel,
+      },
+      gmail: {
+        configured: !!c.gmailServiceAccountJson,
+        mode: c.gmailServiceAccountJson ? 'live' : 'fixture',
+        mailboxes: (db.get().employees || []).filter(e => e.gmailAddress).length,
+        emails: (db.get().emails || []).length,
+        pollMinutes: c.gmailPollMinutes,
       },
       calls: (db.get().calls || []).length,
       waContacts: Object.keys(db.get().waContacts || {}).length,
@@ -2209,4 +2503,5 @@ function mountConnector(app) {
 module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
+  emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
 };

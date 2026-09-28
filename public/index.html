@@ -943,6 +943,7 @@
     <div class="nav-section">
       <div class="nav-title">Calls</div>
       <div class="nav-item" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
+      <div class="nav-item" data-view="emails" onclick="showView('emails', this)"><span class="nav-icon">✉</span> Email</div>
     </div>
     <div class="nav-section" id="clientsNavSection">
       <div class="nav-title">Clients</div>
@@ -1825,6 +1826,43 @@
           <div style="max-height:60vh;overflow-y:auto;">
             <table style="width:100%;border-collapse:collapse;font-size:13px;">
               <tbody id="callsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== EMAIL (Gmail activity log) VIEW ===================== -->
+      <!-- Mirrors Calls above: visibility/audit log only — no task
+           conversion, no message body, nothing sent anywhere. -->
+      <section class="view" id="view-emails">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Email</h2>
+            <div class="panel-head-actions">
+              <select id="emailsPeriod" onchange="renderEmailsView()">
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
+                <option value="week" selected>This week</option>
+                <option value="month">This month</option>
+                <option value="last30">Last 30 days</option>
+                <option value="last90">Last 90 days</option>
+                <option value="all">All time</option>
+                <option value="custom">Custom range…</option>
+              </select>
+              <span id="emailsCustom" style="display:none;">
+                <input type="date" id="emailsFrom" onchange="renderEmailsView()">
+                <input type="date" id="emailsTo" onchange="renderEmailsView()">
+              </span>
+              <select id="emailsOwnerFilter" style="display:none;" onchange="emailsOwnerChanged()">
+                <option value="">All mailboxes</option>
+              </select>
+            </div>
+          </div>
+          <p id="emailsSub" style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every message logged from the 4 connected mailboxes, day by day — headers only, no message body is read or stored.</p>
+          <div id="emailsTiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px;"></div>
+          <div style="max-height:60vh;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;">
+              <tbody id="emailsBody"></tbody>
             </table>
           </div>
         </div>
@@ -2829,6 +2867,106 @@ function renderCallsRows(list){
   }).join('');
   document.getElementById('callsBody').innerHTML = rows || `<tr><td colspan="3" style="padding:14px 0;color:var(--text-faint);">No calls in this range.</td></tr>`;
 }
+
+/* =========================================================================
+   EMAIL — Gmail activity log for the 4 connected mailboxes. Mirrors Calls
+   above (period range, superadmin-only owner filter, tiles, day-grouped
+   rows) but with a flat status enum instead of Calls' two-tier
+   acknowledged/not_acknowledged split — there's no responsible-person
+   routing step here, the mailbox owner IS the responsible person.
+   ========================================================================= */
+const EMAIL_TILES = [
+  ['all', 'All', null],
+  ['unread', 'Unread', 'var(--flag)'],
+  ['read', 'Read, not replied', 'var(--text-faint)'],
+  ['replied', 'Replied', 'var(--teal)'],
+  ['no_action', 'Sent (no action needed)', 'var(--text-faint)'],
+];
+let _emailsOwnerFilter = '';
+let _emailsStatusFilter = 'all';
+function _emailsRange(){
+  const p = (document.getElementById('emailsPeriod')||{}).value || 'week';
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const now = new Date();
+  document.getElementById('emailsCustom').style.display = p === 'custom' ? '' : 'none';
+  if(p === 'custom'){
+    return { from: (document.getElementById('emailsFrom')||{}).value || iso(new Date(now-30*864e5)),
+             to: (document.getElementById('emailsTo')||{}).value || iso(now) };
+  }
+  if(p === 'today') return { from: iso(now), to: iso(now) };
+  if(p === 'yesterday'){ const y = new Date(now - 864e5); return { from: iso(y), to: iso(y) }; }
+  let from;
+  if(p === 'week'){
+    const day = now.getDay();
+    from = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (day === 0 ? 6 : day - 1));
+  }
+  else if(p === 'month'){ from = new Date(now.getFullYear(), now.getMonth(), 1); }
+  else if(p === 'last30'){ from = new Date(now - 30*864e5); }
+  else if(p === 'last90'){ from = new Date(now - 90*864e5); }
+  else if(p === 'all'){ from = new Date(2000, 0, 1); }
+  else { from = new Date(now.getFullYear(), now.getMonth(), 1); }
+  return { from: iso(from), to: iso(now) };
+}
+function setEmailsStatusFilter(key){
+  _emailsStatusFilter = key;
+  renderEmailsView();
+}
+function emailsOwnerChanged(){
+  _emailsOwnerFilter = document.getElementById('emailsOwnerFilter').value;
+  renderEmailsView();
+}
+async function renderEmailsView(){
+  const { from, to } = _emailsRange();
+  let data;
+  try {
+    const qs = new URLSearchParams({ from, to });
+    if(_emailsOwnerFilter) qs.set('personId', _emailsOwnerFilter);
+    data = await api(`/api/emails/all?${qs.toString()}`);
+  } catch(e){
+    document.getElementById('emailsBody').innerHTML = `<tr><td style="padding:14px 0;color:var(--coral);">${esc(e.message)}</td></tr>`;
+    return;
+  }
+  document.getElementById('emailsSub').textContent = data.isSuperAdmin
+    ? 'Every message logged from the 4 connected mailboxes, day by day — headers only, no message body is read or stored.'
+    : 'Messages logged from your connected mailbox, day by day — headers only, no message body is read or stored.';
+  const ownerSel = document.getElementById('emailsOwnerFilter');
+  ownerSel.style.display = data.isSuperAdmin ? '' : 'none';
+  if(data.isSuperAdmin){
+    const ownerStillValid = data.byPerson.some(p => p.key === _emailsOwnerFilter);
+    if(!ownerStillValid) _emailsOwnerFilter = '';
+    ownerSel.innerHTML = `<option value="">All mailboxes</option>` + data.byPerson.map(p =>
+      `<option value="${esc(p.key)}"${p.key===_emailsOwnerFilter?' selected':''}>${esc(p.name)} — ${p.total}</option>`
+    ).join('');
+  }
+  const c = data.counts;
+  document.getElementById('emailsTiles').innerHTML = EMAIL_TILES.map(([key,label,color]) => `
+    <div class="metric-tile" style="cursor:pointer;${key===_emailsStatusFilter?'outline:2px solid var(--purple);':''}" onclick="setEmailsStatusFilter('${key}')" title="Click to filter the list below">
+      <div class="mt-label">${esc(label)}</div>
+      <div class="mt-value"${color?` style="color:${color};"`:''}>${key==='all'?c.total:c[key]}</div>
+    </div>`).join('');
+  const shown = _emailsStatusFilter === 'all' ? data.emails : data.emails.filter(x => x.outcomeStatus === _emailsStatusFilter);
+  renderEmailsRows(shown);
+}
+function renderEmailsRows(list){
+  const groups = {}; const order = [];
+  list.forEach(e => {
+    const d = e.day || 'unknown';
+    if(!groups[d]){ groups[d] = []; order.push(d); }
+    groups[d].push(e);
+  });
+  order.sort((a,b) => b.localeCompare(a));
+  const statusColor = e => ({unread:'var(--flag)', read:'var(--text-faint)', replied:'var(--teal)', no_action:'var(--text-faint)'})[e.outcomeStatus];
+  const rows = order.map(d => {
+    const dayRows = groups[d].map(e => `
+    <tr>
+      <td><div class="tl-name">${esc(e.subject || '(no subject)')}</div><div class="tl-sub">${esc(e.direction === 'outbound' ? (e.toAddresses||[]).join(', ') : e.fromAddress)} · ${esc(e.agentName)}</div></td>
+      <td><div class="tl-sub" style="color:${statusColor(e)};">${esc(e.outcomeLabel)}</div></td>
+    </tr>`).join('');
+    return `<tr><td colspan="2" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
+  }).join('');
+  document.getElementById('emailsBody').innerHTML = rows || `<tr><td colspan="2" style="padding:14px 0;color:var(--text-faint);">No emails in this range.</td></tr>`;
+}
+
 /* =========================================================================
    KUDOS — firm-wide recognition wall + recommendations. Visible to
    everyone; awarding is gated server-side (canAwardKudosTo, mirrored
@@ -3030,6 +3168,7 @@ function showView(id, el){
   if(id === 'performance') renderPerformanceView();
   if(id === 'kudos') renderKudosView();
   if(id === 'calls') renderCallsView();
+  if(id === 'emails') renderEmailsView();
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
@@ -9251,6 +9390,7 @@ function openManageEmployee(id){
       </div>
       <div class="field"><label>Slack user ID <span style="text-transform:none; color:var(--text-faint);">— so Slack tasks reach this person</span></label><input type="text" id="meSlackId" value="${esc(e.slackUserId || '')}" placeholder="U0XXXXXXXX"></div>
       <div class="field"><label>Aircall agent ID <span style="text-transform:none; color:var(--text-faint);">— only if they take calls</span></label><input type="text" id="meAircallId" value="${esc(e.aircallAgentId || '')}" placeholder="1234567"></div>
+      <div class="field"><label>Gmail address <span style="text-transform:none; color:var(--text-faint);">— which mailbox to log for this person</span></label><input type="text" id="meGmailAddress" value="${esc(e.gmailAddress || '')}" placeholder="name@elitetaxation.co.nz"></div>
       ${isSuperAdmin ? `<div class="field"><label>CRM User ID <span style="text-transform:none; color:var(--text-faint);">— links this login to their ET-CRM account</span></label>
         <input type="text" id="meCrmUserId" value="${esc(e.crmUserId || '')}" placeholder="e.g. 12345678-1234-1234-1234-123456789abc">
         <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Before pasting this: check in ET-CRM (Settings → User Management) that the email under this person's CRM User ID is <b>${esc(e.email)}</b> — the one above. Never match by name.${(e.crmUserIdHistory && e.crmUserIdHistory.length) ? ` Last changed ${fmtDate((e.crmUserIdHistory[e.crmUserIdHistory.length-1].at||'').slice(0,10))} by ${esc(e.crmUserIdHistory[e.crmUserIdHistory.length-1].by||'—')}.` : ''}</div>
@@ -9319,6 +9459,7 @@ async function submitManageEmployee(id){
   const whatsappAccess = document.getElementById('meWhatsappAccess').checked;
   const slackUserId = document.getElementById('meSlackId').value.trim();
   const aircallAgentId = document.getElementById('meAircallId').value.trim();
+  const gmailAddress = document.getElementById('meGmailAddress').value.trim();
   const crmIdEl = document.getElementById('meCrmUserId');
   // self-edit window → an ISO datetime, null (revoke), or undefined (unchanged)
   let selfEditUntil; // undefined by default
@@ -9334,7 +9475,7 @@ async function submitManageEmployee(id){
   }
   try {
     const payload = { accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
-      memberships, isFounder, dashObserver, whatsappAccess, slackUserId, aircallAgentId };
+      memberships, isFounder, dashObserver, whatsappAccess, slackUserId, aircallAgentId, gmailAddress };
     if(selfEditUntil !== undefined) payload.selfEditUntil = selfEditUntil;
     if(crmIdEl) payload.crmUserId = crmIdEl.value.trim();
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify(payload)});

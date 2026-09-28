@@ -1169,6 +1169,7 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   }
   if (req.body.slackUserId !== undefined) emp.slackUserId = req.body.slackUserId ? String(req.body.slackUserId).trim() : null;
   if (req.body.aircallAgentId !== undefined) emp.aircallAgentId = req.body.aircallAgentId ? String(req.body.aircallAgentId).trim() : null;
+  if (req.body.gmailAddress !== undefined) emp.gmailAddress = req.body.gmailAddress ? String(req.body.gmailAddress).trim().toLowerCase() : null;
   // WhatsApp (Interakt) dashboard — grantable to any specific employee,
   // independent of accessRole (a superadmin always has it regardless).
   if (typeof req.body.whatsappAccess === 'boolean') emp.whatsappAccess = req.body.whatsappAccess;
@@ -4251,6 +4252,35 @@ app.get('/api/calls/all', requireAuth, (req, res) => {
   const personId = req.query.personId ? String(req.query.personId) : null;
   const agentId = req.query.agentId ? String(req.query.agentId) : null;
   res.json(allCallsReport(state, { from, to, personId, agentId, actor: req.employee }));
+});
+
+// ---------------------------------------------------------------------------
+// EMAIL (Gmail) — a firm-wide visibility/audit log for 4 individual staff
+// mailboxes (employee.gmailAddress), mirroring Calls above: read-only,
+// filterable by day/week/month and status, no task-conversion step. The
+// poller lives in connector.js (pollGmailMailbox / pollAllGmailMailboxes),
+// on its own scheduler tick, independent of Slack config.
+// ---------------------------------------------------------------------------
+app.get('/api/emails/mine', requireAuth, (req, res) => {
+  const state = db.get();
+  const { emailStatsForEmployee } = require('./connector');
+  res.json(emailStatsForEmployee(state, req.employee.id));
+});
+app.get('/api/emails/all', requireAuth, (req, res) => {
+  const state = db.get();
+  const { allEmailsReport } = require('./connector');
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
+  const personId = req.query.personId ? String(req.query.personId) : null;
+  res.json(allEmailsReport(state, { from, to, personId, actor: req.employee }));
+});
+// Manual "refresh now" lever (also the local test entry point, driving the
+// fixture path in connector.js's gmailApi when no live credentials are set).
+app.post('/api/int/gmail/poll-now', requireIntegrationAuth, async (req, res) => {
+  try {
+    const { pollAllGmailMailboxes } = require('./connector');
+    res.json(await pollAllGmailMailboxes());
+  } catch (e) { res.status(500).json({ error: String(e) }); }
 });
 
 // ---------------------------------------------------------------------------

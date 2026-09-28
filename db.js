@@ -238,11 +238,17 @@ function ensureExtendedFields(state) {
     'disha@elitetaxation.co.nz': '1937711',
   };
   const FOUNDER_EMAILS = ['shubham@elitetaxation.co.nz'];
+  // The 4 Gmail mailboxes to log, keyed by the app's own login email — set
+  // by hand via Manage Access once real addresses are known; the `===
+  // undefined` guard below is what actually protects a manually-set value
+  // from being clobbered on restart, not this seed map.
+  const GMAIL_MAILBOXES = {};
 
   (state.employees || []).forEach(e => {
     const email = String(e.email || '').toLowerCase();
     if (e.slackUserId === undefined) e.slackUserId = null;
     if (e.aircallAgentId === undefined) e.aircallAgentId = AIRCALL_AGENTS[email] || null;
+    if (e.gmailAddress === undefined) e.gmailAddress = GMAIL_MAILBOXES[email] || null;
     if (e.isFounder === undefined) e.isFounder = FOUNDER_EMAILS.includes(email);
     if (e.notifyPrefs === undefined) {
       e.notifyPrefs = { channel: 'slack', quietHoursStart: null, quietHoursEnd: null, digestHour: null };
@@ -373,6 +379,12 @@ function runMigrations(state) {
   // Sheet into here. Each row mirrors what the "Call Log" tab held.
   if (!Array.isArray(state.calls)) state.calls = [];
   if (typeof state.callSeq !== 'number') state.callSeq = 0;
+  // Email (Gmail) activity log — mirrors the Calls block above: a firm-wide
+  // visibility/audit log tagged to whichever employee owns the mailbox, not
+  // a message-triage feature. See connector.js pollGmailMailbox.
+  if (!Array.isArray(state.emails)) state.emails = [];
+  if (typeof state.emailSeq !== 'number') state.emailSeq = 0;
+  if (typeof state.emailPollCursor !== 'object' || !state.emailPollCursor) state.emailPollCursor = {};
   // Kudos — firm-wide public recognition, star-leveled (3/4/5/legendary).
   // Replaces the old one-off per-review kudos (task.kudosAt/kudosBy, now
   // unused going forward — historical values are left on old tasks, just

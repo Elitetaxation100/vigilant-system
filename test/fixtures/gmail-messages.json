@@ -1,0 +1,42 @@
+{
+  "khushi@elitetaxation.co.nz": {
+    "historyId": "1001",
+    "messages": [
+      {
+        "id": "m1", "threadId": "t1", "internalDate": 1700000000000,
+        "from": "client1@example.com", "to": "khushi@elitetaxation.co.nz",
+        "subject": "Question about my return", "labelIds": ["INBOX", "UNREAD"],
+        "snippet": "Hi, I had a question about..."
+      },
+      {
+        "id": "m2", "threadId": "t2", "internalDate": 1700000100000,
+        "from": "client2@example.com", "to": "khushi@elitetaxation.co.nz",
+        "subject": "Documents attached", "labelIds": ["INBOX"],
+        "snippet": "Please find attached the documents..."
+      },
+      {
+        "id": "m3", "threadId": "t3", "internalDate": 1700000200000,
+        "from": "client3@example.com", "to": "khushi@elitetaxation.co.nz",
+        "subject": "Follow up on my filing", "labelIds": ["INBOX"],
+        "snippet": "Just following up on..."
+      },
+      {
+        "id": "m4", "threadId": "t3", "internalDate": 1700000300000,
+        "from": "khushi@elitetaxation.co.nz", "to": "client3@example.com",
+        "subject": "Re: Follow up on my filing", "labelIds": ["SENT"],
+        "snippet": "Thanks for following up, here's an update..."
+      }
+    ]
+  },
+  "ranjit@elitetaxation.co.nz": {
+    "historyId": "2001",
+    "messages": [
+      {
+        "id": "n1", "threadId": "u1", "internalDate": 1700000400000,
+        "from": "clienta@example.com", "to": "ranjit@elitetaxation.co.nz",
+        "subject": "GST query", "labelIds": ["INBOX", "UNREAD"],
+        "snippet": "Question about GST on..."
+      }
+    ]
+  }
+}
