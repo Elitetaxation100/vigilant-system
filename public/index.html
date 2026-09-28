@@ -1840,9 +1840,9 @@
             <h2>Email</h2>
             <div class="panel-head-actions">
               <select id="emailsPeriod" onchange="renderEmailsView()">
-                <option value="today">Today</option>
+                <option value="today" selected>Today</option>
                 <option value="yesterday">Yesterday</option>
-                <option value="week" selected>This week</option>
+                <option value="week">This week</option>
                 <option value="month">This month</option>
                 <option value="last30">Last 30 days</option>
                 <option value="last90">Last 90 days</option>
@@ -1861,7 +1861,7 @@
               </select>
             </div>
           </div>
-          <p id="emailsSub" style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every message logged from the 4 connected mailboxes, day by day — headers only, no message body is read or stored.</p>
+          <p id="emailsSub" style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every incoming message from the 4 connected mailboxes, day by day — sender and subject only, no message body is read or stored. Mail sent by us isn't shown here.</p>
           <div id="emailsTiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px;"></div>
           <div style="max-height:60vh;overflow-y:auto;">
             <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -2667,7 +2667,7 @@ const titles = {
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   performance: ['Performance', 'Your Report Card, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
   calls: ['Calls', "Every call tagged to you, filterable by day, week or month and by outcome — superadmins see the whole firm, filterable by owner and agent"],
-  emails: ['Email', "Every message logged from the 4 connected mailboxes, filterable by day, week or month and by status — superadmins see the whole firm, filterable by owner and mailbox"],
+  emails: ['Email', "Every incoming message from the 4 connected mailboxes, filterable by day, week or month and by status — superadmins see the whole firm, filterable by owner and mailbox. Mail sent by us isn't shown here."],
   kudos: ['Kudos', 'Firm-wide recognition, visible to everyone — anyone can recommend, your team\'s manager (or Shubam, firm-wide) awards the star level'],
   timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
@@ -2884,7 +2884,6 @@ const EMAIL_PRIMARY_TILES = [
   ['all', 'All', null],
   ['replied', 'Replied', 'var(--teal)'],
   ['not_replied', 'Not Replied', 'var(--flag)'],
-  ['no_action', 'Sent (no action needed)', 'var(--text-faint)'],
 ];
 const EMAIL_DETAIL_TILES = [
   ['unread', 'Unread', 'var(--flag)'],
@@ -2896,7 +2895,7 @@ let _emailsPrimaryFilter = 'all';
 let _emailsDetailFilter = '';
 let _emailsData = [];
 function _emailsRange(){
-  const p = (document.getElementById('emailsPeriod')||{}).value || 'week';
+  const p = (document.getElementById('emailsPeriod')||{}).value || 'today';
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const now = new Date();
   document.getElementById('emailsCustom').style.display = p === 'custom' ? '' : 'none';
@@ -2949,8 +2948,8 @@ async function renderEmailsView(){
   }
   _emailsData = data.emails;
   document.getElementById('emailsSub').textContent = data.isSuperAdmin
-    ? 'Every message logged from the 4 connected mailboxes, day by day — headers only, no message body is read or stored.'
-    : 'Messages logged from your connected mailbox, day by day — headers only, no message body is read or stored.';
+    ? 'Every incoming message from the 4 connected mailboxes, day by day — sender and subject only, no message body is read or stored. Mail sent by us isn\'t shown here.'
+    : 'Incoming messages from your connected mailbox, day by day — sender and subject only, no message body is read or stored. Mail sent by you isn\'t shown here.';
   const ownerSel = document.getElementById('emailsOwnerFilter');
   const mailboxSel = document.getElementById('emailsMailboxFilter');
   ownerSel.style.display = data.isSuperAdmin ? '' : 'none';
@@ -2981,7 +2980,6 @@ async function renderEmailsView(){
   document.getElementById('emailsTiles').innerHTML = primaryHtml + detailHtml;
   let shown = data.emails;
   if(_emailsPrimaryFilter === 'replied') shown = shown.filter(x => x.outcomeStatus === 'replied');
-  else if(_emailsPrimaryFilter === 'no_action') shown = shown.filter(x => x.outcomeStatus === 'no_action');
   else if(_emailsPrimaryFilter === 'not_replied'){
     shown = shown.filter(x => x.outcomeStatus === 'unread' || x.outcomeStatus === 'read');
     if(_emailsDetailFilter) shown = shown.filter(x => x.outcomeStatus === _emailsDetailFilter);
@@ -2996,13 +2994,13 @@ function renderEmailsRows(list){
     groups[d].push(e);
   });
   order.sort((a,b) => b.localeCompare(a));
-  const statusColor = e => ({unread:'var(--flag)', read:'var(--text-faint)', replied:'var(--teal)', no_action:'var(--text-faint)'})[e.outcomeStatus];
+  const statusColor = e => ({unread:'var(--flag)', read:'var(--text-faint)', replied:'var(--teal)'})[e.outcomeStatus];
   const rows = order.map(d => {
     const dayRows = groups[d].map(e => `
     <tr>
-      <td><div class="tl-name">${esc(e.subject || '(no subject)')}</div><div class="tl-sub">${esc(e.direction === 'outbound' ? (e.toAddresses||[]).join(', ') : e.fromAddress)} · ${esc(e.agentName)}${e.mailbox ? ' · '+esc(e.mailbox) : ''}</div></td>
+      <td><div class="tl-name">${esc(e.subject || '(no subject)')}</div><div class="tl-sub">${esc(e.fromAddress)}</div></td>
       <td><div class="tl-sub" style="color:${statusColor(e)};">${esc(e.outcomeLabel)}</div></td>
-      <td>${e.direction === 'inbound' ? (e.taskId ? `<span class="tl-sub">✓ Task created</span>` : `<button class="btn small" onclick="openEmailTaskModal('${esc(e.id)}')">+ Task</button>`) : ''}</td>
+      <td>${e.taskId ? `<span class="tl-sub">✓ Task created</span>` : `<button class="btn small" onclick="openEmailTaskModal('${esc(e.id)}')">+ Task</button>`}</td>
     </tr>`).join('');
     return `<tr><td colspan="3" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
   }).join('');

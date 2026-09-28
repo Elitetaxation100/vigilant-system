@@ -1265,7 +1265,13 @@ function mailboxOf(e) {
 // are ignored for them, same "list endpoints scope by role" rule as
 // Calls/everywhere else.
 function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
+  // Outbound (sent BY the mailbox owner) is still ingested and kept in
+  // state.emails — it's needed internally to detect whether an inbound
+  // message got replied to (see pollGmailMailbox) — but it's noise in this
+  // report: mostly our own automated notifications/reports, not client
+  // correspondence needing attention. Excluded here, not at ingest.
   let emails = (state.emails || []).filter(e => {
+    if (e.direction !== 'inbound') return false;
     if (!e.occurredAt) return false;
     const day = nzToday(new Date(e.occurredAt));
     if (from && day < from) return false;
@@ -1287,11 +1293,10 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   const byPerson = {};
   const byMailbox = {};
   shaped.forEach(e => {
-    if (!byPerson[e.mailboxOwner]) byPerson[e.mailboxOwner] = { key: e.mailboxOwner, name: e.agentName, total: 0, unread: 0, replied: 0, noAction: 0 };
+    if (!byPerson[e.mailboxOwner]) byPerson[e.mailboxOwner] = { key: e.mailboxOwner, name: e.agentName, total: 0, unread: 0, replied: 0 };
     const b = byPerson[e.mailboxOwner];
     b.total++;
-    if (e.outcomeStatus === 'no_action') b.noAction++;
-    else if (e.outcomeStatus === 'replied') b.replied++;
+    if (e.outcomeStatus === 'replied') b.replied++;
     else if (e.outcomeStatus === 'unread') b.unread++;
     if (e.mailbox) {
       if (!byMailbox[e.mailbox]) byMailbox[e.mailbox] = { key: e.mailbox, name: e.mailbox, ownerName: e.agentName, total: 0 };
@@ -1301,7 +1306,7 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   let scoped = shaped;
   if (isSuperAdmin && personId) scoped = scoped.filter(e => e.mailboxOwner === personId);
   if (isSuperAdmin && mailbox) scoped = scoped.filter(e => e.mailbox === mailbox);
-  const counts = { total: scoped.length, unread: 0, read: 0, replied: 0, no_action: 0 };
+  const counts = { total: scoped.length, unread: 0, read: 0, replied: 0 };
   scoped.forEach(e => { counts[e.outcomeStatus]++; });
   counts.not_replied = counts.unread + counts.read;
   return {
