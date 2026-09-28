@@ -3352,7 +3352,6 @@ async function renderKudosView(){
     const lvl = KUDOS_LEVELS[k.level] || { label: k.level, badge: k.level };
     const legendary = k.level === 'legendary';
     return `<div style="position:relative;border:1px solid ${legendary?'#D4AF37':'var(--panel-border)'};border-radius:10px;padding:12px 14px;background:${legendary?'linear-gradient(135deg,#FFF8E1,var(--panel))':'var(--panel)'};${legendary?'box-shadow:0 2px 12px rgba(212,175,55,.3);':''}">
-      ${isSuperAdmin ? `<div onclick="deleteKudosAward('${esc(k.id)}')" title="Remove (founder only)" style="position:absolute;top:8px;right:8px;cursor:pointer;color:var(--text-faint);font-size:13px;">✕</div>` : ''}
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;">
         <div style="font-size:14px;"><b>${esc(to ? to.name : '—')}</b></div>
         <div style="font-size:13px;font-weight:700;${legendary?'color:#B8860B;':'color:var(--amber);'}">${lvl.badge}</div>
@@ -3362,11 +3361,42 @@ async function renderKudosView(){
     </div>`;
   }).join('');
 }
-// Founder-only cleanup for a test/mistaken entry — see connector.js deleteKudos.
-async function deleteKudosAward(id){
-  if(!confirm('Remove this kudos award? This cannot be undone.')) return;
-  try { await api(`/api/kudos/${encodeURIComponent(id)}`, { method:'DELETE' }); renderKudosView(); }
-  catch(e){ showToast('error', 'Could not remove', e.message); }
+// Firm-wide "someone got kudos" broadcast — same shape as Points'
+// refreshPoints/showPointsAnnouncement: everyone hears the popper/applause
+// when someone gets kudos, not just the recipient (who gets their own
+// celebration via the notify()-driven path in refreshNotifications).
+// Polled alongside Points rather than folded into renderKudosView, so it
+// fires for every viewer regardless of which page they're on, not just
+// people sitting on the Kudos view.
+let _kudosData = [];
+async function refreshKudosAnnouncements(){
+  if(!session) return;
+  try {
+    const d = await api('/api/kudos');
+    _kudosData = d.kudos || [];
+    if(_kudosData.length){
+      let lastSeen = null;
+      try { lastSeen = localStorage.getItem('govOsLastSeenKudosId'); } catch(e){}
+      const newest = _kudosData[0]; // server returns newest-first
+      if(lastSeen !== newest.id){
+        const lastIdx = lastSeen ? _kudosData.findIndex(k => k.id === lastSeen) : -1;
+        const toShow = lastSeen && lastIdx > 0 ? _kudosData.slice(0, lastIdx) : (lastSeen ? [] : [newest]);
+        toShow.slice().reverse().forEach(row => showKudosAnnouncement(row));
+        try { localStorage.setItem('govOsLastSeenKudosId', newest.id); } catch(e){}
+      }
+    }
+  } catch(e){ /* non-fatal */ }
+}
+function showKudosAnnouncement(row){
+  if(row.toId === currentViewerId) return;
+  if(document.getElementById('modalOverlay').classList.contains('active')) return;
+  if(document.querySelector('.celebration-overlay')) return;
+  const toEmp = empById(row.toId), byEmp = empById(row.byId);
+  const lvl = KUDOS_LEVELS[row.level] || { label: row.level, badge: row.level };
+  showCelebration({
+    title: `${lvl.badge} ${toEmp ? toEmp.name : 'Someone'} just got ${lvl.label} kudos!`,
+    subtitle: `From ${byEmp ? byEmp.name : 'someone'}${row.note ? ' — ' + row.note : ''}`,
+  });
 }
 function openGiveKudosModal(){
   const eligible = anyEmployeeInFirm().filter(e => canAwardKudosTo(e)).sort((a,b)=>a.name.localeCompare(b.name));
@@ -10255,6 +10285,7 @@ async function onLoginComplete(){
   await refreshNotifications();
   await refreshWaAwaitingBadge();
   await refreshPoints();
+  await refreshKudosAnnouncements();
   initPushClient();
   await loadPunchState();
 
@@ -10339,6 +10370,11 @@ function startPolling(){
     await refreshClients();
     await refreshWaAwaitingBadge();
     await refreshPoints();
+    await refreshKudosAnnouncements();
+    // If someone's actually sitting on the Kudos page, keep its wall (and
+    // the Points panel on it) current too — refreshPoints above only
+    // covers the topbar badge/firm-wide popup, not this view's own lists.
+    if(document.getElementById('view-kudos').classList.contains('active')) renderKudosView();
   }, 8000);
 }
 function stopPolling(){ if(pollHandle){ clearInterval(pollHandle); pollHandle = null; } }
