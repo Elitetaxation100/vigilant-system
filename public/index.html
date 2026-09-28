@@ -2230,7 +2230,7 @@ function playPopperSound(){
     filter.frequency.setValueAtTime(4000, t);
     filter.frequency.exponentialRampToValueAtTime(300, t + popDur);
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.8, t);
+    gain.gain.setValueAtTime(0.9, t); // 90% — loud enough to carry firm-wide, not just to the recipient's own tab
     gain.gain.exponentialRampToValueAtTime(0.001, t + popDur);
     noise.connect(filter).connect(gain).connect(ctx.destination);
     noise.start(t); noise.stop(t + popDur + 0.01);
@@ -2240,7 +2240,7 @@ function playPopperSound(){
     thump.frequency.setValueAtTime(180, t);
     thump.frequency.exponentialRampToValueAtTime(45, t + 0.09);
     const thumpGain = ctx.createGain();
-    thumpGain.gain.setValueAtTime(0.45, t);
+    thumpGain.gain.setValueAtTime(0.5, t);
     thumpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
     thump.connect(thumpGain).connect(ctx.destination);
     thump.start(t); thump.stop(t + 0.12);
@@ -2257,7 +2257,7 @@ function playPopperSound(){
     tailFilter.frequency.value = 5500;
     const tailGain = ctx.createGain();
     tailGain.gain.setValueAtTime(0, t);
-    tailGain.gain.linearRampToValueAtTime(0.1, t + 0.02);
+    tailGain.gain.linearRampToValueAtTime(0.13, t + 0.02);
     tailGain.gain.exponentialRampToValueAtTime(0.001, t + tailDur);
     tailNoise.connect(tailFilter).connect(tailGain).connect(ctx.destination);
     tailNoise.start(t); tailNoise.stop(t + tailDur + 0.01);
@@ -2280,7 +2280,7 @@ function playApplauseSound(){
       const dur = 0.025 + Math.random() * 0.035;
       _noiseBurst(ctx, start, dur, {
         freq: 900 + Math.random() * 2400, q: 0.6 + Math.random() * 0.7,
-        gain: 0.16 + Math.random() * 0.22, type: 'bandpass',
+        gain: 0.2 + Math.random() * 0.28, type: 'bandpass', // turned up alongside the popper — 90% loud, meant to be heard firm-wide
       });
     }
   } catch(e){ /* audio unavailable / blocked — fail silently */ }
@@ -2292,9 +2292,10 @@ function playApplauseSound(){
 // the "someone ELSE got points" case (see showPointsAnnouncement), where a
 // real on-screen popup is wanted instead of a small corner toast; the
 // personal "YOU got points/kudos" case omits it (you can't react to your
-// own award). opts.playSound (default true) skips the popper/applause for
-// the third-party case so a firm-wide reaction doesn't replay full sound
-// for every viewer, every time.
+// own award). opts.playSound (default true) plays the popper/applause;
+// every viewer hears it by default — these are occasional, firm-wide
+// moments, meant to be heard, not just seen. Pass false to opt a specific
+// call out of sound.
 function showCelebration(opts){
   opts = opts || {};
   const colors = ['#F0603E','#5B4FCF','#22C99E','#F5B400','#7C6CF6','#EC4899'];
@@ -3398,10 +3399,27 @@ async function submitGiveKudos(){
   const note = document.getElementById('gkNote').value.trim();
   try {
     await api('/api/kudos', { method:'POST', body: JSON.stringify({ toId, level: window._gkLevel, note: note || undefined }) });
-    closeModal();
     showToast('success', 'Kudos awarded! 🏆', 'Posted to the Kudos wall and Slack.');
     if(document.getElementById('view-kudos').classList.contains('active')) renderKudosView();
+    // Only admin/founder can award Points at all (awardPoints enforces this
+    // server-side too), so there's no point asking anyone else — they'd
+    // just hit a permission error on "Yes".
+    if(isAdmin) askGivePointsToo(toId);
+    else closeModal();
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+// Prompted right after a successful kudos award (admin/founder givers only):
+// a lot of kudos moments are also worth backing with points, so offer it
+// immediately instead of making them re-open the award flow from scratch.
+function askGivePointsToo(toId){
+  const toEmp = empById(toId);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🪙 Give points too?</h3>
+    <div class="modal-sub">Want to also award points to ${esc(toEmp ? toEmp.name : 'them')} for this?</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">No thanks</button>
+      <button class="btn primary" onclick="openGivePointsModal('${esc(toId)}')">Yes, award points</button>
+    </div>`;
 }
 function openRecommendKudosModal(){
   const others = anyEmployeeInFirm().filter(e => e.id !== currentViewerId).sort((a,b)=>a.name.localeCompare(b.name));
@@ -4427,11 +4445,13 @@ function renderPointsBadge(){
   if(total > 0){ badge.textContent = total >= 1000 ? Math.round(total/1000) + 'k' : String(total); badge.style.display = ''; }
   else badge.style.display = 'none';
 }
-// A real on-screen popup (the same confetti/card overlay as a personal
-// celebration) for everyone EXCEPT the recipient — they already get their
+// A real on-screen popup (the same confetti/card overlay, WITH the popper +
+// applause sound) for everyone EXCEPT the recipient — they already get their
 // own "YOU got points" celebration via the notify()-driven path in
 // refreshNotifications, so showing this too would be a redundant second
-// popup for the same award. Skipped entirely if another modal is already
+// popup for the same award. Sound plays for these third-party viewers too
+// (not muted): this is meant to be a firm-wide, occasional, actually-heard
+// moment, not a silent toast. Skipped entirely if another modal is already
 // open, so this never hijacks something the viewer is mid-way through.
 function showPointsAnnouncement(row){
   if(row.toId === currentViewerId) return;
@@ -4441,9 +4461,8 @@ function showPointsAnnouncement(row){
   showCelebration({
     title: `🪙 ${toEmp ? toEmp.name : 'Someone'} just got ${row.amount.toLocaleString()} points!`,
     subtitle: `From ${byEmp ? byEmp.name : 'someone'}${row.note ? ' — ' + row.note : ''}`,
-    pointsId: row.id, reactions: row.reactions, playSound: false,
+    pointsId: row.id, reactions: row.reactions,
   });
-  playChime('update');
 }
 function renderPointsReactions(row, prefix){
   const wrap = document.getElementById((prefix || 'react-') + row.id);
@@ -4519,12 +4538,14 @@ async function replayLastKudos(){
   } catch(e){ /* non-fatal */ }
 }
 // Admin/founder award-points modal — mirrors openGiveKudosModal's shape.
-function openGivePointsModal(){
+// preselectId: pass the just-kudos'd person's id when opened from
+// askGivePointsToo, so the "To" field already points at them.
+function openGivePointsModal(preselectId){
   if(!(currentViewer() && (currentViewer().accessRole === 'admin' || currentViewer().accessRole === 'superadmin'))) return;
   const pool = (anyEmployeeInFirm().length ? anyEmployeeInFirm() : employees).slice().sort((a,b) => a.name.localeCompare(b.name));
   document.getElementById('modalBox').innerHTML = `
     <h3>🪙 Award Points</h3>
-    <div class="field"><label>To</label><select id="ptsTo">${pool.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>To</label><select id="ptsTo">${pool.map(p => `<option value="${esc(p.id)}" ${p.id === preselectId ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Points</label><input type="number" id="ptsAmount" min="1" step="1" placeholder="e.g. 5000"></div>
     <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">— optional</span></label><textarea id="ptsNote"></textarea></div>
     <div class="modal-error" id="ptsErr"></div>
