@@ -1169,7 +1169,12 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   }
   if (req.body.slackUserId !== undefined) emp.slackUserId = req.body.slackUserId ? String(req.body.slackUserId).trim() : null;
   if (req.body.aircallAgentId !== undefined) emp.aircallAgentId = req.body.aircallAgentId ? String(req.body.aircallAgentId).trim() : null;
-  if (req.body.gmailAddress !== undefined) emp.gmailAddress = req.body.gmailAddress ? String(req.body.gmailAddress).trim().toLowerCase() : null;
+  // gmailAddresses — an array: one employee can own more than one mailbox
+  // (e.g. Khushi runs both Rideshare and Property).
+  if (req.body.gmailAddresses !== undefined) {
+    const arr = Array.isArray(req.body.gmailAddresses) ? req.body.gmailAddresses : [];
+    emp.gmailAddresses = arr.map(a => String(a || '').trim().toLowerCase()).filter(Boolean);
+  }
   // WhatsApp (Interakt) dashboard — grantable to any specific employee,
   // independent of accessRole (a superadmin always has it regardless).
   if (typeof req.body.whatsappAccess === 'boolean') emp.whatsappAccess = req.body.whatsappAccess;
@@ -4255,8 +4260,9 @@ app.get('/api/calls/all', requireAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// EMAIL (Gmail) — a firm-wide visibility/audit log for 4 individual staff
-// mailboxes (employee.gmailAddress), mirroring Calls above: read-only,
+// EMAIL (Gmail) — a firm-wide visibility/audit log for 4 real mailboxes
+// (employee.gmailAddresses[] — one employee can own more than one),
+// mirroring Calls above: read-only,
 // filterable by day/week/month and status, no task-conversion step. The
 // poller lives in connector.js (pollGmailMailbox / pollAllGmailMailboxes),
 // on its own scheduler tick, independent of Slack config.

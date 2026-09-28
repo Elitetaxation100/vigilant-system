@@ -1023,16 +1023,18 @@ function allCallsReport(state, { from, to, personId, agentId, actor } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// EMAIL (Gmail) — a firm-wide visibility/audit log for 4 individual staff
-// mailboxes, tagged to whichever employee owns the mailbox (employee.
-// gmailAddress). Deliberately mirrors Calls' shape (log/filter, no task
-// conversion, no Slack posting, no AI) rather than WhatsApp's (which IS a
-// triage/convert-to-task feature) — email here is visibility only.
+// EMAIL (Gmail) — a firm-wide visibility/audit log for 4 real mailboxes
+// (Rideshare, Property, Companies, Info), tagged to whichever employee owns
+// each one (employee.gmailAddresses[] — one employee can own more than one,
+// e.g. Khushi runs both Rideshare and Property). Deliberately mirrors
+// Calls' shape (log/filter, no task conversion, no Slack posting, no AI)
+// rather than WhatsApp's (which IS a triage/convert-to-task feature) —
+// email here is visibility only.
 //
 // Unlike Aircall's AGENT_MAP (a routing table, because who LISTENS to a
 // call can be a different person than who took it), Gmail mailbox ownership
-// is 1:1 and real: the mailbox owner IS the responsible person, so there is
-// no separate routing/delegation layer to build.
+// is direct and real: the mailbox owner IS the responsible person, so there
+// is no separate routing/delegation layer to build.
 //
 // Auth: domain-wide delegation. A GCP service account (its key JSON in
 // GMAIL_SERVICE_ACCOUNT_JSON) impersonates each mailbox address in turn for
@@ -1274,17 +1276,18 @@ function allEmailsReport(state, { from, to, personId, actor } = {}) {
   };
 }
 
-// Scheduler tick — polls every mailbox with a gmailAddress set. Gated on the
-// service account being configured (matches the `if (!cfg().slackBotToken)
-// return;` guard style used by the digest tick).
+// Scheduler tick — polls every mailbox in every employee's gmailAddresses
+// (one employee can own more than one — e.g. Khushi runs both Rideshare and
+// Property). Gated on the service account being configured (matches the
+// `if (!cfg().slackBotToken) return;` guard style used by the digest tick).
 async function pollAllGmailMailboxes() {
   if (!cfg().gmailServiceAccountJson && process.env.NODE_ENV === 'production') return { polled: 0 };
   const state = db.get();
-  const mailboxes = (state.employees || []).filter(e => e.gmailAddress);
+  const jobs = (state.employees || []).flatMap(e => (e.gmailAddresses || []).map(addr => ({ addr, empId: e.id })));
   const results = [];
-  for (const emp of mailboxes) {
-    try { results.push(await pollGmailMailbox(emp.gmailAddress, emp.id)); }
-    catch (e) { clog('error', 'gmail poll threw: ' + (e && e.stack || e), { mailboxAddress: emp.gmailAddress }); }
+  for (const { addr, empId } of jobs) {
+    try { results.push(await pollGmailMailbox(addr, empId)); }
+    catch (e) { clog('error', 'gmail poll threw: ' + (e && e.stack || e), { mailboxAddress: addr }); }
   }
   return { polled: results.length, results };
 }
@@ -2270,7 +2273,7 @@ function mountConnector(app) {
       gmail: {
         configured: !!c.gmailServiceAccountJson,
         mode: c.gmailServiceAccountJson ? 'live' : 'fixture',
-        mailboxes: (db.get().employees || []).filter(e => e.gmailAddress).length,
+        mailboxes: (db.get().employees || []).reduce((n, e) => n + (e.gmailAddresses || []).length, 0),
         emails: (db.get().emails || []).length,
         pollMinutes: c.gmailPollMinutes,
       },

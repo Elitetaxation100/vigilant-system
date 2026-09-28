@@ -238,17 +238,25 @@ function ensureExtendedFields(state) {
     'disha@elitetaxation.co.nz': '1937711',
   };
   const FOUNDER_EMAILS = ['shubham@elitetaxation.co.nz'];
-  // The 4 Gmail mailboxes to log, keyed by the app's own login email — set
-  // by hand via Manage Access once real addresses are known; the `===
-  // undefined` guard below is what actually protects a manually-set value
-  // from being clobbered on restart, not this seed map.
-  const GMAIL_MAILBOXES = {};
+  // The 4 real Gmail mailboxes, keyed by the app's own login email. One
+  // employee can own more than one mailbox (Khushi runs both Rideshare and
+  // Property) — gmailAddresses is an array for exactly that reason. The
+  // `!Array.isArray` guard below is what protects a later manual edit via
+  // Manage Access from being clobbered on restart, not this seed map.
+  const GMAIL_MAILBOXES = {
+    'khushi@elitetaxation.co.nz': ['selfemployed@elitetaxation.co.nz', 'property_tax@elitetaxation.co.nz'],
+    'manya@elitetaxation.co.nz': ['business_accounting@elitetaxation.co.nz'],
+    'anjana@elitetaxation.co.nz': ['info@elitetaxation.co.nz'],
+  };
 
   (state.employees || []).forEach(e => {
     const email = String(e.email || '').toLowerCase();
     if (e.slackUserId === undefined) e.slackUserId = null;
     if (e.aircallAgentId === undefined) e.aircallAgentId = AIRCALL_AGENTS[email] || null;
-    if (e.gmailAddress === undefined) e.gmailAddress = GMAIL_MAILBOXES[email] || null;
+    // Migrates the old single-mailbox field forward for anyone who already
+    // had it set; anyone else gets the real seed list above (empty if
+    // they're not one of the 4 mailbox owners).
+    if (!Array.isArray(e.gmailAddresses)) e.gmailAddresses = GMAIL_MAILBOXES[email] || (e.gmailAddress ? [e.gmailAddress] : []);
     if (e.isFounder === undefined) e.isFounder = FOUNDER_EMAILS.includes(email);
     if (e.notifyPrefs === undefined) {
       e.notifyPrefs = { channel: 'slack', quietHoursStart: null, quietHoursEnd: null, digestHour: null };
