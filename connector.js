@@ -1196,10 +1196,10 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
       id: 'email' + state.emailSeq, gmailMessageId, threadId: m.threadId,
       occurredAt: new Date(Number(m.internalDate)).toISOString(),
       direction, fromAddress, toAddresses, subject: gmailHeader(headers, 'Subject'),
-      mailboxOwner: employeeId, agentName: ownerName,
+      mailbox: mailboxAddress, mailboxOwner: employeeId, agentName: ownerName,
       status: (m.labelIds || []).includes('UNREAD') ? 'unread' : 'read',
       replied, labelIds: m.labelIds || [], snippet: m.snippet || '',
-      listenedBy: null, listenedAt: null, finalOutcome: null, createdVia: 'gmail-poller',
+      listenedBy: null, listenedAt: null, finalOutcome: null, taskId: null, createdVia: 'gmail-poller',
     });
     if (state.emails.length > 5000) state.emails.shift();
     added++;
@@ -1251,11 +1251,20 @@ function emailStatsForEmployee(state, employeeId) {
   };
 }
 
+// A row's own mailbox address — stored directly since Gmail's "sent
+// history" fix (mailbox field added later than the first live rows), with
+// a fallback derivation for any older row ingested before that.
+function mailboxOf(e) {
+  if (e.mailbox) return e.mailbox;
+  return e.direction === 'outbound' ? e.fromAddress : (e.toAddresses || [])[0] || null;
+}
+
 // Email report — every logged message in a date window. A superadmin gets
-// the whole firm with an owner filter + breakdown; anyone else is
-// hard-scoped server-side to their own mailbox — personId is ignored for
-// them, same "list endpoints scope by role" rule as Calls/everywhere else.
-function allEmailsReport(state, { from, to, personId, actor } = {}) {
+// the whole firm with an owner + mailbox filter and breakdown; anyone else
+// is hard-scoped server-side to their own mailbox(es) — personId/mailbox
+// are ignored for them, same "list endpoints scope by role" rule as
+// Calls/everywhere else.
+function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   let emails = (state.emails || []).filter(e => {
     if (!e.occurredAt) return false;
     const day = nzToday(new Date(e.occurredAt));
@@ -1269,13 +1278,14 @@ function allEmailsReport(state, { from, to, personId, actor } = {}) {
     const outcomeStatus = emailOutcomeStatus(e);
     return {
       id: e.id, occurredAt: e.occurredAt, day: nzToday(new Date(e.occurredAt)),
-      agentName: e.agentName, mailboxOwner: e.mailboxOwner, direction: e.direction,
+      agentName: e.agentName, mailboxOwner: e.mailboxOwner, mailbox: mailboxOf(e), direction: e.direction,
       fromAddress: e.fromAddress, toAddresses: e.toAddresses, subject: e.subject, snippet: e.snippet,
-      status: e.status, replied: e.replied, finalOutcome: e.finalOutcome || null,
+      status: e.status, replied: e.replied, finalOutcome: e.finalOutcome || null, taskId: e.taskId || null,
       outcomeStatus, outcomeLabel: EMAIL_STATUS_LABELS[outcomeStatus],
     };
   }).sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
   const byPerson = {};
+  const byMailbox = {};
   shaped.forEach(e => {
     if (!byPerson[e.mailboxOwner]) byPerson[e.mailboxOwner] = { key: e.mailboxOwner, name: e.agentName, total: 0, unread: 0, replied: 0, noAction: 0 };
     const b = byPerson[e.mailboxOwner];
@@ -1283,14 +1293,21 @@ function allEmailsReport(state, { from, to, personId, actor } = {}) {
     if (e.outcomeStatus === 'no_action') b.noAction++;
     else if (e.outcomeStatus === 'replied') b.replied++;
     else if (e.outcomeStatus === 'unread') b.unread++;
+    if (e.mailbox) {
+      if (!byMailbox[e.mailbox]) byMailbox[e.mailbox] = { key: e.mailbox, name: e.mailbox, ownerName: e.agentName, total: 0 };
+      byMailbox[e.mailbox].total++;
+    }
   });
   let scoped = shaped;
   if (isSuperAdmin && personId) scoped = scoped.filter(e => e.mailboxOwner === personId);
+  if (isSuperAdmin && mailbox) scoped = scoped.filter(e => e.mailbox === mailbox);
   const counts = { total: scoped.length, unread: 0, read: 0, replied: 0, no_action: 0 };
   scoped.forEach(e => { counts[e.outcomeStatus]++; });
+  counts.not_replied = counts.unread + counts.read;
   return {
     emails: scoped, counts,
     byPerson: isSuperAdmin ? Object.values(byPerson).sort((a, b) => b.total - a.total) : [],
+    byMailbox: isSuperAdmin ? Object.values(byMailbox).sort((a, b) => b.total - a.total) : [],
     isSuperAdmin,
   };
 }

@@ -4262,10 +4262,11 @@ app.get('/api/calls/all', requireAuth, (req, res) => {
 // ---------------------------------------------------------------------------
 // EMAIL (Gmail) — a firm-wide visibility/audit log for 4 real mailboxes
 // (employee.gmailAddresses[] — one employee can own more than one),
-// mirroring Calls above: read-only,
-// filterable by day/week/month and status, no task-conversion step. The
-// poller lives in connector.js (pollGmailMailbox / pollAllGmailMailboxes),
-// on its own scheduler tick, independent of Slack config.
+// mirroring Calls above: filterable by day/week/month, owner and mailbox,
+// and status. Also has a WhatsApp-style "+ Task" action to turn an inbound
+// message into a task (see POST /:id/task below). The poller lives in
+// connector.js (pollGmailMailbox / pollAllGmailMailboxes), on its own
+// scheduler tick, independent of Slack config.
 // ---------------------------------------------------------------------------
 app.get('/api/emails/mine', requireAuth, (req, res) => {
   const state = db.get();
@@ -4278,7 +4279,8 @@ app.get('/api/emails/all', requireAuth, (req, res) => {
   const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : null;
   const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : null;
   const personId = req.query.personId ? String(req.query.personId) : null;
-  res.json(allEmailsReport(state, { from, to, personId, actor: req.employee }));
+  const mailbox = req.query.mailbox ? String(req.query.mailbox) : null;
+  res.json(allEmailsReport(state, { from, to, personId, mailbox, actor: req.employee }));
 });
 // Manual "refresh now" lever (also the local test entry point, driving the
 // fixture path in connector.js's gmailApi when no live credentials are set).
@@ -4287,6 +4289,53 @@ app.post('/api/int/gmail/poll-now', requireIntegrationAuth, async (req, res) => 
     const { pollAllGmailMailboxes } = require('./connector');
     res.json(await pollAllGmailMailboxes());
   } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+// Create a task from a logged email — same shape/validation as the
+// WhatsApp "+ Task" endpoint above it in this file. Any authenticated user
+// can do this (not owner-only — e.g. a manager triaging on someone's
+// behalf), same as WhatsApp's.
+app.post('/api/emails/:id/task', requireAuth, (req, res) => {
+  const state = db.get();
+  const e = (state.emails || []).find(x => x.id === req.params.id);
+  if (!e) return res.status(404).json({ error: 'Email not found.' });
+  const { name, note, tat, internalDeadline, assignedTo } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
+  const numTat = parseFloat(tat);
+  if (!(numTat > 0)) return res.status(400).json({ error: 'A task needs an estimated time in hours.' });
+  if (!internalDeadline) return res.status(400).json({ error: 'A task needs a due date.' });
+  const assignee = findEmployee(state, assignedTo);
+  if (!assignee) return res.status(400).json({ error: 'Choose who this should go to.' });
+  const status = assignee.id === req.employee.id ? 'accepted' : 'awaiting_acceptance';
+  state.taskSeq += 1;
+  const now = new Date().toISOString();
+  const task = {
+    id: '#' + (100000000000 + state.taskSeq), name: String(name).trim(),
+    scope: note ? String(note).trim() : (e.snippet || '—'),
+    kind: 'internal', team: assignee.team || null,
+    clientId: null, clientName: 'Email · ' + (e.direction === 'outbound' ? ((e.toAddresses || [])[0] || '—') : e.fromAddress),
+    internalRef: e.subject || null,
+    clientDate: null, clientDateOverride: false, internalDeadline,
+    points: 0, assignedTo: assignee.id, assignedBy: req.employee.id,
+    assignedAt: now, reassignHistory: [], status,
+    logged: 0, tat: numTat, acceptedAt: status === 'accepted' ? now : null,
+    timerStartedAt: null, startedAt: null, completedAt: null,
+    reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
+    reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
+    productivityAllocatedHoursSnapshot: status === 'accepted' ? (Number(numTat) || null) : null,
+    reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
+    reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
+    noReviewAuthorizedBy: null, noReviewAuthorizedAt: null, noReviewAuthorizedReason: null,
+    reworkStartedAt: null, faultType: null, reworkHistory: [], holdReasonCode: null,
+    dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
+    source: 'gmail', sourceRef: e.gmailMessageId,
+  };
+  state.tasks.unshift(task);
+  e.taskId = task.id;
+  logEvent(state, assignee.id, `Task created from an email — <b>${escHtml(e.fromAddress)}</b> — "${escHtml(task.name)}".`);
+  if (status === 'awaiting_acceptance') notify(state, assignee.id, 'assigned', `${req.employee.name} assigned you "${task.name}" from an email — accept it or propose a new window.`, task.id);
+  db.save();
+  res.status(201).json({ task: taskForClient(task) });
 });
 
 // ---------------------------------------------------------------------------

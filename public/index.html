@@ -1854,6 +1854,9 @@
                 <input type="date" id="emailsTo" onchange="renderEmailsView()">
               </span>
               <select id="emailsOwnerFilter" style="display:none;" onchange="emailsOwnerChanged()">
+                <option value="">All owners</option>
+              </select>
+              <select id="emailsMailboxFilter" style="display:none;" onchange="emailsMailboxChanged()">
                 <option value="">All mailboxes</option>
               </select>
             </div>
@@ -2870,20 +2873,27 @@ function renderCallsRows(list){
 
 /* =========================================================================
    EMAIL — Gmail activity log for the 4 connected mailboxes. Mirrors Calls
-   above (period range, superadmin-only owner filter, tiles, day-grouped
-   rows) but with a flat status enum instead of Calls' two-tier
-   acknowledged/not_acknowledged split — there's no responsible-person
-   routing step here, the mailbox owner IS the responsible person.
+   above: period range, superadmin-only owner + mailbox filters, a two-tier
+   primary/detail tile split (All / Replied / Not Replied / Sent, with
+   Unread vs Read-not-replied as detail tiles once "Not Replied" is picked
+   — same interaction as Calls' acknowledged/not_acknowledged), day-grouped
+   rows, and a WhatsApp-style "+ Task" action per inbound message.
    ========================================================================= */
-const EMAIL_TILES = [
+const EMAIL_PRIMARY_TILES = [
   ['all', 'All', null],
-  ['unread', 'Unread', 'var(--flag)'],
-  ['read', 'Read, not replied', 'var(--text-faint)'],
   ['replied', 'Replied', 'var(--teal)'],
+  ['not_replied', 'Not Replied', 'var(--flag)'],
   ['no_action', 'Sent (no action needed)', 'var(--text-faint)'],
 ];
+const EMAIL_DETAIL_TILES = [
+  ['unread', 'Unread', 'var(--flag)'],
+  ['read', 'Read, not replied', 'var(--text-faint)'],
+];
 let _emailsOwnerFilter = '';
-let _emailsStatusFilter = 'all';
+let _emailsMailboxFilter = '';
+let _emailsPrimaryFilter = 'all';
+let _emailsDetailFilter = '';
+let _emailsData = [];
 function _emailsRange(){
   const p = (document.getElementById('emailsPeriod')||{}).value || 'week';
   const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -2907,12 +2917,21 @@ function _emailsRange(){
   else { from = new Date(now.getFullYear(), now.getMonth(), 1); }
   return { from: iso(from), to: iso(now) };
 }
-function setEmailsStatusFilter(key){
-  _emailsStatusFilter = key;
+function setEmailsPrimaryFilter(key){
+  _emailsPrimaryFilter = key;
+  _emailsDetailFilter = '';
+  renderEmailsView();
+}
+function setEmailsDetailFilter(key){
+  _emailsDetailFilter = (_emailsDetailFilter === key) ? '' : key;
   renderEmailsView();
 }
 function emailsOwnerChanged(){
   _emailsOwnerFilter = document.getElementById('emailsOwnerFilter').value;
+  renderEmailsView();
+}
+function emailsMailboxChanged(){
+  _emailsMailboxFilter = document.getElementById('emailsMailboxFilter').value;
   renderEmailsView();
 }
 async function renderEmailsView(){
@@ -2921,30 +2940,51 @@ async function renderEmailsView(){
   try {
     const qs = new URLSearchParams({ from, to });
     if(_emailsOwnerFilter) qs.set('personId', _emailsOwnerFilter);
+    if(_emailsMailboxFilter) qs.set('mailbox', _emailsMailboxFilter);
     data = await api(`/api/emails/all?${qs.toString()}`);
   } catch(e){
     document.getElementById('emailsBody').innerHTML = `<tr><td style="padding:14px 0;color:var(--coral);">${esc(e.message)}</td></tr>`;
     return;
   }
+  _emailsData = data.emails;
   document.getElementById('emailsSub').textContent = data.isSuperAdmin
     ? 'Every message logged from the 4 connected mailboxes, day by day — headers only, no message body is read or stored.'
     : 'Messages logged from your connected mailbox, day by day — headers only, no message body is read or stored.';
   const ownerSel = document.getElementById('emailsOwnerFilter');
+  const mailboxSel = document.getElementById('emailsMailboxFilter');
   ownerSel.style.display = data.isSuperAdmin ? '' : 'none';
+  mailboxSel.style.display = data.isSuperAdmin ? '' : 'none';
   if(data.isSuperAdmin){
     const ownerStillValid = data.byPerson.some(p => p.key === _emailsOwnerFilter);
     if(!ownerStillValid) _emailsOwnerFilter = '';
-    ownerSel.innerHTML = `<option value="">All mailboxes</option>` + data.byPerson.map(p =>
+    ownerSel.innerHTML = `<option value="">All owners</option>` + data.byPerson.map(p =>
       `<option value="${esc(p.key)}"${p.key===_emailsOwnerFilter?' selected':''}>${esc(p.name)} — ${p.total}</option>`
+    ).join('');
+    const mailboxStillValid = data.byMailbox.some(m => m.key === _emailsMailboxFilter);
+    if(!mailboxStillValid) _emailsMailboxFilter = '';
+    mailboxSel.innerHTML = `<option value="">All mailboxes</option>` + data.byMailbox.map(m =>
+      `<option value="${esc(m.key)}"${m.key===_emailsMailboxFilter?' selected':''}>${esc(m.key)} (${esc(m.ownerName)}) — ${m.total}</option>`
     ).join('');
   }
   const c = data.counts;
-  document.getElementById('emailsTiles').innerHTML = EMAIL_TILES.map(([key,label,color]) => `
-    <div class="metric-tile" style="cursor:pointer;${key===_emailsStatusFilter?'outline:2px solid var(--purple);':''}" onclick="setEmailsStatusFilter('${key}')" title="Click to filter the list below">
+  const primaryHtml = EMAIL_PRIMARY_TILES.map(([key,label,color]) => `
+    <div class="metric-tile" style="cursor:pointer;${key===_emailsPrimaryFilter?'outline:2px solid var(--purple);':''}" onclick="setEmailsPrimaryFilter('${key}')" title="Click to filter the list below">
       <div class="mt-label">${esc(label)}</div>
       <div class="mt-value"${color?` style="color:${color};"`:''}>${key==='all'?c.total:c[key]}</div>
     </div>`).join('');
-  const shown = _emailsStatusFilter === 'all' ? data.emails : data.emails.filter(x => x.outcomeStatus === _emailsStatusFilter);
+  const detailHtml = _emailsPrimaryFilter === 'not_replied' ? EMAIL_DETAIL_TILES.map(([key,label,color]) => `
+    <div class="metric-tile" style="cursor:pointer;${key===_emailsDetailFilter?'outline:2px solid var(--purple);':''}" onclick="setEmailsDetailFilter('${key}')" title="Click to filter further">
+      <div class="mt-label">${esc(label)}</div>
+      <div class="mt-value" style="color:${color};">${c[key]}</div>
+    </div>`).join('') : '';
+  document.getElementById('emailsTiles').innerHTML = primaryHtml + detailHtml;
+  let shown = data.emails;
+  if(_emailsPrimaryFilter === 'replied') shown = shown.filter(x => x.outcomeStatus === 'replied');
+  else if(_emailsPrimaryFilter === 'no_action') shown = shown.filter(x => x.outcomeStatus === 'no_action');
+  else if(_emailsPrimaryFilter === 'not_replied'){
+    shown = shown.filter(x => x.outcomeStatus === 'unread' || x.outcomeStatus === 'read');
+    if(_emailsDetailFilter) shown = shown.filter(x => x.outcomeStatus === _emailsDetailFilter);
+  }
   renderEmailsRows(shown);
 }
 function renderEmailsRows(list){
@@ -2959,12 +2999,54 @@ function renderEmailsRows(list){
   const rows = order.map(d => {
     const dayRows = groups[d].map(e => `
     <tr>
-      <td><div class="tl-name">${esc(e.subject || '(no subject)')}</div><div class="tl-sub">${esc(e.direction === 'outbound' ? (e.toAddresses||[]).join(', ') : e.fromAddress)} · ${esc(e.agentName)}</div></td>
+      <td><div class="tl-name">${esc(e.subject || '(no subject)')}</div><div class="tl-sub">${esc(e.direction === 'outbound' ? (e.toAddresses||[]).join(', ') : e.fromAddress)} · ${esc(e.agentName)}${e.mailbox ? ' · '+esc(e.mailbox) : ''}</div></td>
       <td><div class="tl-sub" style="color:${statusColor(e)};">${esc(e.outcomeLabel)}</div></td>
+      <td>${e.direction === 'inbound' ? (e.taskId ? `<span class="tl-sub">✓ Task created</span>` : `<button class="btn small" onclick="openEmailTaskModal('${esc(e.id)}')">+ Task</button>`) : ''}</td>
     </tr>`).join('');
-    return `<tr><td colspan="2" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
+    return `<tr><td colspan="3" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
   }).join('');
-  document.getElementById('emailsBody').innerHTML = rows || `<tr><td colspan="2" style="padding:14px 0;color:var(--text-faint);">No emails in this range.</td></tr>`;
+  document.getElementById('emailsBody').innerHTML = rows || `<tr><td colspan="3" style="padding:14px 0;color:var(--text-faint);">No emails in this range.</td></tr>`;
+}
+function openEmailTaskModal(emailId){
+  const e = _emailsData.find(x => x.id === emailId);
+  if(!e) return;
+  const pool = anyEmployeeInFirm().length ? anyEmployeeInFirm() : employees;
+  const defaultAssignee = pool.find(p => p.id === e.mailboxOwner) || pool[0];
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Create task from email</h3>
+    <div class="modal-sub">${esc(e.fromAddress)} · ${esc(e.subject || '(no subject)')}</div>
+    <div class="field"><label>Task name</label><input type="text" id="emailTaskName" value="${esc((e.subject || 'Follow up — ' + e.fromAddress).slice(0,80))}"></div>
+    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">— context for whoever does this</span></label><textarea id="emailTaskNote">${esc(e.snippet || '')}</textarea></div>
+    <div class="field"><label>Assign to</label><select id="emailTaskAssignee">${pool.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p => `<option value="${p.id}"${defaultAssignee && p.id===defaultAssignee.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>Estimated time (hours)</label><input type="number" id="emailTaskTat" value="0.5" min="0.25" step="0.25"></div>
+    <div class="field"><label>Due date</label><input type="date" id="emailTaskDeadline" value="${addDaysISO(1)}"></div>
+    <div class="modal-error" id="emailTaskErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitEmailTask('${esc(emailId)}')">Create task</button>
+    </div>`;
+  openModal();
+}
+async function submitEmailTask(emailId){
+  const errEl = document.getElementById('emailTaskErr');
+  errEl.style.display = 'none';
+  const name = document.getElementById('emailTaskName').value.trim();
+  if(!name){ errEl.textContent = 'Give the task a name.'; errEl.style.display = 'block'; return; }
+  const tat = parseFloat(document.getElementById('emailTaskTat').value);
+  if(!(tat > 0)){ errEl.textContent = 'Give it an estimated time in hours.'; errEl.style.display = 'block'; return; }
+  const body = {
+    name, tat,
+    note: document.getElementById('emailTaskNote').value.trim(),
+    assignedTo: document.getElementById('emailTaskAssignee').value,
+    internalDeadline: document.getElementById('emailTaskDeadline').value,
+  };
+  try {
+    await api(`/api/emails/${encodeURIComponent(emailId)}/task`, { method:'POST', body: JSON.stringify(body) });
+    closeModal();
+    await refreshTasks();
+    await renderEmailsView();
+    showToast('success', 'Task created', '');
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 
 /* =========================================================================
