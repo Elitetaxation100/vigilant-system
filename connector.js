@@ -1199,7 +1199,9 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
       mailbox: mailboxAddress, mailboxOwner: employeeId, agentName: ownerName,
       status: (m.labelIds || []).includes('UNREAD') ? 'unread' : 'read',
       replied, labelIds: m.labelIds || [], snippet: m.snippet || '',
-      listenedBy: null, listenedAt: null, finalOutcome: null, taskId: null, createdVia: 'gmail-poller',
+      listenedBy: null, listenedAt: null, finalOutcome: null, taskId: null,
+      replyNotNeeded: false, replyNotNeededBy: null, replyNotNeededAt: null,
+      createdVia: 'gmail-poller',
     });
     if (state.emails.length > 5000) state.emails.shift();
     added++;
@@ -1231,11 +1233,12 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
 
 function emailOutcomeStatus(e) {
   if (e.direction === 'outbound') return 'no_action';
+  if (e.replyNotNeeded) return 'no_action';
   if (e.replied) return 'replied';
   if (e.status === 'unread') return 'unread';
   return 'read';
 }
-const EMAIL_STATUS_LABELS = { no_action: 'Sent (no action needed)', replied: 'Replied', unread: 'Unread', read: 'Read, not replied' };
+const EMAIL_STATUS_LABELS = { no_action: 'No reply needed', replied: 'Replied', unread: 'Unread', read: 'Read, not replied' };
 
 function emailStatsForEmployee(state, employeeId) {
   const cutoff = nzToday(new Date(Date.now() - 86400000));
@@ -1270,8 +1273,14 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   // message got replied to (see pollGmailMailbox) — but it's noise in this
   // report: mostly our own automated notifications/reports, not client
   // correspondence needing attention. Excluded here, not at ingest.
+  // Ignored senders (state.emailIgnoredSenders, superadmin-managed —
+  // "Ignore sender" on a row, or the manage-list modal) are our own test/
+  // internal addresses that occasionally send through a connected mailbox
+  // — same reasoning, excluded from the report only, never deleted.
+  const ignored = new Set((state.emailIgnoredSenders || []).map(s => String(s || '').toLowerCase()));
   let emails = (state.emails || []).filter(e => {
     if (e.direction !== 'inbound') return false;
+    if (ignored.has(String(e.fromAddress || '').toLowerCase())) return false;
     if (!e.occurredAt) return false;
     const day = nzToday(new Date(e.occurredAt));
     if (from && day < from) return false;
@@ -1287,6 +1296,7 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
       agentName: e.agentName, mailboxOwner: e.mailboxOwner, mailbox: mailboxOf(e), direction: e.direction,
       fromAddress: e.fromAddress, toAddresses: e.toAddresses, subject: e.subject, snippet: e.snippet,
       status: e.status, replied: e.replied, finalOutcome: e.finalOutcome || null, taskId: e.taskId || null,
+      replyNotNeeded: !!e.replyNotNeeded,
       outcomeStatus, outcomeLabel: EMAIL_STATUS_LABELS[outcomeStatus],
     };
   }).sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
@@ -1306,7 +1316,7 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   let scoped = shaped;
   if (isSuperAdmin && personId) scoped = scoped.filter(e => e.mailboxOwner === personId);
   if (isSuperAdmin && mailbox) scoped = scoped.filter(e => e.mailbox === mailbox);
-  const counts = { total: scoped.length, unread: 0, read: 0, replied: 0 };
+  const counts = { total: scoped.length, unread: 0, read: 0, replied: 0, no_action: 0 };
   scoped.forEach(e => { counts[e.outcomeStatus]++; });
   counts.not_replied = counts.unread + counts.read;
   return {

@@ -1861,7 +1861,8 @@
               </select>
             </div>
           </div>
-          <p id="emailsSub" style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Every incoming message from the 4 connected mailboxes, day by day — sender and subject only, no message body is read or stored. Mail sent by us isn't shown here.</p>
+          <p id="emailsSub" style="font-size:13px; color:var(--text-dim); margin:-6px 0 8px;">Every incoming message from the 4 connected mailboxes, day by day — sender and subject only, no message body is read or stored. Mail sent by us isn't shown here.</p>
+          <button id="emailsIgnoredLink" class="btn small" style="display:none;margin-bottom:14px;" onclick="openIgnoredSendersModal()">Ignored senders</button>
           <div id="emailsTiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:20px;"></div>
           <div style="max-height:60vh;overflow-y:auto;">
             <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -2884,6 +2885,7 @@ const EMAIL_PRIMARY_TILES = [
   ['all', 'All', null],
   ['replied', 'Replied', 'var(--teal)'],
   ['not_replied', 'Not Replied', 'var(--flag)'],
+  ['no_action', 'No reply needed', 'var(--text-faint)'],
 ];
 const EMAIL_DETAIL_TILES = [
   ['unread', 'Unread', 'var(--flag)'],
@@ -2891,6 +2893,7 @@ const EMAIL_DETAIL_TILES = [
 ];
 let _emailsOwnerFilter = '';
 let _emailsMailboxFilter = '';
+let _emailsIsSuperAdmin = false;
 let _emailsPrimaryFilter = 'all';
 let _emailsDetailFilter = '';
 let _emailsData = [];
@@ -2947,6 +2950,7 @@ async function renderEmailsView(){
     return;
   }
   _emailsData = data.emails;
+  _emailsIsSuperAdmin = data.isSuperAdmin;
   document.getElementById('emailsSub').textContent = data.isSuperAdmin
     ? 'Every incoming message from the 4 connected mailboxes, day by day — sender and subject only, no message body is read or stored. Mail sent by us isn\'t shown here.'
     : 'Incoming messages from your connected mailbox, day by day — sender and subject only, no message body is read or stored. Mail sent by you isn\'t shown here.';
@@ -2954,6 +2958,7 @@ async function renderEmailsView(){
   const mailboxSel = document.getElementById('emailsMailboxFilter');
   ownerSel.style.display = data.isSuperAdmin ? '' : 'none';
   mailboxSel.style.display = data.isSuperAdmin ? '' : 'none';
+  document.getElementById('emailsIgnoredLink').style.display = data.isSuperAdmin ? '' : 'none';
   if(data.isSuperAdmin){
     const ownerStillValid = data.byPerson.some(p => p.key === _emailsOwnerFilter);
     if(!ownerStillValid) _emailsOwnerFilter = '';
@@ -2980,6 +2985,7 @@ async function renderEmailsView(){
   document.getElementById('emailsTiles').innerHTML = primaryHtml + detailHtml;
   let shown = data.emails;
   if(_emailsPrimaryFilter === 'replied') shown = shown.filter(x => x.outcomeStatus === 'replied');
+  else if(_emailsPrimaryFilter === 'no_action') shown = shown.filter(x => x.outcomeStatus === 'no_action');
   else if(_emailsPrimaryFilter === 'not_replied'){
     shown = shown.filter(x => x.outcomeStatus === 'unread' || x.outcomeStatus === 'read');
     if(_emailsDetailFilter) shown = shown.filter(x => x.outcomeStatus === _emailsDetailFilter);
@@ -2994,17 +3000,58 @@ function renderEmailsRows(list){
     groups[d].push(e);
   });
   order.sort((a,b) => b.localeCompare(a));
-  const statusColor = e => ({unread:'var(--flag)', read:'var(--text-faint)', replied:'var(--teal)'})[e.outcomeStatus];
+  const statusColor = e => ({unread:'var(--flag)', read:'var(--text-faint)', replied:'var(--teal)', no_action:'var(--text-faint)'})[e.outcomeStatus];
+  const rowActions = e => {
+    if(e.taskId) return `<span class="tl-sub">✓ Task created</span>`;
+    if(e.replyNotNeeded) return `<span class="tl-sub">✓ No reply needed</span> <button class="btn small" onclick="toggleEmailNoReply('${esc(e.id)}')">Undo</button>`;
+    const ignoreBtn = _emailsIsSuperAdmin ? ` <button class="btn small" onclick="ignoreEmailSender('${esc(e.fromAddress)}')" title="Hide all mail from this sender">Ignore sender</button>` : '';
+    return `<button class="btn small" onclick="openEmailTaskModal('${esc(e.id)}')">+ Task</button> <button class="btn small" onclick="toggleEmailNoReply('${esc(e.id)}')">No reply needed</button>${ignoreBtn}`;
+  };
   const rows = order.map(d => {
     const dayRows = groups[d].map(e => `
     <tr>
       <td><div class="tl-name">${esc(e.subject || '(no subject)')}</div><div class="tl-sub">${esc(e.fromAddress)}</div></td>
       <td><div class="tl-sub" style="color:${statusColor(e)};">${esc(e.outcomeLabel)}</div></td>
-      <td>${e.taskId ? `<span class="tl-sub">✓ Task created</span>` : `<button class="btn small" onclick="openEmailTaskModal('${esc(e.id)}')">+ Task</button>`}</td>
+      <td>${rowActions(e)}</td>
     </tr>`).join('');
     return `<tr><td colspan="3" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
   }).join('');
   document.getElementById('emailsBody').innerHTML = rows || `<tr><td colspan="3" style="padding:14px 0;color:var(--text-faint);">No emails in this range.</td></tr>`;
+}
+async function toggleEmailNoReply(emailId){
+  try { await api(`/api/emails/${encodeURIComponent(emailId)}/no-reply-needed`, { method:'POST' }); await renderEmailsView(); }
+  catch(e){ showToast('error', 'Could not update', e.message); }
+}
+async function ignoreEmailSender(address){
+  if(!confirm(`Ignore all mail from ${address}?\n\nThis hides both existing and future messages from this address, for everyone — nothing is deleted, and you can undo it any time from "Ignored senders".`)) return;
+  try {
+    await api('/api/emails/ignored-senders', { method:'POST', body: JSON.stringify({ address }) });
+    await renderEmailsView();
+    showToast('success', 'Sender ignored', address);
+  } catch(e){ showToast('error', 'Could not ignore sender', e.message); }
+}
+async function openIgnoredSendersModal(){
+  let data;
+  try { data = await api('/api/emails/ignored-senders'); }
+  catch(e){ showToast('error', 'Could not load', e.message); return; }
+  const rows = (data.senders || []).map(s => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--panel-border);">
+      <span>${esc(s)}</span>
+      <button class="btn small" onclick="unignoreEmailSender('${esc(s)}')">Remove</button>
+    </div>`).join('') || `<div style="color:var(--text-faint);padding:8px 0;">No ignored senders yet.</div>`;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Ignored senders</h3>
+    <div class="modal-sub">Mail from these addresses never appears in the Email log — existing or future. Nothing is deleted.</div>
+    <div style="max-height:300px;overflow-y:auto;margin:12px 0;">${rows}</div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
+  openModal();
+}
+async function unignoreEmailSender(address){
+  try {
+    await api(`/api/emails/ignored-senders/${encodeURIComponent(address)}`, { method:'DELETE' });
+    await openIgnoredSendersModal();
+    await renderEmailsView();
+  } catch(e){ showToast('error', 'Could not remove', e.message); }
 }
 function openEmailTaskModal(emailId){
   const e = _emailsData.find(x => x.id === emailId);

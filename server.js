@@ -4337,6 +4337,46 @@ app.post('/api/emails/:id/task', requireAuth, (req, res) => {
   db.save();
   res.status(201).json({ task: taskForClient(task) });
 });
+// Manually mark (or unmark) a message as not needing a reply — e.g. an FYI
+// or a notification that was correctly never actioned. Toggling, not a
+// one-way flag, so a mistaken click is easy to undo. Any authenticated
+// user can do this (same reasoning as the task-conversion endpoint above).
+app.post('/api/emails/:id/no-reply-needed', requireAuth, (req, res) => {
+  const state = db.get();
+  const e = (state.emails || []).find(x => x.id === req.params.id);
+  if (!e) return res.status(404).json({ error: 'Email not found.' });
+  e.replyNotNeeded = !e.replyNotNeeded;
+  e.replyNotNeededBy = e.replyNotNeeded ? req.employee.id : null;
+  e.replyNotNeededAt = e.replyNotNeeded ? new Date().toISOString() : null;
+  db.save();
+  res.json({ ok: true, replyNotNeeded: e.replyNotNeeded });
+});
+// Firm-wide "never show mail from this address" list — superadmin-only to
+// change, but readable by anyone so the Email view can show the current
+// list. Excludes from the report only (allEmailsReport); nothing in
+// state.emails is ever deleted, so un-ignoring an address surfaces its
+// history again immediately.
+app.get('/api/emails/ignored-senders', requireAuth, (req, res) => {
+  res.json({ senders: db.get().emailIgnoredSenders || [] });
+});
+app.post('/api/emails/ignored-senders', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const address = String((req.body && req.body.address) || '').trim().toLowerCase();
+  if (!address) return res.status(400).json({ error: 'An email address is required.' });
+  state.emailIgnoredSenders = state.emailIgnoredSenders || [];
+  if (!state.emailIgnoredSenders.includes(address)) state.emailIgnoredSenders.push(address);
+  db.save();
+  res.json({ senders: state.emailIgnoredSenders });
+});
+app.delete('/api/emails/ignored-senders/:address', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const address = decodeURIComponent(req.params.address).trim().toLowerCase();
+  state.emailIgnoredSenders = (state.emailIgnoredSenders || []).filter(a => a !== address);
+  db.save();
+  res.json({ senders: state.emailIgnoredSenders });
+});
 
 // ---------------------------------------------------------------------------
 // WHATSAPP (Interakt) — the webhook that receives messages lives in

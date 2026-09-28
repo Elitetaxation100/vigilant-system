@@ -393,6 +393,15 @@ function runMigrations(state) {
   if (!Array.isArray(state.emails)) state.emails = [];
   if (typeof state.emailSeq !== 'number') state.emailSeq = 0;
   if (typeof state.emailPollCursor !== 'object' || !state.emailPollCursor) state.emailPollCursor = {};
+  // Firm-wide "never show mail from this address" list — our own test/
+  // internal senders that occasionally send through a connected mailbox.
+  // Excludes from the report only; the underlying state.emails rows are
+  // never deleted. Superadmin-managed via "Ignore sender" on a row, or the
+  // manage-list modal on the Email view.
+  // Seeded once with the 2 known internal/test addresses already confirmed
+  // to be noise, not client mail — a superadmin manages the list from here
+  // on via the app (Email view → Ignored senders).
+  if (!Array.isArray(state.emailIgnoredSenders)) state.emailIgnoredSenders = ['elitetaxation1@gmail.com', 'dm.vishalkumarr@gmail.com'];
   // Kudos — firm-wide public recognition, star-leveled (3/4/5/legendary).
   // Replaces the old one-off per-review kudos (task.kudosAt/kudosBy, now
   // unused going forward — historical values are left on old tasks, just
