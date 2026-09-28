@@ -689,6 +689,9 @@
   @keyframes celebClap{ 0%,100%{ transform:rotate(0deg) scale(1); } 50%{ transform:rotate(-14deg) scale(1.15); } }
   .celebration-title{ font-family:var(--font-display); font-size:24px; font-weight:700; margin-top:10px; }
   .celebration-subtitle{ font-size:14.5px; color:var(--text-dim); margin-top:8px; max-width:44ch; }
+  .celebration-close{ position:absolute; top:10px; right:14px; cursor:pointer; color:var(--text-faint); font-size:14px; padding:4px; }
+  .celebration-close:hover{ color:var(--text); }
+  .celebration-reactions{ display:flex; gap:8px; justify-content:center; margin-top:18px; flex-wrap:wrap; }
 
   /* sound toggle row (Account modal) */
   .sound-toggle-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
@@ -2284,7 +2287,14 @@ function playApplauseSound(){
 }
 // Full-screen confetti + clap celebration for Kudos/Points received. Plain
 // DOM + CSS (no canvas, no library) — matches how the rest of this app is
-// built. Click anywhere, or wait ~4s, to dismiss.
+// built. Click the dark backdrop (not the card), the ✕, or wait, to
+// dismiss. opts.pointsId renders reaction buttons in the card — used for
+// the "someone ELSE got points" case (see showPointsAnnouncement), where a
+// real on-screen popup is wanted instead of a small corner toast; the
+// personal "YOU got points/kudos" case omits it (you can't react to your
+// own award). opts.playSound (default true) skips the popper/applause for
+// the third-party case so a firm-wide reaction doesn't replay full sound
+// for every viewer, every time.
 function showCelebration(opts){
   opts = opts || {};
   const colors = ['#F0603E','#5B4FCF','#22C99E','#F5B400','#7C6CF6','#EC4899'];
@@ -2300,18 +2310,21 @@ function showCelebration(opts){
   }
   const overlay = document.createElement('div');
   overlay.className = 'celebration-overlay';
+  const reactHtml = opts.pointsId ? `<div id="celeb-react-${esc(opts.pointsId)}" class="celebration-reactions"></div>` : '';
   overlay.innerHTML = `
     <div class="confetti-field">${confettiHtml}</div>
     <div class="celebration-card">
+      <div class="celebration-close" onclick="dismissCelebration(this.closest('.celebration-overlay'))">✕</div>
       <div class="celebration-clap">👏</div>
       <div class="celebration-title">${esc(opts.title || 'Congratulations!')}</div>
       ${opts.subtitle ? `<div class="celebration-subtitle">${esc(opts.subtitle)}</div>` : ''}
+      ${reactHtml}
     </div>`;
-  overlay.onclick = () => dismissCelebration(overlay);
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) dismissCelebration(overlay); });
   document.body.appendChild(overlay);
-  playPopperSound();
-  setTimeout(playApplauseSound, 160);
-  setTimeout(() => dismissCelebration(overlay), 4200);
+  if(opts.pointsId) renderPointsReactions({ id: opts.pointsId, reactions: opts.reactions || [] }, 'celeb-react-');
+  if(opts.playSound !== false){ playPopperSound(); setTimeout(playApplauseSound, 160); }
+  setTimeout(() => dismissCelebration(overlay), opts.pointsId ? 8000 : 4200);
 }
 function dismissCelebration(overlay){
   if(!overlay || !overlay.parentNode) return;
@@ -4414,23 +4427,23 @@ function renderPointsBadge(){
   if(total > 0){ badge.textContent = total >= 1000 ? Math.round(total/1000) + 'k' : String(total); badge.style.display = ''; }
   else badge.style.display = 'none';
 }
+// A real on-screen popup (the same confetti/card overlay as a personal
+// celebration) for everyone EXCEPT the recipient — they already get their
+// own "YOU got points" celebration via the notify()-driven path in
+// refreshNotifications, so showing this too would be a redundant second
+// popup for the same award. Skipped entirely if another modal is already
+// open, so this never hijacks something the viewer is mid-way through.
 function showPointsAnnouncement(row){
-  const stack = ensureToastStack();
-  const id = 'ptoast-' + row.id;
-  if(document.getElementById(id)) return;
+  if(row.toId === currentViewerId) return;
+  if(document.getElementById('modalOverlay').classList.contains('active')) return;
+  if(document.querySelector('.celebration-overlay')) return;
   const toEmp = empById(row.toId), byEmp = empById(row.byId);
-  const el = document.createElement('div');
-  el.className = 'toast success';
-  el.id = id;
-  el.innerHTML = `<div class="ti">🪙</div><div class="tt">
-      <div class="h">${esc(toEmp ? toEmp.name : 'Someone')} just got ${row.amount.toLocaleString()} points!</div>
-      <div class="b">From ${esc(byEmp ? byEmp.name : 'someone')}${row.note ? ' — ' + esc(row.note) : ''}</div>
-      <div class="points-react-row" id="react-${esc(row.id)}" style="display:flex;gap:4px;margin-top:8px;"></div>
-    </div><div class="tx" onclick="dismissToast('${id}')">✕</div>`;
-  stack.appendChild(el);
-  renderPointsReactions(row);
+  showCelebration({
+    title: `🪙 ${toEmp ? toEmp.name : 'Someone'} just got ${row.amount.toLocaleString()} points!`,
+    subtitle: `From ${byEmp ? byEmp.name : 'someone'}${row.note ? ' — ' + row.note : ''}`,
+    pointsId: row.id, reactions: row.reactions, playSound: false,
+  });
   playChime('update');
-  setTimeout(() => dismissToast(id), 10000);
 }
 function renderPointsReactions(row, prefix){
   const wrap = document.getElementById((prefix || 'react-') + row.id);
@@ -4445,8 +4458,8 @@ async function reactToPointsAward(id, emoji){
     const r = await api(`/api/points/${encodeURIComponent(id)}/react`, { method:'POST', body: JSON.stringify({ emoji }) });
     const idx = _pointsData.findIndex(p => p.id === id);
     if(idx >= 0) _pointsData[idx] = r.points;
-    renderPointsReactions(r.points, 'react-');
     renderPointsReactions(r.points, 'wall-react-');
+    renderPointsReactions(r.points, 'celeb-react-');
   } catch(e){ /* non-fatal */ }
 }
 async function renderPointsWall(){
