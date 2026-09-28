@@ -621,7 +621,12 @@ function leaveDaysBetween(state, empId, fromISO, toISO) {
     const end = new Date(stop + 'T00:00:00Z').getTime();
     while (cur.getTime() <= end) {
       const iso = cur.toISOString().slice(0, 10);
-      if (cal.isWorkingDay(iso)) { if (l.halfDay) half += 1; else full += 1; }
+      // A firm workshop day takes precedence over personal leave for capacity
+      // (see attendanceStatus) — skip it here too, or an overlapping day gets
+      // counted against both leaveDays and workshopDays at once, and the
+      // capacity card's "N leave − M workshop" breakdown stops summing to
+      // the actual capacityHours figure.
+      if (cal.isWorkingDay(iso) && !isFirmWorkshopDay(state, iso)) { if (l.halfDay) half += 1; else full += 1; }
       cur = new Date(cur.getTime() + 86400000);
     }
   });

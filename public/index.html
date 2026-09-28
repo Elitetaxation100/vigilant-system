@@ -460,41 +460,16 @@
   .verify-btn:active{ transform:scale(.95); }
   .ss-thumb{ width:34px; height:34px; border-radius:6px; object-fit:cover; border:1px solid var(--panel-border); cursor:pointer; }
 
-  /* feature grid (task engine) */
-  .feature-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:22px; }
-  .feature-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:18px; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
-  .feature-card:hover{ transform:translateY(-2px); box-shadow:0 12px 28px -8px #10182820; border-color:#D7DBE6; }
-  .feature-card .ico{ width:36px; height:36px; border-radius:9px; background:var(--purple-dim); display:flex; align-items:center; justify-content:center; font-size:17.5px; margin-bottom:12px; }
-  .feature-card h3{ font-family:var(--font-display); font-size:16.5px; margin-bottom:6px; }
-  .feature-card p{ font-size:14.5px; color:var(--text-dim); line-height:1.5; }
-  .tat-strip{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 20px; margin-top:18px; display:flex; align-items:center; gap:14px;}
-  .tat-strip .num{ font-family:var(--font-mono); font-size:21.5px; color:#5B4FCF; font-weight:700; }
-
   /* manager dashboard */
   .mgr-grid{ display:grid; grid-template-columns:2fr 1.1fr; gap:16px; }
   .heatmap{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-top:10px; }
   .heat-cell{ height:26px; border-radius:6px; }
 
-  /* task-done heatmap (Task Engine) */
-  .th-grid{ display:grid; grid-template-columns:110px repeat(7,1fr); gap:6px; margin-top:16px; align-items:center; }
-  .th-colhead{ font-size:11.5px; color:var(--text-faint); text-align:center; font-family:var(--font-mono); }
-  .th-rowlabel{ font-size:12.5px; color:var(--text-dim); padding-right:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .th-cell{ height:30px; border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:11px; font-family:var(--font-mono); color:#0A1220; font-weight:600; border:1px solid var(--panel-border); }
-  .th-legend{ display:flex; align-items:center; gap:6px; margin-top:14px; font-size:12px; color:var(--text-faint); }
-  .th-legend .sw{ width:16px; height:14px; border-radius:4px; }
-
-  /* SLA adherence tracking chart */
-  .sla-panel-head{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
-  .sla-toggle-wrap{ display:flex; align-items:center; gap:9px; }
-  .sla-toggle-label{ font-size:13px; color:var(--text-dim); }
   .toggle-switch{ position:relative; width:40px; height:22px; border-radius:999px; background:var(--panel-2); border:1px solid var(--panel-border); cursor:pointer; flex-shrink:0; transition:background .15s ease; }
   .toggle-switch::after{ content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--text-faint); transition:transform .15s ease, background .15s ease; }
   .toggle-switch.on{ background:color-mix(in srgb, var(--purple) 24%, transparent); border-color:var(--purple); box-shadow:var(--glow-soft); }
   .toggle-switch.on::after{ transform:translateX(18px); background:var(--purple); }
-  .sla-status-chip{ font-size:11.5px; font-family:var(--font-mono); padding:3px 9px; border-radius:999px; border:1px solid var(--panel-border); color:var(--text-faint); }
-  .sla-status-chip.live{ color:var(--teal); border-color:var(--teal); }
-  .sla-chart-wrap{ margin-top:16px; }
-  .sla-chart-note{ font-size:12.5px; color:var(--text-faint); margin-top:10px; line-height:1.5; }
+
   .bars{ display:flex; align-items:flex-end; gap:14px; height:130px; margin-top:14px; padding:0 4px; }
   .bar-col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:8px; }
   .bar{ width:100%; border-radius:6px 6px 3px 3px; background:linear-gradient(180deg, #5B4FCF, #7C6CF6); }
@@ -633,7 +608,6 @@
   @media (max-width: 1100px){
     .stat-grid{ grid-template-columns:repeat(3,1fr); }
     .mgr-grid{ grid-template-columns:1fr; }
-    .feature-grid{ grid-template-columns:1fr; }
   }
   /* ---- mobile: sidebar becomes a slide-out drawer ---- */
   .nav-toggle{ display:none; }
@@ -984,7 +958,6 @@
       <div class="nav-item" id="adminNavItem" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Admin</div>
       <div class="nav-item" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
       <div class="nav-item" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Taxonomy</div>
-      <div class="nav-item" id="taskEngineNavItem" data-view="taskengine" onclick="showView('taskengine', this)"><span class="nav-icon">⚙</span> Task Engine</div>
     </div>
 
     <div class="admin-box">
@@ -1595,30 +1568,6 @@
         <div class="panel">
           <div class="panel-head"><h2>Recent activity</h2><span style="font-size:12px;color:var(--text-faint);">firm-wide</span></div>
           <div class="d-feed" id="fvFeed"></div>
-        </div>
-      </section>
-
-      <!-- ===================== TASK ENGINE VIEW ===================== -->
-      <!-- Trimmed to what's actually operational: the TAT benchmark and the
-           done-heatmap. The old promotional feature-grid explaining the
-           product to itself, and the SLA chart gated behind a fake "Live SLA
-           Feed" toggle (real SLA Monitor integration isn't connected — see
-           renderSlaChart/computeSlaSeries, left in place but no longer
-           called, ready to re-enable once that feed is real), were removed
-           from the UI per the navigation simplification. -->
-      <section class="view" id="view-taskengine">
-        <div class="panel">
-          <div class="panel-head"><h2>Task Engine — Measuring Output &amp; Quality</h2></div>
-          <div class="tat-strip">
-            <div class="num">3.0 hrs</div>
-            <div style="font-size:14.5px; color:var(--text-dim);">Standard GST Filing turnaround &nbsp;·&nbsp; <span style="color:var(--teal);">40–45 min</span> fast-track benchmark</div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><h2>Task Done Heatmap — Task Type × Weekday</h2></div>
-          <p style="font-size:13.5px; color:var(--text-dim); line-height:1.5;">Darker cells mean more completed tasks of that type landed on that weekday — a quick read on where load actually clusters.</p>
-          <div id="taskHeatmapWrap"></div>
         </div>
       </section>
 
@@ -2674,7 +2623,6 @@ const titles = {
   tasks: ['Tasks', 'My Tasks, Team Tasks and All Tasks — with saved filters, recurring tasks, and Recently Removed'],
   reviews: ['Reviews', 'Awaiting review, rework, profit confirmation, and reports to send — one queue'],
   taxonomy: ['Task Taxonomy', 'Canonical departments and services, and a privacy report on task titles — superadmin only'],
-  taskengine: ['Task Engine', 'Measuring what gets done'],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   performance: ['Performance', 'Your Report Card, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
   calls: ['Calls', "Every call tagged to you, filterable by day, week or month and by outcome — superadmins see the whole firm, filterable by owner and agent"],
@@ -2689,7 +2637,7 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','taskengine','command','attendance','employees','taxonomy'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','command','attendance','employees','taxonomy'];
 // A shared tab strip at the top of Manager Dashboard / Team Board / Founder
 // View / Command Center — the four used to be separate, disconnected nav
 // destinations; this makes them read and navigate as one "Dashboard"
@@ -3079,7 +3027,6 @@ function showView(id, el){
   if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
   if(id === 'clients') renderClientGrid();
   if(id === 'manager') renderManagerStatics();
-  if(id === 'taskengine') renderTaskEngineVisuals();
   if(id === 'performance') renderPerformanceView();
   if(id === 'kudos') renderKudosView();
   if(id === 'calls') renderCallsView();
@@ -4273,7 +4220,6 @@ function renderTaskTable(){
   renderDeadlineBanner();
   renderWorkloadBlockers();
   renderManagerStatics();
-  renderTaskEngineVisuals();
   renderChartBuilder();
         renderStatusDonut();
         renderAssigneeBarChart();
@@ -7008,166 +6954,10 @@ function renderChartBuilder(){
   }).join('');
 }
 
-/* =========================================================================
-   TASK DONE HEATMAP — task type × weekday, built from real completed-task
-   data (no placeholder cells). Shared between the Manager Dashboard's
-   compact view and the Task Engine's full panel.
-   ========================================================================= */
+// taskTypeLabel is used by the Analytics chart builder's groupBy (see the
+// 'taskType' case) — kept even though the Task Engine view it was
+// originally written for has been removed.
 function taskTypeLabel(t){ return (t.name || 'Task').trim(); }
-function computeHeatmapData(){
-  const completed = tasks.filter(t => t.status === 'completed' && t.completedAt);
-  const perType = {};   // type -> [Mon..Sun] counts
-  const totals = {};    // type -> total count, for ranking
-  completed.forEach(t => {
-    const type = taskTypeLabel(t);
-    const jsDay = new Date(t.completedAt).getDay();  // 0=Sun..6=Sat
-    const idx = (jsDay + 6) % 7;                      // 0=Mon..6=Sun
-    if(!perType[type]) perType[type] = [0,0,0,0,0,0,0];
-    perType[type][idx]++;
-    totals[type] = (totals[type] || 0) + 1;
-  });
-  let typeNames = Object.keys(totals).sort((a,b) => totals[b] - totals[a]);
-  let grid = perType;
-  if(typeNames.length > 6){
-    const top = typeNames.slice(0, 6);
-    const rest = typeNames.slice(6);
-    const otherRow = [0,0,0,0,0,0,0];
-    rest.forEach(type => perType[type].forEach((c,i) => otherRow[i] += c));
-    grid = {};
-    top.forEach(type => grid[type] = perType[type]);
-    grid['Other'] = otherRow;
-    typeNames = [...top, 'Other'];
-  }
-  let max = 0;
-  typeNames.forEach(type => grid[type].forEach(c => { if(c > max) max = c; }));
-  return { types: typeNames, grid, max };
-}
-function heatColor(count, max){
-  if(!count) return 'var(--panel-2)';
-  const pct = max > 0 ? count / max : 0;
-  const alpha = (0.28 + pct * 0.72).toFixed(2);
-  return `rgba(34,201,158,${alpha})`;
-}
-function renderTaskHeatmap(containerId){
-  const wrap = document.getElementById(containerId);
-  if(!wrap) return;
-  const { types, grid, max } = computeHeatmapData();
-  if(types.length === 0){
-    wrap.innerHTML = `<div style="font-size:13.5px; color:var(--text-faint); padding:14px 0;">No completed tasks yet — the heatmap fills in as work gets marked done.</div>`;
-    return;
-  }
-  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  let html = `<div class="th-grid"><div></div>${days.map(d => `<div class="th-colhead">${d}</div>`).join('')}`;
-  types.forEach(type => {
-    html += `<div class="th-rowlabel" title="${esc(type)}">${esc(type)}</div>`;
-    html += grid[type].map(count =>
-      `<div class="th-cell" style="background:${heatColor(count, max)};" title="${count} completed">${count > 0 ? count : ''}</div>`
-    ).join('');
-  });
-  html += `</div>`;
-  html += `<div class="th-legend">
-    <span class="sw" style="background:var(--panel-2); border:1px solid var(--panel-border);"></span>0
-    <span class="sw" style="background:rgba(34,201,158,0.35); margin-left:10px;"></span>Low
-    <span class="sw" style="background:rgba(34,201,158,0.68); margin-left:10px;"></span>Mid
-    <span class="sw" style="background:rgba(34,201,158,1); margin-left:10px;"></span>High</div>`;
-  wrap.innerHTML = html;
-}
-
-/* =========================================================================
-   SLA ADHERENCE TRACKING — smooth curve, daily on-time % over the last 14
-   days. Defaults to OFF (flat 0 baseline) until the live SLA feed is wired
-   up — flipping the toggle previews the curve computed from logged task
-   completions in the meantime.
-   ========================================================================= */
-let slaFeedOn = false;
-function svgSmoothPath(points){
-  if(points.length < 2) return '';
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for(let i = 0; i < points.length - 1; i++){
-    const p0 = points[i], p1 = points[i+1];
-    const midX = (p0.x + p1.x) / 2, midY = (p0.y + p1.y) / 2;
-    d += ` Q ${p0.x} ${p0.y} ${midX} ${midY}`;
-  }
-  const last = points[points.length - 1];
-  d += ` L ${last.x} ${last.y}`;
-  return d;
-}
-function computeSlaSeries(days){
-  const dates = [];
-  for(let i = days - 1; i >= 0; i--){
-    dates.push(addDaysISO(-i));
-  }
-  if(!slaFeedOn) return dates.map(d => ({ date: d, value: 0 }));
-  return dates.map(dateStr => {
-    const doneThatDay = tasks.filter(t => t.status === 'completed' && t.completedAt && dayOf(t.completedAt) === dateStr);
-    if(doneThatDay.length === 0) return { date: dateStr, value: 0 };
-    const onTime = doneThatDay.filter(t => withinAgreedHours(t)).length;
-    return { date: dateStr, value: Math.round((onTime / doneThatDay.length) * 100) };
-  });
-}
-function toggleSlaFeed(){
-  slaFeedOn = !slaFeedOn;
-  renderSlaChart();
-}
-function renderSlaChart(){
-  const wrap = document.getElementById('slaChartWrap');
-  if(!wrap) return;
-  const toggle = document.getElementById('slaToggle');
-  const chip = document.getElementById('slaStatusChip');
-  const note = document.getElementById('slaChartNote');
-  toggle.classList.toggle('on', slaFeedOn);
-  chip.textContent = slaFeedOn ? 'Live' : 'Not connected';
-  chip.classList.toggle('live', slaFeedOn);
-
-  const series = computeSlaSeries(14);
-  const W = 640, H = 200, padL = 34, padR = 12, padT = 14, padB = 26;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-  const n = series.length;
-  const xStep = n > 1 ? plotW / (n - 1) : 0;
-  const points = series.map((p, i) => ({
-    x: padL + i * xStep,
-    y: padT + plotH - (p.value / 100) * plotH,
-    date: p.date, value: p.value
-  }));
-  const pathD = svgSmoothPath(points);
-  const areaD = `${pathD} L ${points[n-1].x} ${padT + plotH} L ${points[0].x} ${padT + plotH} Z`;
-  const strokeColor = slaFeedOn ? '#1F5B45' : '#8791A3';
-
-  const gridLines = [0, 25, 50, 75, 100].map(v => {
-    const y = padT + plotH - (v / 100) * plotH;
-    return `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--panel-border)" stroke-width="1" />
-      <text x="${padL-8}" y="${y+4}" text-anchor="end" font-size="10" fill="#8791A3" font-family="JetBrains Mono, monospace">${v}%</text>`;
-  }).join('');
-  const everyNth = Math.ceil(n / 6);
-  const xLabels = points.filter((_, i) => i % everyNth === 0 || i === n - 1).map(p => {
-    const label = new Date(p.date).toLocaleDateString('en-NZ', { day:'2-digit', month:'short' });
-    return `<text x="${p.x}" y="${H-6}" text-anchor="middle" font-size="10" fill="#8791A3" font-family="JetBrains Mono, monospace">${label}</text>`;
-  }).join('');
-
-  wrap.innerHTML = `<svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
-    <defs>
-      <linearGradient id="slaFillGrad" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${strokeColor}" stop-opacity="0.28" />
-        <stop offset="100%" stop-color="${strokeColor}" stop-opacity="0" />
-      </linearGradient>
-    </defs>
-    ${gridLines}
-    <path d="${areaD}" fill="url(#slaFillGrad)" stroke="none" />
-    <path d="${pathD}" fill="none" stroke="${strokeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
-    ${points.map(p => `<circle cx="${p.x}" cy="${p.y}" r="2.8" fill="${strokeColor}" />`).join('')}
-    ${xLabels}
-  </svg>`;
-
-  note.textContent = slaFeedOn
-    ? 'Previewing on-time completion rate per day from logged task data. Connect the SLA Monitor feed for full email / WhatsApp / call-channel breach tracking.'
-    : 'Live SLA feed is off — the curve is pinned at 0% until this is connected to SLA Monitor. Toggle on to preview adherence computed from logged task completions in the meantime.';
-}
-function renderTaskEngineVisuals(){
-  renderTaskHeatmap('taskHeatmapWrap');
-  // renderSlaChart() no longer called — its panel was removed from the UI
-  // (see the view-taskengine comment); the function is left defined for
-  // when a real SLA Monitor feed exists to reconnect it to.
-}
 let mgTileData = {};
 function renderManagerTeamStats(){
   const active = mgTasks().filter(t => t.status !== 'completed');
