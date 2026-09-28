@@ -4258,6 +4258,38 @@ app.get('/api/calls/all', requireAuth, (req, res) => {
   const agentId = req.query.agentId ? String(req.query.agentId) : null;
   res.json(allCallsReport(state, { from, to, personId, agentId, actor: req.employee }));
 });
+// Call routing — who's responsible for listening to each Aircall agent's
+// calls (state.agentMap, superadmin-editable from the "Team Assignments"
+// page instead of a code change). GET is open to any authenticated user
+// (read-only, small); only a superadmin can PATCH.
+app.get('/api/calls/agent-routing', requireAuth, (req, res) => {
+  const state = db.get();
+  const rows = Object.keys(state.agentMap || {}).map(agentId => {
+    const r = state.agentMap[agentId];
+    const emp = r.employeeId ? findEmployee(state, r.employeeId) : null;
+    return { agentId, name: r.name, team: r.team, mandatory: !!r.mandatory, employeeId: r.employeeId || null, employeeName: emp ? emp.name : null };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  res.json({ routing: rows });
+});
+app.patch('/api/calls/agent-routing/:agentId', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const r = (state.agentMap || {})[req.params.agentId];
+  if (!r) return res.status(404).json({ error: 'Unknown Aircall agent.' });
+  if (req.body && req.body.employeeId !== undefined) {
+    if (req.body.employeeId === null) r.employeeId = null;
+    else {
+      const emp = findEmployee(state, req.body.employeeId);
+      if (!emp) return res.status(400).json({ error: 'Unknown employee.' });
+      r.employeeId = emp.id;
+    }
+  }
+  if (typeof (req.body && req.body.mandatory) === 'boolean') r.mandatory = req.body.mandatory;
+  if (req.body && req.body.team !== undefined) r.team = String(req.body.team || '').trim() || r.team;
+  db.save();
+  const emp = r.employeeId ? findEmployee(state, r.employeeId) : null;
+  res.json({ agentId: req.params.agentId, name: r.name, team: r.team, mandatory: !!r.mandatory, employeeId: r.employeeId || null, employeeName: emp ? emp.name : null });
+});
 
 // ---------------------------------------------------------------------------
 // EMAIL (Gmail) — a firm-wide visibility/audit log for 4 real mailboxes
@@ -4289,6 +4321,46 @@ app.post('/api/int/gmail/poll-now', requireIntegrationAuth, async (req, res) => 
     const { pollAllGmailMailboxes } = require('./connector');
     res.json(await pollAllGmailMailboxes());
   } catch (e) { res.status(500).json({ error: String(e) }); }
+});
+// Mailbox ownership — who owns each of the connected mailboxes
+// (employee.gmailAddresses[]), superadmin-editable from the "Team
+// Assignments" page instead of digging into each employee's Manage Access.
+// Reassigning only affects future polls — already-logged rows keep the
+// mailboxOwner they were stamped with at ingest time.
+app.get('/api/emails/mailbox-owners', requireAuth, (req, res) => {
+  const state = db.get();
+  const owners = {};
+  (state.employees || []).forEach(e => (e.gmailAddresses || []).forEach(addr => { owners[addr] = e; }));
+  // A mailbox that's been polled before but currently has no owner (e.g.
+  // removed from an employee without a replacement) still needs to show up
+  // so it can be reassigned, not just disappear.
+  (state.emails || []).forEach(e => { if (e.mailbox && !(e.mailbox in owners)) owners[e.mailbox] = null; });
+  const rows = Object.keys(owners).map(mailbox => {
+    const emp = owners[mailbox];
+    return { mailbox, employeeId: emp ? emp.id : null, employeeName: emp ? emp.name : null };
+  }).sort((a, b) => a.mailbox.localeCompare(b.mailbox));
+  res.json({ mailboxes: rows });
+});
+app.post('/api/emails/mailbox-owners/reassign', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const mailbox = String((req.body && req.body.mailbox) || '').trim().toLowerCase();
+  if (!mailbox) return res.status(400).json({ error: 'A mailbox address is required.' });
+  const employeeId = req.body && req.body.employeeId;
+  (state.employees || []).forEach(e => {
+    if (Array.isArray(e.gmailAddresses) && e.gmailAddresses.includes(mailbox)) {
+      e.gmailAddresses = e.gmailAddresses.filter(a => a !== mailbox);
+    }
+  });
+  let newOwner = null;
+  if (employeeId) {
+    newOwner = findEmployee(state, employeeId);
+    if (!newOwner) return res.status(400).json({ error: 'Unknown employee.' });
+    newOwner.gmailAddresses = newOwner.gmailAddresses || [];
+    if (!newOwner.gmailAddresses.includes(mailbox)) newOwner.gmailAddresses.push(mailbox);
+  }
+  db.save();
+  res.json({ mailbox, employeeId: newOwner ? newOwner.id : null, employeeName: newOwner ? newOwner.name : null });
 });
 // Create a task from a logged email — same shape/validation as the
 // WhatsApp "+ Task" endpoint above it in this file. Any authenticated user

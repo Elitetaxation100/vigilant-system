@@ -435,6 +435,29 @@ function runMigrations(state) {
   // Superadmin-managed firm-wide Workshop Saturday calendar — see
   // server.js's isFirmWorkshopDay/attendanceStatus and /api/capacity-calendar.
   if (!Array.isArray(state.capacityCalendarAdjustments)) state.capacityCalendarAdjustments = [];
+  // Aircall agent → responsible-employee routing — moves off a hardcoded JS
+  // object (connector.js's old AGENT_MAP) into admin-editable state, same
+  // "seed once from the old hardcoded source" pattern as state.holidays
+  // above, so routing doesn't change on day one. employeeId replaces the
+  // old slackIds array (every entry only ever held 0 or 1 id in practice);
+  // Slack ID is looked up from the employee at read time — see
+  // connector.js's agentRouting/agentSlackIds. Runs after the employees
+  // loop above so slackUserId lookups resolve correctly on first seed.
+  if (typeof state.agentMap !== 'object' || !state.agentMap) {
+    const bySlack = id => (state.employees || []).find(e => e.slackUserId === id);
+    const AGENT_MAP_SEED = {
+      '1660428': { name: 'Shubam Sharma',   team: 'Leads',              mandatory: true,  slack: 'U0BNTB31KBP' },
+      '1682239': { name: 'Parvinder Kumar', team: 'Companies',          mandatory: true,  slack: 'U0BNFGKDWDV' },
+      '1674408': { name: 'Anjana Pandey',   team: 'Rideshare + Rental', mandatory: false, slack: null },
+      '1937711': { name: 'Disha Chaudhary', team: 'Rideshare + Rental', mandatory: true,  slack: 'U0BNQHX4F4K' },
+    };
+    state.agentMap = {};
+    Object.keys(AGENT_MAP_SEED).forEach(id => {
+      const s = AGENT_MAP_SEED[id];
+      const emp = s.slack ? bySlack(s.slack) : null;
+      state.agentMap[id] = { name: s.name, team: s.team, mandatory: s.mandatory, employeeId: emp ? emp.id : null };
+    });
+  }
   // Soft-delete: removed tasks / clients move to these holding areas so a
   // superadmin (or whoever removed it) can restore them. Nothing is ever
   // hard-deleted through the app any more.

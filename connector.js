@@ -53,23 +53,26 @@ const cfg = () => ({
   gmailPollMinutes: Number(process.env.GMAIL_POLL_MINUTES) || 7,
 });
 
-// Agent → team routing. Mirrors the Apps Script AGENT_MAP. slackIds = who to
-// @-mention on the card and who the pending digest nags (mandatory teams).
-// A later phase can read this from employees' aircallAgentId + team config.
-//
-// `name`/`team` stay the real Aircall agent (Shubam/Parvinder/Disha still
-// took the call, on record) — only slackIds changes, to whoever's actually
-// doing the listening now. Deliberately not giving Diksha/Khushi/Manya
-// their own AGENT_MAP entries — they don't take calls themselves, they
-// just need the same per-call ping + end-of-day "still unlistened" nag
-// their senior's calls already generate, without a whole separate agent
-// identity cluttering the call notifier.
-const AGENT_MAP = {
-  '1660428': { name: 'Shubam Sharma',   team: 'Leads',              mandatory: true,  slackIds: ['U0BNTB31KBP'] }, // Diksha
-  '1682239': { name: 'Parvinder Kumar', team: 'Companies',          mandatory: true,  slackIds: ['U0BNFGKDWDV'] }, // Manya (was already this id)
-  '1674408': { name: 'Anjana Pandey',   team: 'Rideshare + Rental', mandatory: false, slackIds: [] }, // nobody listens to these — no tag, no nag
-  '1937711': { name: 'Disha Chaudhary', team: 'Rideshare + Rental', mandatory: true,  slackIds: ['U0BNQHX4F4K'] }, // Khushi
-};
+// Agent → team routing. Used to live as a hardcoded AGENT_MAP object here;
+// now state.agentMap (db.js seeds it once from the old hardcoded values, so
+// routing didn't change on migration day) — editable from the app's "Team
+// Assignments" admin page instead of needing a code change every time
+// ownership rotates. `name`/`team` stay the real Aircall agent (Shubam/
+// Parvinder/Disha still took the call, on record) — only `employeeId`
+// changes, to whoever's actually doing the listening now.
+function agentRouting(state, agentId) { return (state.agentMap || {})[agentId] || null; }
+// Slack IDs are derived from the employee at read time, never stored
+// redundantly — a single responsible employee (0 or 1), same as every
+// existing routing entry already held in practice despite the old array
+// shape (Diksha/Khushi/Manya were deliberately never given their own
+// AGENT_MAP entries — they don't take calls themselves, they just need the
+// same per-call ping + end-of-day nag their senior's calls already
+// generate, without a whole separate agent identity).
+function agentSlackIds(state, agentId) {
+  const r = agentRouting(state, agentId);
+  const emp = r && r.employeeId ? (state.employees || []).find(e => e.id === r.employeeId) : null;
+  return emp && emp.slackUserId ? [emp.slackUserId] : [];
+}
 // Kudos — firm-wide recognition, star-leveled. Who can AWARD kudos to
 // someone depends on the recipient's employee team (substring match, so
 // "Companies & Rental Team" satisfies both the companies and rental
@@ -355,7 +358,7 @@ function recordingButtons(rowId, resolved) {
 }
 
 function cardOptsFor(state, row, stage) {
-  const mentions = (AGENT_MAP[row.agentAircallId] ? AGENT_MAP[row.agentAircallId].slackIds : []).map(id => `<@${id}>`).join(' ');
+  const mentions = agentSlackIds(state, row.agentAircallId).map(id => `<@${id}>`).join(' ');
   const resolved = !!row.finalOutcome || !!row.taskId || row.status === 'no_action';
   if (stage === 'ended') {
     return {
@@ -687,7 +690,7 @@ async function handleCallEnded(call) {
   if (existing && !existing.stub) { clog('info', 'call.ended dedup', { id: call.id }); return; }
 
   const agentId = call.user ? String(call.user.id) : null;
-  const routing = agentId ? AGENT_MAP[agentId] : null;
+  const routing = agentId ? agentRouting(state, agentId) : null;
   const callerPhone = normalizeNumber(call.raw_digits || '');
   const unanswered = isUnanswered(call);
   const vm = isVoicemail(call);
@@ -884,7 +887,7 @@ function slackPermalink(row) {
 function callStatsForSlackId(state, slackUserId) {
   const empty = { total: 0, listened: 0, remaining: 0, remainingCalls: [], noAction: 0, noActionCalls: [], listenedCalls: [] };
   if (!slackUserId) return empty;
-  const agentIds = Object.keys(AGENT_MAP).filter(id => (AGENT_MAP[id].slackIds || []).includes(slackUserId));
+  const agentIds = Object.keys(state.agentMap || {}).filter(id => agentSlackIds(state, id).includes(slackUserId));
   // Rolling window, not the whole backlog — old unlistened calls (weeks back)
   // just buried the tile in noise. "Remaining" now means yesterday onward.
   const cutoff = nzToday(new Date(Date.now() - 86400000));
@@ -913,13 +916,13 @@ function callStatsForSlackId(state, slackUserId) {
     listenedCalls: listenedCalls.sort(byRecent).map(shape),
   };
 }
-// Who's actually on the hook for listening to this call — the AGENT_MAP
-// slackIds, resolved to real employee records via their Slack user ID (same
-// mapping callStatsForSlackId uses in the other direction). An agent with no
-// slackIds (nobody listens to those calls) has no responsible person.
+// Who's actually on the hook for listening to this call — state.agentMap's
+// employeeId, resolved to real employee records via their Slack user ID
+// (same mapping callStatsForSlackId uses in the other direction). An agent
+// with no employeeId assigned (nobody listens to those calls) has no
+// responsible person.
 function responsiblePeopleForCall(state, c) {
-  const agent = AGENT_MAP[c.agentAircallId];
-  const slackIds = (agent && agent.slackIds) || [];
+  const slackIds = agentSlackIds(state, c.agentAircallId);
   return slackIds
     .map(sid => (state.employees || []).find(e => e.slackUserId === sid))
     .filter(Boolean)
@@ -964,7 +967,7 @@ function allCallsReport(state, { from, to, personId, agentId, actor } = {}) {
   }
   const shaped = calls.map(c => {
     const responsible = responsiblePeopleForCall(state, c);
-    const agent = AGENT_MAP[c.agentAircallId];
+    const agent = agentRouting(state, c.agentAircallId);
     const agentName = c.agentName || (agent && agent.name) || 'Unknown';
     // Groups (and the owner filter) key on the responsible person(s) when
     // there are any, else on the agent whose calls nobody's assigned to
@@ -1323,14 +1326,21 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   });
   let scoped = shaped;
   if (isSuperAdmin && personId) scoped = scoped.filter(e => e.mailboxOwner === personId);
-  if (isSuperAdmin && mailbox) scoped = scoped.filter(e => e.mailbox === mailbox);
+  // Mailbox filtering is safe for anyone, not just superadmins — `emails`
+  // was already hard-scoped to the actor's own mailbox(es) above for a
+  // non-superadmin, so filtering further by mailbox can't leak anyone
+  // else's mail. Needed for someone like Khushi who owns two mailboxes
+  // (Rideshare + Property) and wants to look at just one of them.
+  if (mailbox) scoped = scoped.filter(e => e.mailbox === mailbox);
   const counts = { total: scoped.length, unread: 0, read: 0, replied: 0, no_action: 0 };
   scoped.forEach(e => { counts[e.outcomeStatus]++; });
   counts.not_replied = counts.unread + counts.read;
   return {
     emails: scoped, counts,
     byPerson: isSuperAdmin ? Object.values(byPerson).sort((a, b) => b.total - a.total) : [],
-    byMailbox: isSuperAdmin ? Object.values(byMailbox).sort((a, b) => b.total - a.total) : [],
+    // Also not superadmin-gated — already scoped to the actor's own
+    // mailbox(es), same reasoning as the mailbox filter above.
+    byMailbox: Object.values(byMailbox).sort((a, b) => b.total - a.total),
     isSuperAdmin,
   };
 }
@@ -1888,7 +1898,7 @@ function buildHomeView(state, slackUserId) {
   let mine = [];
   (state.calls || []).forEach(c => {
     if (!callNeedsListen(c)) return;
-    if (isFounder || myTeams.includes(c.team) || (AGENT_MAP[c.agentAircallId] && (AGENT_MAP[c.agentAircallId].slackIds || []).includes(slackUserId))) mine.push(c);
+    if (isFounder || myTeams.includes(c.team) || agentSlackIds(state, c.agentAircallId).includes(slackUserId)) mine.push(c);
   });
   mine = mine.sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt)).slice(0, 15);
   blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🎧 Calls awaiting a listen* (${mine.length})` } });
@@ -1956,7 +1966,7 @@ async function runDigest(reason) {
     blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🎧 ${pending.length} mandatory call${pending.length === 1 ? '' : 's'} still need a listen*` } });
     Object.keys(byTeam).forEach(team => {
       const list = byTeam[team];
-      const mentions = [...new Set(list.flatMap(c => (AGENT_MAP[c.agentAircallId] && AGENT_MAP[c.agentAircallId].slackIds) || []))].map(id => `<@${id}>`).join(' ');
+      const mentions = [...new Set(list.flatMap(c => agentSlackIds(state, c.agentAircallId)))].map(id => `<@${id}>`).join(' ');
       blocks.push({ type: 'section', text: { type: 'mrkdwn', text:
         (`*${esc(team)}* — ${list.length}  ${mentions}\n` + list.slice(0, 8).map(c => {
           const link = slackPermalink(c);
@@ -2566,4 +2576,5 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
+  agentRouting,
 };

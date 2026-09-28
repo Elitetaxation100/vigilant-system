@@ -959,6 +959,7 @@
       <div class="nav-item" id="adminNavItem" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Admin</div>
       <div class="nav-item" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
       <div class="nav-item" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Taxonomy</div>
+      <div class="nav-item" data-view="assignments" onclick="showView('assignments', this)"><span class="nav-icon">🔀</span> Team Assignments</div>
     </div>
 
     <div class="admin-box">
@@ -1992,6 +1993,33 @@
         </div>
       </section>
 
+      <!-- ===================== TEAM ASSIGNMENTS (call routing + mailbox ownership) ===================== -->
+      <!-- Who's responsible for each Aircall agent's calls, and who owns
+           each connected mailbox — both used to require a code change to
+           reassign; both are now a one-click dropdown here. Superadmin only. -->
+      <section class="view" id="view-assignments">
+        <div class="banner">
+          <span>🔀</span>
+          <span><b>Team Assignments.</b> Reassigning here takes effect immediately — for calls, on the next one that comes in; for mailboxes, on the next poll (every few minutes). Nothing already logged is rewritten.</span>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Call routing</h2></div>
+          <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;max-width:70ch;">Who's on the hook for listening to each Aircall agent's calls — the per-call Slack ping and the "still unlistened" digest nag both follow this.</p>
+          <div class="tl-scroll"><table id="assignCallsTable">
+            <thead><tr><th>Aircall agent</th><th>Team</th><th style="width:90px;">Mandatory</th><th style="width:220px;">Responsible person</th></tr></thead>
+            <tbody id="assignCallsBody"></tbody>
+          </table></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Mailbox ownership</h2></div>
+          <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;max-width:70ch;">Who owns each connected mailbox in the Email log. One person can own more than one mailbox.</p>
+          <div class="tl-scroll"><table id="assignMailboxTable">
+            <thead><tr><th>Mailbox</th><th style="width:220px;">Owner</th></tr></thead>
+            <tbody id="assignMailboxBody"></tbody>
+          </table></div>
+        </div>
+      </section>
+
       <div class="footnote">Elite Taxation · Governance OS &amp; Task Engine — internal team tool</div>
     </div>
   </main>
@@ -2665,6 +2693,7 @@ const titles = {
   tasks: ['Tasks', 'My Tasks, Team Tasks and All Tasks — with saved filters, recurring tasks, and Recently Removed'],
   reviews: ['Reviews', 'Awaiting review, rework, profit confirmation, and reports to send — one queue'],
   taxonomy: ['Task Taxonomy', 'Canonical departments and services, and a privacy report on task titles — superadmin only'],
+  assignments: ['Team Assignments', "Who's responsible for each Aircall agent's calls, and who owns each connected mailbox — superadmin only"],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
   performance: ['Performance', 'Your Report Card, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
   calls: ['Calls', "Every call tagged to you, filterable by day, week or month and by outcome — superadmins see the whole firm, filterable by owner and agent"],
@@ -2680,7 +2709,7 @@ const titles = {
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
 };
-const SUPERADMIN_ONLY_VIEWS = ['admin','command','attendance','employees','taxonomy'];
+const SUPERADMIN_ONLY_VIEWS = ['admin','command','attendance','employees','taxonomy','assignments'];
 // A shared tab strip at the top of Manager Dashboard / Team Board / Founder
 // View / Command Center — the four used to be separate, disconnected nav
 // destinations; this makes them read and navigate as one "Dashboard"
@@ -2957,7 +2986,10 @@ async function renderEmailsView(){
   const ownerSel = document.getElementById('emailsOwnerFilter');
   const mailboxSel = document.getElementById('emailsMailboxFilter');
   ownerSel.style.display = data.isSuperAdmin ? '' : 'none';
-  mailboxSel.style.display = data.isSuperAdmin ? '' : 'none';
+  // Mailbox filter shows for anyone with more than one mailbox to pick
+  // between — not just superadmins. Someone who owns just one mailbox has
+  // nothing to filter, so it stays hidden for them.
+  mailboxSel.style.display = data.byMailbox.length > 1 ? '' : 'none';
   document.getElementById('emailsIgnoredLink').style.display = data.isSuperAdmin ? '' : 'none';
   if(data.isSuperAdmin){
     const ownerStillValid = data.byPerson.some(p => p.key === _emailsOwnerFilter);
@@ -2965,6 +2997,8 @@ async function renderEmailsView(){
     ownerSel.innerHTML = `<option value="">All owners</option>` + data.byPerson.map(p =>
       `<option value="${esc(p.key)}"${p.key===_emailsOwnerFilter?' selected':''}>${esc(p.name)} — ${p.total}</option>`
     ).join('');
+  }
+  if(data.byMailbox.length > 1){
     const mailboxStillValid = data.byMailbox.some(m => m.key === _emailsMailboxFilter);
     if(!mailboxStillValid) _emailsMailboxFilter = '';
     mailboxSel.innerHTML = `<option value="">All mailboxes</option>` + data.byMailbox.map(m =>
@@ -3289,6 +3323,7 @@ function showView(id, el){
   if(id === 'tasks') renderTasksPage(true);
   if(id === 'reviews') renderReviewsView();
   if(id === 'taxonomy') renderTaxonomyView();
+  if(id === 'assignments') renderTeamAssignmentsView();
   if(id === 'manager') refreshToday();
   if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
   if(id === 'clients') renderClientGrid();
@@ -9252,6 +9287,42 @@ async function renderTaxonomyView(){
   renderPiiReport();
   renderHolidaysPanel();
   renderCapacityCalendarPanel();
+}
+/* =========================================================================
+   TEAM ASSIGNMENTS — call routing (state.agentMap) + mailbox ownership
+   (employee.gmailAddresses), both reassignable in one click instead of a
+   code change (calls) or hunting through Manage Access (mailboxes).
+   ========================================================================= */
+async function renderTeamAssignmentsView(){
+  const pool = (anyEmployeeInFirm().length ? anyEmployeeInFirm() : employees).slice().sort((a,b) => a.name.localeCompare(b.name));
+  const empOptions = (selectedId) => `<option value="">— unassigned —</option>` + pool.map(p =>
+    `<option value="${esc(p.id)}"${p.id===selectedId?' selected':''}>${esc(p.name)}</option>`).join('');
+
+  let routing = [];
+  try { routing = (await api('/api/calls/agent-routing')).routing; } catch(e){ /* non-fatal */ }
+  document.getElementById('assignCallsBody').innerHTML = routing.length ? routing.map(r => `
+    <tr>
+      <td>${esc(r.name)}</td>
+      <td>${esc(r.team || '—')}</td>
+      <td><input type="checkbox" ${r.mandatory?'checked':''} onchange="updateAgentRouting('${esc(r.agentId)}', {mandatory:this.checked})"></td>
+      <td><select onchange="updateAgentRouting('${esc(r.agentId)}', {employeeId:this.value||null})">${empOptions(r.employeeId)}</select></td>
+    </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--text-faint);padding:16px;">No Aircall agents configured yet.</td></tr>`;
+
+  let mailboxes = [];
+  try { mailboxes = (await api('/api/emails/mailbox-owners')).mailboxes; } catch(e){ /* non-fatal */ }
+  document.getElementById('assignMailboxBody').innerHTML = mailboxes.length ? mailboxes.map(m => `
+    <tr>
+      <td>${esc(m.mailbox)}</td>
+      <td><select onchange="reassignMailbox('${esc(m.mailbox)}', this.value||null)">${empOptions(m.employeeId)}</select></td>
+    </tr>`).join('') : `<tr><td colspan="2" style="text-align:center;color:var(--text-faint);padding:16px;">No mailboxes connected yet.</td></tr>`;
+}
+async function updateAgentRouting(agentId, patch){
+  try { await api(`/api/calls/agent-routing/${encodeURIComponent(agentId)}`, { method:'PATCH', body: JSON.stringify(patch) }); showToast('success', 'Saved', ''); }
+  catch(e){ showToast('error', 'Could not save', e.message); renderTeamAssignmentsView(); }
+}
+async function reassignMailbox(mailbox, employeeId){
+  try { await api('/api/emails/mailbox-owners/reassign', { method:'POST', body: JSON.stringify({ mailbox, employeeId }) }); showToast('success', 'Saved', ''); }
+  catch(e){ showToast('error', 'Could not save', e.message); renderTeamAssignmentsView(); }
 }
 /* Admin-managed firm holiday calendar — the productivity rebuild's source
    of truth for calendar.js's working-day engine (see server.js /api/holidays,
