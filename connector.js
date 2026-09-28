@@ -1147,7 +1147,7 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
     : `messages?q=${encodeURIComponent('newer_than:1d')}`;
   const listResp = await gmailApi(mailboxAddress, listPath);
   if (listResp.status !== 200 || !listResp.json) {
-    clog('warn', 'gmail poll: list failed', { mailboxAddress, status: listResp.status });
+    clog('warn', 'gmail poll: list failed', { mailboxAddress, status: listResp.status, error: listResp.json && listResp.json.error, raw: !listResp.json && listResp.raw ? listResp.raw.toString('utf8').slice(0, 300) : undefined });
     return { mailboxAddress, ok: false, added: 0 };
   }
   const history = listResp.json.history || [];
