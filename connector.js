@@ -1398,6 +1398,40 @@ async function awardKudos(state, { toId, byId, level, note }) {
   postKudosAnnouncement(to, by.name, level, cleanNote).catch(() => {});
   return { ok: true, kudos: row };
 }
+// Points — a separate, simpler award from Kudos: any positive amount, no
+// team-manager mapping (just "admin or founder", the plain reading of what
+// was asked for), visible firm-wide (not just to the recipient) since the
+// whole point is a firm-wide celebration/announcement.
+async function awardPoints(state, { toId, byId, amount, note }) {
+  const { findEmployee, logEvent, notify, escHtml } = require('./server');
+  const to = findEmployee(state, toId);
+  const by = findEmployee(state, byId);
+  if (!to || !by) return { ok: false, error: 'Person not found.' };
+  if (!(by.accessRole === 'admin' || by.accessRole === 'superadmin')) return { ok: false, error: 'Only an admin or the founder can award points.' };
+  const amt = Math.round(Number(amount));
+  if (!(amt > 0)) return { ok: false, error: 'Points must be a positive number.' };
+  const cleanNote = note ? String(note).trim().slice(0, 300) : null;
+  state.pointsSeq = (state.pointsSeq || 0) + 1;
+  const row = { id: 'pt' + state.pointsSeq, toId: to.id, byId: by.id, amount: amt, note: cleanNote, awardedAt: new Date().toISOString(), reactions: [] };
+  state.points.push(row);
+  logEvent(state, to.id, `${escHtml(by.name)} awarded <b>${amt.toLocaleString()} points</b> to ${escHtml(to.name)}${cleanNote ? ' — "' + escHtml(cleanNote) + '"' : ''}.`);
+  notify(state, to.id, 'points', `${by.name} awarded you ${amt.toLocaleString()} points!${cleanNote ? ' — ' + cleanNote : ''}`, null);
+  db.save();
+  return { ok: true, points: row };
+}
+// Toggle/replace the caller's own reaction on a points award — one reaction
+// per employee per award (clicking the same emoji again removes it).
+function reactToPoints(state, { pointsId, empId, emoji }) {
+  const row = (state.points || []).find(p => p.id === pointsId);
+  if (!row) return { ok: false, error: 'Points award not found.' };
+  row.reactions = row.reactions || [];
+  const existing = row.reactions.find(r => r.empId === empId);
+  if (existing && existing.emoji === emoji) row.reactions = row.reactions.filter(r => r.empId !== empId);
+  else if (existing) { existing.emoji = emoji; existing.at = new Date().toISOString(); }
+  else row.reactions.push({ empId, emoji, at: new Date().toISOString() });
+  db.save();
+  return { ok: true, points: row };
+}
 async function recommendKudos(state, { toId, byId, note }) {
   const { findEmployee, logEvent, notify, escHtml } = require('./server');
   const to = findEmployee(state, toId);
@@ -2576,5 +2610,5 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  agentRouting,
+  agentRouting, awardPoints, reactToPoints,
 };

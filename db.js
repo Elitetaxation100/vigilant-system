@@ -412,6 +412,11 @@ function runMigrations(state) {
   if (typeof state.kudosSeq !== 'number') state.kudosSeq = 0;
   if (!Array.isArray(state.kudosRecommendations)) state.kudosRecommendations = [];
   if (typeof state.kudosRecSeq !== 'number') state.kudosRecSeq = 0;
+  // Points — a separate, simpler award system from Kudos: an admin/founder
+  // can give an arbitrary point value (5000, 10000...), visible firm-wide
+  // and reactable. See connector.js awardPoints/reactToPoints.
+  if (!Array.isArray(state.points)) state.points = [];
+  if (typeof state.pointsSeq !== 'number') state.pointsSeq = 0;
   // Productivity rebuild — the working-day holiday calendar moves from a
   // hardcoded list (calendar.js) to an admin-manageable table, seeded once
   // from that same list so nothing changes on day one. { date, name,

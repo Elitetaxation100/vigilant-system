@@ -922,7 +922,8 @@ function notify(state, empId, type, text, taskId) {
   // forget; the in-app inbox is the source of truth.
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
-    rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation' };
+    rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation',
+    kudos: 'You got Kudos!', points: 'You got Points!' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -2615,6 +2616,28 @@ app.post('/api/kudos/recommendations/:id/dismiss', requireAuth, async (req, res)
   const r = await resolveKudosRecommendation(state, { recId: req.params.id, byId: req.employee.id, action: 'dismiss' });
   if (!r.ok) return res.status(400).json({ error: r.error });
   res.json({ recommendation: r.recommendation });
+});
+
+// ---------------------------------------------------------------------------
+// POINTS — a separate, simpler award from Kudos: any admin/founder can give
+// an arbitrary positive amount, visible firm-wide (not just to the
+// recipient) with reactions. See connector.js awardPoints/reactToPoints.
+// ---------------------------------------------------------------------------
+app.get('/api/points', requireAuth, (req, res) => {
+  const list = (db.get().points || []).slice().sort((a, b) => (b.awardedAt || '').localeCompare(a.awardedAt || ''));
+  res.json({ points: list });
+});
+app.post('/api/points', requireAuth, async (req, res) => {
+  const { awardPoints } = require('./connector');
+  const r = await awardPoints(db.get(), { toId: (req.body || {}).toId, byId: req.employee.id, amount: (req.body || {}).amount, note: (req.body || {}).note });
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  res.json({ points: r.points });
+});
+app.post('/api/points/:id/react', requireAuth, (req, res) => {
+  const { reactToPoints } = require('./connector');
+  const r = reactToPoints(db.get(), { pointsId: req.params.id, empId: req.employee.id, emoji: String((req.body || {}).emoji || '👏').slice(0, 8) });
+  if (!r.ok) return res.status(404).json({ error: r.error });
+  res.json({ points: r.points });
 });
 
 // Resubmit — the assignee fixes a task they've already accepted the

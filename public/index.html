@@ -672,6 +672,24 @@
     .toast-stack{ left:12px; right:12px; top:12px; max-width:none; width:auto; }
   }
 
+  /* Kudos/Points celebration overlay */
+  .celebration-overlay{ position:fixed; inset:0; z-index:900; display:flex; align-items:center; justify-content:center; background:#0A122099; cursor:pointer; animation:celebIn .2s ease; overflow:hidden; }
+  .celebration-overlay.leaving{ animation:celebOut .28s ease forwards; }
+  @keyframes celebIn{ from{opacity:0;} to{opacity:1;} }
+  @keyframes celebOut{ from{opacity:1;} to{opacity:0;} }
+  .confetti-field{ position:absolute; inset:0; pointer-events:none; }
+  .confetti-piece{ position:absolute; top:-20px; border-radius:2px; animation-name:confettiFall; animation-timing-function:ease-in; animation-fill-mode:forwards; }
+  @keyframes confettiFall{
+    0%{ transform:translateY(0) rotate(var(--rot-start)); opacity:1; }
+    100%{ transform:translateY(108vh) rotate(calc(var(--rot-start) + 540deg)); opacity:0.9; }
+  }
+  .celebration-card{ position:relative; text-align:center; background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-l); padding:36px 44px; box-shadow:0 24px 70px #000000aa; cursor:default; animation:celebPop .4s cubic-bezier(.2,1.4,.4,1); }
+  @keyframes celebPop{ 0%{ transform:scale(.7); opacity:0; } 100%{ transform:scale(1); opacity:1; } }
+  .celebration-clap{ font-size:56px; line-height:1; animation:celebClap 0.6s ease-in-out infinite; }
+  @keyframes celebClap{ 0%,100%{ transform:rotate(0deg) scale(1); } 50%{ transform:rotate(-14deg) scale(1.15); } }
+  .celebration-title{ font-family:var(--font-display); font-size:24px; font-weight:700; margin-top:10px; }
+  .celebration-subtitle{ font-size:14.5px; color:var(--text-dim); margin-top:8px; max-width:44ch; }
+
   /* sound toggle row (Account modal) */
   .sound-toggle-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
   .sound-toggle-row .lbl{ font-size:13.5px; color:var(--text-dim); }
@@ -980,6 +998,8 @@
         <div class="sub" id="pageSub">Verification matrix & live task tracking</div>
       </div>
       <div class="topbar-right">
+        <div class="bell" id="kudosReplayIcon" onclick="replayLastKudos()" title="Replay your last Kudos">🎉</div>
+        <div class="bell" id="pointsIcon" onclick="openPointsPanel()" title="Your points">🪙<span class="notif-badge" id="pointsBadge" style="display:none;">0</span></div>
         <div class="bell" id="whatsappNavSection" data-view="whatsapp" onclick="showView('whatsapp', document.getElementById('whatsappNavSection'))" title="WhatsApp (Interakt)" style="display:none;">💬<span class="notif-badge" id="waNavBadge" style="display:none;">0</span></div>
         <button class="bell" id="themeToggle" title="Switch light / dark" onclick="toggleTheme()" style="border:none;background:transparent;">🌙</button>
         <div class="bell" id="bellIcon" onclick="openNotifications()">🔔<span class="notif-badge" id="notifBadge" hidden>0</span></div>
@@ -1880,6 +1900,7 @@
             <div class="panel-head-actions">
               <button class="btn" onclick="openRecommendKudosModal()">👍 Recommend Kudos</button>
               <button class="btn primary" id="giveKudosBtn" style="display:none;" onclick="openGiveKudosModal()">🏆 Give Kudos</button>
+              <button class="btn primary" id="givePointsBtn" style="display:none;" onclick="openGivePointsModal()">🪙 Award Points</button>
             </div>
           </div>
           <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Visible to everyone. Anyone can recommend someone for kudos — your team's manager (Shubam firm-wide) reviews recommendations and awards the star level.</p>
@@ -1894,6 +1915,13 @@
           <div class="panel-head"><h2>Kudos wall</h2></div>
           <div id="kudosWall" style="display:flex;flex-direction:column;gap:10px;"></div>
           <div id="kudosEmpty" style="display:none;padding:16px 4px;font-size:13.5px;color:var(--text-faint);">No kudos awarded yet — be the first to recommend someone.</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Points</h2></div>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Firm-wide points awarded by an admin or the founder. React to celebrate with them.</p>
+          <div id="pointsWall" style="display:flex;flex-direction:column;gap:10px;"></div>
+          <div id="pointsEmpty" style="display:none;padding:16px 4px;font-size:13.5px;color:var(--text-faint);">No points awarded yet.</div>
         </div>
       </section>
 
@@ -2148,6 +2176,147 @@ function playChime(kind){
       osc.stop(start + 0.32);
     });
   } catch(e){ /* audio unavailable — fail silently, never block the UI */ }
+}
+// Short filtered-noise bursts standing in for a clap — no external audio
+// file needed. Same fail-silent contract as playChime: browsers that block
+// un-primed autoplay audio (no prior click on the page yet) just get no
+// sound, never an error, and the confetti still shows either way.
+// One short percussive noise burst — the building block for both the
+// popper "pop" and each individual clap in the applause below. Randomizing
+// filter center/Q/gain per call is what keeps a run of these from sounding
+// like a mechanical repeat of the exact same sample.
+function _noiseBurst(ctx, start, dur, { freq, q, gain, type }){
+  const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * dur));
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for(let i=0;i<bufferSize;i++) data[i] = (Math.random()*2-1) * Math.pow(1 - i/bufferSize, 1.5);
+  const noise = ctx.createBufferSource();
+  noise.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = type || 'bandpass';
+  filter.frequency.value = freq;
+  filter.Q.value = q;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(gain, start);
+  g.gain.exponentialRampToValueAtTime(0.001, start + dur);
+  noise.connect(filter).connect(g).connect(ctx.destination);
+  noise.start(start);
+  noise.stop(start + dur + 0.01);
+}
+// Party-popper blast: a sharp broadband "pop" (frequency sweeping down,
+// like a real popper's air-pressure release) layered with a low thump for
+// body, then a soft high-frequency "streamer" hiss trailing off — the bit
+// that makes it read as a popper going off rather than a generic snap.
+function playPopperSound(){
+  if(!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    if(!ctx) return;
+    if(ctx.state === 'suspended') ctx.resume();
+    const t = ctx.currentTime;
+    const popDur = 0.11;
+    const bufferSize = Math.floor(ctx.sampleRate * popDur);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++) data[i] = (Math.random()*2-1) * Math.pow(1 - i/bufferSize, 2);
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.Q.value = 1;
+    filter.frequency.setValueAtTime(4000, t);
+    filter.frequency.exponentialRampToValueAtTime(300, t + popDur);
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.8, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + popDur);
+    noise.connect(filter).connect(gain).connect(ctx.destination);
+    noise.start(t); noise.stop(t + popDur + 0.01);
+
+    const thump = ctx.createOscillator();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(180, t);
+    thump.frequency.exponentialRampToValueAtTime(45, t + 0.09);
+    const thumpGain = ctx.createGain();
+    thumpGain.gain.setValueAtTime(0.45, t);
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    thump.connect(thumpGain).connect(ctx.destination);
+    thump.start(t); thump.stop(t + 0.12);
+
+    const tailDur = 0.55;
+    const tailSize = Math.floor(ctx.sampleRate * tailDur);
+    const tailBuffer = ctx.createBuffer(1, tailSize, ctx.sampleRate);
+    const tailData = tailBuffer.getChannelData(0);
+    for(let i=0;i<tailSize;i++) tailData[i] = Math.random()*2-1;
+    const tailNoise = ctx.createBufferSource();
+    tailNoise.buffer = tailBuffer;
+    const tailFilter = ctx.createBiquadFilter();
+    tailFilter.type = 'highpass';
+    tailFilter.frequency.value = 5500;
+    const tailGain = ctx.createGain();
+    tailGain.gain.setValueAtTime(0, t);
+    tailGain.gain.linearRampToValueAtTime(0.1, t + 0.02);
+    tailGain.gain.exponentialRampToValueAtTime(0.001, t + tailDur);
+    tailNoise.connect(tailFilter).connect(tailGain).connect(ctx.destination);
+    tailNoise.start(t); tailNoise.stop(t + tailDur + 0.01);
+  } catch(e){ /* audio unavailable / blocked — fail silently */ }
+}
+// Applause: ~20 individually-timed, randomly-pitched claps scattered over
+// ~1.4s, each built from _noiseBurst with its own random center frequency/
+// duration/volume — a real round of clapping is many overlapping,
+// non-identical claps, not one sound repeated on a metronome.
+function playApplauseSound(){
+  if(!soundEnabled) return;
+  try {
+    const ctx = getAudioCtx();
+    if(!ctx) return;
+    if(ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    const spanSec = 1.4, clapCount = 20;
+    for(let i=0;i<clapCount;i++){
+      const start = now + Math.random() * spanSec;
+      const dur = 0.025 + Math.random() * 0.035;
+      _noiseBurst(ctx, start, dur, {
+        freq: 900 + Math.random() * 2400, q: 0.6 + Math.random() * 0.7,
+        gain: 0.16 + Math.random() * 0.22, type: 'bandpass',
+      });
+    }
+  } catch(e){ /* audio unavailable / blocked — fail silently */ }
+}
+// Full-screen confetti + clap celebration for Kudos/Points received. Plain
+// DOM + CSS (no canvas, no library) — matches how the rest of this app is
+// built. Click anywhere, or wait ~4s, to dismiss.
+function showCelebration(opts){
+  opts = opts || {};
+  const colors = ['#F0603E','#5B4FCF','#22C99E','#F5B400','#7C6CF6','#EC4899'];
+  let confettiHtml = '';
+  for(let i=0;i<80;i++){
+    const left = Math.random()*100;
+    const delay = Math.random()*0.4;
+    const duration = 2.2 + Math.random()*1.4;
+    const color = colors[i % colors.length];
+    const w = 6 + Math.random()*6;
+    const rotateStart = Math.random()*360;
+    confettiHtml += `<span class="confetti-piece" style="left:${left}%;background:${color};width:${w}px;height:${(w*0.4).toFixed(1)}px;animation-delay:${delay}s;animation-duration:${duration}s;--rot-start:${rotateStart}deg;"></span>`;
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'celebration-overlay';
+  overlay.innerHTML = `
+    <div class="confetti-field">${confettiHtml}</div>
+    <div class="celebration-card">
+      <div class="celebration-clap">👏</div>
+      <div class="celebration-title">${esc(opts.title || 'Congratulations!')}</div>
+      ${opts.subtitle ? `<div class="celebration-subtitle">${esc(opts.subtitle)}</div>` : ''}
+    </div>`;
+  overlay.onclick = () => dismissCelebration(overlay);
+  document.body.appendChild(overlay);
+  playPopperSound();
+  setTimeout(playApplauseSound, 160);
+  setTimeout(() => dismissCelebration(overlay), 4200);
+}
+function dismissCelebration(overlay){
+  if(!overlay || !overlay.parentNode) return;
+  overlay.classList.add('leaving');
+  setTimeout(() => overlay.remove(), 300);
 }
 function toggleSound(){
   soundEnabled = !soundEnabled;
@@ -3138,6 +3307,10 @@ async function submitEmailTask(emailId){
 async function renderKudosView(){
   const giveBtn = document.getElementById('giveKudosBtn');
   if(giveBtn) giveBtn.style.display = iCanAwardKudosToAnyone() ? '' : 'none';
+  const givePtsBtn = document.getElementById('givePointsBtn');
+  const me = currentViewer();
+  if(givePtsBtn) givePtsBtn.style.display = (me && (me.accessRole === 'admin' || me.accessRole === 'superadmin')) ? '' : 'none';
+  renderPointsWall();
   let kudosData, recData;
   try {
     kudosData = await api('/api/kudos');
@@ -4159,7 +4332,7 @@ function renderDeadlineBanner(){
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
 let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
-const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓' };
+const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙' };
 async function refreshNotifications(opts){
   opts = opts || {};
   if(!session) return;
@@ -4168,9 +4341,22 @@ async function refreshNotifications(opts){
     _notifs = d.notifications || [];
     _notifUnread = d.unread || 0;
     renderNotifBadge();
-    // toast the genuinely-new unread ones on the background poll
+    // Kudos/Points get the full celebration on ANY unseen one — including a
+    // fresh page load, where it was earned while the app was closed, not
+    // just a live background poll — since "show it next time they open the
+    // app" is exactly the point. Marked read immediately after so it only
+    // ever fires once (reusing the same seenAt read-tracking every other
+    // notification already uses). The generic "new task alert" toast stays
+    // poll-only, so a first load doesn't dump a whole backlog of toasts.
+    const unseenCelebrations = _notifs.filter(n => !n.seenAt && (n.type === 'kudos' || n.type === 'points')).slice(0, 3);
+    unseenCelebrations.forEach((n, i) => {
+      // Staggered, not simultaneous — more than one overlay stacked at once
+      // reads as broken, not as double the celebration.
+      setTimeout(() => showCelebration({ title: n.type === 'kudos' ? '🎉 Kudos!' : '🪙 Points!', subtitle: n.text }), i * 4600);
+      markNotifsRead(n.id);
+    });
     if(opts.notify && _notifPrevIds){
-      const fresh = _notifs.filter(n => !n.seenAt && !_notifPrevIds.has(n.id)).slice(0, 3);
+      const fresh = _notifs.filter(n => !n.seenAt && !_notifPrevIds.has(n.id) && n.type !== 'kudos' && n.type !== 'points').slice(0, 3);
       fresh.forEach(n => showToast('info', 'New task alert', n.text));
     }
     _notifPrevIds = new Set(_notifs.map(n => n.id));
@@ -4188,6 +4374,164 @@ async function markNotifsRead(id){
   try { await api('/api/notifications/read', { method:'POST', body: JSON.stringify(id ? { id } : {}) }); }
   catch(e){}
   await refreshNotifications();
+}
+
+/* =========================================================================
+   POINTS — a separate award from Kudos: any admin/founder can give an
+   arbitrary positive amount, visible firm-wide (not just to the recipient)
+   with reactions, plus the personal Kudos-style celebration for whoever
+   received it (wired in refreshNotifications above via notify() type
+   'points'). Topbar icon (🪙) shows the viewer's own running total.
+   ========================================================================= */
+let _pointsData = [];
+async function refreshPoints(){
+  if(!session) return;
+  try {
+    const d = await api('/api/points');
+    _pointsData = d.points || [];
+    renderPointsBadge();
+    // Firm-wide announcement toast — everyone sees it, not just the
+    // recipient, since the whole point of Points is a shared celebration.
+    // Tracks "last seen" per-browser in localStorage (not per-notification —
+    // this isn't personal, so it doesn't belong in the seenAt system).
+    if(_pointsData.length){
+      let lastSeen = null;
+      try { lastSeen = localStorage.getItem('govOsLastSeenPointsId'); } catch(e){}
+      const newest = _pointsData[0]; // server returns newest-first
+      if(lastSeen !== newest.id){
+        const lastIdx = lastSeen ? _pointsData.findIndex(p => p.id === lastSeen) : -1;
+        const toShow = lastSeen && lastIdx > 0 ? _pointsData.slice(0, lastIdx) : (lastSeen ? [] : [newest]);
+        toShow.slice().reverse().forEach(row => showPointsAnnouncement(row));
+        try { localStorage.setItem('govOsLastSeenPointsId', newest.id); } catch(e){}
+      }
+    }
+  } catch(e){ /* non-fatal */ }
+}
+function renderPointsBadge(){
+  const badge = document.getElementById('pointsBadge');
+  if(!badge || !currentViewerId) return;
+  const total = _pointsData.filter(p => p.toId === currentViewerId).reduce((s,p) => s + p.amount, 0);
+  if(total > 0){ badge.textContent = total >= 1000 ? Math.round(total/1000) + 'k' : String(total); badge.style.display = ''; }
+  else badge.style.display = 'none';
+}
+function showPointsAnnouncement(row){
+  const stack = ensureToastStack();
+  const id = 'ptoast-' + row.id;
+  if(document.getElementById(id)) return;
+  const toEmp = empById(row.toId), byEmp = empById(row.byId);
+  const el = document.createElement('div');
+  el.className = 'toast success';
+  el.id = id;
+  el.innerHTML = `<div class="ti">🪙</div><div class="tt">
+      <div class="h">${esc(toEmp ? toEmp.name : 'Someone')} just got ${row.amount.toLocaleString()} points!</div>
+      <div class="b">From ${esc(byEmp ? byEmp.name : 'someone')}${row.note ? ' — ' + esc(row.note) : ''}</div>
+      <div class="points-react-row" id="react-${esc(row.id)}" style="display:flex;gap:4px;margin-top:8px;"></div>
+    </div><div class="tx" onclick="dismissToast('${id}')">✕</div>`;
+  stack.appendChild(el);
+  renderPointsReactions(row);
+  playChime('update');
+  setTimeout(() => dismissToast(id), 10000);
+}
+function renderPointsReactions(row, prefix){
+  const wrap = document.getElementById((prefix || 'react-') + row.id);
+  if(!wrap) return;
+  const mine = (row.reactions || []).find(r => r.empId === currentViewerId);
+  const counts = {};
+  (row.reactions || []).forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; });
+  wrap.innerHTML = ['👍','🎉','👏','❤️','🔥'].map(e => `<button class="btn small" style="padding:2px 7px;${mine && mine.emoji===e ? 'border-color:var(--purple);background:color-mix(in srgb, var(--purple) 14%, transparent);' : ''}" onclick="reactToPointsAward('${esc(row.id)}','${e}')">${e}${counts[e] ? ' '+counts[e] : ''}</button>`).join('');
+}
+async function reactToPointsAward(id, emoji){
+  try {
+    const r = await api(`/api/points/${encodeURIComponent(id)}/react`, { method:'POST', body: JSON.stringify({ emoji }) });
+    const idx = _pointsData.findIndex(p => p.id === id);
+    if(idx >= 0) _pointsData[idx] = r.points;
+    renderPointsReactions(r.points, 'react-');
+    renderPointsReactions(r.points, 'wall-react-');
+  } catch(e){ /* non-fatal */ }
+}
+async function renderPointsWall(){
+  const wall = document.getElementById('pointsWall');
+  if(!wall) return;
+  await refreshPoints();
+  document.getElementById('pointsEmpty').style.display = _pointsData.length ? 'none' : '';
+  wall.innerHTML = _pointsData.map(p => {
+    const to = empById(p.toId), by = empById(p.byId);
+    return `<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;background:var(--panel);">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;">
+        <div style="font-size:14px;"><b>${esc(to ? to.name : '—')}</b></div>
+        <div style="font-size:13px;font-weight:700;color:var(--amber);">🪙 ${p.amount.toLocaleString()}</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--text-faint);margin-top:2px;">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(p.awardedAt))}</div>
+      ${p.note ? `<div style="font-size:13px;color:var(--text-dim);margin-top:6px;">"${esc(p.note)}"</div>` : ''}
+      <div id="wall-react-${esc(p.id)}" style="display:flex;gap:4px;margin-top:8px;"></div>
+    </div>`;
+  }).join('');
+  _pointsData.forEach(p => renderPointsReactions(p, 'wall-react-'));
+}
+function openPointsPanel(){
+  const mine = _pointsData.filter(p => p.toId === currentViewerId).sort((a,b) => (b.awardedAt||'').localeCompare(a.awardedAt||''));
+  const total = mine.reduce((s,p) => s + p.amount, 0);
+  const rows = mine.map(p => {
+    const byEmp = empById(p.byId);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--panel-border);">
+      <div><div style="font-weight:600;">+${p.amount.toLocaleString()}</div><div style="font-size:12px;color:var(--text-faint);">from ${esc(byEmp ? byEmp.name : '—')}${p.note ? ' — ' + esc(p.note) : ''}</div></div>
+      <div style="font-size:11.5px;color:var(--text-faint);white-space:nowrap;">${fmtDate((p.awardedAt||'').slice(0,10))}</div>
+    </div>`;
+  }).join('') || `<div style="color:var(--text-faint);padding:10px 0;">No points yet.</div>`;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🪙 Your Points</h3>
+    <div class="modal-sub">Total: ${total.toLocaleString()}</div>
+    <div style="max-height:320px;overflow-y:auto;margin:12px 0;">${rows}</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Close</button>
+      ${mine.length ? `<button class="btn primary" onclick="replayLastPoints()">▶ Replay celebration</button>` : ''}
+    </div>`;
+  openModal();
+}
+function replayLastPoints(){
+  const mine = _pointsData.filter(p => p.toId === currentViewerId).sort((a,b) => (b.awardedAt||'').localeCompare(a.awardedAt||''));
+  if(!mine.length) return;
+  const p = mine[0], byEmp = empById(p.byId);
+  closeModal();
+  showCelebration({ title: '🪙 Points!', subtitle: `${byEmp ? byEmp.name : 'Someone'} awarded you ${p.amount.toLocaleString()} points!${p.note ? ' — ' + p.note : ''}` });
+}
+async function replayLastKudos(){
+  try {
+    const d = await api('/api/kudos');
+    const mine = (d.kudos || []).filter(k => k.toId === currentViewerId).sort((a,b) => (b.awardedAt||'').localeCompare(a.awardedAt||''));
+    if(!mine.length){ showToast('info', 'No Kudos yet', "You haven't received any Kudos yet."); return; }
+    const k = mine[0], byEmp = empById(k.byId);
+    const label = (KUDOS_LEVELS[k.level] || {}).label || k.level;
+    showCelebration({ title: '🎉 Kudos!', subtitle: `${byEmp ? byEmp.name : 'Someone'} awarded you ${label} kudos!${k.note ? ' — ' + k.note : ''}` });
+  } catch(e){ /* non-fatal */ }
+}
+// Admin/founder award-points modal — mirrors openGiveKudosModal's shape.
+function openGivePointsModal(){
+  if(!(currentViewer() && (currentViewer().accessRole === 'admin' || currentViewer().accessRole === 'superadmin'))) return;
+  const pool = (anyEmployeeInFirm().length ? anyEmployeeInFirm() : employees).slice().sort((a,b) => a.name.localeCompare(b.name));
+  document.getElementById('modalBox').innerHTML = `
+    <h3>🪙 Award Points</h3>
+    <div class="field"><label>To</label><select id="ptsTo">${pool.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>Points</label><input type="number" id="ptsAmount" min="1" step="1" placeholder="e.g. 5000"></div>
+    <div class="field"><label>Note <span style="font-weight:400;color:var(--text-faint);">— optional</span></label><textarea id="ptsNote"></textarea></div>
+    <div class="modal-error" id="ptsErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitGivePoints()">Award</button>
+    </div>`;
+  openModal();
+}
+async function submitGivePoints(){
+  const errEl = document.getElementById('ptsErr');
+  errEl.style.display = 'none';
+  const amount = parseInt(document.getElementById('ptsAmount').value, 10);
+  if(!(amount > 0)){ errEl.textContent = 'Enter a positive number of points.'; errEl.style.display = 'block'; return; }
+  try {
+    await api('/api/points', { method:'POST', body: JSON.stringify({ toId: document.getElementById('ptsTo').value, amount, note: document.getElementById('ptsNote').value.trim() }) });
+    closeModal();
+    await refreshPoints();
+    showToast('success', 'Points awarded', '');
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 
 /* ---- Web Push: desktop/phone alerts that fire even when the app is closed ---- */
@@ -9866,6 +10210,7 @@ async function onLoginComplete(){
   await refreshActivity();
   await refreshNotifications();
   await refreshWaAwaitingBadge();
+  await refreshPoints();
   initPushClient();
   await loadPunchState();
 
@@ -9949,6 +10294,7 @@ function startPolling(){
     await refreshEmployees();
     await refreshClients();
     await refreshWaAwaitingBadge();
+    await refreshPoints();
   }, 8000);
 }
 function stopPolling(){ if(pollHandle){ clearInterval(pollHandle); pollHandle = null; } }
