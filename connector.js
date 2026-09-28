@@ -1106,6 +1106,9 @@ function gmailApiFixture(mailboxAddress, path) {
     } catch (e) { _gmailFixtureCache = {}; }
   }
   const mailbox = _gmailFixtureCache[mailboxAddress] || { historyId: '1', messages: [] };
+  if (path === 'profile') {
+    return { status: 200, json: { emailAddress: mailboxAddress, historyId: mailbox.historyId, messagesTotal: mailbox.messages.length, threadsTotal: mailbox.messages.length } };
+  }
   if (path.startsWith('history/list') || path.startsWith('messages?')) {
     return { status: 200, json: { historyId: mailbox.historyId, messages: mailbox.messages.map(m => ({ id: m.id })) } };
   }
@@ -1135,25 +1138,41 @@ function gmailAddressesOf(headerValue) {
 }
 
 // Polls one mailbox, incrementally via history.list once a cursor exists,
-// else bootstraps with a 1-day window on first run. Dedupes by
+// else bootstraps on first run. The gmail.metadata scope doesn't allow the
+// `q` search parameter on messages.list (Google: "Metadata scope does not
+// support 'q' parameter") — so the bootstrap can't date-filter, it just
+// takes the most recent page as the starting batch, and gets a real
+// historyId to poll incrementally from via users.getProfile (a plain
+// messages.list response carries no historyId of its own). Dedupes by
 // gmailMessageId (mirrors findCall's dedupe by aircallId).
 async function pollGmailMailbox(mailboxAddress, employeeId) {
   const state = db.get();
   const emp = (state.employees || []).find(e => e.id === employeeId);
   const ownerName = emp ? emp.name : 'Unknown';
   const cursor = state.emailPollCursor[mailboxAddress];
-  let listPath = cursor
-    ? `history/list?startHistoryId=${encodeURIComponent(cursor)}&historyTypes=messageAdded`
-    : `messages?q=${encodeURIComponent('newer_than:1d')}`;
-  const listResp = await gmailApi(mailboxAddress, listPath);
-  if (listResp.status !== 200 || !listResp.json) {
-    clog('warn', 'gmail poll: list failed', { mailboxAddress, status: listResp.status, error: listResp.json && listResp.json.error, raw: !listResp.json && listResp.raw ? listResp.raw.toString('utf8').slice(0, 300) : undefined });
-    return { mailboxAddress, ok: false, added: 0 };
+  let messageIds, newCursor = cursor;
+  if (cursor) {
+    const listResp = await gmailApi(mailboxAddress, `history/list?startHistoryId=${encodeURIComponent(cursor)}&historyTypes=messageAdded`);
+    if (listResp.status !== 200 || !listResp.json) {
+      clog('warn', 'gmail poll: list failed', { mailboxAddress, status: listResp.status, error: listResp.json && listResp.json.error, raw: !listResp.json && listResp.raw ? listResp.raw.toString('utf8').slice(0, 300) : undefined });
+      return { mailboxAddress, ok: false, added: 0 };
+    }
+    const history = listResp.json.history || [];
+    messageIds = [...new Set(history.flatMap(h => (h.messagesAdded || []).map(m => m.message.id)))];
+    if (listResp.json.historyId) newCursor = listResp.json.historyId;
+  } else {
+    const [listResp, profileResp] = await Promise.all([
+      gmailApi(mailboxAddress, 'messages?maxResults=50'),
+      gmailApi(mailboxAddress, 'profile'),
+    ]);
+    if (listResp.status !== 200 || !listResp.json) {
+      clog('warn', 'gmail poll: bootstrap list failed', { mailboxAddress, status: listResp.status, error: listResp.json && listResp.json.error, raw: !listResp.json && listResp.raw ? listResp.raw.toString('utf8').slice(0, 300) : undefined });
+      return { mailboxAddress, ok: false, added: 0 };
+    }
+    messageIds = (listResp.json.messages || []).map(m => m.id);
+    if (profileResp.status === 200 && profileResp.json && profileResp.json.historyId) newCursor = profileResp.json.historyId;
+    else clog('warn', 'gmail poll: bootstrap profile fetch failed (cursor not set — next poll will re-bootstrap)', { mailboxAddress, status: profileResp.status });
   }
-  const history = listResp.json.history || [];
-  const messageIds = cursor
-    ? [...new Set(history.flatMap(h => (h.messagesAdded || []).map(m => m.message.id)))]
-    : (listResp.json.messages || []).map(m => m.id);
   let added = 0;
   for (const gmailMessageId of messageIds) {
     if (findEmail(state, gmailMessageId)) continue;
@@ -1204,7 +1223,7 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
       row.status = r.json.labelIds.includes('UNREAD') ? 'unread' : 'read';
     }
   }
-  if (listResp.json.historyId) state.emailPollCursor[mailboxAddress] = listResp.json.historyId;
+  if (newCursor) state.emailPollCursor[mailboxAddress] = newCursor;
   db.save();
   clog('info', 'gmail poll', { mailboxAddress, added, refreshed: stillUnread.length });
   return { mailboxAddress, ok: true, added };
