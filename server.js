@@ -2617,6 +2617,13 @@ app.post('/api/kudos/recommendations/:id/dismiss', requireAuth, async (req, res)
   if (!r.ok) return res.status(400).json({ error: r.error });
   res.json({ recommendation: r.recommendation });
 });
+// Founder-only cleanup — e.g. a test/mistaken entry. See connector.js deleteKudos.
+app.delete('/api/kudos/:id', requireAuth, (req, res) => {
+  const { deleteKudos } = require('./connector');
+  const r = deleteKudos(db.get(), { kudosId: req.params.id, byId: req.employee.id });
+  if (!r.ok) return res.status(r.error.includes('not found') ? 404 : 403).json({ error: r.error });
+  res.json({ ok: true });
+});
 
 // ---------------------------------------------------------------------------
 // POINTS — a separate, simpler award from Kudos: any admin/founder can give
@@ -2638,6 +2645,13 @@ app.post('/api/points/:id/react', requireAuth, (req, res) => {
   const r = reactToPoints(db.get(), { pointsId: req.params.id, empId: req.employee.id, emoji: String((req.body || {}).emoji || '👏').slice(0, 8) });
   if (!r.ok) return res.status(404).json({ error: r.error });
   res.json({ points: r.points });
+});
+// Founder-only cleanup — e.g. a test/mistaken entry. See connector.js deletePoints.
+app.delete('/api/points/:id', requireAuth, (req, res) => {
+  const { deletePoints } = require('./connector');
+  const r = deletePoints(db.get(), { pointsId: req.params.id, byId: req.employee.id });
+  if (!r.ok) return res.status(r.error.includes('not found') ? 404 : 403).json({ error: r.error });
+  res.json({ ok: true });
 });
 
 // Resubmit — the assignee fixes a task they've already accepted the
