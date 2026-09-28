@@ -1239,6 +1239,13 @@ function emailOutcomeStatus(e) {
   return 'read';
 }
 const EMAIL_STATUS_LABELS = { no_action: 'No reply needed', replied: 'Replied', unread: 'Unread', read: 'Read, not replied' };
+// Gmail's own tab categorization (the labelIds already captured at ingest
+// on every message) — Promotions/Social/Updates are never real client
+// correspondence, so they're excluded from the report the same way
+// outbound and ignored-sender mail is: filtered here, never deleted.
+// Forums is deliberately left alone — not mentioned, and rare enough in
+// these mailboxes not to warrant guessing beyond what was asked.
+const EMAIL_EXCLUDED_LABELS = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_UPDATES'];
 
 function emailStatsForEmployee(state, employeeId) {
   const cutoff = nzToday(new Date(Date.now() - 86400000));
@@ -1281,6 +1288,7 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   let emails = (state.emails || []).filter(e => {
     if (e.direction !== 'inbound') return false;
     if (ignored.has(String(e.fromAddress || '').toLowerCase())) return false;
+    if ((e.labelIds || []).some(l => EMAIL_EXCLUDED_LABELS.includes(l))) return false;
     if (!e.occurredAt) return false;
     const day = nzToday(new Date(e.occurredAt));
     if (from && day < from) return false;
