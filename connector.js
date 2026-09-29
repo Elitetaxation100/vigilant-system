@@ -2303,6 +2303,11 @@ function startSchedulers() {
 // an employee's login just because a CRM row disappeared.
 // ---------------------------------------------------------------------------
 async function handleCrmCustomer(payload) {
+  // TEMPORARY — logging the raw payload so we can read the CRM's real
+  // column names off Railway once it sends its first real webhook, instead
+  // of guessing. Remove this line once the field mapping below is confirmed
+  // and adjusted to match.
+  clog('info', 'crm-customer RAW payload (temp debug)', payload);
   const row = payload && payload.record;
   const type = payload && payload.type;
   if (!row || !row.id) { clog('warn', 'crm-customer payload missing record.id', { payload }); return; }
@@ -2338,6 +2343,8 @@ async function handleCrmCustomer(payload) {
 }
 
 async function handleCrmUser(payload) {
+  // TEMPORARY — see matching comment in handleCrmCustomer above.
+  clog('info', 'crm-user RAW payload (temp debug)', payload);
   const row = payload && payload.record;
   const type = payload && payload.type;
   if (!row || !row.id) { clog('warn', 'crm-user payload missing record.id', { payload }); return; }
