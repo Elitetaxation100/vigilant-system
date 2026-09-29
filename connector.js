@@ -61,17 +61,20 @@ const cfg = () => ({
 // Parvinder/Disha still took the call, on record) — only `employeeId`
 // changes, to whoever's actually doing the listening now.
 function agentRouting(state, agentId) { return (state.agentMap || {})[agentId] || null; }
-// Slack IDs are derived from the employee at read time, never stored
-// redundantly — a single responsible employee (0 or 1), same as every
-// existing routing entry already held in practice despite the old array
-// shape (Diksha/Khushi/Manya were deliberately never given their own
-// AGENT_MAP entries — they don't take calls themselves, they just need the
-// same per-call ping + end-of-day nag their senior's calls already
-// generate, without a whole separate agent identity).
+// Slack IDs are derived from the employees at read time, never stored
+// redundantly — 0, 1 or 2 responsible people per agent (e.g. Shubam's
+// Leads calls are reviewed by both Anjana Pandey and Diksha Goyal).
+// De-duped so picking the same person in both admin-page slots never
+// double-@-mentions them.
 function agentSlackIds(state, agentId) {
   const r = agentRouting(state, agentId);
-  const emp = r && r.employeeId ? (state.employees || []).find(e => e.id === r.employeeId) : null;
-  return emp && emp.slackUserId ? [emp.slackUserId] : [];
+  const ids = (r && Array.isArray(r.employeeIds)) ? r.employeeIds : [];
+  const slackIds = ids
+    .map(id => (state.employees || []).find(e => e.id === id))
+    .filter(Boolean)
+    .map(e => e.slackUserId)
+    .filter(Boolean);
+  return [...new Set(slackIds)];
 }
 // Kudos — firm-wide recognition, star-leveled. Who can AWARD kudos to
 // someone depends on the recipient's employee team (substring match, so
@@ -918,10 +921,10 @@ function callStatsForSlackId(state, slackUserId) {
   };
 }
 // Who's actually on the hook for listening to this call — state.agentMap's
-// employeeId, resolved to real employee records via their Slack user ID
+// employeeIds, resolved to real employee records via their Slack user ID
 // (same mapping callStatsForSlackId uses in the other direction). An agent
-// with no employeeId assigned (nobody listens to those calls) has no
-// responsible person.
+// with no employeeIds assigned (nobody listens to those calls) has no
+// responsible person; an agent with two gets both.
 function responsiblePeopleForCall(state, c) {
   const slackIds = agentSlackIds(state, c.agentAircallId);
   return slackIds

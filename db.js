@@ -463,6 +463,17 @@ function runMigrations(state) {
       state.agentMap[id] = { name: s.name, team: s.team, mandatory: s.mandatory, employeeId: emp ? emp.id : null };
     });
   }
+  // Two responsible people per agent, not just one — e.g. Shubam's Leads
+  // calls are reviewed by both Anjana Pandey and Diksha Goyal in practice.
+  // Normalises every entry (freshly seeded above, or already living in
+  // prod from before this changed) onto an employeeIds array and retires
+  // the old singular field so nothing reads it by mistake. Runs every
+  // boot, idempotent.
+  Object.keys(state.agentMap || {}).forEach(id => {
+    const r = state.agentMap[id];
+    if (!Array.isArray(r.employeeIds)) r.employeeIds = r.employeeId ? [r.employeeId] : [];
+    delete r.employeeId;
+  });
   // Soft-delete: removed tasks / clients move to these holding areas so a
   // superadmin (or whoever removed it) can restore them. Nothing is ever
   // hard-deleted through the app any more.

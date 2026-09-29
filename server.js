@@ -4320,29 +4320,34 @@ app.get('/api/calls/agent-routing', requireAuth, (req, res) => {
   const state = db.get();
   const rows = Object.keys(state.agentMap || {}).map(agentId => {
     const r = state.agentMap[agentId];
-    const emp = r.employeeId ? findEmployee(state, r.employeeId) : null;
-    return { agentId, name: r.name, team: r.team, mandatory: !!r.mandatory, employeeId: r.employeeId || null, employeeName: emp ? emp.name : null };
+    const emps = (Array.isArray(r.employeeIds) ? r.employeeIds : []).map(id => findEmployee(state, id)).filter(Boolean);
+    return { agentId, name: r.name, team: r.team, mandatory: !!r.mandatory, employeeIds: emps.map(e => e.id), employeeNames: emps.map(e => e.name) };
   }).sort((a, b) => a.name.localeCompare(b.name));
   res.json({ routing: rows });
 });
+// employeeIds: up to two people can be responsible for one agent's calls
+// (e.g. a senior reviewing alongside the main reviewer) — the same person
+// in both slots is allowed, agentSlackIds() de-dupes it for notifications.
 app.patch('/api/calls/agent-routing/:agentId', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   const state = db.get();
   const r = (state.agentMap || {})[req.params.agentId];
   if (!r) return res.status(404).json({ error: 'Unknown Aircall agent.' });
-  if (req.body && req.body.employeeId !== undefined) {
-    if (req.body.employeeId === null) r.employeeId = null;
-    else {
-      const emp = findEmployee(state, req.body.employeeId);
+  if (req.body && Array.isArray(req.body.employeeIds)) {
+    const ids = [];
+    for (const empId of req.body.employeeIds) {
+      if (!empId) continue;
+      const emp = findEmployee(state, empId);
       if (!emp) return res.status(400).json({ error: 'Unknown employee.' });
-      r.employeeId = emp.id;
+      ids.push(emp.id);
     }
+    r.employeeIds = ids;
   }
   if (typeof (req.body && req.body.mandatory) === 'boolean') r.mandatory = req.body.mandatory;
   if (req.body && req.body.team !== undefined) r.team = String(req.body.team || '').trim() || r.team;
   db.save();
-  const emp = r.employeeId ? findEmployee(state, r.employeeId) : null;
-  res.json({ agentId: req.params.agentId, name: r.name, team: r.team, mandatory: !!r.mandatory, employeeId: r.employeeId || null, employeeName: emp ? emp.name : null });
+  const emps = r.employeeIds.map(id => findEmployee(state, id)).filter(Boolean);
+  res.json({ agentId: req.params.agentId, name: r.name, team: r.team, mandatory: !!r.mandatory, employeeIds: emps.map(e => e.id), employeeNames: emps.map(e => e.name) });
 });
 
 // ---------------------------------------------------------------------------

@@ -2034,7 +2034,7 @@
         </div>
         <div class="panel">
           <div class="panel-head"><h2>Call routing</h2></div>
-          <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;max-width:70ch;">Who's on the hook for listening to each Aircall agent's calls — the per-call Slack ping and the "still unlistened" digest nag both follow this.</p>
+          <p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;max-width:70ch;">Who's on the hook for listening to each Aircall agent's calls — the per-call Slack ping and the "still unlistened" digest nag both follow this. Assign up to two people per agent, for when a senior reviews alongside the main reviewer.</p>
           <div class="tl-scroll"><table id="assignCallsTable">
             <thead><tr><th>Aircall agent</th><th>Team</th><th style="width:90px;">Mandatory</th><th style="width:220px;">Responsible person</th></tr></thead>
             <tbody id="assignCallsBody"></tbody>
@@ -9750,13 +9750,21 @@ async function renderTeamAssignmentsView(){
 
   let routing = [];
   try { routing = (await api('/api/calls/agent-routing')).routing; } catch(e){ /* non-fatal */ }
-  document.getElementById('assignCallsBody').innerHTML = routing.length ? routing.map(r => `
+  document.getElementById('assignCallsBody').innerHTML = routing.length ? routing.map(r => {
+    const ids = Array.isArray(r.employeeIds) ? r.employeeIds : [];
+    return `
     <tr>
       <td>${esc(r.name)}</td>
       <td>${esc(r.team || '—')}</td>
       <td><input type="checkbox" ${r.mandatory?'checked':''} onchange="updateAgentRouting('${esc(r.agentId)}', {mandatory:this.checked})"></td>
-      <td><select onchange="updateAgentRouting('${esc(r.agentId)}', {employeeId:this.value||null})">${empOptions(r.employeeId)}</select></td>
-    </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--text-faint);padding:16px;">No Aircall agents configured yet.</td></tr>`;
+      <td>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <select onchange="onAgentResponsibleChange('${esc(r.agentId)}', this)">${empOptions(ids[0])}</select>
+          <select onchange="onAgentResponsibleChange('${esc(r.agentId)}', this)">${empOptions(ids[1])}</select>
+        </div>
+      </td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="4" style="text-align:center;color:var(--text-faint);padding:16px;">No Aircall agents configured yet.</td></tr>`;
 
   let mailboxes = [];
   try { mailboxes = (await api('/api/emails/mailbox-owners')).mailboxes; } catch(e){ /* non-fatal */ }
@@ -9769,6 +9777,15 @@ async function renderTeamAssignmentsView(){
 async function updateAgentRouting(agentId, patch){
   try { await api(`/api/calls/agent-routing/${encodeURIComponent(agentId)}`, { method:'PATCH', body: JSON.stringify(patch) }); showToast('success', 'Saved', ''); }
   catch(e){ showToast('error', 'Could not save', e.message); renderTeamAssignmentsView(); }
+}
+// Two "Responsible person" selects per row — read whichever one just
+// changed together with its sibling, so either slot can be left
+// unassigned, hold two different people, or (deliberately allowed) the
+// same person in both.
+function onAgentResponsibleChange(agentId, selectEl){
+  const row = selectEl.closest('tr');
+  const employeeIds = Array.from(row.querySelectorAll('select')).map(s => s.value).filter(Boolean);
+  updateAgentRouting(agentId, { employeeIds });
 }
 async function reassignMailbox(mailbox, employeeId){
   try { await api('/api/emails/mailbox-owners/reassign', { method:'POST', body: JSON.stringify({ mailbox, employeeId }) }); showToast('success', 'Saved', ''); }
