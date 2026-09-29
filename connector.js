@@ -100,6 +100,7 @@ function canAwardKudosTo(actor, toEmployee) {
   return !!mgrEmail && email === mgrEmail;
 }
 const KUDOS_LEVELS = {
+  '1star':     { label: '1-Star',    stars: 1, badge: '⭐' },
   '3star':     { label: '3-Star',    stars: 3, badge: '⭐⭐⭐' },
   '4star':     { label: '4-Star',    stars: 4, badge: '⭐⭐⭐⭐' },
   '5star':     { label: '5-Star',    stars: 5, badge: '⭐⭐⭐⭐⭐' },
@@ -1384,7 +1385,7 @@ async function awardKudos(state, { toId, byId, level, note }) {
   const to = findEmployee(state, toId);
   const by = findEmployee(state, byId);
   if (!to || !by) return { ok: false, error: 'Person not found.' };
-  if (!KUDOS_LEVELS[level]) return { ok: false, error: 'Pick a level: 3-Star, 4-Star, 5-Star or Legendary.' };
+  if (!KUDOS_LEVELS[level]) return { ok: false, error: 'Pick a level: 1-Star, 3-Star, 4-Star, 5-Star or Legendary.' };
   if (!canAwardKudosTo(by, to)) return { ok: false, error: "You're not authorized to award kudos to this person." };
   const cleanNote = String(note || '').trim().slice(0, 300);
   state.kudosSeq = (state.kudosSeq || 0) + 1;
