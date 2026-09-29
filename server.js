@@ -1168,6 +1168,14 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
     emp.selfEditUntil = (typeof v === 'string' && !Number.isNaN(Date.parse(v)) && Date.parse(v) > Date.now())
       ? new Date(v).toISOString() : null;
   }
+  // "Mark done" delegate — lets one other employee close THIS person's own
+  // tasks (no-review /done only, not review/reassign/etc) when they're too
+  // busy to do it themselves. Standing grant, not time-boxed; an admin
+  // revokes it the same way by clearing the field.
+  if (req.body.doneDelegateId !== undefined) {
+    const v = req.body.doneDelegateId;
+    emp.doneDelegateId = (v && v !== emp.id && state.employees.some(x => x.id === v)) ? String(v) : null;
+  }
   if (req.body.slackUserId !== undefined) emp.slackUserId = req.body.slackUserId ? String(req.body.slackUserId).trim() : null;
   if (req.body.aircallAgentId !== undefined) emp.aircallAgentId = req.body.aircallAgentId ? String(req.body.aircallAgentId).trim() : null;
   // gmailAddresses — an array: one employee can own more than one mailbox
@@ -1496,6 +1504,11 @@ function visibleTasks(state, me) {
   // An employee sees only their own work; an admin sees their whole team's.
   const scopeIds = new Set([me.id]);
   if (isAdmin) teamRoster(state, me).forEach(e => scopeIds.add(e.id));
+  // A "mark done" delegate (see doneDelegateId below) needs to see the
+  // tasks they're covering for — e.g. a founder who's too busy to close
+  // their own tasks hands that job to one employee. Read visibility only;
+  // the /done endpoint itself is what actually gates the write.
+  state.employees.forEach(e => { if (e.doneDelegateId === me.id) scopeIds.add(e.id); });
   return state.tasks.filter(t =>
     scopeIds.has(t.assignedTo) ||
     t.assignedBy === me.id ||
@@ -2148,9 +2161,11 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
 
 // Mark a task done WITHOUT the review step — for the many tasks that don't
 // need a second person to check them (call / Slack follow-ups, and any
-// manual task the assignee decides needs no review). The assignee or an
-// admin over them can do it. "Mark Complete" + a reviewer is still there
-// for anything that should be checked.
+// manual task the assignee decides needs no review). The assignee, an
+// admin over them, or their designated "mark done" delegate (doneDelegateId
+// — set from Manage Access, for people too busy to close their own tasks)
+// can do it. "Mark Complete" + a reviewer is still there for anything that
+// should be checked.
 app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
@@ -2158,7 +2173,9 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   const isMine = t.assignedTo === req.employee.id;
   const isAdminOver = isAdminRole(req.employee.accessRole) &&
     (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo) || !t.assignedTo);
-  if (!isMine && !isAdminOver) {
+  const assignee = t.assignedTo ? findEmployee(state, t.assignedTo) : null;
+  const isDelegate = !!(assignee && assignee.doneDelegateId === req.employee.id);
+  if (!isMine && !isAdminOver && !isDelegate) {
     return res.status(403).json({ error: 'Only the assignee or an admin can mark this done.' });
   }
   if (t.status === 'completed') return res.status(400).json({ error: 'Already done.' });

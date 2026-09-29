@@ -2404,12 +2404,20 @@ function isMirroring(){ return !!_dashMirror && _dashMirror !== currentViewerId;
 function canMirror(id){
   if(!id || id === currentViewerId) return true;
   if(isDashObserver()) return true;
-  return isAdmin && myScopedPeople().some(e => e.id === id);
+  if(isAdmin && myScopedPeople().some(e => e.id === id)) return true;
+  // A "mark done" delegate can mirror the one person they cover for, even
+  // as a plain employee with no admin/observer powers — read access to
+  // their tasks plus the Mark Done button, nothing else (see actionCell).
+  const target = empById(id);
+  return !!(target && target.doneDelegateId === currentViewerId);
+}
+function doneDelegatePool(){
+  return employees.filter(e => e.doneDelegateId === currentViewerId && e.id !== currentViewerId);
 }
 function mirrorPool(){
-  return (isDashObserver() ? employees.slice() : isAdmin ? myScopedPeople() : [])
-    .filter(e => e.id !== currentViewerId)
-    .sort((a,b) => a.name.localeCompare(b.name));
+  const base = isDashObserver() ? employees.slice() : isAdmin ? myScopedPeople() : [];
+  const merged = base.concat(doneDelegatePool().filter(e => !base.some(x => x.id === e.id)));
+  return merged.filter(e => e.id !== currentViewerId).sort((a,b) => a.name.localeCompare(b.name));
 }
 function setDashMirror(id){
   if(id && !canMirror(id)) return;
@@ -2430,7 +2438,11 @@ function renderMirrorBanner(){
   }
   const s = dashSubject();
   el.style.display = '';
-  el.innerHTML = `<span>🔍</span><span>Viewing <b>${esc(s.name)}</b>'s dashboard — read-only.</span>
+  const canCloseTheirs = s.doneDelegateId === currentViewerId;
+  const note = canCloseTheirs
+    ? `Viewing <b>${esc(s.name)}</b>'s dashboard — you can mark their tasks done on their behalf, nothing else.`
+    : `Viewing <b>${esc(s.name)}</b>'s dashboard — read-only.`;
+  el.innerHTML = `<span>🔍</span><span>${note}</span>
     <button class="btn small" style="margin-left:auto;" onclick="setDashMirror('')">Back to my work</button>`;
   if(addBtn) addBtn.style.display = 'none';
 }
@@ -2439,11 +2451,13 @@ function renderDashMirrorPicker(){
   if(!chip) return;
   const pool = mirrorPool();
   if(!pool.length){ chip.textContent = '👤 My work'; return; }
+  const basePool = (isDashObserver() ? employees.slice() : isAdmin ? myScopedPeople() : []).filter(e => e.id !== currentViewerId);
+  const delegateOnly = doneDelegatePool().filter(e => !basePool.some(x => x.id === e.id));
+  const optgroup = (label, list) => list.length ? `<optgroup label="${esc(label)}">${list.map(e => `<option value="${e.id}"${_dashMirror === e.id ? ' selected' : ''}>${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('')}</optgroup>` : '';
   chip.innerHTML = `<select onchange="setDashMirror(this.value)" style="font-size:13px;font-weight:600;padding:5px 9px;border-radius:8px;background:var(--panel-2);border:1px solid var(--panel-border);color:var(--text);max-width:260px;">
     <option value="">👤 My work</option>
-    <optgroup label="${isDashObserver() ? 'Mirror any employee' : 'Mirror a team member'}">
-      ${pool.map(e => `<option value="${e.id}"${_dashMirror === e.id ? ' selected' : ''}>${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('')}
-    </optgroup>
+    ${optgroup(isDashObserver() ? 'Mirror any employee' : 'Mirror a team member', basePool)}
+    ${optgroup('Mark tasks done for', delegateOnly)}
   </select>`;
 }
 // The NZ calendar day — the firm's day, not the viewer's device timezone.
@@ -4778,8 +4792,22 @@ function overloadBadge(t){
   if(!o) return '';
   return `<span class="badge overdue dot" title="Assigned by ${esc(o.byName||'a manager')} for ${fmtDate(o.dueDate)} — ${o.overBy}h beyond capacity for that date. Counts as extra hours.">⚡ Over capacity +${o.overBy}h</span>`;
 }
+// True while mirroring someone who's designated the current viewer as their
+// "mark done" delegate (doneDelegateId, set from Manage Access), and the
+// task is still in a state /done would accept — mirrors the server's own
+// check in POST /api/tasks/:id/done exactly, so the button never appears
+// only to 403 when clicked.
+function canDelegateMarkDone(t){
+  if(!isMirroring()) return false;
+  const s = dashSubject();
+  return !!(s && s.doneDelegateId === currentViewerId && t.assignedTo === s.id &&
+    ['accepted', 'rework', 'on_hold', 'awaiting_acceptance', 'window_proposed', 'pending'].includes(t.status));
+}
 function actionCell(t){
-  if(isMirroring()) return `<div class="action-stack">${statusBadge(t)}</div>`;
+  if(isMirroring()){
+    if(canDelegateMarkDone(t)) return `<div class="action-stack">${statusBadge(t)}<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="markDoneNoReview('${t.id}')" title="Marking this done for ${esc(dashSubject().name)}">✓ Mark Done</button></div>`;
+    return `<div class="action-stack">${statusBadge(t)}</div>`;
+  }
   const isMine = t.assignedTo === currentViewerId;
   let html = '<div class="action-stack">';
   const flagged = isReworkFlagged(t);
@@ -4979,7 +5007,10 @@ function timerAction(t){
 }
 
 function actionButtonHtml(t){
-  if(isMirroring()) return statusBadge(t);
+  if(isMirroring()){
+    if(canDelegateMarkDone(t)) return `<button class="circle-btn" style="background:var(--teal);" title="Mark done for ${esc(dashSubject().name)}" aria-label="Mark done" onclick="markDoneNoReview('${t.id}')">&#10003;</button>`;
+    return statusBadge(t);
+  }
   const a = primaryAction(t);
   const ta = timerAction(t);
   const isMine = t.assignedTo === currentViewerId;
@@ -10005,6 +10036,12 @@ function openManageEmployee(id){
         </select>
         <input type="date" id="meSelfEditCustom" style="display:none;margin-top:8px;" min="${todayISO()}">
       </div>
+      <div class="field"><label>Mark-done delegate <span style="text-transform:none;color:var(--text-faint);">— lets one person close ${esc(e.name)}'s own tasks (Mark Done only — no review, reassign, or edit) when ${e.id === session.id ? 'they' : 'this person'} don't have time to do it themselves</span></label>
+        <select id="meDoneDelegate">
+          <option value="">None</option>
+          ${employees.filter(x => x.id !== e.id).sort((a,b)=>a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${e.doneDelegateId === x.id ? ' selected' : ''}>${esc(x.name)}${x.team ? ' — ' + esc(x.team) : ''}</option>`).join('')}
+        </select>
+      </div>
       <div class="field"><label>Slack user ID <span style="text-transform:none; color:var(--text-faint);">— so Slack tasks reach this person</span></label><input type="text" id="meSlackId" value="${esc(e.slackUserId || '')}" placeholder="U0XXXXXXXX"></div>
       <div class="field"><label>Aircall agent ID <span style="text-transform:none; color:var(--text-faint);">— only if they take calls</span></label><input type="text" id="meAircallId" value="${esc(e.aircallAgentId || '')}" placeholder="1234567"></div>
       <div class="field"><label>Gmail addresses <span style="text-transform:none; color:var(--text-faint);">— which mailbox(es) to log for this person, comma-separated</span></label><input type="text" id="meGmailAddresses" value="${esc((e.gmailAddresses || []).join(', '))}" placeholder="e.g. selfemployed@elitetaxation.co.nz, property_tax@elitetaxation.co.nz"></div>
@@ -10077,6 +10114,7 @@ async function submitManageEmployee(id){
   const slackUserId = document.getElementById('meSlackId').value.trim();
   const aircallAgentId = document.getElementById('meAircallId').value.trim();
   const gmailAddresses = document.getElementById('meGmailAddresses').value.split(',').map(s => s.trim()).filter(Boolean);
+  const doneDelegateId = document.getElementById('meDoneDelegate').value;
   const crmIdEl = document.getElementById('meCrmUserId');
   // self-edit window → an ISO datetime, null (revoke), or undefined (unchanged)
   let selfEditUntil; // undefined by default
@@ -10092,7 +10130,7 @@ async function submitManageEmployee(id){
   }
   try {
     const payload = { accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
-      memberships, isFounder, dashObserver, whatsappAccess, slackUserId, aircallAgentId, gmailAddresses };
+      memberships, isFounder, dashObserver, whatsappAccess, slackUserId, aircallAgentId, gmailAddresses, doneDelegateId: doneDelegateId || null };
     if(selfEditUntil !== undefined) payload.selfEditUntil = selfEditUntil;
     if(crmIdEl) payload.crmUserId = crmIdEl.value.trim();
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify(payload)});
