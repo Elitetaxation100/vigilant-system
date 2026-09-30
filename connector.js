@@ -1445,6 +1445,42 @@ function formatCallsEmailsDigestText(data) {
   return `📞📧 Calls & Email Report — ${dayLabel}\n\n`
     + section('📞 CALLS', callRows) + '\n\n' + section('📧 EMAILS', emailRows);
 }
+// HTML version for email — same underlying data as the plain-text one
+// above (still used for WhatsApp), but laid out as real tables: a Summary
+// (Calls / Emails / Overall totals) plus a per-person breakdown table for
+// each channel, each with its own Total row.
+function formatCallsEmailsDigestHtml(data) {
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const dayLong = new Date(data.day + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  const dayShort = new Date(data.day + 'T00:00:00').toLocaleDateString('en-NZ', { day: '2-digit', month: 'long', year: 'numeric' });
+  const sum = (key) => data.people.reduce((s, p) => ({ total: s.total + p[key].total, ack: s.ack + p[key].ack, notAck: s.notAck + p[key].notAck }), { total: 0, ack: 0, notAck: 0 });
+  const calls = sum('calls'), emails = sum('emails');
+  const overall = { total: calls.total + emails.total, ack: calls.ack + emails.ack, notAck: calls.notAck + emails.notAck };
+  const th = 'text-align:left;padding:8px 14px;border-bottom:2px solid #333;font-size:13px;';
+  const td = 'padding:8px 14px;border-bottom:1px solid #ddd;font-size:14px;';
+  const tdTotal = td + 'font-weight:bold;border-top:2px solid #333;border-bottom:none;';
+  const row = (label, r, bold) => `<tr><td style="${bold ? tdTotal : td}">${esc(label)}</td><td style="${bold ? tdTotal : td}">${r.total}</td><td style="${bold ? tdTotal : td}">${r.ack}</td><td style="${bold ? tdTotal : td}">${r.notAck}</td></tr>`;
+  const table = (headFirst, headCount, bodyRows) => `<table style="border-collapse:collapse;width:100%;max-width:640px;margin:0 0 8px;">
+    <tr><th style="${th}">${esc(headFirst)}</th><th style="${th}">${esc(headCount)}</th><th style="${th}">Acknowledged</th><th style="${th}">Not Acknowledged</th></tr>
+    ${bodyRows}
+  </table>`;
+  const activitySection = (title, key, headCount) => {
+    const rows = data.people.filter(p => p[key].total > 0);
+    if (!rows.length) return `<h2 style="font-size:16px;margin:24px 0 8px;">${esc(title)}</h2><p style="font-size:14px;color:#666;">None</p>`;
+    const body = rows.map(p => row(p.name, p[key])).join('') + row('Total', sum(key), true);
+    return `<h2 style="font-size:16px;margin:24px 0 8px;">${esc(title)}</h2>${table('Team Member', headCount, body)}`;
+  };
+  const summaryBody = row('Calls', calls) + row('Emails', emails) + row('Overall', overall, true);
+  return `<div style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:680px;">
+    <h1 style="font-size:20px;">Daily Calls &amp; Email Report – ${esc(dayShort)}</h1>
+    <p>Hi Team,</p>
+    <p>Please find below the Calls and Email Activity Report for ${esc(dayLong)}.</p>
+    <h2 style="font-size:16px;margin:24px 0 8px;">Summary</h2>
+    ${table('Channel', 'Total', summaryBody)}
+    ${activitySection('Call Activity', 'calls', 'Total Calls')}
+    ${activitySection('Email Activity', 'emails', 'Total Emails')}
+  </div>`;
+}
 // Meta's own WhatsApp Business Cloud API, called directly — deliberately
 // NOT Interakt (that integration is receive-only here; see interaktApiKey
 // above). Requires an approved message template with exactly one body
@@ -1501,20 +1537,20 @@ async function gmailSendAccessToken(mailboxAddress) {
   _gmailSendTokenCache[mailboxAddress] = { token: r.json.access_token, expiresAt: Date.now() + (r.json.expires_in || 3600) * 1000 };
   return r.json.access_token;
 }
-function buildRawEmail({ from, to, subject, text }) {
+function buildRawEmail({ from, to, subject, html }) {
   const raw = [
     `From: ${from}`, `To: ${to}`, `Subject: ${subject}`,
-    'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', '', text,
+    'MIME-Version: 1.0', 'Content-Type: text/html; charset=UTF-8', '', html,
   ].join('\r\n');
   return Buffer.from(raw, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-async function sendGmailDigestEmail(fromMailbox, toAddresses, subject, text) {
+async function sendGmailDigestEmail(fromMailbox, toAddresses, subject, html) {
   if (!cfg().gmailSendServiceAccountJson) return { ok: false, error: 'GMAIL_SEND_SERVICE_ACCOUNT_JSON not configured' };
   const token = await gmailSendAccessToken(fromMailbox);
   if (!token) return { ok: false, error: 'no gmail send token — check this service account is domain-wide-delegated for gmail.send' };
   const r = await httpsRequest('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-    body: { raw: buildRawEmail({ from: fromMailbox, to: toAddresses.join(', '), subject, text }) },
+    body: { raw: buildRawEmail({ from: fromMailbox, to: toAddresses.join(', '), subject, html }) },
   });
   if (r.status !== 200 || !r.json) return { ok: false, error: (r.json && r.json.error && r.json.error.message) || 'HTTP ' + r.status };
   return { ok: true, result: r.json };
@@ -1536,11 +1572,12 @@ async function runCallsEmailsDigest(reason) {
   }
   if (c.gmailDigestFromMailbox && c.gmailDigestRecipients.length) {
     of += 1;
-    const dayLabel = new Date(day + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+    const dayLabel = new Date(day + 'T00:00:00').toLocaleDateString('en-NZ', { day: '2-digit', month: 'long', year: 'numeric' });
     // Plain ASCII subject — header values aren't declared with a charset the
-    // way the body is, so keep it simple; the richer emoji/em-dash text
-    // lives in the UTF-8-declared body instead.
-    const r = await sendGmailDigestEmail(c.gmailDigestFromMailbox, c.gmailDigestRecipients, `Calls & Email Report - ${dayLabel}`, text);
+    // way the body is, so keep it simple; the richer formatting/emoji live
+    // in the UTF-8-declared HTML body instead.
+    const html = formatCallsEmailsDigestHtml(data);
+    const r = await sendGmailDigestEmail(c.gmailDigestFromMailbox, c.gmailDigestRecipients, `Daily Calls & Email Report - ${dayLabel}`, html);
     if (r.ok) sent++;
     else clog('warn', 'calls/email digest: gmail send failed', { error: r.error });
   }
@@ -2900,5 +2937,5 @@ module.exports = {
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
   agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
-  callsEmailsDigestData, formatCallsEmailsDigestText, runCallsEmailsDigest,
+  callsEmailsDigestData, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };
