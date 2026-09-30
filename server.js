@@ -412,7 +412,14 @@ function productivityQualifies(state, t, v2At, reportInfo) {
   const snapshotNum = Number(rawSnapshot);
   const snapshotValid = rawSnapshot !== null && rawSnapshot !== undefined && Number.isFinite(snapshotNum) && snapshotNum >= 0;
   if (!snapshotValid) return exclude('Missing allocated-hours snapshot', { dataException: true });
-  const creditHours = snapshotNum;
+  // If this task was on hold through one or more manual month-closes (see
+  // closeMonthOnHoldCredits), those already paid out actual-hours credit to
+  // earlier periods — subtract that back out here so the task's completion
+  // period doesn't ALSO get its full original estimate, which would double
+  // -count the same work. What's left over is what completion actually
+  // still earns.
+  const bankedHours = (t.monthCloseCredits || []).reduce((s, c) => s + (Number(c.hours) || 0), 0);
+  const creditHours = Math.max(0, Math.round((snapshotNum - bankedHours) * 100) / 100);
 
   const completedMs = Date.parse(t.completedAt);
   const cutoffMs = Date.parse(v2At);
@@ -3168,6 +3175,30 @@ function productivityFor(state, empIds, fromISO, toISO) {
     done.forEach(({ t, result }) => {
       (result.qualifies ? qualified : excluded).push(productivityTaskRow(t, result));
     });
+    // On-hold "month close" partial credits (see closeMonthOnHoldCredits) —
+    // actual hours banked for a task that was on hold at a manual
+    // month-close, credited to whichever period the close itself happened
+    // in. Independent of the task's own eventual qualifying event, which
+    // still earns credit later too, minus whatever was already banked here
+    // (see productivityQualifies) — so the two together always add up to
+    // no more than the task's original estimate, never double-counted.
+    state.tasks.filter(t => t.assignedTo === id).forEach(t => {
+      (t.monthCloseCredits || []).forEach(c => {
+        if (!inRange(c.closedAt)) return;
+        qualified.push({
+          id: t.id + ':close:' + c.period, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+          kind: t.kind, status: t.status,
+          allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
+          internalDeadline: t.internalDeadline, completedAt: null,
+          clientDate: t.clientDate, sentToClientAt: null,
+          stages: { processor: null, reviewer: null, sender: null },
+          creditedHours: c.hours, qualifies: true,
+          exclusionReason: null, dataException: false, zeroHourTask: c.hours === 0,
+          rule: 'on_hold_month_close', qualifyingEventType: 'month_close', qualifyingEventAt: c.closedAt,
+          reviewedAt: null, noReviewAuthorized: false, reportStatus: null,
+        });
+      });
+    });
     const qualifiedHours = r2(qualified.reduce((s, x) => s + x.creditedHours, 0));
     const rawPct = capacityHours > 0 ? (qualifiedHours / capacityHours) * 100 : null;
     // One decimal, capped at 100 — anything qualified beyond capacity shows
@@ -3296,6 +3327,42 @@ app.get('/api/productivity', requireAuth, (req, res) => {
       assignedOpenHours: Math.round(sum('assignedOpenHours') * 100) / 100,
       trulyUnallocatedHours: Math.round(sum('trulyUnallocatedHours') * 100) / 100,
     },
+  });
+});
+
+// Manual "close a month" for tasks still on hold — banks the ACTUAL hours
+// logged so far (t.logged) as Productivity credit for that period, instead
+// of the task earning zero credit until it eventually completes (which
+// could be months later, or never, if it's ultimately abandoned). Only
+// ever credits the DELTA since the last time this task was closed, so a
+// task on hold across several month boundaries gets each month its own
+// slice rather than the same hours repeatedly — and idempotent per
+// (task, period), so closing the same month twice for the same task is a
+// safe no-op the second time. See productivityQualifies for how this
+// reconciles against the task's own eventual qualifying-event credit.
+function closeMonthOnHoldCredits(state, period, byEmployeeId) {
+  const credited = [];
+  (state.tasks || []).filter(t => t.status === 'on_hold').forEach(t => {
+    t.monthCloseCredits = t.monthCloseCredits || [];
+    if (t.monthCloseCredits.some(c => c.period === period)) return;
+    const alreadyBanked = t.monthCloseCredits.reduce((s, c) => s + (Number(c.hours) || 0), 0);
+    const delta = Math.round(Math.max(0, (t.logged || 0) - alreadyBanked) * 100) / 100;
+    if (delta <= 0) return;
+    t.monthCloseCredits.push({ period, hours: delta, closedAt: new Date().toISOString(), closedBy: byEmployeeId });
+    credited.push({ taskId: t.id, taskName: t.name, assignedTo: t.assignedTo, hours: delta });
+  });
+  if (credited.length) db.save();
+  return credited;
+}
+app.post('/api/productivity/close-month', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const period = String((req.body || {}).period || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Period must be YYYY-MM, e.g. 2026-09.' });
+  const credited = closeMonthOnHoldCredits(state, period, req.employee.id);
+  res.json({
+    ok: true, period, credited,
+    tasksCredited: credited.length,
+    totalHours: Math.round(credited.reduce((s, c) => s + c.hours, 0) * 100) / 100,
   });
 });
 

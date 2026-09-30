@@ -1758,6 +1758,7 @@
                 <input type="date" id="prodFrom" onchange="renderProductivityView()">
                 <input type="date" id="prodTo" onchange="renderProductivityView()">
               </span>
+              <button class="btn small" id="closeMonthBtn" onclick="openCloseMonthModal()" title="Bank actual hours spent so far on every currently on-hold task, as partial credit for a given month">Close Month</button>
             </div>
           </div>
           <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Qualified delivered allocated hours ÷ adjusted capacity — a task counts only once it's final-sendable, met the internal milestone, and (for client work) was actually sent to the client by the external date. Click anyone's row for the full calculation.</p>
@@ -7657,6 +7658,41 @@ function openProductivityCalcModal(p){
     </div>
     </div>`;
   openModal();
+}
+// Superadmin-only: bank actual hours spent so far on every currently
+// on-hold task as partial Productivity credit for a chosen month — for
+// tasks that were on hold through month-end and would otherwise earn zero
+// credit until they eventually finish (which could be much later). See
+// POST /api/productivity/close-month; idempotent per (task, month).
+function openCloseMonthModal(){
+  const now = new Date();
+  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const defaultPeriod = prevMonth.getFullYear() + '-' + String(prevMonth.getMonth() + 1).padStart(2, '0');
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Close a month for on-hold tasks</h3>
+    <div class="modal-sub">Banks each currently on-hold task's actual hours logged so far as Productivity credit for the month below — the task still earns its remaining credit normally whenever it finally completes, just minus what's already banked here. Safe to run more than once; a task already closed for a given month is skipped the second time.</div>
+    <div class="field"><label>Month</label><input type="month" id="closeMonthPeriod" value="${defaultPeriod}"></div>
+    <div class="modal-error" id="closeMonthErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitCloseMonth()">Close Month</button>
+    </div>`;
+  openModal();
+}
+async function submitCloseMonth(){
+  const period = document.getElementById('closeMonthPeriod').value;
+  const errEl = document.getElementById('closeMonthErr');
+  if(!/^\d{4}-\d{2}$/.test(period)){ errEl.textContent = 'Pick a month.'; errEl.style.display = 'block'; return; }
+  try {
+    const r = await api('/api/productivity/close-month', { method:'POST', body: JSON.stringify({ period }) });
+    closeModal();
+    if(!r.tasksCredited){
+      showToast('info', 'Nothing to close', 'No on-hold task had any new hours to bank for that month.');
+    } else {
+      showToast('success', `Closed ${period}`, `${r.tasksCredited} task${r.tasksCredited===1?'':'s'} credited, ${r.totalHours}h total.`);
+    }
+    await renderProductivityView();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
