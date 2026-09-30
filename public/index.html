@@ -2087,6 +2087,7 @@ async function api(path, opts) {
     if (data && data.pendingTasks) err.pendingTasks = data.pendingTasks;
     if (data && data.pendingRework) err.pendingRework = data.pendingRework;
     if (data && data.code) err.code = data.code;
+    if (res.status === 423 && session) showPolicyComplianceGate(data && data.pendingCount);
     throw err;
   }
   return data;
@@ -2114,6 +2115,50 @@ let myDoneToday = [];  // the current viewer's tasks completed today
 let _myExtra = [];     // completed tasks that ran over estimate, for the Extra Hours drill-down
 let loginTab = 'employee';
 let seenAwaitingIds = null; // null = not initialized yet (first load shouldn't pop every existing task)
+let policyCompliancePoll = null;
+let policyGateOpen = false;
+let policyAdminWarningShown = false;
+
+function policyPending(employee){
+  const p = employee && employee.policyCompliance;
+  return !!p && (p.compliant === false || Number(p.pendingCount) > 0);
+}
+function showPolicyComplianceGate(pendingCount){
+  if(!session) return;
+  policyGateOpen = true;
+  const emergency = session.accessRole === 'admin' || session.accessRole === 'superadmin';
+  if(emergency) policyAdminWarningShown = true;
+  window.__loginGateActive = !emergency;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Company policy acknowledgement required</h3>
+    <div class="modal-sub">You have a company policy waiting for acknowledgement in ET-CRM. Please review and acknowledge it before continuing work.</div>
+    <div style="padding:12px 14px;background:var(--surface-2);border:1px solid var(--line);border-radius:8px;margin-top:12px;">Pending policies: <b>${Number(pendingCount)||1}</b></div>
+    ${emergency ? '<div style="font-size:12px;color:var(--coral);margin-top:12px;">Emergency administration access remains available, but acknowledgement is still required.</div>' : ''}
+    <div class="modal-actions">
+      ${emergency ? '<button class="btn" onclick="dismissAdminPolicyWarning()">Continue with emergency access</button>' : ''}
+      <button class="btn primary" onclick="window.open(\'https://crm.elitetaxation.co.nz/hr-policies\',\'_blank\',\'noopener\')">Open ET-CRM</button>
+    </div>`;
+  openModal();
+  startPolicyCompliancePolling();
+}
+function dismissAdminPolicyWarning(){ policyGateOpen=false; closeModal(); }
+async function refreshPolicyCompliance(){
+  if(!session) return false;
+  try {
+    const result = await api('/api/policy-compliance');
+    session.policyCompliance = result.policyCompliance;
+    if(!policyPending(session) && policyGateOpen){
+      policyGateOpen=false; policyAdminWarningShown=false; window.__loginGateActive=false; closeModal(); stopPolicyCompliancePolling();
+      if(!pollHandle) await onLoginComplete();
+    } else if(policyPending(session) && !policyGateOpen && (session.accessRole === 'employee' || !policyAdminWarningShown)) showPolicyComplianceGate(session.policyCompliance.pendingCount);
+    return !policyPending(session);
+  } catch(e){ return false; }
+}
+function startPolicyCompliancePolling(){
+  if(policyCompliancePoll) return;
+  policyCompliancePoll=setInterval(refreshPolicyCompliance, 8000);
+}
+function stopPolicyCompliancePolling(){ if(policyCompliancePoll){ clearInterval(policyCompliancePoll); policyCompliancePoll=null; } }
 
 // Hold reason taxonomy — mirrors HOLD_REASONS on the server (which validates).
 const HOLD_REASONS = {
@@ -10366,6 +10411,8 @@ async function submitLogin(){
     closeModal();
     if(session.mustChangePassword){ openForcedPasswordChangeModal(); return; }
     window.__loginGateActive = false;
+    await refreshPolicyCompliance();
+    if(policyPending(session) && session.accessRole === 'employee') return;
     await onLoginComplete();
   } catch(e){
     renderLoginGate(e.message);
@@ -10403,6 +10450,10 @@ async function submitForcedPasswordChange(){
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 async function onLoginComplete(){
+  if(policyPending(session)){
+    showPolicyComplianceGate(session.policyCompliance.pendingCount);
+    if(session.accessRole === 'employee') return;
+  }
   seenAwaitingIds = null; // fresh baseline each login — don't re-pop tasks already surfaced last session
   // Firm-wide oversight & administration — SUPERADMIN only. An Admin manages
   // their own team (Manager Dashboard + team task actions) but doesn't get
@@ -10487,6 +10538,7 @@ function logoutSession(){
   _notifs = []; _notifUnread = 0; _notifPrevIds = null; renderNotifBadge();
   seenAwaitingIds = null;
   stopPolling();
+  stopPolicyCompliancePolling(); policyGateOpen=false; policyAdminWarningShown=false;
   if(clockInterval){ clearInterval(clockInterval); clockInterval = null; }
   document.getElementById('adminNavItem').style.display = 'none';
   document.getElementById('employeesNavSection').style.display = 'none';
@@ -10544,6 +10596,7 @@ function startPolling(){
     // the Points panel on it) current too — refreshPoints above only
     // covers the topbar badge/firm-wide popup, not this view's own lists.
     if(document.getElementById('view-kudos').classList.contains('active')) renderKudosView();
+    await refreshPolicyCompliance();
   }, 8000);
 }
 function stopPolling(){ if(pollHandle){ clearInterval(pollHandle); pollHandle = null; } }
@@ -10585,6 +10638,8 @@ function toggleTheme(){
       isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
       isSuperAdmin = session.accessRole === 'superadmin';
       currentViewerId = session.id;
+      await refreshPolicyCompliance();
+      if(policyPending(session) && session.accessRole === 'employee') return;
       await onLoginComplete();
       return;
     } catch(e){

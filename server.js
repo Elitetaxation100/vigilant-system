@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const db = require('./db');
 const cal = require('./calendar');
+const policyCompliance = require('./policy-compliance');
 
 // ---------------------------------------------------------------------------
 // WEB PUSH — browser notifications that fire even when the app isn't open.
@@ -1047,6 +1048,9 @@ function requireAuth(req, res, next) {
     const emp = findEmployee(state, payload.id);
     if (!emp) return res.status(401).json({ error: 'Account no longer exists.' });
     req.employee = emp;
+    const policyAllowed = ['/api/auth/me', '/api/auth/change-password', '/api/policy-compliance'].includes(req.path);
+    const policyLock = !policyAllowed && policyCompliance.lockResponse(emp);
+    if (policyLock) return res.status(policyLock.status).json(policyLock.body);
     materializeRecurringTasks(state); // once-a-day, cheap no-op after the first hit
     next();
   } catch (e) {
@@ -1095,6 +1099,20 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
 });
 app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ employee: publicEmployee(req.employee, isAdminRole(req.employee.accessRole)) });
+});
+
+app.get('/api/policy-compliance', requireAuth, async (req, res) => {
+  const state = db.get();
+  const employee = findEmployee(state, req.employee.id);
+  let reconciled = false;
+  if (policyCompliance.isStale(employee)) {
+    try {
+      const result = await policyCompliance.reconcileEmployee(employee);
+      if (result.ok) { db.save(); reconciled = true; }
+    } catch (error) { console.error('[policy-compliance] fallback failed:', error && error.message); }
+  }
+  res.json({ policyCompliance: employee.policyCompliance || { compliant: true, pendingCount: 0, lastSyncedAt: null },
+    emergencyAdminAccess: isAdminRole(employee.accessRole), reconciled });
 });
 // Self-service password change. Used for the mandatory first-login reset
 // (mustChangePassword — set when an account is auto-created, e.g. by the
@@ -1380,6 +1398,21 @@ app.get('/api/clients', requireAuth, (req, res) => {
   res.json({ clients: state.clients });
 });
 
+app.post('/webhooks/crm-policy-compliance', (req, res) => {
+  const configuredSecret = process.env.CRM_WEBHOOK_SECRET;
+  if (!configuredSecret) return res.status(503).json({ error: 'CRM policy compliance sync is not configured.' });
+  if (!policyCompliance.secretsEqual(req.headers['x-crm-webhook-secret'], configuredSecret)) {
+    return res.status(401).json({ error: 'Invalid CRM webhook credentials.' });
+  }
+  const validated = policyCompliance.validatePayload(req.body);
+  if (!validated.ok) return res.status(400).json({ error: validated.error });
+  const state = db.get();
+  const result = policyCompliance.applyCompliance(state, validated, new Date().toISOString(), req.body.policy || {});
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  db.save();
+  res.json({ ok: true, employee_id: result.employee.id, linked_by_email: result.linkedByEmail,
+    compliant: result.employee.policyCompliance.compliant, pending_count: result.employee.policyCompliance.pendingCount });
+});
 // Anyone can add a client — an employee adding their own contact defaults to
 // owning it. Only an admin can hand ownership to someone else.
 app.post('/api/clients', requireAuth, (req, res) => {

@@ -1,5 +1,9 @@
 # Elite Taxation — Governance OS (real backend)
 
+## CRM policy compliance
+
+ET-CRM is the only policy editor and source of truth. Task Manager stores only each employee's compliance status. Configure Railway with `CRM_WEBHOOK_SECRET`, `CRM_API_URL`, and a server-only `CRM_API_KEY` scoped to `get-policy-compliance` (plus `link-task-manager-client` only when the same key performs customer link-back). Normal employees with pending policies receive HTTP 423 and cannot use task APIs. Admins and superadmins retain emergency access with a mandatory warning.
+
 This is a real client-server app now: one Node.js server holds the data
 (employees, tasks, activity log, punch clock), and every employee's browser
 talks to that same server over the network. That's what actually fixes

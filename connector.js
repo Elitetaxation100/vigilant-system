@@ -2687,6 +2687,7 @@ function mountConnector(app) {
       },
       callsEmailDigestHourNZ: CALLS_EMAILS_DIGEST_HOUR,
       callsEmailDigestLastDaySent: (db.get().callsEmailsDigest || {}).lastDay || null,
+      crmPolicyCompliance: { webhookConfigured: !!c.crmWebhookSecret, apiFallbackConfigured: !!(process.env.CRM_API_URL && process.env.CRM_API_KEY) },
       calls: (db.get().calls || []).length,
       waContacts: Object.keys(db.get().waContacts || {}).length,
       waAwaiting: Object.values(db.get().waContacts || {}).filter(c => c.status === 'awaiting').length,
