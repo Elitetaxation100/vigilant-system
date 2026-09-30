@@ -61,6 +61,13 @@ const cfg = () => ({
   whatsappCloudPhoneNumberId: process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID || '',
   whatsappCloudTemplateName: process.env.WHATSAPP_CLOUD_TEMPLATE_NAME || 'daily_calls_email_report',
   whatsappCloudRecipients: (process.env.WHATSAPP_CLOUD_RECIPIENTS || '').split(',').map(s => s.trim()).filter(Boolean),
+  // Same digest, sent by email instead — reuses the existing Gmail service
+  // account (see gmailServiceAccountJson above), impersonating this mailbox
+  // to send FROM. Needs gmail.send added to that service account's
+  // authorization in Workspace Admin (it currently only has gmail.metadata,
+  // read-only). Recipients: who gets it, comma-separated addresses.
+  gmailDigestFromMailbox: process.env.GMAIL_DIGEST_FROM_MAILBOX || '',
+  gmailDigestRecipients: (process.env.GMAIL_DIGEST_RECIPIENTS || '').split(',').map(s => s.trim()).filter(Boolean),
 });
 // NZ hour the Calls & Email digest fires — a 15-minute-wide window starting
 // at :40 past this hour (see the scheduler tick) so it lands close to
@@ -1451,20 +1458,81 @@ async function sendWhatsAppCloudTemplate(toE164, bodyText) {
   }
   return { ok: true, result: r.json };
 }
+// Sending the digest by email reuses the SAME domain-wide-delegation
+// service account already used to read mail (GMAIL_SERVICE_ACCOUNT_JSON) —
+// no new account/key needed — but sending needs its own scope
+// (gmail.send), which must be added to that service account's existing
+// authorization in Google Workspace Admin (alongside gmail.metadata,
+// already there for reading). Kept on a completely separate token/cache
+// from the read path (gmailAccessToken/GMAIL_SCOPE above) so that if
+// gmail.send isn't authorized yet, sending just fails on its own —
+// reading mail is never put at risk by this addition.
+const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+const _gmailSendTokenCache = {};
+async function gmailSendAccessToken(mailboxAddress) {
+  const cached = _gmailSendTokenCache[mailboxAddress];
+  if (cached && cached.expiresAt > Date.now() + 60000) return cached.token;
+  const sa = gmailServiceAccount();
+  if (!sa) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const assertion = jwt.sign({
+    iss: sa.client_email, sub: mailboxAddress, scope: GMAIL_SEND_SCOPE,
+    aud: GMAIL_TOKEN_URL, iat: now, exp: now + 3600,
+  }, sa.private_key, { algorithm: 'RS256' });
+  const body = new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }).toString();
+  const r = await httpsRequest(GMAIL_TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  if (r.status !== 200 || !r.json || !r.json.access_token) {
+    clog('error', 'gmail send-token exchange failed — is gmail.send authorized for this service account in Workspace Admin?', { mailboxAddress, status: r.status, error: r.json && r.json.error });
+    return null;
+  }
+  _gmailSendTokenCache[mailboxAddress] = { token: r.json.access_token, expiresAt: Date.now() + (r.json.expires_in || 3600) * 1000 };
+  return r.json.access_token;
+}
+function buildRawEmail({ from, to, subject, text }) {
+  const raw = [
+    `From: ${from}`, `To: ${to}`, `Subject: ${subject}`,
+    'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', '', text,
+  ].join('\r\n');
+  return Buffer.from(raw, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function sendGmailDigestEmail(fromMailbox, toAddresses, subject, text) {
+  if (!cfg().gmailServiceAccountJson) return { ok: false, error: 'Gmail not configured' };
+  const token = await gmailSendAccessToken(fromMailbox);
+  if (!token) return { ok: false, error: 'no gmail send token — check gmail.send scope is authorized for this service account' };
+  const r = await httpsRequest('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: { raw: buildRawEmail({ from: fromMailbox, to: toAddresses.join(', '), subject, text }) },
+  });
+  if (r.status !== 200 || !r.json) return { ok: false, error: (r.json && r.json.error && r.json.error.message) || 'HTTP ' + r.status };
+  return { ok: true, result: r.json };
+}
 async function runCallsEmailsDigest(reason) {
   const state = db.get();
   const day = nzToday(new Date(Date.now() - 86400000));
   const data = callsEmailsDigestData(state, day);
   const text = formatCallsEmailsDigestText(data);
-  const recipients = cfg().whatsappCloudRecipients;
-  let sent = 0;
-  for (const to of recipients) {
-    const r = await sendWhatsAppCloudTemplate(to, text);
-    if (r.ok) sent++;
-    else clog('warn', 'calls/email digest: whatsapp send failed', { to, error: r.error });
+  const c = cfg();
+  let sent = 0, of = 0;
+  if (c.whatsappCloudRecipients.length) {
+    of += c.whatsappCloudRecipients.length;
+    for (const to of c.whatsappCloudRecipients) {
+      const r = await sendWhatsAppCloudTemplate(to, text);
+      if (r.ok) sent++;
+      else clog('warn', 'calls/email digest: whatsapp send failed', { to, error: r.error });
+    }
   }
-  clog('info', 'calls/email digest sent', { reason, day, people: data.people.length, sent, of: recipients.length });
-  return { day, sent, of: recipients.length, people: data.people.length };
+  if (c.gmailDigestFromMailbox && c.gmailDigestRecipients.length) {
+    of += 1;
+    const dayLabel = new Date(day + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+    // Plain ASCII subject — header values aren't declared with a charset the
+    // way the body is, so keep it simple; the richer emoji/em-dash text
+    // lives in the UTF-8-declared body instead.
+    const r = await sendGmailDigestEmail(c.gmailDigestFromMailbox, c.gmailDigestRecipients, `Calls & Email Report - ${dayLabel}`, text);
+    if (r.ok) sent++;
+    else clog('warn', 'calls/email digest: gmail send failed', { error: r.error });
+  }
+  clog('info', 'calls/email digest sent', { reason, day, people: data.people.length, sent, of });
+  return { day, sent, of, people: data.people.length };
 }
 
 // Scheduler tick — polls every mailbox in every employee's gmailAddresses
@@ -2408,7 +2476,10 @@ function startSchedulers() {
       // lastDay dedupes so only the first tick in that window actually
       // sends. Same {}-then-check-then-save-before-await pattern as the
       // other digests above, so two ticks racing can't double-send.
-      if (cfg().whatsappCloudToken && cfg().whatsappCloudPhoneNumberId && cfg().whatsappCloudRecipients.length) {
+      const ceCfg = cfg();
+      const whatsappReady = ceCfg.whatsappCloudToken && ceCfg.whatsappCloudPhoneNumberId && ceCfg.whatsappCloudRecipients.length;
+      const gmailDigestReady = ceCfg.gmailServiceAccountJson && ceCfg.gmailDigestFromMailbox && ceCfg.gmailDigestRecipients.length;
+      if (whatsappReady || gmailDigestReady) {
         const min = nzMinute(now);
         state.callsEmailsDigest = state.callsEmailsDigest || {};
         if (hr === CALLS_EMAILS_DIGEST_HOUR && min >= 40 && min < 55 && state.callsEmailsDigest.lastDay !== dayKey) {
@@ -2561,9 +2632,14 @@ function mountConnector(app) {
         configured: !!(c.whatsappCloudToken && c.whatsappCloudPhoneNumberId),
         recipients: c.whatsappCloudRecipients.length,
         templateName: c.whatsappCloudTemplateName,
-        digestHourNZ: CALLS_EMAILS_DIGEST_HOUR,
-        lastDaySent: (db.get().callsEmailsDigest || {}).lastDay || null,
       },
+      gmailDigest: {
+        configured: !!(c.gmailServiceAccountJson && c.gmailDigestFromMailbox && c.gmailDigestRecipients.length),
+        fromMailbox: c.gmailDigestFromMailbox || null,
+        recipients: c.gmailDigestRecipients.length,
+      },
+      callsEmailDigestHourNZ: CALLS_EMAILS_DIGEST_HOUR,
+      callsEmailDigestLastDaySent: (db.get().callsEmailsDigest || {}).lastDay || null,
       calls: (db.get().calls || []).length,
       waContacts: Object.keys(db.get().waContacts || {}).length,
       waAwaiting: Object.values(db.get().waContacts || {}).filter(c => c.status === 'awaiting').length,
