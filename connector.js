@@ -71,10 +71,10 @@ const cfg = () => ({
   gmailDigestFromMailbox: process.env.GMAIL_DIGEST_FROM_MAILBOX || '',
   gmailDigestRecipients: (process.env.GMAIL_DIGEST_RECIPIENTS || '').split(',').map(s => s.trim()).filter(Boolean),
 });
-// NZ hour the Calls & Email digest fires — a 15-minute-wide window starting
-// at :40 past this hour (see the scheduler tick) so it lands close to
-// 06:45 NZ without needing minute-exact alignment.
-const CALLS_EMAILS_DIGEST_HOUR = Number(process.env.CALLS_EMAILS_DIGEST_HOUR) || 6;
+// NZ hour the Calls & Email digest fires — a 10-minute-wide window starting
+// at :45 past this hour, never earlier (see the scheduler tick), covering
+// that same NZ calendar day's activity. Default 18 = 6:45pm NZ.
+const CALLS_EMAILS_DIGEST_HOUR = Number(process.env.CALLS_EMAILS_DIGEST_HOUR) || 18;
 
 // Agent → team routing. Used to live as a hardcoded AGENT_MAP object here;
 // now state.agentMap (db.js seeds it once from the old hardcoded values, so
@@ -1383,15 +1383,16 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// CALLS & EMAIL DIGEST — a daily WhatsApp report (Meta's own Business Cloud
-// API, not Interakt — see whatsappCloud* in cfg()) summarizing, per person,
-// how many calls/emails they had the PREVIOUS NZ calendar day and how many
-// they'd acknowledged (a call: someone listened to the recording; an email:
+// CALLS & EMAIL DIGEST — a daily report (email and/or WhatsApp) summarizing,
+// per person, how many calls/emails they had TODAY (the current NZ
+// calendar day, up to send time — fires in the evening, ~18:45 NZ, so this
+// covers effectively the whole working day) and how many they'd
+// acknowledged (a call: someone listened to the recording; an email:
 // replied, or marked reply-not-needed) vs not. One combined management
 // summary listing everyone, not a personal message per employee.
 // ---------------------------------------------------------------------------
 function callsEmailsDigestData(state, dayISO) {
-  const day = dayISO || nzToday(new Date(Date.now() - 86400000));
+  const day = dayISO || nzToday(new Date());
   const byPerson = {};
   const row = (id, name) => {
     if (!byPerson[id]) byPerson[id] = { id, name, calls: { total: 0, ack: 0, notAck: 0 }, emails: { total: 0, ack: 0, notAck: 0 } };
@@ -1552,7 +1553,7 @@ async function sendGmailDigestEmail(fromMailbox, toAddresses, subject, html) {
 }
 async function runCallsEmailsDigest(reason) {
   const state = db.get();
-  const day = nzToday(new Date(Date.now() - 86400000));
+  const day = nzToday(new Date());
   const data = callsEmailsDigestData(state, day);
   const text = formatCallsEmailsDigestText(data);
   const c = cfg();
@@ -2516,18 +2517,19 @@ function startSchedulers() {
       }
       await runReminders('scheduled ' + dayKey + ':' + hr);
       // Calls & Email WhatsApp digest — once daily, landing close to
-      // 06:45 NZ. Ticks are 10 minutes apart, so a 15-minute-wide window
-      // (:40-:54) guarantees one of them falls inside it every day;
-      // lastDay dedupes so only the first tick in that window actually
-      // sends. Same {}-then-check-then-save-before-await pattern as the
-      // other digests above, so two ticks racing can't double-send.
+      // configured digest hour:45 NZ. Ticks are 10 minutes apart, so a
+      // 10-minute-wide window starting exactly at :45 (never earlier)
+      // guarantees one tick falls inside it every day without ever firing
+      // before :45; lastDay dedupes so only the first tick in that window
+      // actually sends. Same {}-then-check-then-save-before-await pattern
+      // as the other digests above, so two ticks racing can't double-send.
       const ceCfg = cfg();
       const whatsappReady = ceCfg.whatsappCloudToken && ceCfg.whatsappCloudPhoneNumberId && ceCfg.whatsappCloudRecipients.length;
       const gmailDigestReady = ceCfg.gmailSendServiceAccountJson && ceCfg.gmailDigestFromMailbox && ceCfg.gmailDigestRecipients.length;
       if (whatsappReady || gmailDigestReady) {
         const min = nzMinute(now);
         state.callsEmailsDigest = state.callsEmailsDigest || {};
-        if (hr === CALLS_EMAILS_DIGEST_HOUR && min >= 40 && min < 55 && state.callsEmailsDigest.lastDay !== dayKey) {
+        if (hr === CALLS_EMAILS_DIGEST_HOUR && min >= 45 && min < 55 && state.callsEmailsDigest.lastDay !== dayKey) {
           state.callsEmailsDigest.lastDay = dayKey; db.save();
           await runCallsEmailsDigest('scheduled ' + dayKey);
         }
@@ -2899,7 +2901,7 @@ function mountConnector(app) {
     if (!v.ok) return res.status(401).json({ error: v.why });
     try {
       if (req.query.preview === '1') {
-        const day = req.query.day || nzToday(new Date(Date.now() - 86400000));
+        const day = req.query.day || nzToday(new Date());
         const data = callsEmailsDigestData(db.get(), day);
         return res.json({ ok: true, preview: true, text: formatCallsEmailsDigestText(data), data });
       }
