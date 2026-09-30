@@ -1454,8 +1454,6 @@ function formatCallsEmailsDigestHtml(data) {
   const dayLong = new Date(data.day + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
   const dayShort = new Date(data.day + 'T00:00:00').toLocaleDateString('en-NZ', { day: '2-digit', month: 'long', year: 'numeric' });
   const sum = (key) => data.people.reduce((s, p) => ({ total: s.total + p[key].total, ack: s.ack + p[key].ack, notAck: s.notAck + p[key].notAck }), { total: 0, ack: 0, notAck: 0 });
-  const calls = sum('calls'), emails = sum('emails');
-  const overall = { total: calls.total + emails.total, ack: calls.ack + emails.ack, notAck: calls.notAck + emails.notAck };
   const th = 'text-align:left;padding:8px 14px;border-bottom:2px solid #333;font-size:13px;';
   const td = 'padding:8px 14px;border-bottom:1px solid #ddd;font-size:14px;';
   const tdTotal = td + 'font-weight:bold;border-top:2px solid #333;border-bottom:none;';
@@ -1470,13 +1468,10 @@ function formatCallsEmailsDigestHtml(data) {
     const body = rows.map(p => row(p.name, p[key])).join('') + row('Total', sum(key), true);
     return `<h2 style="font-size:16px;margin:24px 0 8px;">${esc(title)}</h2>${table('Team Member', headCount, body)}`;
   };
-  const summaryBody = row('Calls', calls) + row('Emails', emails) + row('Overall', overall, true);
   return `<div style="font-family:Arial,Helvetica,sans-serif;color:#222;max-width:680px;">
     <h1 style="font-size:20px;">Daily Calls &amp; Email Report – ${esc(dayShort)}</h1>
     <p>Hi Team,</p>
     <p>Please find below the Calls and Email Activity Report for ${esc(dayLong)}.</p>
-    <h2 style="font-size:16px;margin:24px 0 8px;">Summary</h2>
-    ${table('Channel', 'Total', summaryBody)}
     ${activitySection('Call Activity', 'calls', 'Total Calls')}
     ${activitySection('Email Activity', 'emails', 'Total Emails')}
   </div>`;
