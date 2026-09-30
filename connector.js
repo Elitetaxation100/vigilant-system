@@ -1432,10 +1432,18 @@ function callsEmailsDigestData(state, dayISO) {
 function formatCallsEmailsDigestText(data) {
   const dayLabel = new Date(data.day + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
   if (!data.people.length) return `📞📧 Calls & Email Report — ${dayLabel}\n\nNo calls or emails logged.`;
-  const lines = data.people.map(p =>
-    `${p.name} — Calls ${p.calls.total} (${p.calls.ack} ack / ${p.calls.notAck} not) · Emails ${p.emails.total} (${p.emails.ack} ack / ${p.emails.notAck} not)`
-  );
-  return `📞📧 Calls & Email Report — ${dayLabel}\n\n${lines.join('\n')}`;
+  // Two separate sections — calls and emails are different work with
+  // different people responsible for each, so mixed one-line-per-person
+  // read as noise. Each section only lists people who actually had that
+  // kind of activity (no padding zero-rows for someone with emails but no
+  // calls, or vice versa).
+  const callRows = data.people.filter(p => p.calls.total > 0)
+    .map(p => `${p.name} — ${p.calls.total} (${p.calls.ack} ack / ${p.calls.notAck} not)`);
+  const emailRows = data.people.filter(p => p.emails.total > 0)
+    .map(p => `${p.name} — ${p.emails.total} (${p.emails.ack} ack / ${p.emails.notAck} not)`);
+  const section = (title, rows) => `${title}\n${rows.length ? rows.join('\n') : 'None'}`;
+  return `📞📧 Calls & Email Report — ${dayLabel}\n\n`
+    + section('📞 CALLS', callRows) + '\n\n' + section('📧 EMAILS', emailRows);
 }
 // Meta's own WhatsApp Business Cloud API, called directly — deliberately
 // NOT Interakt (that integration is receive-only here; see interaktApiKey
