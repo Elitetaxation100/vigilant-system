@@ -8880,18 +8880,43 @@ function openReviewScoreModal(){
   const t = findTask(_revState.id);
   if(!t) return;
   const isClean = !_revState.faultType;
+  const isInternal = t.kind === 'internal';
+  // Score + (for a clean review) the send decision are one screen now, not
+  // two in a row — scoring used to lead into a separate "Send to client?"
+  // popup immediately after, which read as the same decision twice.
+  const linksBlock = isClean ? `
+    <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="stcSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+    ${!isInternal ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}` : '';
+  const waiveBlock = isClean && !isInternal ? `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--panel-border);">
+      <div style="font-size:12px;color:var(--text-faint);margin-bottom:4px;">Genuinely doesn't need to go out?</div>
+      <select id="stcWaiveReason" style="font-size:12.5px;margin-bottom:6px;">
+        <option value="">— Why not required? —</option>
+        <option value="client_cancelled">Client cancelled the engagement</option>
+        <option value="duplicate_task">Duplicate task</option>
+        <option value="incorporated">Work incorporated into another approved report</option>
+        <option value="client_instruction">Written client instruction not to proceed</option>
+        <option value="admin_correction">Administrator-approved correction</option>
+      </select>
+      <div><a href="#" onclick="event.preventDefault(); submitReviewFinal('waive')" style="font-size:12px;color:var(--text-faint);">Won't be sent — mark not required</a></div>
+    </div>` : '';
   document.getElementById('modalBox').innerHTML = `
     <h3>Score this work — ${esc(t.name)}</h3>
-    <div class="modal-sub">${isClean ? 'Going straight to the client' : 'Going back for rework'}</div>
+    <div class="modal-sub">${isClean ? (isInternal ? 'Reviewed clean — no client to send to.' : 'Reviewed clean — decide how to send it below.') : 'Going back for rework'}</div>
     <div class="field"><label>Score <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(0–100, optional)</span></label>
       <input type="number" id="reviewScoreInput" min="0" max="100" step="1" placeholder="e.g. 90" value="${_revState.score != null ? _revState.score : ''}">
     </div>
+    ${linksBlock}
     <div class="modal-error" id="reviewScoreErr"></div>
-    <div class="modal-actions">
+    <div class="modal-actions" style="flex-wrap:wrap;">
       <button class="btn" onclick="reviewScoreGoBack(${isClean})">← Back</button>
-      ${isClean && t.kind !== 'internal' ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitReviewFinal(true)" title="Score it, then send straight to Shubam with the sheet/cashbook links — skips the extra screen">💰 Profit Confirm</button>` : ''}
-      <button class="btn primary" onclick="submitReviewFinal()">✓ Done</button>
+      ${isClean && !isInternal ? `<button class="btn" onclick="submitReviewFinal('later')">Remind me later</button>` : ''}
+      ${isClean && !isInternal ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitReviewFinal('profit')" title="Score it, then send to Shubam with the sheet/cashbook links">💰 Profit Confirm</button>` : ''}
+      <button class="btn primary" onclick="submitReviewFinal(${isClean && !isInternal ? "'send'" : 'undefined'})">${isClean && !isInternal ? '✓ Sent to client' : '✓ Done'}</button>
     </div>
+    ${waiveBlock}
   `;
   openModal();
 }
@@ -8904,11 +8929,17 @@ function reviewScoreGoBack(isClean){
   if(isClean) openReviewFormModal(_revState.id);
   else openReviewDetailFormModal();
 }
-// `toProfitConfirm` — set when the "💰 Profit Confirm" button (beside
-// Done, client tasks only) was clicked instead of "✓ Done": scores the
-// review exactly the same way, then routes straight to Shubam instead of
-// the intermediate send-to-client screen, in one step.
-async function submitReviewFinal(toProfitConfirm){
+// action (only meaningful when the review is clean): undefined = internal
+// "Done" (nothing further to decide), 'later' = save score/links, decide
+// sending another time, 'profit' = score then route to profit confirm,
+// 'send' = score then send straight to the client, 'waive' = score then
+// mark not required. All one submit — the standalone "Send to client?"
+// screen (openSendToClientModal) still exists separately for REOPENING an
+// already-reviewed task's send decision later (Reports to send, etc.);
+// this is only the first-time-through path, now a single screen instead of
+// a score step immediately followed by another popup asking the same kind
+// of question.
+async function submitReviewFinal(action){
   const scoreEl = document.getElementById('reviewScoreInput');
   let scoreVal; // undefined = left blank, which is fine — score is optional
   if(scoreEl.value !== ''){
@@ -8919,31 +8950,57 @@ async function submitReviewFinal(toProfitConfirm){
       return;
     }
   }
+  let waivedReason;
+  if(action === 'waive'){
+    waivedReason = (document.getElementById('stcWaiveReason')||{}).value || '';
+    if(!waivedReason){
+      const e = document.getElementById('reviewScoreErr');
+      e.textContent = "Pick a reason it's not required."; e.style.display = 'block';
+      return;
+    }
+  }
   const decision = _revState.faultType ? 'error' : 'clean';
   const id = _revState.id;
   const checklistLine = (_revState.checked||[]).length ? `Checklist confirmed: ${_revState.checked.join('; ')}.` : '';
   const note = [_revState.note, checklistLine].filter(Boolean).join(' ') || undefined;
   try {
-    const r = await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({
+    await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({
       status: decision, note, faultType: _revState.faultType || undefined,
       reviewHours: _revState.hours, screenshot: _revState.screenshot || undefined, score: scoreVal,
     }) });
+    // Sheet/Cashbook links live on this same screen now for a clean review.
+    const sheetEl = document.getElementById('stcSheetLink');
+    if(decision === 'clean' && sheetEl){
+      const sheetLink = sheetEl.value || undefined;
+      const cashbookLink = (document.getElementById('stcCashbookLink')||{}).value || undefined;
+      await api(`/api/tasks/${encodeURIComponent(id)}/links`, { method:'PATCH', body: JSON.stringify({ sheetLink, cashbookLink }) });
+    }
     _reviewShotData = null; _revState = null;
-    await refreshTasks();
-    await refreshActivity({ silent: true });
-    if(decision === 'clean' && toProfitConfirm){
-      await submitProfitConfirmRequest(id); // its own toast + refresh + close
+    if(decision === 'clean' && action === 'profit'){
+      await api(`/api/tasks/${encodeURIComponent(id)}/profit-confirm`, { method:'POST' });
+      await refreshTasks(); await refreshActivity({ silent:true });
+      closeModal();
+      showToast('info', 'Sent for profit confirmation', 'Shubam Sharma will confirm before this goes out.');
       return;
     }
+    if(decision === 'clean' && action === 'send'){
+      await api(`/api/tasks/${encodeURIComponent(id)}/send-to-client`, { method:'POST', body: JSON.stringify({ decision:'yes' }) });
+      await refreshTasks(); await refreshActivity({ silent:true });
+      closeModal();
+      showToast('success', 'Marked clean', 'Sent to client.');
+      return;
+    }
+    if(decision === 'clean' && action === 'waive'){
+      await api(`/api/tasks/${encodeURIComponent(id)}/send-to-client`, { method:'POST', body: JSON.stringify({ decision:'no', waivedReason }) });
+      await refreshTasks(); await refreshActivity({ silent:true });
+      closeModal();
+      showToast('info', 'Marked not required', '');
+      return;
+    }
+    await refreshTasks();
+    await refreshActivity({ silent: true });
     closeModal();
     showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', scoreVal != null ? `Scored ${scoreVal}/100.` : '');
-    // One screen for everything that follows a clean review — links and
-    // (for client work) the send/profit-confirm decision — instead of a
-    // chain of separate popups. Kudos deliberately isn't offered here; it
-    // lives on the Reviews page next to Profit confirmations / Reports to
-    // send, one toggle per task, so it's a considered decision made from
-    // the queue rather than a reflex click mid-flow.
-    if(decision === 'clean') openSendToClientModal(id);
   } catch(e){
     const el = document.getElementById('reviewScoreErr');
     el.textContent = e.message; el.style.display = 'block';
