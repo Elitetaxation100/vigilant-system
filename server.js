@@ -3365,6 +3365,30 @@ app.post('/api/productivity/close-month', requireAuth, requireSuperAdmin, (req, 
     totalHours: Math.round(credited.reduce((s, c) => s + c.hours, 0) * 100) / 100,
   });
 });
+// Reverses a close-month entirely — strips every monthCloseCredits entry
+// tagged with this exact period off every task, firm-wide, restoring
+// things exactly as if that close never happened (a task's own eventual
+// qualifying-event credit, which reads monthCloseCredits live, is
+// unaffected either way — see productivityQualifies). For testing/
+// correcting a close before it's relied on for real reporting.
+function undoMonthCloseCredits(state, period) {
+  const reverted = [];
+  (state.tasks || []).forEach(t => {
+    if (!Array.isArray(t.monthCloseCredits) || !t.monthCloseCredits.length) return;
+    const before = t.monthCloseCredits.length;
+    t.monthCloseCredits = t.monthCloseCredits.filter(c => c.period !== period);
+    if (t.monthCloseCredits.length !== before) reverted.push({ taskId: t.id, taskName: t.name, assignedTo: t.assignedTo });
+  });
+  if (reverted.length) db.save();
+  return reverted;
+}
+app.post('/api/productivity/undo-close-month', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const period = String((req.body || {}).period || '').trim();
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Period must be YYYY-MM, e.g. 2026-09.' });
+  const reverted = undoMonthCloseCredits(state, period);
+  res.json({ ok: true, period, reverted, tasksReverted: reverted.length });
+});
 
 // Productivity rebuild removed the composite-score weights editor and the
 // allocation-notes scorecard entirely (both were part of the retired P3/P4

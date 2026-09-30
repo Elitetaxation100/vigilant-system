@@ -7675,6 +7675,7 @@ function openCloseMonthModal(){
     <div class="modal-error" id="closeMonthErr"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn coral" onclick="submitUndoCloseMonth()" title="Removes every credit banked for this month across all tasks — for testing, or fixing a close you didn't mean to run">Undo Close</button>
       <button class="btn primary" onclick="submitCloseMonth()">Close Month</button>
     </div>`;
   openModal();
@@ -7690,6 +7691,21 @@ async function submitCloseMonth(){
       showToast('info', 'Nothing to close', 'No on-hold task had any new hours to bank for that month.');
     } else {
       showToast('success', `Closed ${period}`, `${r.tasksCredited} task${r.tasksCredited===1?'':'s'} credited, ${r.totalHours}h total.`);
+    }
+    await renderProductivityView();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+async function submitUndoCloseMonth(){
+  const period = document.getElementById('closeMonthPeriod').value;
+  const errEl = document.getElementById('closeMonthErr');
+  if(!/^\d{4}-\d{2}$/.test(period)){ errEl.textContent = 'Pick a month.'; errEl.style.display = 'block'; return; }
+  try {
+    const r = await api('/api/productivity/undo-close-month', { method:'POST', body: JSON.stringify({ period }) });
+    closeModal();
+    if(!r.tasksReverted){
+      showToast('info', 'Nothing to undo', 'No task had a close-month credit for that month.');
+    } else {
+      showToast('success', `Undone ${period}`, `${r.tasksReverted} task${r.tasksReverted===1?'':'s'} reverted.`);
     }
     await renderProductivityView();
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
