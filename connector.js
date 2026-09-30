@@ -61,11 +61,13 @@ const cfg = () => ({
   whatsappCloudPhoneNumberId: process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID || '',
   whatsappCloudTemplateName: process.env.WHATSAPP_CLOUD_TEMPLATE_NAME || 'daily_calls_email_report',
   whatsappCloudRecipients: (process.env.WHATSAPP_CLOUD_RECIPIENTS || '').split(',').map(s => s.trim()).filter(Boolean),
-  // Same digest, sent by email instead — reuses the existing Gmail service
-  // account (see gmailServiceAccountJson above), impersonating this mailbox
-  // to send FROM. Needs gmail.send added to that service account's
-  // authorization in Workspace Admin (it currently only has gmail.metadata,
-  // read-only). Recipients: who gets it, comma-separated addresses.
+  // Same digest, sent by email instead — via its OWN dedicated service
+  // account (deliberately NOT gmailServiceAccountJson above, which is
+  // shared with an unrelated client-facing integration on the same Google
+  // Workspace — this one only ever needs gmail.send, on a Client ID that
+  // exists purely for this digest and nothing else it could break).
+  // fromMailbox: which connected mailbox to impersonate as the sender.
+  gmailSendServiceAccountJson: process.env.GMAIL_SEND_SERVICE_ACCOUNT_JSON || '',
   gmailDigestFromMailbox: process.env.GMAIL_DIGEST_FROM_MAILBOX || '',
   gmailDigestRecipients: (process.env.GMAIL_DIGEST_RECIPIENTS || '').split(',').map(s => s.trim()).filter(Boolean),
 });
@@ -1458,21 +1460,24 @@ async function sendWhatsAppCloudTemplate(toE164, bodyText) {
   }
   return { ok: true, result: r.json };
 }
-// Sending the digest by email reuses the SAME domain-wide-delegation
-// service account already used to read mail (GMAIL_SERVICE_ACCOUNT_JSON) —
-// no new account/key needed — but sending needs its own scope
-// (gmail.send), which must be added to that service account's existing
-// authorization in Google Workspace Admin (alongside gmail.metadata,
-// already there for reading). Kept on a completely separate token/cache
-// from the read path (gmailAccessToken/GMAIL_SCOPE above) so that if
-// gmail.send isn't authorized yet, sending just fails on its own —
-// reading mail is never put at risk by this addition.
+// Sending the digest by email uses its OWN dedicated service account
+// (GMAIL_SEND_SERVICE_ACCOUNT_JSON) — deliberately NOT the one Gmail
+// reading uses (gmailServiceAccountJson/gmailServiceAccount above), which
+// is shared with an unrelated client-facing integration on the same
+// Google Workspace. Completely separate credential, token cache and
+// domain-wide-delegation Client ID, so nothing about this digest can ever
+// touch that other integration's authorization.
 const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 const _gmailSendTokenCache = {};
+function gmailSendServiceAccount() {
+  const raw = cfg().gmailSendServiceAccountJson;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch (e) { clog('error', 'GMAIL_SEND_SERVICE_ACCOUNT_JSON is not valid JSON'); return null; }
+}
 async function gmailSendAccessToken(mailboxAddress) {
   const cached = _gmailSendTokenCache[mailboxAddress];
   if (cached && cached.expiresAt > Date.now() + 60000) return cached.token;
-  const sa = gmailServiceAccount();
+  const sa = gmailSendServiceAccount();
   if (!sa) return null;
   const now = Math.floor(Date.now() / 1000);
   const assertion = jwt.sign({
@@ -1482,7 +1487,7 @@ async function gmailSendAccessToken(mailboxAddress) {
   const body = new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion }).toString();
   const r = await httpsRequest(GMAIL_TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (r.status !== 200 || !r.json || !r.json.access_token) {
-    clog('error', 'gmail send-token exchange failed — is gmail.send authorized for this service account in Workspace Admin?', { mailboxAddress, status: r.status, error: r.json && r.json.error });
+    clog('error', 'gmail send-token exchange failed — is this service account\'s Client ID authorized for gmail.send in Workspace Admin, and does fromMailbox belong to this Workspace?', { mailboxAddress, status: r.status, error: r.json && r.json.error });
     return null;
   }
   _gmailSendTokenCache[mailboxAddress] = { token: r.json.access_token, expiresAt: Date.now() + (r.json.expires_in || 3600) * 1000 };
@@ -1496,9 +1501,9 @@ function buildRawEmail({ from, to, subject, text }) {
   return Buffer.from(raw, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 async function sendGmailDigestEmail(fromMailbox, toAddresses, subject, text) {
-  if (!cfg().gmailServiceAccountJson) return { ok: false, error: 'Gmail not configured' };
+  if (!cfg().gmailSendServiceAccountJson) return { ok: false, error: 'GMAIL_SEND_SERVICE_ACCOUNT_JSON not configured' };
   const token = await gmailSendAccessToken(fromMailbox);
-  if (!token) return { ok: false, error: 'no gmail send token — check gmail.send scope is authorized for this service account' };
+  if (!token) return { ok: false, error: 'no gmail send token — check this service account is domain-wide-delegated for gmail.send' };
   const r = await httpsRequest('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
     body: { raw: buildRawEmail({ from: fromMailbox, to: toAddresses.join(', '), subject, text }) },
@@ -2478,7 +2483,7 @@ function startSchedulers() {
       // other digests above, so two ticks racing can't double-send.
       const ceCfg = cfg();
       const whatsappReady = ceCfg.whatsappCloudToken && ceCfg.whatsappCloudPhoneNumberId && ceCfg.whatsappCloudRecipients.length;
-      const gmailDigestReady = ceCfg.gmailServiceAccountJson && ceCfg.gmailDigestFromMailbox && ceCfg.gmailDigestRecipients.length;
+      const gmailDigestReady = ceCfg.gmailSendServiceAccountJson && ceCfg.gmailDigestFromMailbox && ceCfg.gmailDigestRecipients.length;
       if (whatsappReady || gmailDigestReady) {
         const min = nzMinute(now);
         state.callsEmailsDigest = state.callsEmailsDigest || {};
@@ -2634,7 +2639,7 @@ function mountConnector(app) {
         templateName: c.whatsappCloudTemplateName,
       },
       gmailDigest: {
-        configured: !!(c.gmailServiceAccountJson && c.gmailDigestFromMailbox && c.gmailDigestRecipients.length),
+        configured: !!(c.gmailSendServiceAccountJson && c.gmailDigestFromMailbox && c.gmailDigestRecipients.length),
         fromMailbox: c.gmailDigestFromMailbox || null,
         recipients: c.gmailDigestRecipients.length,
       },
