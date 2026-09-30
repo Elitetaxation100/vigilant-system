@@ -1161,8 +1161,18 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
   if (cursor) {
     const listResp = await gmailApi(mailboxAddress, `history/list?startHistoryId=${encodeURIComponent(cursor)}&historyTypes=messageAdded`);
     if (listResp.status !== 200 || !listResp.json) {
-      clog('warn', 'gmail poll: list failed', { mailboxAddress, status: listResp.status, error: listResp.json && listResp.json.error, raw: !listResp.json && listResp.raw ? listResp.raw.toString('utf8').slice(0, 300) : undefined });
-      return { mailboxAddress, ok: false, added: 0 };
+      // Gmail only retains history for a limited window (about a week) —
+      // once this cursor ages past that (or otherwise goes bad), every
+      // future poll hits the exact same failure and this mailbox silently
+      // stops ingesting anything new, forever, with no visible error to
+      // anyone but this log line. Clear the cursor and re-bootstrap (same
+      // path as a brand-new mailbox) instead of giving up, so one bad
+      // cursor self-heals on the very next tick rather than needing a
+      // manual fix.
+      clog('warn', 'gmail poll: list failed — clearing cursor and re-bootstrapping', { mailboxAddress, status: listResp.status, error: listResp.json && listResp.json.error });
+      state.emailPollCursor[mailboxAddress] = null;
+      db.save();
+      return pollGmailMailbox(mailboxAddress, employeeId);
     }
     const history = listResp.json.history || [];
     messageIds = [...new Set(history.flatMap(h => (h.messagesAdded || []).map(m => m.message.id)))];

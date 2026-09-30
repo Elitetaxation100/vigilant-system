@@ -2481,10 +2481,10 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
     // here: this is evidence of real work done, not a self-granted waiver).
     const allowed = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.id === t.reportSendOwner;
     if (!allowed) return res.status(403).json({ error: "You can't make this decision on someone else's review." });
+    // Channel/reference are optional context, not a requirement to confirm
+    // sending — a one-click "sent" shouldn't be blocked on providing proof.
     const channel = ['email', 'whatsapp', 'portal', 'physical', 'other'].includes((req.body || {}).channel) ? req.body.channel : null;
-    const reference = ((req.body || {}).reference == null ? '' : String(req.body.reference)).trim().slice(0, 300);
-    if (!channel) return res.status(400).json({ error: 'Choose how the report was sent (email, WhatsApp, portal, etc).' });
-    if (!reference) return res.status(400).json({ error: 'Give some evidence or reference for the send (e.g. the email subject, or a note).' });
+    const reference = ((req.body || {}).reference == null ? '' : String(req.body.reference)).trim().slice(0, 300) || null;
     t.sentToClient = true;
     t.sentToClientAt = new Date().toISOString();
     t.sentToClientBy = req.employee.id;
@@ -2492,7 +2492,7 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
     t.reportDeliveryReference = reference;
     t.reportDeliveryStatus = null; // superseded by the sentToClient fact itself
     t.awaitingClientDecision = false;
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent directly to the client by <b>${escHtml(req.employee.name)}</b> (${channel}).`);
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent directly to the client by <b>${escHtml(req.employee.name)}</b>${channel ? ' (' + channel + ')' : ''}.`);
     managersOfEmployee(state, t.assignedTo).forEach(m => {
       logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was sent directly to the client.`);
     });

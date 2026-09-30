@@ -8938,11 +8938,6 @@ async function submitReviewFinal(toProfitConfirm){
       ${t.profitConfirmStatus === 'confirmed' ? `<div><b style="color:var(--text);">Profit confirmed</b> — ready to send.</div>` : ''}
     </div>` : ''}
     ${linksBlock}
-    ${!isInternal && t.profitConfirmStatus !== 'pending' ? `
-    <div class="field"><label>How was it sent <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(required to confirm sent)</span></label>
-      <select id="stcChannel"><option value="">— Choose —</option><option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="portal">Client portal</option><option value="physical">Physical delivery</option><option value="other">Other</option></select></div>
-    <div class="field"><label>Evidence / reference <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(e.g. email subject line)</span></label>
-      <input type="text" id="stcReference" placeholder="e.g. Emailed GST return PDF, subject 'FY26 GST Return'"></div>` : ''}
     <div class="modal-error" id="stcErr"></div>
     <div class="modal-actions" style="flex-wrap:wrap;">
     <button class="btn" onclick="submitSaveLinks('${id}', true)">${isInternal ? 'Close' : 'Remind me later'}</button>
@@ -8983,13 +8978,7 @@ async function submitReviewFinal(toProfitConfirm){
     const errEl = document.getElementById('stcErr');
     const showErr = m => { if(errEl){ errEl.textContent = m; errEl.style.display = 'block'; } };
     const body = { decision };
-    if(decision === 'yes'){
-      const channel = (document.getElementById('stcChannel')||{}).value || '';
-      const reference = (document.getElementById('stcReference')||{}).value.trim() || '';
-      if(!channel){ showErr('Choose how the report was sent.'); return; }
-      if(!reference){ showErr('Give some evidence or reference for the send.'); return; }
-      body.channel = channel; body.reference = reference;
-    } else {
+    if(decision === 'no'){
       const waivedReason = (document.getElementById('stcWaiveReason')||{}).value || '';
       if(!waivedReason){ showErr('Pick a reason it\'s not required.'); return; }
       body.waivedReason = waivedReason;
