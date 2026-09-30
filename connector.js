@@ -51,7 +51,21 @@ const cfg = () => ({
   // scope only (no message body access).
   gmailServiceAccountJson: process.env.GMAIL_SERVICE_ACCOUNT_JSON || '',
   gmailPollMinutes: Number(process.env.GMAIL_POLL_MINUTES) || 7,
+  // Daily Calls & Email digest — Meta's own WhatsApp Business Cloud API,
+  // called directly (deliberately NOT Interakt, which is receive-only
+  // here). A permanent access token + the sender's phone_number_id from
+  // Meta's dashboard; who it's sent to (E.164 numbers, comma-separated);
+  // and the name of the one approved message template it uses (must have a
+  // single body {{1}} text parameter). See runCallsEmailsDigest below.
+  whatsappCloudToken: process.env.WHATSAPP_CLOUD_TOKEN || '',
+  whatsappCloudPhoneNumberId: process.env.WHATSAPP_CLOUD_PHONE_NUMBER_ID || '',
+  whatsappCloudTemplateName: process.env.WHATSAPP_CLOUD_TEMPLATE_NAME || 'daily_calls_email_report',
+  whatsappCloudRecipients: (process.env.WHATSAPP_CLOUD_RECIPIENTS || '').split(',').map(s => s.trim()).filter(Boolean),
 });
+// NZ hour the Calls & Email digest fires — a 15-minute-wide window starting
+// at :40 past this hour (see the scheduler tick) so it lands close to
+// 06:45 NZ without needing minute-exact alignment.
+const CALLS_EMAILS_DIGEST_HOUR = Number(process.env.CALLS_EMAILS_DIGEST_HOUR) || 6;
 
 // Agent → team routing. Used to live as a hardcoded AGENT_MAP object here;
 // now state.agentMap (db.js seeds it once from the old hardcoded values, so
@@ -1359,6 +1373,100 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// CALLS & EMAIL DIGEST — a daily WhatsApp report (Meta's own Business Cloud
+// API, not Interakt — see whatsappCloud* in cfg()) summarizing, per person,
+// how many calls/emails they had the PREVIOUS NZ calendar day and how many
+// they'd acknowledged (a call: someone listened to the recording; an email:
+// replied, or marked reply-not-needed) vs not. One combined management
+// summary listing everyone, not a personal message per employee.
+// ---------------------------------------------------------------------------
+function callsEmailsDigestData(state, dayISO) {
+  const day = dayISO || nzToday(new Date(Date.now() - 86400000));
+  const byPerson = {};
+  const row = (id, name) => {
+    if (!byPerson[id]) byPerson[id] = { id, name, calls: { total: 0, ack: 0, notAck: 0 }, emails: { total: 0, ack: 0, notAck: 0 } };
+    return byPerson[id];
+  };
+  // Calls — same "ended, listenedBy = acknowledged" definition as the
+  // existing call tiles (callStatsForSlackId); a call can have two
+  // responsible people (see responsiblePeopleForCall) and counts for both.
+  (state.calls || []).filter(c => c.status === 'ended' && c.occurredAt && nzToday(new Date(c.occurredAt)) === day)
+    .forEach(c => {
+      responsiblePeopleForCall(state, c).forEach(p => {
+        const r = row(p.id, p.name);
+        r.calls.total++;
+        if (c.listenedBy) r.calls.ack++; else r.calls.notAck++;
+      });
+    });
+  // Emails — same inbound-only, ignored-sender and category exclusions as
+  // allEmailsReport, so this total always matches what the Email page shows
+  // for the same day. Acknowledged = replied or marked reply-not-needed.
+  const ignored = new Set((state.emailIgnoredSenders || []).map(s => String(s || '').toLowerCase()));
+  (state.emails || []).filter(e => e.direction === 'inbound' && e.occurredAt && nzToday(new Date(e.occurredAt)) === day
+    && !ignored.has(String(e.fromAddress || '').toLowerCase())
+    && !(e.labelIds || []).some(l => EMAIL_EXCLUDED_LABELS.includes(l)))
+    .forEach(e => {
+      const emp = (state.employees || []).find(x => x.id === e.mailboxOwner);
+      const r = row(e.mailboxOwner || e.mailbox, emp ? emp.name : e.agentName || 'Unknown');
+      r.emails.total++;
+      const status = emailOutcomeStatus(e);
+      if (status === 'replied' || status === 'no_action') r.emails.ack++; else r.emails.notAck++;
+    });
+  // Only people with actual activity that day — no point listing everyone
+  // at 0/0/0/0.
+  const people = Object.values(byPerson)
+    .filter(p => p.calls.total > 0 || p.emails.total > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return { day, people };
+}
+function formatCallsEmailsDigestText(data) {
+  const dayLabel = new Date(data.day + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  if (!data.people.length) return `📞📧 Calls & Email Report — ${dayLabel}\n\nNo calls or emails logged.`;
+  const lines = data.people.map(p =>
+    `${p.name} — Calls ${p.calls.total} (${p.calls.ack} ack / ${p.calls.notAck} not) · Emails ${p.emails.total} (${p.emails.ack} ack / ${p.emails.notAck} not)`
+  );
+  return `📞📧 Calls & Email Report — ${dayLabel}\n\n${lines.join('\n')}`;
+}
+// Meta's own WhatsApp Business Cloud API, called directly — deliberately
+// NOT Interakt (that integration is receive-only here; see interaktApiKey
+// above). Requires an approved message template with exactly one body
+// {{1}} parameter, which carries the entire preformatted report as one
+// string — WhatsApp templates don't support a variable number of rows, so
+// the whole multi-line report is packed into that single placeholder.
+async function sendWhatsAppCloudTemplate(toE164, bodyText) {
+  const c = cfg();
+  if (!c.whatsappCloudToken || !c.whatsappCloudPhoneNumberId) return { ok: false, error: 'WhatsApp Cloud API not configured' };
+  const r = await httpsRequest(`https://graph.facebook.com/v19.0/${encodeURIComponent(c.whatsappCloudPhoneNumberId)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + c.whatsappCloudToken },
+    body: {
+      messaging_product: 'whatsapp', to: toE164, type: 'template',
+      template: { name: c.whatsappCloudTemplateName, language: { code: 'en' },
+        components: [{ type: 'body', parameters: [{ type: 'text', text: bodyText }] }] },
+    },
+  });
+  if (r.status !== 200 && r.status !== 201) {
+    return { ok: false, error: (r.json && r.json.error && r.json.error.message) || 'HTTP ' + r.status };
+  }
+  return { ok: true, result: r.json };
+}
+async function runCallsEmailsDigest(reason) {
+  const state = db.get();
+  const day = nzToday(new Date(Date.now() - 86400000));
+  const data = callsEmailsDigestData(state, day);
+  const text = formatCallsEmailsDigestText(data);
+  const recipients = cfg().whatsappCloudRecipients;
+  let sent = 0;
+  for (const to of recipients) {
+    const r = await sendWhatsAppCloudTemplate(to, text);
+    if (r.ok) sent++;
+    else clog('warn', 'calls/email digest: whatsapp send failed', { to, error: r.error });
+  }
+  clog('info', 'calls/email digest sent', { reason, day, people: data.people.length, sent, of: recipients.length });
+  return { day, sent, of: recipients.length, people: data.people.length };
+}
+
 // Scheduler tick — polls every mailbox in every employee's gmailAddresses
 // (one employee can own more than one — e.g. Khushi runs both Rideshare and
 // Property). Gated on the service account being configured (matches the
@@ -2071,6 +2179,14 @@ function nzHour(d) {
   return isNaN(h) ? new Date().getUTCHours() : (h === 24 ? 0 : h);
 }
 function nzToday(d) { return (d || new Date()).toLocaleDateString('en-CA', { timeZone: DIGEST_TZ }); } // YYYY-MM-DD
+// The minute component of NZ wall-clock time — used only to land the Calls
+// & Email digest inside a specific ~15-minute window (see the scheduler
+// tick), since every other scheduled job here only needs hour precision.
+function nzMinute(d) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: DIGEST_TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d || new Date());
+  const m = parts.find(p => p.type === 'minute');
+  return m ? parseInt(m.value, 10) : new Date().getUTCMinutes();
+}
 function activeAssignedTasks(state) {
   return (state.tasks || []).filter(t => t.assignedTo && !['completed', 'cancelled'].includes(t.status));
 }
@@ -2286,6 +2402,20 @@ function startSchedulers() {
         }
       }
       await runReminders('scheduled ' + dayKey + ':' + hr);
+      // Calls & Email WhatsApp digest — once daily, landing close to
+      // 06:45 NZ. Ticks are 10 minutes apart, so a 15-minute-wide window
+      // (:40-:54) guarantees one of them falls inside it every day;
+      // lastDay dedupes so only the first tick in that window actually
+      // sends. Same {}-then-check-then-save-before-await pattern as the
+      // other digests above, so two ticks racing can't double-send.
+      if (cfg().whatsappCloudToken && cfg().whatsappCloudPhoneNumberId && cfg().whatsappCloudRecipients.length) {
+        const min = nzMinute(now);
+        state.callsEmailsDigest = state.callsEmailsDigest || {};
+        if (hr === CALLS_EMAILS_DIGEST_HOUR && min >= 40 && min < 55 && state.callsEmailsDigest.lastDay !== dayKey) {
+          state.callsEmailsDigest.lastDay = dayKey; db.save();
+          await runCallsEmailsDigest('scheduled ' + dayKey);
+        }
+      }
     } catch (e) { clog('error', 'scheduler tick threw: ' + (e && e.stack || e)); }
   };
   _schedTimer = setInterval(tick, 10 * 60 * 1000); // every 10 min
@@ -2426,6 +2556,13 @@ function mountConnector(app) {
         mailboxes: (db.get().employees || []).reduce((n, e) => n + (e.gmailAddresses || []).length, 0),
         emails: (db.get().emails || []).length,
         pollMinutes: c.gmailPollMinutes,
+      },
+      whatsappCloud: {
+        configured: !!(c.whatsappCloudToken && c.whatsappCloudPhoneNumberId),
+        recipients: c.whatsappCloudRecipients.length,
+        templateName: c.whatsappCloudTemplateName,
+        digestHourNZ: CALLS_EMAILS_DIGEST_HOUR,
+        lastDaySent: (db.get().callsEmailsDigest || {}).lastDay || null,
       },
       calls: (db.get().calls || []).length,
       waContacts: Object.keys(db.get().waContacts || {}).length,
@@ -2632,6 +2769,22 @@ function mountConnector(app) {
     } catch (e) { clog('error', 'manual reminders threw: ' + e); res.status(500).json({ error: String(e) }); }
     finally { if (dry) _reminderDryRun = false; }
   });
+  // Manual trigger for the Calls & Email WhatsApp digest — same shared
+  // secret as the others. ?preview=1 returns the computed report text
+  // without actually sending it, for checking the format/numbers before
+  // wiring up real recipients.
+  app.post('/webhooks/run-calls-email-digest', async (req, res) => {
+    const v = verifyAircall(req);
+    if (!v.ok) return res.status(401).json({ error: v.why });
+    try {
+      if (req.query.preview === '1') {
+        const day = req.query.day || nzToday(new Date(Date.now() - 86400000));
+        const data = callsEmailsDigestData(db.get(), day);
+        return res.json({ ok: true, preview: true, text: formatCallsEmailsDigestText(data), data });
+      }
+      res.json({ ok: true, ...(await runCallsEmailsDigest('manual')) });
+    } catch (e) { clog('error', 'manual calls/email digest threw: ' + e); res.status(500).json({ error: String(e) }); }
+  });
 
   // CRM (crm.elitetaxation.co.nz) sync — a Supabase Database Webhook on the
   // CRM's customers table and its users table, each pointed at one of these
@@ -2650,7 +2803,7 @@ function mountConnector(app) {
   });
 
   startSchedulers();
-  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-personal-digest,run-reminders,log,health}');
+  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-personal-digest,run-reminders,run-calls-email-digest,log,health}');
 }
 
 module.exports = {
@@ -2658,4 +2811,5 @@ module.exports = {
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
   agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
+  callsEmailsDigestData, formatCallsEmailsDigestText, runCallsEmailsDigest,
 };
