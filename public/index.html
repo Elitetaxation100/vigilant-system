@@ -8847,7 +8847,7 @@ function openReviewScoreModal(){
   document.getElementById('modalBox').innerHTML = `
     <h3>Score this work — ${esc(t.name)}</h3>
     <div class="modal-sub">${isClean ? 'Going straight to the client' : 'Going back for rework'}</div>
-    <div class="field"><label>Score <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(0–100)</span></label>
+    <div class="field"><label>Score <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(0–100, optional)</span></label>
       <input type="number" id="reviewScoreInput" min="0" max="100" step="1" placeholder="e.g. 90" value="${_revState.score != null ? _revState.score : ''}">
     </div>
     <div class="modal-error" id="reviewScoreErr"></div>
@@ -8874,11 +8874,14 @@ function reviewScoreGoBack(isClean){
 // the intermediate send-to-client screen, in one step.
 async function submitReviewFinal(toProfitConfirm){
   const scoreEl = document.getElementById('reviewScoreInput');
-  const scoreVal = scoreEl.value !== '' ? parseFloat(scoreEl.value) : NaN;
-  if(!(scoreVal >= 0) || scoreVal > 100){
-    const e = document.getElementById('reviewScoreErr');
-    e.textContent = 'Enter a score between 0 and 100.'; e.style.display = 'block';
-    return;
+  let scoreVal; // undefined = left blank, which is fine — score is optional
+  if(scoreEl.value !== ''){
+    scoreVal = parseFloat(scoreEl.value);
+    if(!(scoreVal >= 0) || scoreVal > 100){
+      const e = document.getElementById('reviewScoreErr');
+      e.textContent = 'Enter a score between 0 and 100.'; e.style.display = 'block';
+      return;
+    }
   }
   const decision = _revState.faultType ? 'error' : 'clean';
   const id = _revState.id;
@@ -8897,7 +8900,7 @@ async function submitReviewFinal(toProfitConfirm){
       return;
     }
     closeModal();
-    showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', `Scored ${scoreVal}/100.`);
+    showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', scoreVal != null ? `Scored ${scoreVal}/100.` : '');
     // One screen for everything that follows a clean review — links and
     // (for client work) the send/profit-confirm decision — instead of a
     // chain of separate popups. Kudos deliberately isn't offered here; it
