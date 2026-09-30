@@ -4856,8 +4856,12 @@ function actionCell(t){
       html += `<span style="font-size:12.5px;color:var(--text-faint);">Self-assigned — pending approval</span>`;
     }
   } else if(t.status === 'awaiting_acceptance' && isMine){
-    if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back for rework — accept to start fixing it</span>`;
-    html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Accept</button>`;
+    if(flagged){
+      html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back for rework</span>`;
+      html += `<span style="display:inline-flex;align-items:center;gap:8px;margin-right:8px;"><span style="font-size:12.5px;color:var(--text-dim);">Start rework</span><div class="toggle-switch" onclick="acceptTask('${t.id}')" title="Accept and start fixing"></div></span>`;
+    } else {
+      html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Accept</button>`;
+    }
     html += `<button class="verify-btn" onclick="openProposeModal('${t.id}')">Propose Window</button>`;
   } else if(t.status === 'window_proposed'){
     if(isAdmin){
@@ -8106,7 +8110,7 @@ function renderReviewsView(){
       <td>${r ? esc(r.name) : '—'}</td>
       <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
       <td class="tl-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.reviewNote||'')}">${esc(t.reviewNote || '—')}</td>
-      <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Accept &amp; fix</button></td>
+      <td><span style="display:inline-flex;align-items:center;gap:8px;"><span style="font-size:12.5px;color:var(--text-dim);">Start rework</span><div class="toggle-switch" onclick="acceptTask('${t.id}')" title="Accept and start fixing"></div></span></td>
     </tr>`;
   }).join('');
 
@@ -8792,19 +8796,27 @@ function openReviewFormModal(id){
       ${t.sheetLink || t.cashbookLink ? `<div><b style="color:var(--text);">Links:</b> ${t.sheetLink ? `<a href="${esc(t.sheetLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Sheet</a>` : ''}${t.sheetLink && t.cashbookLink ? ' · ' : ''}${t.cashbookLink ? `<a href="${esc(t.cashbookLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Cashbook</a>` : ''}</div>` : ''}
     </div>
     <div class="field" style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;">
-      <label style="font-size:15px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600;">${t.kind === 'internal' ? 'Is this work correct as delivered?' : 'Can we send this directly to the client?'}</label>
-      <div style="font-size:12.5px;color:var(--text-faint);margin-top:4px;">${t.kind === 'internal' ? 'Yes scores it and closes it out; No records whose fault it was and sends it back for rework.' : 'Yes scores it and moves to sending it; No records whose fault it was and sends it back for rework.'}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <div>
+          <label style="font-size:15px;text-transform:none;letter-spacing:0;color:var(--text);font-weight:600;">Rework needed?</label>
+          <div style="font-size:12.5px;color:var(--text-faint);margin-top:4px;">Off scores it and ${t.kind === 'internal' ? 'closes it out' : 'moves to sending it'}; on records whose fault it was and sends it back to fix.</div>
+        </div>
+        <div class="toggle-switch" id="reworkGateToggle" onclick="toggleReworkGate()" title="Rework needed"></div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn coral" onclick="reviewGateChoice(false)">✗ No</button>
-      <button class="btn primary" onclick="reviewGateChoice(true)">✓ Yes</button>
+      <button class="btn primary" onclick="reviewGateContinue()">Continue →</button>
     </div>
   `;
   openModal();
 }
-function reviewGateChoice(canSend){
-  if(canSend) openReviewScoreModal();
+function toggleReworkGate(){
+  document.getElementById('reworkGateToggle').classList.toggle('on');
+}
+function reviewGateContinue(){
+  const reworkNeeded = document.getElementById('reworkGateToggle').classList.contains('on');
+  if(!reworkNeeded) openReviewScoreModal();
   else openReviewFaultModal();
 }
 function openReviewFaultModal(){
