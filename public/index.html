@@ -391,6 +391,7 @@
   .panel-head h2{ font-family:var(--font-display); font-size:18px; font-weight:700; letter-spacing:-.1px; }
   .panel-head h2::before{ content:''; display:inline-block; width:4px; height:15px; border-radius:2px; background:linear-gradient(180deg,var(--purple),var(--mint-deep)); margin-right:9px; vertical-align:-2px; }
   .panel-head-actions{ display:flex; gap:10px; }
+  body:has(#view-performance.active) #deadlineBannerWrap{ display:none; }
   .btn{ display:flex; align-items:center; gap:7px; background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text); font-size:14px; font-weight:600; padding:8px 14px; border-radius:var(--radius-s); transition:box-shadow .18s ease, border-color .15s ease, color .15s ease, transform .12s ease, background .15s ease;}
   .btn:hover{ border-color:var(--purple); color:var(--purple); }
   .btn:active{ transform:scale(.96); }
@@ -1800,35 +1801,33 @@
             <h2>Workshop pre-reading</h2>
             <div class="panel-head-actions"><button class="btn small primary" id="newWorkshopBtn" style="display:none;" onclick="openWorkshopModal()">+ New workshop</button></div>
           </div>
-          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 8px;">Read the pre-reading before each workshop and confirm with <b>I've read it</b>. Anyone who turns up without having read it gets negative marks.</p>
           <div id="workshopsBody"></div>
         </div>
         <div class="panel" id="marksGivePanel" style="display:none;">
           <div class="panel-head"><h2>Give marks</h2></div>
-          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Add or deduct marks for someone on your team. A reason is required, and they're notified. Marks are kept on record — a mistake can be voided but never silently deleted.</p>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end;">
+          <div style="display:grid;grid-template-columns:minmax(200px,2fr) minmax(200px,1fr);gap:12px;align-items:end;">
             <div class="field" style="margin:0;"><label>Person</label><select id="markTo"></select></div>
-            <div class="field" style="margin:0;"><label>Type</label>
-              <div class="src-subtabs" style="margin:0;">
-                <button class="src-subtab on" id="markSignPos" onclick="setMarkSign(1)">＋ Positive</button>
-                <button class="src-subtab" id="markSignNeg" onclick="setMarkSign(-1)">－ Negative</button>
+            <div class="field" style="margin:0;"><label>Marks</label>
+              <div style="display:flex;gap:8px;">
+                <div class="src-subtabs" style="margin:0;flex-wrap:nowrap;">
+                  <button class="src-subtab on" id="markSignPos" onclick="setMarkSign(1)" title="Add marks">＋</button>
+                  <button class="src-subtab" id="markSignNeg" onclick="setMarkSign(-1)" title="Deduct marks">－</button>
+                </div>
+                <input type="number" id="markPoints" min="1" max="10000" step="1" placeholder="e.g. 5" style="flex:1;min-width:0;">
               </div>
             </div>
-            <div class="field" style="margin:0;"><label>Marks</label><input type="number" id="markPoints" min="1" max="10000" step="1" placeholder="e.g. 5"></div>
-            <div class="field" style="margin:0;"><label>Workshop pre-reading <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">— optional</span></label><select id="markWorkshop" onchange="onMarkWorkshopChange()"></select></div>
           </div>
-          <div class="field" style="margin-top:12px;"><label>Reason or snip <span class="req-mark">*</span> <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">— add a reason, a snip, or both</span></label>
-            <textarea id="markReason" placeholder="e.g. Called the client back within the hour as promised"></textarea>
-            <div id="markSnipZone" style="margin-top:8px;border:1px dashed var(--panel-border);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--text-dim);display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-              <span>📋 Paste a snip here with <b>Ctrl+V</b> (Win+Shift+S to take one), or</span>
-              <button class="btn small" type="button" onclick="document.getElementById('markSnipFile').click()">Choose an image</button>
-              <input type="file" id="markSnipFile" accept="image/*" style="display:none;" onchange="setMarkSnip(this.files[0]); this.value='';">
-              <div id="markSnipPreview" style="width:100%;"></div>
-            </div>
-            <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Both you and the person receiving the mark can see the snip.</div>
+          <div class="field" style="margin-top:12px;"><label>Reason <span class="req-mark">*</span></label>
+            <textarea id="markReason" rows="2" placeholder="e.g. Called the client back within the hour as promised"></textarea>
+          </div>
+          <div id="markSnipZone" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--text-dim);">
+            <button class="btn small" type="button" onclick="document.getElementById('markSnipFile').click()">📎 Add a snip</button>
+            <span style="color:var(--text-faint);">or paste one with Ctrl+V — the person can see it too</span>
+            <input type="file" id="markSnipFile" accept="image/*" style="display:none;" onchange="setMarkSnip(this.files[0]); this.value='';">
+            <div id="markSnipPreview" style="width:100%;"></div>
           </div>
           <div class="modal-error" id="markErr"></div>
-          <div style="display:flex;justify-content:flex-end;"><button class="btn primary" onclick="submitMark()">Give marks</button></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn primary" onclick="submitMark()">Give marks</button></div>
         </div>
         <div class="panel">
           <div class="panel-head">
@@ -3140,8 +3139,6 @@ async function renderMarksTab(){
   document.getElementById('marksGivePanel').style.display = givers.length ? '' : 'none';
   document.getElementById('markTo').innerHTML = '<option value="">— Choose —</option>' + givers.slice().sort((a,b)=>a.name.localeCompare(b.name))
     .map(e => `<option value="${esc(e.id)}">${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('');
-  const wsSel = document.getElementById('markWorkshop');
-  if(wsSel){ const cur = wsSel.value; wsSel.innerHTML = '<option value="">— Not a pre-reading mark —</option>' + _workshopsData.map(w => `<option value="${esc(w.id)}"${w.id === cur ? ' selected' : ''}>${esc(w.name)} · ${fmtDate(w.date)}</option>`).join(''); }
   const personSel = document.getElementById('marksPerson');
   const prev = personSel.value;
   const ids = [...new Set(_marksData.map(m => m.toId))];
@@ -3208,10 +3205,9 @@ async function submitMark(){
   if(!(n > 0)) return fail('Enter how many marks (a positive number — use the Negative button to deduct).');
   if(reason.length < 3 && !_markShot) return fail('Add a reason, a snip, or both.');
   try {
-    await api('/api/marks', { method:'POST', body: JSON.stringify({ toId, points: _markSign * n, reason, screenshot: _markShot || undefined, workshopId: document.getElementById('markWorkshop').value || undefined }) });
+    await api('/api/marks', { method:'POST', body: JSON.stringify({ toId, points: _markSign * n, reason, screenshot: _markShot || undefined }) });
     document.getElementById('markPoints').value = '';
     document.getElementById('markReason').value = '';
-    document.getElementById('markWorkshop').value = ''; onMarkWorkshopChange();
     _markShot = null; renderMarkSnipPreview();
     showToast('success', _markSign > 0 ? 'Marks added' : 'Marks deducted', '');
     await renderMarksTab();
@@ -3258,25 +3254,29 @@ function renderWorkshopsPanel(){
   if(!body) return;
   document.getElementById('newWorkshopBtn').style.display = isSuperAdmin ? '' : 'none';
   if(!_workshopsData.length){
-    body.innerHTML = `<div style="color:var(--text-faint);padding:6px 0;">${isSuperAdmin ? 'No workshops yet — add one with “+ New workshop”.' : 'No workshop pre-reading right now.'}</div>`;
+    body.innerHTML = `<div style="color:var(--text-faint);">${isSuperAdmin ? 'No workshops yet — add one with “+ New workshop”.' : 'No workshop pre-reading right now.'}</div>`;
     return;
   }
   const faint = 'color:var(--text-faint);';
+  const link = (fn, label) => `<a href="#" onclick="event.preventDefault();${fn}" style="font-weight:600;text-decoration:underline;">${label}</a>`;
   body.innerHTML = _workshopsData.map(w => {
     const mine = w.myPenalised
-      ? `<span style="color:var(--coral);font-weight:700;">−${w.penalty} mark applied — pre-reading not done</span>`
-      : w.myReadAt ? `<span style="color:var(--teal);font-weight:700;">✓ You've read it</span> <span style="${faint}font-size:12px;">${fmtDate(dayOf(w.myReadAt))}</span>`
+      ? `<span style="color:var(--coral);font-weight:700;">−${w.penalty} applied</span>`
+      : w.myReadAt ? `<span style="color:var(--teal);font-weight:700;">✓ Read</span>`
       : `<button class="btn small primary" onclick="markWorkshopRead('${esc(w.id)}')">I've read it</button>`;
-    return `<div style="border-top:1px solid var(--panel-border);padding:12px 0;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;">
-      <div style="min-width:220px;flex:1;">
-        <div style="font-size:14.5px;font-weight:700;">${esc(w.name)} <span style="font-weight:400;${faint}font-size:12.5px;">· ${fmtDate(w.date)} (${workshopWhen(w)}) · −${w.penalty} mark${w.penalty === 1 ? '' : 's'} if not read</span></div>
-        ${w.notes ? `<div style="font-size:13px;color:var(--text-dim);margin-top:3px;white-space:pre-wrap;">${esc(w.notes)}</div>` : ''}
-        ${w.url ? `<div style="margin-top:5px;"><a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);font-weight:600;font-size:13px;">📖 Open the pre-reading →</a></div>` : ''}
-        ${isSuperAdmin ? `<div style="font-size:12.5px;${faint}margin-top:5px;">${w.readCount} of ${w.total} have read it · ${Object.keys(w.penalised || {}).length} marked</div>` : ''}
+    const extras = [
+      w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);font-weight:600;">📖 Open pre-reading</a>` : '',
+      isSuperAdmin ? `${w.readCount} of ${w.total} read` : '',
+      isSuperAdmin ? link(`openWorkshopReviewModal('${esc(w.id)}')`, `Review &amp; apply −${w.penalty}`) : '',
+      isSuperAdmin ? link(`openWorkshopModal('${esc(w.id)}')`, 'Edit') : '',
+    ].filter(Boolean).join(' · ');
+    return `<div style="border-top:1px solid var(--panel-border);padding:11px 0;display:flex;gap:14px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+      <div style="min-width:200px;flex:1;">
+        <div style="font-size:14.5px;font-weight:700;">${esc(w.name)} <span style="font-weight:400;${faint}font-size:12.5px;">· ${fmtDate(w.date)} · −${w.penalty} if not read</span></div>
+        ${w.notes ? `<div style="font-size:13px;color:var(--text-dim);margin-top:2px;">${esc(w.notes)}</div>` : ''}
+        ${extras ? `<div style="font-size:12.5px;color:var(--text-dim);margin-top:3px;">${extras}</div>` : ''}
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">${mine}
-        ${isSuperAdmin ? `<div style="display:flex;gap:6px;"><button class="btn small" onclick="openWorkshopModal('${esc(w.id)}')">Edit</button><button class="btn small coral" onclick="openWorkshopReviewModal('${esc(w.id)}')">Review &amp; apply −${w.penalty}</button></div>` : ''}
-      </div></div>`;
+      <div>${mine}</div></div>`;
   }).join('');
 }
 async function markWorkshopRead(id){
@@ -3356,16 +3356,6 @@ async function applyWorkshopPenalty(wid){
     await refreshWorkshops();
     if(_perfTab === 'marks') await renderMarksTab();
   } catch(e){ const el = document.getElementById('wsRevErr'); if(el){ el.textContent = e.message; el.style.display = 'block'; } else showToast('error', 'Could not apply', e.message); }
-}
-// Choosing a workshop in the Give marks form makes it a pre-reading mark:
-// negative, at that workshop's penalty, with the standard reason.
-function onMarkWorkshopChange(){
-  const w = _workshopsData.find(x => x.id === document.getElementById('markWorkshop').value);
-  const reason = document.getElementById('markReason');
-  if(!w){ reason.placeholder = 'e.g. Called the client back within the hour as promised'; return; }
-  setMarkSign(-1);
-  document.getElementById('markPoints').value = w.penalty;
-  reason.placeholder = `Did not complete the pre-reading for ${w.name} (filled in automatically if you leave this blank)`;
 }
 function setPerfTab(id){
   _perfTab = id;
