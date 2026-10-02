@@ -3626,7 +3626,7 @@ async function renderKudosView(){
    superadmin) can remove it. Data lives on the award rows themselves
    (_kudosWall / _pointsData), updated from each server response. */
 let _kudosWall = [];
-const _wallOpen = new Set(); // "kind:id" threads currently expanded
+const _wallOpen = new Map(); // "kind:id" -> true/false when the viewer has explicitly opened/collapsed a thread
 const WALL_EMOJI = ['👍','🎉','👏','❤️','🔥'];
 function _wallRow(kind, id){ return (kind === 'kudos' ? _kudosWall : _pointsData).find(r => r.id === id); }
 function wallActionsHtml(kind, id){
@@ -3658,7 +3658,7 @@ function renderWallComments(kind, id){
   if(!row || !box) return;
   const cs = row.comments || [];
   if(btn) btn.textContent = '💬' + (cs.length ? ' ' + cs.length : ' Comment');
-  if(!_wallOpen.has(kind + ':' + id)){ box.innerHTML = ''; return; }
+  if(!_wallIsOpen(kind, id, row)){ box.innerHTML = ''; return; }
   const typed = (document.getElementById(`wc-in-${kind}-${id}`) || {}).value || '';
   box.innerHTML = `<div style="margin-top:8px;">
       ${cs.map(c => `<div style="display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--panel-border);font-size:13px;">
@@ -3671,11 +3671,18 @@ function renderWallComments(kind, id){
         <button class="btn small primary" onclick="postWallComment('${kind}','${esc(id)}')">Post</button>
       </div></div>`;
 }
+// A thread with comments is shown open to everyone by default — comments
+// are meant to be read, not hidden behind a click. The 💬 button collapses
+// it (or opens an empty one to write the first comment).
+function _wallIsOpen(kind, id, row){
+  const ov = _wallOpen.get(kind + ':' + id);
+  return ov !== undefined ? ov : ((row || _wallRow(kind, id) || {}).comments || []).length > 0;
+}
 function toggleWallComments(kind, id){
-  const key = kind + ':' + id;
-  if(_wallOpen.has(key)) _wallOpen.delete(key); else _wallOpen.add(key);
+  const open = !_wallIsOpen(kind, id);
+  _wallOpen.set(kind + ':' + id, open);
   renderWallComments(kind, id);
-  if(_wallOpen.has(key)){ const inp = document.getElementById(`wc-in-${kind}-${id}`); if(inp) inp.focus(); }
+  if(open){ const inp = document.getElementById(`wc-in-${kind}-${id}`); if(inp) inp.focus(); }
 }
 function _wallStore(kind, id, updated){
   const arr = kind === 'kudos' ? _kudosWall : _pointsData;
