@@ -1747,6 +1747,7 @@
               <select id="prodPeriod" onchange="renderProductivityView()">
                 <option value="week">This week</option>
                 <option value="month" selected>This month</option>
+                <option value="lastmonth">Last month</option>
                 <option value="quarter">This fiscal quarter</option>
                 <option value="year">This fiscal year (Apr–Mar)</option>
                 <option value="last30">Last 30 days</option>
@@ -1758,17 +1759,44 @@
                 <input type="date" id="prodFrom" onchange="renderProductivityView()">
                 <input type="date" id="prodTo" onchange="renderProductivityView()">
               </span>
-              <button class="btn small" id="closeMonthBtn" onclick="openCloseMonthModal()" title="Bank actual hours spent so far on every currently on-hold task, as partial credit for a given month">Close Month</button>
+              <button class="btn small" id="monthEndBtn" onclick="openMonthEndModal()" title="Add time on held tasks, then finalise a month and publish everyone's monthly card">Month-end</button>
             </div>
           </div>
-          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Qualified delivered allocated hours ÷ adjusted capacity — a task counts only once it's final-sendable, met the internal milestone, and (for client work) was actually sent to the client by the external date. Click anyone's row for the full calculation.</p>
-          <div id="prodTotals"></div>
-          <div style="max-height:60vh;overflow-y:auto;margin-top:16px;">
-            <table style="width:100%;border-collapse:collapse;font-size:13px;">
-              <thead><tr><th>Person</th><th>Team</th><th style="text-align:right;">Capacity</th><th style="text-align:right;">Qualified</th><th style="text-align:right;">Productivity</th><th style="text-align:right;">Internal Commitment</th><th style="text-align:right;">Reports on time</th><th></th></tr></thead>
-              <tbody id="prodBody"></tbody>
-            </table>
+          <div class="src-subtabs" id="prodGroupTabs" style="margin:0 0 12px;"></div>
+          <div id="prodHoursWrap">
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Qualified delivered allocated hours ÷ adjusted capacity — a task counts only once it's final-sendable, met the internal milestone, and (for client work) was actually sent to the client by the external date. Click anyone's row for the full calculation.</p>
+            <div id="prodTotals"></div>
+            <div style="max-height:60vh;overflow-y:auto;margin-top:16px;">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead><tr><th>Person</th><th>Team</th><th style="text-align:right;">Capacity</th><th style="text-align:right;">Qualified</th><th style="text-align:right;">Productivity</th><th style="text-align:right;">Internal Commitment</th><th style="text-align:right;">Reports on time</th><th>Group</th><th></th></tr></thead>
+                <tbody id="prodBody"></tbody>
+              </table>
+            </div>
           </div>
+          <div id="prodAdminWrap" style="display:none;">
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Admin staff aren't measured by hours — every call and every email should be acknowledged. A call is acknowledged once it's listened to, sorted, outcome-logged or marked no-action; an email once it's replied to or marked no-reply-needed. This is the data-collection view: click anyone for every call and email behind their numbers.</p>
+            <div id="prodAdminSuggest"></div>
+            <div id="prodAdminTotals"></div>
+            <div style="max-height:60vh;overflow-y:auto;margin-top:16px;">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead><tr><th>Person</th><th>Team</th><th style="text-align:right;">Calls</th><th style="text-align:right;">Acknowledged</th><th style="text-align:right;">Not acknowledged</th><th style="text-align:right;">Call rate</th><th style="text-align:right;">Emails</th><th style="text-align:right;">Acknowledged</th><th style="text-align:right;">Not acknowledged</th><th style="text-align:right;">Email rate</th><th>Group</th></tr></thead>
+                <tbody id="prodAdminBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        </div>
+        <div class="perf-tab" id="tab-cards" style="display:none;">
+        <div class="panel">
+          <div class="panel-head">
+            <h2 id="cardsTitle">Monthly cards</h2>
+            <div class="panel-head-actions">
+              <select id="cardsPeriod" onchange="loadMonthlyCards()"></select>
+              <button class="btn small" id="cardsCsvBtn" style="display:none;" onclick="downloadCardsCsv()">⬇ Download CSV</button>
+            </div>
+          </div>
+          <p id="cardsSub" style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;"></p>
+          <div id="cardsBody"></div>
         </div>
         </div>
         <div class="perf-tab" id="tab-marks" style="display:none;">
@@ -3033,6 +3061,7 @@ const PERF_TABS = [
   ['productivity', 'Productivity', true],
   ['analytics', 'Analytics', true],
   ['marks', 'Marks', false],
+  ['cards', 'Monthly Cards', false],
 ];
 function renderPerformanceView(){
   const visible = PERF_TABS.filter(([,,superOnly]) => !superOnly || isSuperAdmin);
@@ -3045,6 +3074,7 @@ function renderPerformanceView(){
   else if(_perfTab === 'productivity') renderProductivityView();
   else if(_perfTab === 'analytics') renderChartBuilder();
   else if(_perfTab === 'marks') renderMarksTab();
+  else if(_perfTab === 'cards') renderMonthlyCardsTab();
 }
 /* Marks — positive/negative performance marks with a required reason.
    Givers (admin: own team, superadmin: anyone) get the form; everyone sees
@@ -4743,7 +4773,7 @@ function renderDeadlineBanner(){
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
 let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
-const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬' };
+const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋' };
 async function refreshNotifications(opts){
   opts = opts || {};
   if(!session) return;
@@ -4768,7 +4798,8 @@ async function refreshNotifications(opts){
     });
     if(opts.notify && _notifPrevIds){
       const fresh = _notifs.filter(n => !n.seenAt && !_notifPrevIds.has(n.id) && n.type !== 'kudos' && n.type !== 'points').slice(0, 3);
-      fresh.forEach(n => showToast('info', 'New task alert', n.text));
+      const toastTitle = { mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready' };
+      fresh.forEach(n => showToast('info', toastTitle[n.type] || 'New task alert', n.text));
     }
     _notifPrevIds = new Set(_notifs.map(n => n.id));
   } catch(e){ /* non-fatal */ }
@@ -6160,6 +6191,7 @@ function holdControlsHtml(t){
       ? `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeReplyModal('${t.id}','${q.id}')">Resume</button>`
       : `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="unholdTask('${t.id}')">Resume</button>`;
     if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log client reply</button>`;
+    h += `<button class="verify-btn" onclick="openAddHoursModal('${t.id}')" title="Add time you spent on this task while it's on hold">+ Add time</button>`;
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
     return h;
   }
@@ -7855,6 +7887,10 @@ function _prodRange(){
     return { from: (document.getElementById('prodFrom')||{}).value || iso(new Date(now-30*864e5)),
              to: (document.getElementById('prodTo')||{}).value || iso(now) };
   }
+  if(p === 'lastmonth'){
+    const f = new Date(now.getFullYear(), now.getMonth()-1, 1), l = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { from: iso(f), to: iso(l) };
+  }
   let from;
   if(p === 'week'){
     const day = now.getDay(); // 0=Sun..6=Sat, week starts Monday
@@ -7994,64 +8030,320 @@ function openProductivityCalcModal(p){
     </div>`;
   openModal();
 }
-// Superadmin-only: bank actual hours spent so far on every currently
-// on-hold task as partial Productivity credit for a chosen month — for
-// tasks that were on hold through month-end and would otherwise earn zero
-// credit until they eventually finish (which could be much later). See
-// POST /api/productivity/close-month; idempotent per (task, month).
-function openCloseMonthModal(){
-  const now = new Date();
-  const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const defaultPeriod = prevMonth.getFullYear() + '-' + String(prevMonth.getMonth() + 1).padStart(2, '0');
+/* ---- Productivity groups -------------------------------------------------
+   Processors (the default) and Marketing are measured on hours — the
+   existing model, unchanged. Admin staff are measured by calls and emails
+   acknowledged instead (data-collection phase: counts + rates + a drill-down
+   of every call/email behind them; a scoring rule comes later). A person's
+   group is set by a superadmin from the Group column. */
+let _prodGroup = 'processor';
+const PROD_GROUP_LABELS = { processor: 'Processors', admin: 'Admin', marketing: 'Marketing' };
+function renderProdGroupTabs(){
+  document.getElementById('prodGroupTabs').innerHTML = Object.entries(PROD_GROUP_LABELS)
+    .map(([k, l]) => `<button class="src-subtab${k === _prodGroup ? ' on' : ''}" onclick="setProdGroup('${k}')">${l}</button>`).join('');
+}
+function setProdGroup(g){ _prodGroup = g; renderProductivityView(); }
+function prodGroupSelectHtml(p){
+  const g = p.group || 'processor';
+  if(!isSuperAdmin) return esc(PROD_GROUP_LABELS[g]);
+  return `<select onclick="event.stopPropagation()" onchange="setPersonProdGroup('${esc(p.id)}', this.value)" style="font-size:12px;padding:3px 6px;">`
+    + Object.entries(PROD_GROUP_LABELS).map(([k, l]) => `<option value="${k}"${g === k ? ' selected' : ''}>${l}</option>`).join('') + '</select>';
+}
+async function setPersonProdGroup(id, group){
+  try {
+    await api(`/api/employees/${encodeURIComponent(id)}/prod-group`, { method:'POST', body: JSON.stringify({ group }) });
+    await refreshEmployees();
+    showToast('success', 'Group updated', `Now in ${PROD_GROUP_LABELS[group]}.`);
+  } catch(e){ showToast('error', 'Could not change group', e.message); }
+  await renderProductivityView();
+}
+let _adminActData = null;
+async function renderAdminProductivity(from, to){
+  const body = document.getElementById('prodAdminBody');
+  let d;
+  try { d = await api(`/api/admin-activity?from=${from}&to=${to}`); }
+  catch(e){ body.innerHTML = `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
+  _adminActData = d;
+  const pct = v => v == null ? '—' : v + '%';
+  const rate = v => `<span style="font-weight:700;color:${v == null ? 'var(--text-faint)' : scoreColor(v)};">${pct(v)}</span>`;
+  const tile = (label, v, sub, color) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value"${color ? ` style="color:${color};"` : ''}>${v}</div>${sub ? `<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>` : ''}</div>`;
+  const t = d.totals;
+  document.getElementById('prodAdminTotals').innerHTML = `<div class="top-grid">
+    ${tile('Calls acknowledged', `${t.calls.ack}<small> / ${t.calls.total}</small>`, t.callsRate == null ? 'no calls' : t.callsRate + '% acknowledged', t.callsRate == null ? '' : scoreColor(t.callsRate))}
+    ${tile('Calls not acknowledged', t.calls.notAck, '', t.calls.notAck ? 'var(--coral)' : '')}
+    ${tile('Emails acknowledged', `${t.emails.ack}<small> / ${t.emails.total}</small>`, t.emailsRate == null ? 'no emails' : t.emailsRate + '% acknowledged', t.emailsRate == null ? '' : scoreColor(t.emailsRate))}
+    ${tile('Emails not acknowledged', t.emails.notAck, '', t.emails.notAck ? 'var(--coral)' : '')}
+  </div>`;
+  document.getElementById('prodAdminSuggest').innerHTML = d.suggested && d.suggested.length ? `<div style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <span><b>${d.suggested.map(s => esc(s.name)).join(', ')}</b> took calls or emails in this period but ${d.suggested.length === 1 ? "isn't" : "aren't"} in the Admin group.</span>
+      <button class="btn small primary" onclick="setSuggestedAdmin()">Set as Admin</button></div>` : '';
+  body.innerHTML = d.people.length ? d.people.map(p => {
+    const emp = empById(p.id) || {};
+    return `<tr style="cursor:pointer;" onclick="openAdminDetailModal('${esc(p.id)}')">
+      <td><div class="tl-name">${esc(p.name)}</div></td><td class="tl-sub">${esc(p.team)}</td>
+      <td style="text-align:right;">${p.calls.total}</td><td style="text-align:right;color:var(--teal);">${p.calls.ack}</td>
+      <td style="text-align:right;color:${p.calls.notAck ? 'var(--coral)' : 'var(--text-faint)'};">${p.calls.notAck}</td><td style="text-align:right;">${rate(p.callsRate)}</td>
+      <td style="text-align:right;">${p.emails.total}</td><td style="text-align:right;color:var(--teal);">${p.emails.ack}</td>
+      <td style="text-align:right;color:${p.emails.notAck ? 'var(--coral)' : 'var(--text-faint)'};">${p.emails.notAck}</td><td style="text-align:right;">${rate(p.emailsRate)}</td>
+      <td>${prodGroupSelectHtml({ id: p.id, group: emp.prodGroup })}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--text-faint);">No one is in the Admin group yet.${isSuperAdmin ? ' Move people here with the Group column on the Processors or Marketing view.' : ''}</td></tr>`;
+}
+async function setSuggestedAdmin(){
+  try {
+    for(const s of (_adminActData.suggested || [])) await api(`/api/employees/${encodeURIComponent(s.id)}/prod-group`, { method:'POST', body: JSON.stringify({ group:'admin' }) });
+    await refreshEmployees();
+    showToast('success', 'Added to Admin', '');
+  } catch(e){ showToast('error', 'Could not update', e.message); }
+  await renderProductivityView();
+}
+async function openAdminDetailModal(id){
+  const d0 = _adminActData; if(!d0) return;
+  document.getElementById('modalBox').innerHTML = `<h3>Loading…</h3>`;
+  openModal();
+  let d;
+  try { d = await api(`/api/admin-activity/${encodeURIComponent(id)}?from=${d0.from}&to=${d0.to}`); }
+  catch(e){ document.getElementById('modalBox').innerHTML = `<h3>${esc(e.message)}</h3><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`; return; }
+  const when = iso => new Date(iso).toLocaleString('en-NZ', { day:'2-digit', month:'short', hour:'numeric', minute:'2-digit' });
+  const mark = a => a ? '<span style="color:var(--teal);">✓</span>' : '<span style="color:var(--coral);font-weight:700;">✗</span>';
+  const th = 'text-align:left;padding:6px 8px;font-size:12px;color:var(--text-faint);';
+  const td = 'padding:6px 8px;border-top:1px solid var(--panel-border);font-size:13px;';
+  const callsHtml = d.calls.length ? `<table style="width:100%;border-collapse:collapse;"><thead><tr><th style="${th}"></th><th style="${th}">When</th><th style="${th}">Client</th><th style="${th}">Phone</th><th style="${th}">Status</th></tr></thead><tbody>${d.calls.map(c => `<tr><td style="${td}">${mark(c.acknowledged)}</td><td style="${td}white-space:nowrap;">${esc(when(c.occurredAt))}</td><td style="${td}">${esc(c.clientName)}</td><td style="${td}">${esc(c.callerPhone || '—')}</td><td style="${td}">${esc(c.outcomeLabel)}</td></tr>`).join('')}</tbody></table>` : '<div style="color:var(--text-faint);padding:8px 0;">No calls in this period.</div>';
+  const emailsHtml = d.emails.length ? `<table style="width:100%;border-collapse:collapse;"><thead><tr><th style="${th}"></th><th style="${th}">When</th><th style="${th}">From</th><th style="${th}">Subject</th><th style="${th}">Status</th></tr></thead><tbody>${d.emails.map(e => `<tr><td style="${td}">${mark(e.acknowledged)}</td><td style="${td}white-space:nowrap;">${esc(when(e.occurredAt))}</td><td style="${td}">${esc(e.fromAddress)}</td><td style="${td}">${esc(e.subject || '(no subject)')}</td><td style="${td}">${esc(e.outcomeLabel)}</td></tr>`).join('')}</tbody></table>` : '<div style="color:var(--text-faint);padding:8px 0;">No emails in this period.</div>';
+  document.getElementById('modalBox').innerHTML = `<div class="tasklist-modal">
+    <h3>${esc(d.name)} — calls &amp; emails</h3>
+    <div class="modal-sub">${fmtDate(d.from)} to ${fmtDate(d.to)} · ✓ acknowledged, ✗ not acknowledged</div>
+    <div style="max-height:56vh;overflow-y:auto;">
+      <h4 style="margin:10px 0 4px;">📞 Calls (${d.calls.length})</h4>${callsHtml}
+      <h4 style="margin:16px 0 4px;">📧 Emails (${d.emails.length})</h4>${emailsHtml}
+    </div>
+    <div class="modal-actions" style="margin-top:12px;"><button class="btn" onclick="closeModal()">Close</button></div></div>`;
+}
+
+/* ---- Month-end ------------------------------------------------------------
+   One place to close a month: add the time people spent on tasks held
+   through it, then finalise — which banks that time as credit for the month
+   and freezes + publishes everyone's monthly card. Fully reversible while
+   it's being checked. */
+function _meDefaultPeriod(){
+  const now = new Date(), p = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return p.getFullYear() + '-' + String(p.getMonth() + 1).padStart(2, '0');
+}
+async function openMonthEndModal(){
+  document.getElementById('modalBox').innerHTML = `<div class="tasklist-modal">
+    <h3>Month-end</h3>
+    <div class="modal-sub">1) Add any time people spent on tasks that were on hold. 2) Finalise the month — that banks those hours as credit for the month and freezes everyone's monthly card. Safe to undo while you check it.</div>
+    <div class="field"><label>Month</label><input type="month" id="mePeriod" value="${_meDefaultPeriod()}" onchange="renderMonthEndBody()"></div>
+    <div id="meStatus"></div>
+    <div id="meHold"></div>
+    <div class="modal-error" id="meErr"></div>
+    <div class="modal-actions" style="margin-top:12px;flex-wrap:wrap;">
+      <button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn coral" onclick="meConfirm('undo')">Undo finalise</button>
+      <button class="btn primary" onclick="meConfirm('finalize')">Finalise month &amp; publish cards</button>
+    </div></div>`;
+  openModal();
+  await renderMonthEndBody();
+}
+async function renderMonthEndBody(){
+  const period = document.getElementById('mePeriod').value;
+  let finalised = null;
+  try { finalised = (await api('/api/monthly-cards')).periods.find(p => p.period === period) || null; } catch(e){}
+  document.getElementById('meStatus').innerHTML = finalised
+    ? `<div style="background:var(--panel-2);border:1px solid var(--teal);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:13px;">✓ <b>${esc(finalised.label)}</b> is finalised (${fmtDate(dayOf(finalised.finalizedAt))}, by ${esc(finalised.finalizedBy)}). Undo it to change hours or redo it.</div>` : '';
+  const held = tasks.filter(t => t.status === 'on_hold').sort((a, b) => ((empById(a.assignedTo) || {}).name || '').localeCompare((empById(b.assignedTo) || {}).name || ''));
+  const banked = t => (t.monthCloseCredits || []).filter(c => c.period === period).reduce((s, c) => s + (Number(c.hours) || 0), 0);
+  document.getElementById('meHold').innerHTML = `<h4 style="margin:12px 0 6px;">Tasks on hold (${held.length})</h4>` + (held.length ? `<div style="max-height:36vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr><th style="text-align:left;">Task</th><th style="text-align:left;">Person</th><th style="text-align:right;">Logged</th><th style="text-align:right;">Banked</th><th style="text-align:right;">Add hours</th></tr></thead>
+      <tbody>${held.map(t => `<tr>
+        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}</div></td>
+        <td>${esc((empById(t.assignedTo) || {}).name || '—')}</td>
+        <td style="text-align:right;font-family:var(--font-mono);">${t.logged.toFixed(2)}h</td>
+        <td style="text-align:right;font-family:var(--font-mono);color:var(--text-faint);">${banked(t) ? banked(t).toFixed(2) + 'h' : '—'}</td>
+        <td style="text-align:right;white-space:nowrap;"><input type="number" id="meh-${esc(t.id)}" min="0.25" step="0.25" placeholder="h" style="width:64px;"> <button class="btn small" onclick="submitMeAddHours('${esc(t.id)}')">Add</button></td>
+      </tr>`).join('')}</tbody></table></div>` : '<div style="color:var(--text-faint);padding:8px 0;">Nothing is on hold right now.</div>');
+}
+async function submitMeAddHours(id){
+  const el = document.getElementById('meh-' + id), errEl = document.getElementById('meErr');
+  const hours = parseFloat(el.value);
+  errEl.style.display = 'none';
+  if(!(hours > 0)){ errEl.textContent = 'Enter the hours to add.'; errEl.style.display = 'block'; return; }
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/add-hours`, { method:'POST', body: JSON.stringify({ hours }) });
+    await refreshTasks();
+    await renderMonthEndBody();
+    showToast('success', 'Time added', `+${hours}h`);
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+function meConfirm(kind){
+  const period = document.getElementById('mePeriod').value;
+  if(!/^\d{4}-\d{2}$/.test(period)){ const e = document.getElementById('meErr'); e.textContent = 'Pick a month.'; e.style.display = 'block'; return; }
+  const held = tasks.filter(t => t.status === 'on_hold').length;
+  const label = new Date(period + '-01T00:00:00').toLocaleDateString('en-NZ', { month:'long', year:'numeric' });
+  document.getElementById('modalBox').innerHTML = kind === 'finalize' ? `
+    <h3>Finalise ${esc(label)}?</h3>
+    <div class="modal-sub">This banks the logged hours on the ${held} task${held === 1 ? '' : 's'} currently on hold as ${esc(label)} credit, freezes a monthly card for every employee, and notifies everyone that theirs is ready. You can undo it afterwards.</div>
+    <div class="modal-error" id="meErr"></div>
+    <div class="modal-actions"><button class="btn" onclick="openMonthEndModal()">← Back</button><button class="btn primary" onclick="meRun('finalize','${esc(period)}')">Yes, finalise</button></div>`
+  : `
+    <h3>Undo ${esc(label)}?</h3>
+    <div class="modal-sub">This deletes the frozen cards for ${esc(label)} and removes the hold hours banked for it, so the month goes back to being live. People who were already notified stay notified.</div>
+    <div class="modal-error" id="meErr"></div>
+    <div class="modal-actions"><button class="btn" onclick="openMonthEndModal()">← Back</button><button class="btn coral" onclick="meRun('undo','${esc(period)}')">Yes, undo</button></div>`;
+}
+async function meRun(kind, period){
+  try {
+    if(kind === 'finalize'){
+      const r = await api('/api/productivity/finalize-month', { method:'POST', body: JSON.stringify({ period }) });
+      closeModal();
+      showToast('success', 'Month finalised', `${r.cards} cards published · ${r.tasksCredited} held task${r.tasksCredited === 1 ? '' : 's'} credited (${r.hoursBanked}h).`);
+      _cardsSelect = period;
+      setPerfTab('cards');
+    } else {
+      const r = await api('/api/productivity/unfinalize-month', { method:'POST', body: JSON.stringify({ period }) });
+      closeModal();
+      showToast('info', r.wasFinalised ? 'Month un-finalised' : 'Nothing to undo', r.tasksReverted ? `${r.tasksReverted} task${r.tasksReverted === 1 ? '' : 's'} reverted.` : '');
+      await renderProductivityView();
+    }
+  } catch(e){ const el = document.getElementById('meErr'); if(el){ el.textContent = e.message; el.style.display = 'block'; } else showToast('error', 'Failed', e.message); }
+}
+// A single task's own "add time" — for the person doing the work (or their
+// manager), from the task's hold controls.
+function openAddHoursModal(id){
+  const t = findTask(id); if(!t) return;
   document.getElementById('modalBox').innerHTML = `
-    <h3>Close a month for on-hold tasks</h3>
-    <div class="modal-sub">Banks each currently on-hold task's actual hours logged so far as Productivity credit for the month below — the task still earns its remaining credit normally whenever it finally completes, just minus what's already banked here. Safe to run more than once; a task already closed for a given month is skipped the second time.</div>
-    <div class="field"><label>Month</label><input type="month" id="closeMonthPeriod" value="${defaultPeriod}"></div>
-    <div class="modal-error" id="closeMonthErr"></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn coral" onclick="submitUndoCloseMonth()" title="Removes every credit banked for this month across all tasks — for testing, or fixing a close you didn't mean to run">Undo Close</button>
-      <button class="btn primary" onclick="submitCloseMonth()">Close Month</button>
-    </div>`;
+    <h3>Add time spent — ${esc(t.name)}</h3>
+    <div class="modal-sub">On hold · ${t.logged.toFixed(2)}h logged so far. The clock isn't running while a task is on hold, so enter work you did around it (chasing the client, preparing the file). It adds to the logged hours and is counted at month-end.</div>
+    <div class="field"><label>Hours spent</label><input type="number" id="ahHours" min="0.25" step="0.25" placeholder="e.g. 1.5"></div>
+    <div class="field"><label>What was it for <span style="color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label><input type="text" id="ahNote" maxlength="200" placeholder="e.g. Chased the client for bank statements"></div>
+    <div class="modal-error" id="ahErr"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitAddHours('${esc(id)}')">Add time</button></div>`;
   openModal();
 }
-async function submitCloseMonth(){
-  const period = document.getElementById('closeMonthPeriod').value;
-  const errEl = document.getElementById('closeMonthErr');
-  if(!/^\d{4}-\d{2}$/.test(period)){ errEl.textContent = 'Pick a month.'; errEl.style.display = 'block'; return; }
+async function submitAddHours(id){
+  const hours = parseFloat(document.getElementById('ahHours').value);
+  const note = document.getElementById('ahNote').value.trim();
+  const errEl = document.getElementById('ahErr');
+  if(!(hours > 0)){ errEl.textContent = 'Enter the hours spent.'; errEl.style.display = 'block'; return; }
   try {
-    const r = await api('/api/productivity/close-month', { method:'POST', body: JSON.stringify({ period }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/add-hours`, { method:'POST', body: JSON.stringify({ hours, note: note || undefined }) });
     closeModal();
-    if(!r.tasksCredited){
-      showToast('info', 'Nothing to close', 'No on-hold task had any new hours to bank for that month.');
-    } else {
-      showToast('success', `Closed ${period}`, `${r.tasksCredited} task${r.tasksCredited===1?'':'s'} credited, ${r.totalHours}h total.`);
-    }
-    await renderProductivityView();
+    await refreshTasks();
+    showToast('success', 'Time added', `+${hours}h on this held task.`);
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
-async function submitUndoCloseMonth(){
-  const period = document.getElementById('closeMonthPeriod').value;
-  const errEl = document.getElementById('closeMonthErr');
-  if(!/^\d{4}-\d{2}$/.test(period)){ errEl.textContent = 'Pick a month.'; errEl.style.display = 'block'; return; }
-  try {
-    const r = await api('/api/productivity/undo-close-month', { method:'POST', body: JSON.stringify({ period }) });
-    closeModal();
-    if(!r.tasksReverted){
-      showToast('info', 'Nothing to undo', 'No task had a close-month credit for that month.');
-    } else {
-      showToast('success', `Undone ${period}`, `${r.tasksReverted} task${r.tasksReverted===1?'':'s'} reverted.`);
-    }
-    await renderProductivityView();
-  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+
+/* ---- Monthly cards --------------------------------------------------------
+   The frozen per-person card for each finalised month. An employee sees
+   their own; an admin their team's; a superadmin everyone's. */
+let _cardsData = null, _cardsSelect = null;
+async function renderMonthlyCardsTab(){
+  const body = document.getElementById('cardsBody');
+  let r;
+  try { r = await api('/api/monthly-cards'); }
+  catch(e){ body.innerHTML = `<div style="color:var(--text-faint);">${esc(e.message)}</div>`; return; }
+  const sel = document.getElementById('cardsPeriod');
+  sel.innerHTML = r.periods.map(p => `<option value="${esc(p.period)}">${esc(p.label)}</option>`).join('');
+  if(_cardsSelect && r.periods.some(p => p.period === _cardsSelect)) sel.value = _cardsSelect;
+  sel.style.display = r.periods.length ? '' : 'none';
+  document.getElementById('cardsTitle').textContent = (isAdmin || isSuperAdmin) ? 'Monthly cards' : 'My monthly card';
+  document.getElementById('cardsCsvBtn').style.display = 'none';
+  if(!r.periods.length){
+    document.getElementById('cardsSub').textContent = '';
+    body.innerHTML = `<div style="color:var(--text-faint);padding:14px 0;">No month has been finalised yet.${isSuperAdmin ? ' Use Month-end on the Productivity tab to close one.' : " Your card will appear here once the month is closed."}</div>`;
+    return;
+  }
+  await loadMonthlyCards();
+}
+async function loadMonthlyCards(){
+  const period = document.getElementById('cardsPeriod').value;
+  const body = document.getElementById('cardsBody');
+  _cardsSelect = period;
+  let d;
+  try { d = await api(`/api/monthly-cards/${encodeURIComponent(period)}`); }
+  catch(e){ body.innerHTML = `<div style="color:var(--text-faint);">${esc(e.message)}</div>`; return; }
+  _cardsData = d;
+  document.getElementById('cardsSub').textContent = `${d.label} — finalised ${fmtDate(dayOf(d.finalizedAt))} by ${d.finalizedBy}. These numbers are frozen: later edits don't change them.`;
+  const many = d.cards.length > 1;
+  document.getElementById('cardsCsvBtn').style.display = many ? '' : 'none';
+  if(!many){ body.innerHTML = d.cards.length ? monthlyCardHtml(d.cards[0]) : '<div style="color:var(--text-faint);">No card for you in this month.</div>'; return; }
+  const measure = c => c.group === 'admin'
+    ? `Calls ${c.activity.calls.total ? Math.round(c.activity.calls.ack / c.activity.calls.total * 1000) / 10 + '%' : '—'} · Emails ${c.activity.emails.total ? Math.round(c.activity.emails.ack / c.activity.emails.total * 1000) / 10 + '%' : '—'}`
+    : (c.productivity.notScorable ? '—' : (c.productivity.productivityPct == null ? '—' : c.productivity.productivityPct + '%'));
+  const netColor = n => n > 0 ? 'var(--teal)' : n < 0 ? 'var(--coral)' : 'var(--text-faint)';
+  body.innerHTML = `<div style="max-height:62vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr><th>Person</th><th>Group</th><th style="text-align:right;">Productivity</th><th style="text-align:right;">Qualified</th><th style="text-align:right;">Marks (net)</th><th style="text-align:right;">Kudos</th><th></th></tr></thead>
+    <tbody>${d.cards.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => `<tr style="cursor:pointer;" onclick="openMonthlyCardModal('${esc(c.id)}')">
+      <td><div class="tl-name">${esc(c.name)}</div><div class="tl-sub">${esc(c.team)}</div></td>
+      <td>${esc(PROD_GROUP_LABELS[c.group] || c.group)}</td>
+      <td style="text-align:right;font-weight:700;">${esc(measure(c))}</td>
+      <td style="text-align:right;font-family:var(--font-mono);">${c.group === 'admin' ? '—' : c.productivity.qualifiedHours.toFixed(1) + 'h'}</td>
+      <td style="text-align:right;font-weight:700;color:${netColor(c.marks.net)};">${c.marks.net > 0 ? '+' : ''}${c.marks.net}</td>
+      <td style="text-align:right;">${c.recognition.kudos}</td>
+      <td><span style="color:var(--purple);font-size:12px;font-weight:600;">View →</span></td></tr>`).join('')}</tbody></table></div>`;
+}
+function monthlyCardHtml(c){
+  const p = c.productivity, a = c.activity;
+  const tile = (label, v, sub, color) => `<div class="metric-tile"><div class="mt-label">${label}</div><div class="mt-value"${color ? ` style="color:${color};"` : ''}>${v}</div>${sub ? `<div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>` : ''}</div>`;
+  const rate = (x, t) => t ? Math.round(x / t * 1000) / 10 : null;
+  const cr = rate(a.calls.ack, a.calls.total), er = rate(a.emails.ack, a.emails.total);
+  const ruleLabel = r => r === 'on_hold_month_close' ? 'Held at month-end (hours banked)' : r === 'historical' ? 'Completed' : (r || '—');
+  const main = c.group === 'admin' ? `<div class="top-grid">
+      ${tile('Calls', `${a.calls.ack}<small> / ${a.calls.total}</small>`, cr == null ? 'no calls' : cr + '% acknowledged', cr == null ? '' : scoreColor(cr))}
+      ${tile('Calls not acknowledged', a.calls.notAck, '', a.calls.notAck ? 'var(--coral)' : '')}
+      ${tile('Emails', `${a.emails.ack}<small> / ${a.emails.total}</small>`, er == null ? 'no emails' : er + '% acknowledged', er == null ? '' : scoreColor(er))}
+      ${tile('Emails not acknowledged', a.emails.notAck, '', a.emails.notAck ? 'var(--coral)' : '')}
+    </div><div style="font-size:12.5px;color:var(--text-faint);margin-top:6px;">Admin staff are measured by calls and emails acknowledged, not hours.</div>`
+    : `<div class="top-grid">
+      ${tile('Productivity', p.notScorable ? 'Not scorable' : (p.productivityPct == null ? '—' : `${p.productivityPct}<small>%</small>`), `${p.qualifiedHours.toFixed(1)}h of ${p.capacityHours.toFixed(1)}h capacity`, p.notScorable ? '' : scoreColor(p.productivityPct))}
+      ${tile('Held at month-end', `${p.bankedHoldHours.toFixed(1)}<small>h</small>`, 'banked from tasks on hold')}
+      ${tile('Internal commitment', p.commitmentPct == null ? '—' : `${p.commitmentPct}<small>%</small>`, `${p.commitmentMet}/${p.commitmentTotal} on time`, p.commitmentPct == null ? '' : scoreColor(p.commitmentPct))}
+      ${tile('Reports on time', `${p.reportsOnTime}<small> / ${p.reportsRequired}</small>`, p.reportSentRate == null ? '' : p.reportSentRate + '% rate')}
+    </div>${p.qualifiedTasks.length ? `<h4 style="margin:14px 0 4px;">Credited tasks (${p.qualifiedTasks.length})</h4><div style="max-height:30vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><tbody>${p.qualifiedTasks.map(t => `<tr><td style="padding:5px 6px;border-top:1px solid var(--panel-border);">${esc(t.name)}<div class="tl-sub">${esc(t.clientName || '—')} · ${esc(ruleLabel(t.rule))}</div></td><td style="padding:5px 6px;border-top:1px solid var(--panel-border);text-align:right;font-family:var(--font-mono);">${Number(t.creditedHours).toFixed(2)}h</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+  const net = c.marks.net;
+  return `<div style="margin-bottom:8px;"><b style="font-size:16px;">${esc(c.name)}</b> <span style="color:var(--text-faint);">${esc(c.team)} · ${esc(c.jobTitle || '')} · ${esc(PROD_GROUP_LABELS[c.group] || c.group)}</span></div>
+    ${main}
+    <h4 style="margin:14px 0 6px;">Marks &amp; recognition</h4>
+    <div class="top-grid">
+      ${tile('Marks (net)', `${net > 0 ? '+' : ''}${net}`, `${c.marks.positive ? '+' + c.marks.positive : '0'} / ${c.marks.negative || 0} · ${c.marks.count} mark${c.marks.count === 1 ? '' : 's'}`, net > 0 ? 'var(--teal)' : net < 0 ? 'var(--coral)' : '')}
+      ${tile('Kudos', c.recognition.kudos, '')}
+      ${tile('Points', c.recognition.points.toLocaleString(), '')}
+    </div>`;
+}
+function openMonthlyCardModal(id){
+  const c = _cardsData && _cardsData.cards.find(x => x.id === id); if(!c) return;
+  document.getElementById('modalBox').innerHTML = `<div class="tasklist-modal"><h3>${esc(_cardsData.label)} — monthly card</h3>
+    <div class="modal-sub">Finalised ${fmtDate(dayOf(_cardsData.finalizedAt))} by ${esc(_cardsData.finalizedBy)} · frozen</div>
+    ${monthlyCardHtml(c)}
+    <div class="modal-actions" style="margin-top:12px;"><button class="btn" onclick="closeModal()">Close</button></div></div>`;
+  openModal();
+}
+function downloadCardsCsv(){
+  const d = _cardsData; if(!d) return;
+  const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const head = ['Name','Team','Group','Capacity h','Qualified h','Held-at-month-end h','Productivity %','Commitment %','Reports on time','Reports required','Calls total','Calls acknowledged','Calls not acknowledged','Emails total','Emails acknowledged','Emails not acknowledged','Marks net','Kudos','Points'];
+  const rows = d.cards.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => [c.name, c.team, PROD_GROUP_LABELS[c.group] || c.group,
+    c.productivity.capacityHours, c.productivity.qualifiedHours, c.productivity.bankedHoldHours, c.productivity.productivityPct, c.productivity.commitmentPct,
+    c.productivity.reportsOnTime, c.productivity.reportsRequired, c.activity.calls.total, c.activity.calls.ack, c.activity.calls.notAck,
+    c.activity.emails.total, c.activity.emails.ack, c.activity.emails.notAck, c.marks.net, c.recognition.kudos, c.recognition.points]);
+  const csv = [head, ...rows].map(r => r.map(q).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' }));
+  a.download = `monthly-cards-${d.period}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
 }
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
   if(!body) return;
+  renderProdGroupTabs();
+  const adminGroup = _prodGroup === 'admin';
+  document.getElementById('prodHoursWrap').style.display = adminGroup ? 'none' : '';
+  document.getElementById('prodAdminWrap').style.display = adminGroup ? '' : 'none';
   const { from: reqFrom, to } = _prodRange();
+  if(adminGroup){ await renderAdminProductivity(reqFrom, to); return; }
   let data;
-  try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}`); }
-  catch(e){ body.innerHTML = `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
+  try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&group=${_prodGroup}`); }
+  catch(e){ body.innerHTML = `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
   _prodData = data;
   document.getElementById('prodTotals').innerHTML = productivityCardsHtml(data.totals, { hideCalcLink: true });
   const rows = data.people.slice().sort((a,b) => (b.productivityPct??-1) - (a.productivityPct??-1));
@@ -8063,9 +8355,10 @@ async function renderProductivityView(){
       <td style="text-align:right;font-weight:700;color:${p.notScorable?'var(--text-faint)':scoreColor(p.productivityPct)};">${p.notScorable?'—':(p.productivityPct==null?'—':p.productivityPct+'%')}</td>
       <td style="text-align:right;">${p.commitmentPct==null?'—':p.commitmentPct+'%'}</td>
       <td style="text-align:right;">${p.reportsOnTime}/${p.reportsRequired}</td>
+      <td>${prodGroupSelectHtml(p)}</td>
       <td><span style="color:var(--purple);font-size:12px;font-weight:600;">View →</span></td>
     </tr>`).join('')
-    : `<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-faint);">No one in scope.</td></tr>`;
+    : `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-faint);">No one in this group.</td></tr>`;
 }
 
 function renderChartBuilder(){
@@ -9612,6 +9905,7 @@ function openTaskTrailModal(id){
     push(h.at, '⏱', `<b>${esc(h.by||'—')}</b> changed the estimate — ${h.from}h → ${h.to}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
   });
   (t.loggedHistory||[]).forEach(h => {
+    if(h.added){ push(h.at, '⏱', `<b>${esc(h.by||'—')}</b> added ${Number(h.added).toFixed(2)}h of time spent while on hold — now ${Number(h.to).toFixed(1)}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`); return; }
     push(h.at, '🛠', `<b>${esc(h.by||'—')}</b> corrected the logged hours — ${Number(h.from).toFixed(1)}h → ${Number(h.to).toFixed(1)}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
   });
   (t.nameHistory||[]).forEach(h => {

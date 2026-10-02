@@ -1391,29 +1391,34 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
 // replied, or marked reply-not-needed) vs not. One combined management
 // summary listing everyone, not a personal message per employee.
 // ---------------------------------------------------------------------------
-function callsEmailsDigestData(state, dayISO) {
-  const day = dayISO || nzToday(new Date());
+// Calls & emails per responsible person over a date range (NZ days,
+// inclusive) — the shared source for the daily digest, the Admin-group
+// productivity table and the monthly cards, so they can never disagree.
+// Definitions match the Calls and Email pages exactly:
+//   call  = every tagged ended / no-action call; ACKNOWLEDGED = anything
+//           past "not listened yet" (listened, sorted, outcome logged, or
+//           no action needed) — see callOutcomeStatus; a call with two
+//           responsible people (responsiblePeopleForCall) counts for both.
+//   email = inbound only, minus ignored senders and Gmail's Promotions/
+//           Social/Updates tabs (same filters as allEmailsReport);
+//           ACKNOWLEDGED = replied, or marked reply-not-needed.
+function callsEmailsStats(state, from, to) {
   const byPerson = {};
   const row = (id, name) => {
     if (!byPerson[id]) byPerson[id] = { id, name, calls: { total: 0, ack: 0, notAck: 0 }, emails: { total: 0, ack: 0, notAck: 0 } };
     return byPerson[id];
   };
-  // Calls — same "ended, listenedBy = acknowledged" definition as the
-  // existing call tiles (callStatsForSlackId); a call can have two
-  // responsible people (see responsiblePeopleForCall) and counts for both.
-  (state.calls || []).filter(c => c.status === 'ended' && c.occurredAt && nzToday(new Date(c.occurredAt)) === day)
+  const inRange = ts => { const d = nzToday(new Date(ts)); return d >= from && d <= to; };
+  (state.calls || []).filter(c => (c.status === 'ended' || c.status === 'no_action') && c.occurredAt && inRange(c.occurredAt))
     .forEach(c => {
       responsiblePeopleForCall(state, c).forEach(p => {
         const r = row(p.id, p.name);
         r.calls.total++;
-        if (c.listenedBy) r.calls.ack++; else r.calls.notAck++;
+        if (callOutcomeStatus(c) !== 'not_listened') r.calls.ack++; else r.calls.notAck++;
       });
     });
-  // Emails — same inbound-only, ignored-sender and category exclusions as
-  // allEmailsReport, so this total always matches what the Email page shows
-  // for the same day. Acknowledged = replied or marked reply-not-needed.
   const ignored = new Set((state.emailIgnoredSenders || []).map(s => String(s || '').toLowerCase()));
-  (state.emails || []).filter(e => e.direction === 'inbound' && e.occurredAt && nzToday(new Date(e.occurredAt)) === day
+  (state.emails || []).filter(e => e.direction === 'inbound' && e.occurredAt && inRange(e.occurredAt)
     && !ignored.has(String(e.fromAddress || '').toLowerCase())
     && !(e.labelIds || []).some(l => EMAIL_EXCLUDED_LABELS.includes(l)))
     .forEach(e => {
@@ -1423,12 +1428,42 @@ function callsEmailsDigestData(state, dayISO) {
       const status = emailOutcomeStatus(e);
       if (status === 'replied' || status === 'no_action') r.emails.ack++; else r.emails.notAck++;
     });
-  // Only people with actual activity that day — no point listing everyone
-  // at 0/0/0/0.
+  // Only people with actual activity — no point listing everyone at 0/0/0/0.
   const people = Object.values(byPerson)
     .filter(p => p.calls.total > 0 || p.emails.total > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
-  return { day, people };
+  return { from, to, people };
+}
+// One person's individual calls and emails in the range, each flagged
+// acknowledged or not — the drill-down behind the Admin productivity rows
+// ("collect all data of theirs"). Headers/subject only, same as the Email
+// page: no message body is ever read or stored.
+function callsEmailsDetail(state, personId, from, to) {
+  const inRange = ts => { const d = nzToday(new Date(ts)); return d >= from && d <= to; };
+  const calls = (state.calls || [])
+    .filter(c => (c.status === 'ended' || c.status === 'no_action') && c.occurredAt && inRange(c.occurredAt)
+      && responsiblePeopleForCall(state, c).some(p => p.id === personId))
+    .map(c => { const st = callOutcomeStatus(c); return {
+      id: c.id, occurredAt: c.occurredAt, clientName: c.clientName || 'Unknown / not saved', callerPhone: c.callerPhone || null,
+      outcomeLabel: CALL_STATUS_LABELS[st], acknowledged: st !== 'not_listened',
+    }; })
+    .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
+  const ignored = new Set((state.emailIgnoredSenders || []).map(s => String(s || '').toLowerCase()));
+  const emails = (state.emails || [])
+    .filter(e => e.direction === 'inbound' && e.mailboxOwner === personId && e.occurredAt && inRange(e.occurredAt)
+      && !ignored.has(String(e.fromAddress || '').toLowerCase())
+      && !(e.labelIds || []).some(l => EMAIL_EXCLUDED_LABELS.includes(l)))
+    .map(e => { const st = emailOutcomeStatus(e); return {
+      id: e.id, occurredAt: e.occurredAt, fromAddress: e.fromAddress, subject: e.subject || '',
+      outcomeLabel: EMAIL_STATUS_LABELS[st], acknowledged: st === 'replied' || st === 'no_action',
+    }; })
+    .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
+  return { calls, emails };
+}
+// The daily digest is just one day of the same stats.
+function callsEmailsDigestData(state, dayISO) {
+  const day = dayISO || nzToday(new Date());
+  return { day, people: callsEmailsStats(state, day, day).people };
 }
 function formatCallsEmailsDigestText(data) {
   const dayLabel = new Date(data.day + 'T00:00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
@@ -2935,5 +2970,5 @@ module.exports = {
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
   agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
-  callsEmailsDigestData, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
+  callsEmailsDigestData, callsEmailsStats, callsEmailsDetail, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };

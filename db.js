@@ -422,6 +422,9 @@ function runMigrations(state) {
   // an employee with a required reason. See the /api/marks endpoints.
   if (!Array.isArray(state.marks)) state.marks = [];
   if (typeof state.marksSeq !== 'number') state.marksSeq = 0;
+  // Monthly cards — a frozen per-employee card for each finalised month
+  // (see /api/productivity/finalize-month), keyed by "YYYY-MM".
+  if (!state.monthlyCards || typeof state.monthlyCards !== 'object') state.monthlyCards = {};
   // Productivity rebuild — the working-day holiday calendar moves from a
   // hardcoded list (calendar.js) to an admin-manageable table, seeded once
   // from that same list so nothing changes on day one. { date, name,

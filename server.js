@@ -172,6 +172,11 @@ function publicEmployee(e, viewerIsAdmin) {
   return rest;
 }
 function findEmployee(state, id) { return state.employees.find(e => e.id === id); }
+// Which productivity model someone is measured by. Processors (the default)
+// and Marketing are hours-based; Admin staff are measured by calls and
+// emails acknowledged instead. Set by a superadmin from the Productivity tab.
+const PROD_GROUPS = ['processor', 'admin', 'marketing'];
+function prodGroupOf(emp) { return emp && PROD_GROUPS.includes(emp.prodGroup) ? emp.prodGroup : 'processor'; }
 function findTask(state, id) { return state.tasks.find(t => t.id === id); }
 function isAdminRole(role) { return role === 'admin' || role === 'superadmin'; }
 
@@ -933,7 +938,7 @@ function notify(state, empId, type, text, taskId, opts) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -3357,7 +3362,10 @@ function productivityFor(state, empIds, fromISO, toISO) {
     // no more than the task's original estimate, never double-counted.
     state.tasks.filter(t => t.assignedTo === id).forEach(t => {
       (t.monthCloseCredits || []).forEach(c => {
-        if (!inRange(c.closedAt)) return;
+        // Credited to the month that was closed (its last day), NOT the day
+        // the close button happened to be pressed — closing September on
+        // 2 October must still land in September's numbers.
+        if (!inRange(c.creditDate || c.closedAt)) return;
         qualified.push({
           id: t.id + ':close:' + c.period, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
           kind: t.kind, status: t.status,
@@ -3367,7 +3375,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
           stages: { processor: null, reviewer: null, sender: null },
           creditedHours: c.hours, qualifies: true,
           exclusionReason: null, dataException: false, zeroHourTask: c.hours === 0,
-          rule: 'on_hold_month_close', qualifyingEventType: 'month_close', qualifyingEventAt: c.closedAt,
+          rule: 'on_hold_month_close', qualifyingEventType: 'month_close', qualifyingEventAt: c.creditDate || c.closedAt,
           reviewedAt: null, noReviewAuthorized: false, reportStatus: null,
         });
       });
@@ -3419,7 +3427,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const trulyUnallocatedHours = r2(Math.max(0, capacityNotConverted - assignedOpenHours));
 
     return {
-      id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '',
+      id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '', group: prodGroupOf(emp),
       capacityHours: r2(capacityHours), workingDays, leaveDays: leave.equivalent, workshopDays,
       qualifiedHours, productivityPct, rawUtilisationPct, additionalHours,
       notScorable: capacityHours <= 0,
@@ -3452,6 +3460,12 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   if (req.query.scope === 'me' || me.accessRole === 'employee') ids = [me.id];
   else if (me.accessRole === 'admin') ids = [...new Set([me.id, ...teamRoster(state, me).map(e => e.id)])];
   else ids = state.employees.map(e => e.id);
+  const scopeLabel = ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm');
+  // ?group=processor|marketing narrows to one productivity group (totals
+  // included). Admin staff are measured by calls/emails instead — see
+  // /api/admin-activity — so they're not shown on the hours-based view.
+  const grp = String(req.query.group || '');
+  if (PROD_GROUPS.includes(grp)) ids = ids.filter(id => prodGroupOf(findEmployee(state, id)) === grp);
 
   const people = productivityFor(state, ids, from, to);
   const sum = (k) => people.reduce((s, p) => s + (p[k] || 0), 0);
@@ -3476,7 +3490,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
     goLiveApplied: from !== requestedFrom,
     fiscalYearStart: floorAtGoLive(fiscalYearStart(to), to),
     v2EffectiveAt: state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT,
-    scope: ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm'),
+    scope: scopeLabel,
     // Show everyone in scope, including zero-output people, with a plain
     // reason rather than hiding them.
     people,
@@ -3503,47 +3517,38 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   });
 });
 
-// Manual "close a month" for tasks still on hold — banks the ACTUAL hours
-// logged so far (t.logged) as Productivity credit for that period, instead
-// of the task earning zero credit until it eventually completes (which
-// could be months later, or never, if it's ultimately abandoned). Only
-// ever credits the DELTA since the last time this task was closed, so a
-// task on hold across several month boundaries gets each month its own
-// slice rather than the same hours repeatedly — and idempotent per
-// (task, period), so closing the same month twice for the same task is a
-// safe no-op the second time. See productivityQualifies for how this
-// reconciles against the task's own eventual qualifying-event credit.
+// Month-end: banks the ACTUAL hours logged so far on every task still on
+// hold as Productivity credit for the month being closed — otherwise a task
+// held through month-end earns nothing until it finally completes (maybe
+// months later, maybe never). Only credits the DELTA since the last close,
+// so a task held across several month-ends gets each month its own slice,
+// and idempotent per (task, month). The credit is dated the LAST DAY of the
+// month being closed (creditDate), not the day the button was pressed, so
+// closing September on 2 October still lands in September's numbers. See
+// productivityQualifies for how this reconciles against the task's own
+// eventual qualifying-event credit.
+function periodBounds(period) {
+  const [y, m] = period.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return { from: `${period}-01`, to: `${period}-${String(last).padStart(2, '0')}` };
+}
 function closeMonthOnHoldCredits(state, period, byEmployeeId) {
   const credited = [];
+  const creditDate = periodBounds(period).to;
   (state.tasks || []).filter(t => t.status === 'on_hold').forEach(t => {
     t.monthCloseCredits = t.monthCloseCredits || [];
     if (t.monthCloseCredits.some(c => c.period === period)) return;
     const alreadyBanked = t.monthCloseCredits.reduce((s, c) => s + (Number(c.hours) || 0), 0);
     const delta = Math.round(Math.max(0, (t.logged || 0) - alreadyBanked) * 100) / 100;
     if (delta <= 0) return;
-    t.monthCloseCredits.push({ period, hours: delta, closedAt: new Date().toISOString(), closedBy: byEmployeeId });
+    t.monthCloseCredits.push({ period, hours: delta, creditDate, closedAt: new Date().toISOString(), closedBy: byEmployeeId });
     credited.push({ taskId: t.id, taskName: t.name, assignedTo: t.assignedTo, hours: delta });
   });
-  if (credited.length) db.save();
   return credited;
 }
-app.post('/api/productivity/close-month', requireAuth, requireSuperAdmin, (req, res) => {
-  const state = db.get();
-  const period = String((req.body || {}).period || '').trim();
-  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Period must be YYYY-MM, e.g. 2026-09.' });
-  const credited = closeMonthOnHoldCredits(state, period, req.employee.id);
-  res.json({
-    ok: true, period, credited,
-    tasksCredited: credited.length,
-    totalHours: Math.round(credited.reduce((s, c) => s + c.hours, 0) * 100) / 100,
-  });
-});
-// Reverses a close-month entirely — strips every monthCloseCredits entry
-// tagged with this exact period off every task, firm-wide, restoring
-// things exactly as if that close never happened (a task's own eventual
-// qualifying-event credit, which reads monthCloseCredits live, is
-// unaffected either way — see productivityQualifies). For testing/
-// correcting a close before it's relied on for real reporting.
+// Reverses a month-end's hold credits entirely — strips every entry tagged
+// with this exact period off every task, restoring things exactly as if the
+// close never happened.
 function undoMonthCloseCredits(state, period) {
   const reverted = [];
   (state.tasks || []).forEach(t => {
@@ -3552,15 +3557,201 @@ function undoMonthCloseCredits(state, period) {
     t.monthCloseCredits = t.monthCloseCredits.filter(c => c.period !== period);
     if (t.monthCloseCredits.length !== before) reverted.push({ taskId: t.id, taskName: t.name, assignedTo: t.assignedTo });
   });
-  if (reverted.length) db.save();
   return reverted;
 }
-app.post('/api/productivity/undo-close-month', requireAuth, requireSuperAdmin, (req, res) => {
+
+// A frozen card for every employee for one month — what the month looked
+// like at the moment it was finalised, so a late review or an edited task
+// next week can't quietly rewrite last month's numbers. Hours-based figures
+// (processors, marketing), calls/emails acknowledged (admin staff), marks
+// and recognition for the month; the card shown depends on the person's
+// group, but everything is stored for everyone.
+function buildMonthlyCards(state, period) {
+  const { from: from0, to } = periodBounds(period);
+  const from = floorAtGoLive(from0, to);
+  const { callsEmailsStats } = require('./connector');
+  const prod = productivityFor(state, state.employees.map(e => e.id), from, to);
+  const activity = {};
+  callsEmailsStats(state, from, to).people.forEach(p => { activity[p.id] = p; });
+  const inMonth = ts => { if (!ts) return false; const d = nzDay(ts); return d >= from0 && d <= to; };
+  const r2 = n => Math.round(n * 100) / 100;
+  return prod.map(p => {
+    const act = activity[p.id] || { calls: { total: 0, ack: 0, notAck: 0 }, emails: { total: 0, ack: 0, notAck: 0 } };
+    const mk = (state.marks || []).filter(m => m.toId === p.id && !m.voidedAt && inMonth(m.createdAt));
+    const banked = state.tasks.filter(t => t.assignedTo === p.id)
+      .reduce((s, t) => s + (t.monthCloseCredits || []).filter(c => c.period === period).reduce((x, c) => x + (Number(c.hours) || 0), 0), 0);
+    return {
+      id: p.id, name: p.name, team: p.team, jobTitle: p.jobTitle, group: p.group,
+      productivity: {
+        capacityHours: p.capacityHours, workingDays: p.workingDays, leaveDays: p.leaveDays,
+        qualifiedHours: p.qualifiedHours, bankedHoldHours: r2(banked),
+        productivityPct: p.productivityPct, rawUtilisationPct: p.rawUtilisationPct, additionalHours: p.additionalHours, notScorable: p.notScorable,
+        commitmentMet: p.commitmentMet, commitmentTotal: p.commitmentTotal, commitmentPct: p.commitmentPct,
+        reportsRequired: p.reportsRequired, reportsOnTime: p.reportsOnTime, reportsLate: p.reportsLate,
+        reportPoints: p.reportPoints, reportMaxPoints: p.reportMaxPoints, reportSentRate: p.reportSentRate,
+        qualifiedTasks: p.qualifiedTasks.map(t => ({ id: t.id, name: t.name, clientName: t.clientName, creditedHours: t.creditedHours, rule: t.rule, qualifyingEventAt: t.qualifyingEventAt })),
+        excludedCount: p.excludedTasks.length, openCount: p.openWork.length,
+      },
+      activity: act,
+      marks: {
+        positive: mk.filter(m => m.points > 0).reduce((s, m) => s + m.points, 0),
+        negative: mk.filter(m => m.points < 0).reduce((s, m) => s + m.points, 0),
+        net: mk.reduce((s, m) => s + m.points, 0), count: mk.length,
+      },
+      recognition: {
+        kudos: (state.kudos || []).filter(k => k.toId === p.id && inMonth(k.awardedAt)).length,
+        points: (state.points || []).filter(x => x.toId === p.id && inMonth(x.awardedAt)).reduce((s, x) => s + (x.amount || 0), 0),
+      },
+    };
+  });
+}
+function monthLabel(period) {
+  const [y, m] = period.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-NZ', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+// Finalise a month: bank hold hours (see closeMonthOnHoldCredits), freeze a
+// card for everyone, and tell each person theirs is ready. One action, and
+// fully reversible with unfinalize-month while it's being checked.
+app.post('/api/productivity/finalize-month', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
   const period = String((req.body || {}).period || '').trim();
-  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Period must be YYYY-MM, e.g. 2026-09.' });
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ error: 'Period must be YYYY-MM, e.g. 2026-09.' });
+  if (periodBounds(period).to >= todayISO()) return res.status(400).json({ error: "That month hasn't finished yet." });
+  state.monthlyCards = state.monthlyCards || {};
+  if (state.monthlyCards[period]) return res.status(409).json({ error: `${monthLabel(period)} is already finalised — undo it first to redo it.` });
+  const credited = closeMonthOnHoldCredits(state, period, req.employee.id);
+  const cards = buildMonthlyCards(state, period);
+  const b = periodBounds(period);
+  state.monthlyCards[period] = { period, from: b.from, to: b.to, finalizedAt: new Date().toISOString(), finalizedBy: req.employee.id, cards };
+  state.employees.forEach(e => notify(state, e.id, 'card', `Your ${monthLabel(period)} monthly card is ready.`, null, { noDedupe: true }));
+  db.save();
+  res.json({
+    ok: true, period, cards: cards.length, tasksCredited: credited.length,
+    hoursBanked: Math.round(credited.reduce((s, c) => s + c.hours, 0) * 100) / 100,
+  });
+});
+app.post('/api/productivity/unfinalize-month', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const period = String((req.body || {}).period || '').trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) return res.status(400).json({ error: 'Period must be YYYY-MM, e.g. 2026-09.' });
+  const had = !!(state.monthlyCards && state.monthlyCards[period]);
+  if (had) delete state.monthlyCards[period];
   const reverted = undoMonthCloseCredits(state, period);
-  res.json({ ok: true, period, reverted, tasksReverted: reverted.length });
+  if (had || reverted.length) db.save();
+  res.json({ ok: true, period, wasFinalised: had, tasksReverted: reverted.length });
+});
+// Who can see which cards: an employee their own, an admin their team's, a
+// superadmin everyone's.
+function cardScopeIds(state, me) {
+  if (me.accessRole === 'superadmin') return null; // everyone
+  const ids = new Set([me.id]);
+  if (me.accessRole === 'admin') teamRoster(state, me).forEach(e => ids.add(e.id));
+  return ids;
+}
+app.get('/api/monthly-cards', requireAuth, (req, res) => {
+  const state = db.get();
+  const periods = Object.values(state.monthlyCards || {}).map(c => ({
+    period: c.period, label: monthLabel(c.period), finalizedAt: c.finalizedAt,
+    finalizedBy: (findEmployee(state, c.finalizedBy) || {}).name || '—',
+  })).sort((a, b) => b.period.localeCompare(a.period));
+  res.json({ periods });
+});
+app.get('/api/monthly-cards/:period', requireAuth, (req, res) => {
+  const state = db.get();
+  const c = (state.monthlyCards || {})[req.params.period];
+  if (!c) return res.status(404).json({ error: 'That month has not been finalised.' });
+  const scope = cardScopeIds(state, req.employee);
+  res.json({
+    period: c.period, label: monthLabel(c.period), from: c.from, to: c.to, finalizedAt: c.finalizedAt,
+    finalizedBy: (findEmployee(state, c.finalizedBy) || {}).name || '—',
+    cards: c.cards.filter(x => !scope || scope.has(x.id)),
+  });
+});
+// Add the time someone actually spent on a task while it's on hold — the
+// clock isn't running on a held task, so work done around it (chasing the
+// client, preparing the file) never gets logged unless it's entered here.
+// ADDS to the logged hours (unlike the superadmin "correct logged hours",
+// which sets an absolute value) and is kept in the task's history. Enter
+// it before month-end so it's banked for that month.
+app.post('/api/tasks/:id/add-hours', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const me = req.employee;
+  if (t.status !== 'on_hold') return res.status(400).json({ error: 'Time can be added to a task while it is on hold.' });
+  if (t.assignedTo !== me.id && me.accessRole !== 'superadmin' && !canManageEmployee(state, me, t.assignedTo)) {
+    return res.status(403).json({ error: 'Only the assignee, or a manager over them, can add time.' });
+  }
+  const h = Math.round(Number((req.body || {}).hours) * 100) / 100;
+  if (!(h > 0) || h > 200) return res.status(400).json({ error: 'Enter between 0 and 200 hours.' });
+  const note = String((req.body || {}).note || '').trim().slice(0, 200);
+  const before = Number(t.logged) || 0;
+  t.logged = Math.round((before + h) * 100) / 100;
+  t.loggedHistory = t.loggedHistory || [];
+  t.loggedHistory.push({ at: new Date().toISOString(), by: me.name, from: before, to: t.logged, added: h, note: note || null });
+  logEvent(state, t.assignedTo, `<b>${escHtml(me.name)}</b> added <b>${h}h</b> of time spent to "${escHtml(t.name)}" (on hold) — now ${t.logged.toFixed(1)}h.`);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+// Which productivity model each person is measured by — see prodGroupOf.
+app.post('/api/employees/:id/prod-group', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const emp = findEmployee(state, req.params.id);
+  if (!emp) return res.status(404).json({ error: 'Employee not found.' });
+  const group = String((req.body || {}).group || '');
+  if (!PROD_GROUPS.includes(group)) return res.status(400).json({ error: 'Group must be processor, admin or marketing.' });
+  emp.prodGroup = group;
+  db.save();
+  res.json({ employee: publicEmployee(emp, true) });
+});
+// Admin-group productivity: measured by calls and emails acknowledged, not
+// hours. This is the data-collection phase — counts and acknowledgement
+// rates per person, with a per-person drill-down — before a scoring rule is
+// layered on. Scoped like Productivity: employee self, admin their team,
+// superadmin everyone.
+function adminActivityRange(req) {
+  const clamp = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
+  const to = clamp(req.query.to) || todayISO();
+  const requestedFrom = clamp(req.query.from) || to.slice(0, 7) + '-01';
+  return { from: floorAtGoLive(requestedFrom, to), to };
+}
+const ackRate = (ack, total) => total > 0 ? Math.round((ack / total) * 1000) / 10 : null;
+app.get('/api/admin-activity', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const { from, to } = adminActivityRange(req);
+  const { callsEmailsStats } = require('./connector');
+  const scope = cardScopeIds(state, me);
+  const stats = {};
+  callsEmailsStats(state, from, to).people.forEach(p => { stats[p.id] = p; });
+  const inScope = e => !scope || scope.has(e.id);
+  const people = state.employees.filter(e => prodGroupOf(e) === 'admin' && inScope(e)).map(e => {
+    const s = stats[e.id] || { calls: { total: 0, ack: 0, notAck: 0 }, emails: { total: 0, ack: 0, notAck: 0 } };
+    return { id: e.id, name: e.name, team: e.team || '—', calls: s.calls, emails: s.emails,
+      callsRate: ackRate(s.calls.ack, s.calls.total), emailsRate: ackRate(s.emails.ack, s.emails.total) };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  const sum = (k, f) => people.reduce((s, p) => s + p[k][f], 0);
+  const totals = {
+    calls: { total: sum('calls', 'total'), ack: sum('calls', 'ack'), notAck: sum('calls', 'notAck') },
+    emails: { total: sum('emails', 'total'), ack: sum('emails', 'ack'), notAck: sum('emails', 'notAck') },
+  };
+  totals.callsRate = ackRate(totals.calls.ack, totals.calls.total);
+  totals.emailsRate = ackRate(totals.emails.ack, totals.emails.total);
+  // People who actually took calls/emails but aren't in the Admin group yet —
+  // offered to the superadmin as a one-click "set as Admin".
+  const suggested = me.accessRole !== 'superadmin' ? [] : Object.values(stats)
+    .map(s => findEmployee(state, s.id)).filter(e => e && prodGroupOf(e) !== 'admin')
+    .map(e => ({ id: e.id, name: e.name }));
+  res.json({ from, to, people, totals, suggested });
+});
+app.get('/api/admin-activity/:personId', requireAuth, (req, res) => {
+  const state = db.get();
+  const scope = cardScopeIds(state, req.employee);
+  const emp = findEmployee(state, req.params.personId);
+  if (!emp || (scope && !scope.has(emp.id))) return res.status(404).json({ error: 'Not found.' });
+  const { from, to } = adminActivityRange(req);
+  const { callsEmailsDetail } = require('./connector');
+  res.json({ from, to, name: emp.name, ...callsEmailsDetail(state, emp.id, from, to) });
 });
 
 // Productivity rebuild removed the composite-score weights editor and the
