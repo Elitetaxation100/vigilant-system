@@ -3766,39 +3766,6 @@ app.get('/api/workload', requireAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// BUSY BOARD — everyone's current load at a glance: hours still in their
-// queue and the date that queue clears. A manager/superadmin coordination
-// aid — not shown to plain employees.
-// ---------------------------------------------------------------------------
-app.get('/api/busy-board', requireAuth, (req, res) => {
-  const state = db.get();
-  if (!isAdminRole(req.employee.accessRole)) {
-    return res.status(403).json({ error: 'Manager or superadmin access required.' });
-  }
-  const today = todayISO();
-  const r2 = n => Math.round(n * 100) / 100;
-  const rows = state.employees.map(e => {
-    const open = state.tasks.filter(t => t.assignedTo === e.id && !['completed', 'pending_approval'].includes(t.status));
-    const av = availabilityOf(state, e);
-    return {
-      id: e.id, name: e.name, team: e.team || '—',
-      openTasks: open.length,
-      queueHours: av.backlogHours,
-      dayCapacity: dayCapacity(state, e, today),
-      busyUntil: av.committedThrough && av.committedThrough > today ? av.committedThrough : null,
-      busyUntilAt: av.clearsAt,
-      onLeaveToday: !!approvedLeaveOn(state, e.id, today),
-    };
-  }).filter(r => r.openTasks > 0 || r.onLeaveToday)
-    .sort((a, b) => (b.busyUntil || '').localeCompare(a.busyUntil || '') || b.queueHours - a.queueHours);
-  res.json({
-    date: today,
-    board: rows,
-    totalQueueHours: r2(rows.reduce((s, r) => s + r.queueHours, 0)),
-  });
-});
-
-// ---------------------------------------------------------------------------
 // P5 — "TO-DO TODAY". The caller's pending hours (remaining effort on work
 // that's running or due today/overdue) against today's real capacity, and —
 // for a manager — the same one line per report so they can see who's

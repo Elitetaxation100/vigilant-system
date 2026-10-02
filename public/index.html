@@ -271,7 +271,7 @@
     .tbudget-fill{ height:100%; background:linear-gradient(90deg, var(--purple), var(--teal)); }
     .myday-empty{ font-size:13.5px; color:var(--text-faint); padding:6px 0 20px; }
     .today-list{ display:flex; flex-direction:column; gap:10px; margin-bottom:24px; }
-    .today-list.muted{ opacity:.62; }
+    .today-list.muted .tr-left{ opacity:.62; } /* fade the task, not the buttons on the right */
     .today-list.muted .today-row{ padding:10px 16px; background:var(--panel-2); }
     .today-row{ display:flex; align-items:center; justify-content:space-between; gap:14px; background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:13px 16px; flex-wrap:wrap; }
     .today-row-title{ font-size:14px; font-weight:600; color:var(--text); }
@@ -1114,12 +1114,6 @@
             <button class="btn primary small" id="dashAddTaskBtn" onclick="event.preventDefault(); event.stopPropagation(); openAssignModal('me')">+ Add a task</button>
           </summary>
           <div id="myDayWrap"></div>
-        </details>
-
-        <details class="panel panel-fold" id="busyBoardPanel" style="margin-bottom:24px; display:none;" ontoggle="if(this.open) renderBusyBoard()">
-          <summary><h2>Who's busy until when</h2><span class="fold-hint">everyone's queue &amp; when it clears</span></summary>
-          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 12px;">How much work each person still has and the date their queue clears — so you know who to hand something to.</p>
-          <div id="busyBoardWrap">Loading…</div>
         </details>
 
         <details class="panel panel-fold" style="margin-bottom:24px;">
@@ -5379,6 +5373,12 @@ function actionButtonHtml(t){
     if(canDelegateMarkDone(t)) return `<button class="circle-btn" style="background:var(--teal);" title="Mark done for ${esc(dashSubject().name)}" aria-label="Mark done" onclick="markDoneNoReview('${t.id}')">&#10003;</button>`;
     return statusBadge(t);
   }
+  // A held task has no clock running, so the usual buttons don't apply — but
+  // the person (or their manager) can still log time they spent around it
+  // (chasing the client, preparing the file); it's counted at month-end.
+  if(t.status === 'on_hold' && iCanHold(t)){
+    return `${statusBadge(t)}<button class="verify-btn" style="margin-left:6px;" onclick="openAddHoursModal('${t.id}')" title="Add time you spent on this task while it's on hold">+ Add time</button>`;
+  }
   const a = primaryAction(t);
   const ta = timerAction(t);
   const isMine = t.assignedTo === currentViewerId;
@@ -5757,36 +5757,6 @@ async function refreshToday(){
   renderTodayGauge();
   renderCapacityCard();
   renderTodayTeam();
-  if(document.getElementById('busyBoardPanel')?.open) renderBusyBoard();
-}
-/* Who's busy until when — every person's remaining queue and the date it
-   clears. A manager/superadmin coordination aid, not a performance stat.
-   Only fetched while the panel is open. */
-async function renderBusyBoard(){
-  const wrap = document.getElementById('busyBoardWrap');
-  if(!wrap || !isAdmin) return;
-  let d;
-  try { d = await api('/api/busy-board'); }
-  catch(e){ wrap.innerHTML = `<div style="font-size:13px;color:var(--text-faint);">Couldn't load.</div>`; return; }
-  if(!d.board.length){ wrap.innerHTML = `<div style="font-size:13.5px;color:var(--text-faint);">Nobody has open work right now.</div>`; return; }
-  const head = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:10px;">${d.board.length} people with work · <b>${d.totalQueueHours}h</b> in queues across the firm.</div>`;
-  wrap.innerHTML = head + d.board.map(r => {
-    const me = r.id === currentViewerId;
-    const status = r.onLeaveToday
-      ? `<span class="badge dot" style="opacity:.7;">on leave today</span>`
-      : r.busyUntil
-        ? `<span class="badge overdue dot" style="font-size:10px;">busy until ${r.busyUntilAt ? fmtBusyUntil(r.busyUntilAt) : fmtDate(r.busyUntil)}</span>`
-        : `<span class="badge completed dot" style="font-size:10px;">queue clear</span>`;
-    return `<div class="to-row"${me ? ' style="background:var(--purple-dim);border-radius:8px;"' : ''}>
-      <div class="to-main">
-        <b>${esc(r.name)}${me ? ' (you)' : ''}</b> <span style="font-size:11px;color:var(--text-faint);">${esc(r.team)}</span>
-        <div style="font-size:12px;color:var(--text-faint);margin-top:2px;">
-          <span class="hrs-badge">⏱ ${r.queueHours}h</span> in queue · ${r.openTasks} open task${r.openTasks===1?'':'s'}
-        </div>
-      </div>
-      ${status}
-    </div>`;
-  }).join('');
 }
 function todayStatusColor(s){ return s==='over' ? 'var(--coral)' : s==='light' ? 'var(--amber)' : s==='off' ? 'var(--text-faint)' : 'var(--teal)'; }
 function tgBar(pending, capacity){
@@ -11034,9 +11004,6 @@ async function onLoginComplete(){
   // same condition as the least-restrictive item inside it (isAdmin), so
   // nobody sees an empty, un-openable dropdown.
   document.getElementById('mgmtNavToggle').style.display = isAdmin ? '' : 'none';
-  // "Who's busy until when" — manager/superadmin coordination aid, hidden
-  // from plain employees.
-  document.getElementById('busyBoardPanel').style.display = isAdmin ? '' : 'none';
   // "+ Assign Task" is visible to every role — anyone can assign work to
   // anyone else in the firm.
   document.getElementById('assignTeamNavItem').style.display = isAdmin ? '' : 'none';
