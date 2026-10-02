@@ -7962,27 +7962,40 @@ const STAGE_LABELS = {
   met:'Met', missed:'Missed', clean:'Clean', done:'Closed (no review)', error:'Error', pending:'Pending',
   sent_on_time:'Sent on time', sent_late:'Sent late', not_sent:'Not sent', sending_not_required:'Not required',
 };
-const RULE_LABELS = { historical:'Historical', v2:'V2 (Clean review)' };
 const QUALIFYING_EVENT_LABELS = {
   sent_for_review:'Sent for review', marked_done:'Marked done', clean_review:'Clean review', no_review_authorized:'No-review authorised',
   report_dispatched:'Report sent to client', self_certified_reviewer:'Self-certified (reviewer)',
+  month_close:'Held at month-end (hours banked)',
+};
+// Plain-language meaning of each "Excluded" reason, shown under it.
+const EXCLUSION_HELP = {
+  'No authorised no-review approval': "It was closed without a review, and no manager has approved it as \"no review needed\". A manager can approve it from the task's history (Authorise no-review credit) and it will then count.",
+  'Review pending': "It was sent for review but the reviewer hasn't marked it clean or with errors yet. It counts once the review is done.",
+  'Review contains errors': 'The reviewer found errors. It counts again once it is fixed and passes review.',
+  'Not yet delivered': 'The work is not finished yet.',
+  'In progress': 'The work is not finished yet.',
+  'On hold': "On hold — not counted until it's finished (or banked at month-end).",
+  'Needs rework': 'Sent back for rework — not counted until it is fixed and passes review.',
+  'Awaiting acceptance': "The person hasn't accepted the task yet.",
+  'Window proposed': 'A new window was proposed and is waiting for approval.',
+  'Missing allocated-hours snapshot': 'A data problem: this task has no agreed hours recorded, so it cannot be credited.',
+  'Invalid completion timestamp': 'A data problem: this task has no valid completion time, so it cannot be credited.',
 };
 function stageLabel(s){ return s ? esc(STAGE_LABELS[s] || s) : '<span style="color:var(--text-faint);">—</span>'; }
 function taskCalcTableHtml(rows, showReason){
   if(!rows.length) return `<p style="font-size:12.5px;color:var(--text-faint);padding:8px 0;">None.</p>`;
   return `<div style="overflow-x:auto;max-height:26vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">
     <thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">
-      <th style="padding:5px 6px 5px 0;">Task</th><th style="padding:5px 6px;">Client</th><th style="padding:5px 6px;">Rule</th><th style="padding:5px 6px;">Qualifying event</th><th style="padding:5px 6px;">Processor</th><th style="padding:5px 6px;">Reviewer</th><th style="padding:5px 6px;">Report</th><th style="padding:5px 6px;text-align:right;">Hours</th>${showReason?'<th style="padding:5px 6px;">Reason</th>':''}</tr></thead>
+      <th style="padding:5px 6px 5px 0;">Task</th><th style="padding:5px 6px;">Client</th><th style="padding:5px 6px;">Qualifying event</th><th style="padding:5px 6px;">Processor</th><th style="padding:5px 6px;">Reviewer</th><th style="padding:5px 6px;">Report</th><th style="padding:5px 6px;text-align:right;">Hours</th>${showReason?'<th style="padding:5px 6px;">Reason</th>':''}</tr></thead>
     <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--panel-border);">
       <td style="padding:5px 6px 5px 0;font-weight:600;">${esc(r.name)}${r.dataException?' <span title="Data exception" style="color:var(--coral);">⚠</span>':''}</td>
       <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.clientName)}</td>
-      <td style="padding:5px 6px;color:var(--text-dim);">${r.rule?esc(RULE_LABELS[r.rule]||r.rule):'—'}</td>
       <td style="padding:5px 6px;color:var(--text-dim);">${r.qualifyingEventType?esc(QUALIFYING_EVENT_LABELS[r.qualifyingEventType]||r.qualifyingEventType)+(r.qualifyingEventAt?' · '+fmtDate(dayOf(r.qualifyingEventAt)):''):'—'}</td>
       <td style="padding:5px 6px;">${stageLabel(r.stages.processor)}</td>
       <td style="padding:5px 6px;">${stageLabel(r.stages.reviewer)}</td>
       <td style="padding:5px 6px;">${stageLabel(r.stages.sender)}</td>
-      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${r.allocatedHours.toFixed(1)}h${r.zeroHourTask?' <span style="color:var(--text-faint);">(0h)</span>':''}</td>
-      ${showReason?`<td style="padding:5px 6px;color:var(--coral);">${esc(r.exclusionReason||'')}</td>`:''}
+      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${(r.qualifies ? r.creditedHours : r.allocatedHours).toFixed(1)}h${r.qualifies && Math.abs(r.creditedHours - r.allocatedHours) > 0.05 ? ` <span style="color:var(--text-faint);" title="Part of this task's ${r.allocatedHours.toFixed(1)}h was credited at a month-end while it was on hold">(of ${r.allocatedHours.toFixed(1)}h)</span>` : ''}${r.zeroHourTask?' <span style="color:var(--text-faint);">(0h)</span>':''}</td>
+      ${showReason?`<td style="padding:5px 6px;color:var(--coral);">${esc(r.exclusionReason||'')}${EXCLUSION_HELP[r.exclusionReason]?`<div style="color:var(--text-faint);font-size:11.5px;margin-top:2px;">${esc(EXCLUSION_HELP[r.exclusionReason])}</div>`:''}</td>`:''}
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
