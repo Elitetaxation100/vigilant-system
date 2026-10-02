@@ -7964,12 +7964,11 @@ const STAGE_LABELS = {
 };
 const QUALIFYING_EVENT_LABELS = {
   sent_for_review:'Sent for review', marked_done:'Marked done', clean_review:'Clean review', no_review_authorized:'No-review authorised',
-  report_dispatched:'Report sent to client', self_certified_reviewer:'Self-certified (reviewer)',
+  report_dispatched:'Report sent to client', self_certified_reviewer:'Self-certified (reviewer)', no_review_needed:'Closed (no review needed)',
   month_close:'Held at month-end (hours banked)',
 };
 // Plain-language meaning of each "Excluded" reason, shown under it.
 const EXCLUSION_HELP = {
-  'No authorised no-review approval': "It was closed without a review, and no manager has approved it as \"no review needed\". A manager can approve it from the task's history (Authorise no-review credit) and it will then count.",
   'Review pending': "It was sent for review but the reviewer hasn't marked it clean or with errors yet. It counts once the review is done.",
   'Review contains errors': 'The reviewer found errors. It counts again once it is fixed and passes review.',
   'Not yet delivered': 'The work is not finished yet.',
@@ -9976,8 +9975,6 @@ function openTaskTrailModal(id){
       <button class="btn" onclick="closeModal()">Close</button>
       ${empManagesWork(currentViewer(), t.assignedTo) ? `<button class="btn" style="border-color:#6D28D9;color:#6D28D9;" onclick="openCorrectNameModal('${id}')" title="Fix a garbled or wrong title">Rename task</button>` : ''}
       ${isSuperAdmin ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="openCorrectLoggedModal('${id}')" title="Fix a bad logged-hours value — e.g. a forgotten timer">Correct logged hours (${t.logged.toFixed(1)}h)</button>` : ''}
-      ${t.reviewStatus === 'done' && !t.noReviewAuthorizedAt && currentViewerId !== t.assignedTo && empManagesWork(currentViewer(), t.assignedTo)
-        ? `<button class="btn" style="border-color:var(--teal);color:var(--teal);" onclick="openAuthorizeNoReviewModal('${id}')" title="Required for this task to earn Productivity credit under the current rule">Authorise no-review credit</button>` : ''}
       ${t.noReviewAuthorizedAt ? `<span style="font-size:12px;color:var(--text-faint);align-self:center;">✓ No-review authorised by ${esc((empById(t.noReviewAuthorizedBy)||{}).name || '—')}, ${fmtDate(dayOf(t.noReviewAuthorizedAt))}</span>` : ''}
     </div>
   `;
@@ -10047,36 +10044,6 @@ async function submitCorrectName(id){
     await api(`/api/tasks/${encodeURIComponent(id)}/correct-name`, { method:'POST', body: JSON.stringify({ name }) });
     await refreshTasks();
     showToast('success', 'Task renamed', '');
-    openTaskTrailModal(id);
-  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
-}
-// Manager authorisation for a no-review ('done') task to earn V2
-// Productivity credit — the credited period is the authorisation moment,
-// not the original completion, so approving this well after the fact never
-// silently rewrites an already-reported period (see server.js).
-function openAuthorizeNoReviewModal(id){
-  const t = findTask(id);
-  if(!t) return;
-  document.getElementById('modalBox').innerHTML = `
-    <h3>Authorise no-review credit</h3>
-    <div class="modal-sub">${esc(t.name)} — closed without review; this earns nothing toward Productivity until authorised.</div>
-    <div class="field"><label>Reason</label>
-      <input type="text" id="nrReason" placeholder="e.g. routine internal task, no review needed"></div>
-    <div class="modal-error" id="nrErr"></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="openTaskTrailModal('${id}')">← Back</button>
-      <button class="btn primary" onclick="submitAuthorizeNoReview('${id}')">Authorise</button>
-    </div>`;
-  openModal();
-}
-async function submitAuthorizeNoReview(id){
-  const reason = document.getElementById('nrReason').value.trim();
-  const errEl = document.getElementById('nrErr');
-  if(!reason){ errEl.textContent = 'Give a reason.'; errEl.style.display = 'block'; return; }
-  try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/authorize-no-review`, { method:'POST', body: JSON.stringify({ reason }) });
-    await refreshTasks();
-    showToast('success', 'Authorised', 'This task now earns Productivity credit.');
     openTaskTrailModal(id);
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }

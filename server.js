@@ -366,8 +366,9 @@ const OPEN_STATUS_REASONS = {
 // the same "sent for review or marked done" event the app already used,
 // full stop — no review outcome or dispatch required (retroactively
 // requiring one would be unfair to work done under different expectations).
-// On/after v2At, full credit requires a genuinely Clean review, or a
-// manager's explicit no-review authorisation (see /authorize-no-review).
+// On/after v2At, full credit requires a genuinely Clean review, or the task
+// being closed with no review at all ("Mark Done" — plenty of work doesn't
+// need a second pair of eyes, so that counts without anyone's approval).
 //
 // Three independently-reported stages (never blended into one verdict):
 //   processor — t.completedAt (refreshed by /resubmit on every rework
@@ -443,20 +444,20 @@ function productivityQualifies(state, t, v2At, reportInfo) {
     return qualify('historical', type, t.completedAt);
   }
 
-  // V2 rule — genuinely Clean, a manager-authorised no-review exception, a
-  // self-certified no-review from someone with real reviewer authority, or
+  // V2 rule — genuinely Clean, closed with no review needed (see below), or
   // the report actually reaching the client (real-world proof of
   // completion, independent of whether it was formally reviewed first).
   if (t.reviewStatus === 'error') return exclude('Review contains errors');
   if (t.sentToClient === true) return qualify('v2', 'report_dispatched', t.sentToClientAt);
   if (t.reviewStatus === 'clean') return qualify('v2', 'clean_review', t.reviewedAt);
   if (t.reviewStatus === 'done') {
-    // periodDate is the AUTHORISATION timestamp, never backdated to the
-    // original completedAt — authorising a task long after it was closed
-    // must never silently rewrite an already-reported historical period.
+    // Closed with no review: counts, no manager approval required. A task
+    // that was already authorised under the old rule keeps the AUTHORISATION
+    // timestamp as its period (so already-reported periods don't move);
+    // everything else counts on the day it was closed.
     if (t.noReviewAuthorizedAt) return qualify('v2', 'no_review_authorized', t.noReviewAuthorizedAt);
     if (isReviewerCapable(state, t.assignedTo)) return qualify('v2', 'self_certified_reviewer', t.completedAt);
-    return exclude('No authorised no-review approval');
+    return qualify('v2', 'no_review_needed', t.completedAt);
   }
   return exclude('Review pending'); // sent for review, not yet actioned (covers rework-resubmitted-not-yet-reviewed too)
 }
@@ -2245,33 +2246,6 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   t.closedBy = req.employee.id; t.closedAt = t.completedAt;
   const kind = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'call' : 'Slack') + ' task' : 'no review needed';
   logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (${kind}).`);
-  db.save();
-  res.json({ task: taskForClient(t) });
-});
-
-// Manager/superadmin authorisation for a no-review completion to earn V2
-// productivity credit — closes the loophole where /done has always let the
-// assignee self-certify their own work with zero oversight. Applies to
-// every task kind alike (internal and client). Settable any time relative
-// to /done; productivityQualifies uses the AUTHORISATION timestamp (never
-// the original completedAt) as the credited period, so approving one long
-// after the fact never silently rewrites an already-reported period.
-app.post('/api/tasks/:id/authorize-no-review', requireAuth, (req, res) => {
-  const state = db.get();
-  const t = findTask(state, req.params.id);
-  if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (req.employee.id === t.assignedTo) {
-    return res.status(403).json({ error: "You can't authorise your own task to skip review." });
-  }
-  const isManager = isAdminRole(req.employee.accessRole) &&
-    (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo));
-  if (!isManager) return res.status(403).json({ error: 'Only a manager or superadmin can authorise a no-review task.' });
-  const reason = String((req.body || {}).reason || '').trim();
-  if (!reason) return res.status(400).json({ error: 'Give a reason.' });
-  t.noReviewAuthorizedBy = req.employee.id;
-  t.noReviewAuthorizedAt = new Date().toISOString();
-  t.noReviewAuthorizedReason = reason;
-  logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> authorised "${escHtml(t.name)}" as a no-review completion — ${escHtml(reason)}.`);
   db.save();
   res.json({ task: taskForClient(t) });
 });
