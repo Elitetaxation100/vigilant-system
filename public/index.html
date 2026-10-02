@@ -1790,6 +1790,7 @@
             </div>
           </div>
           <p id="cardsSub" style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;"></p>
+          <div class="src-subtabs" id="cardsGroupTabs" style="margin:0 0 12px;display:none;"></div>
           <div id="cardsBody"></div>
         </div>
         </div>
@@ -8019,7 +8020,7 @@ function openProductivityCalcModal(p){
    of every call/email behind them; a scoring rule comes later). A person's
    group is set by a superadmin from the Group column. */
 let _prodGroup = 'processor';
-const PROD_GROUP_LABELS = { processor: 'Processors', admin: 'Admin', marketing: 'Marketing' };
+const PROD_GROUP_LABELS = { processor: 'Processors', admin: 'Admin', marketing: 'Marketing', management: 'Management' };
 function renderProdGroupTabs(){
   document.getElementById('prodGroupTabs').innerHTML = Object.entries(PROD_GROUP_LABELS)
     .map(([k, l]) => `<button class="src-subtab${k === _prodGroup ? ' on' : ''}" onclick="setProdGroup('${k}')">${l}</button>`).join('');
@@ -8249,20 +8250,59 @@ async function loadMonthlyCards(){
   const many = d.cards.length > 1;
   document.getElementById('cardsCsvBtn').style.display = many ? '' : 'none';
   if(!many){ body.innerHTML = d.cards.length ? monthlyCardHtml(d.cards[0]) : '<div style="color:var(--text-faint);">No card for you in this month.</div>'; return; }
-  const measure = c => c.group === 'admin'
-    ? `Calls ${c.activity.calls.total ? Math.round(c.activity.calls.ack / c.activity.calls.total * 1000) / 10 + '%' : '—'} · Emails ${c.activity.emails.total ? Math.round(c.activity.emails.ack / c.activity.emails.total * 1000) / 10 + '%' : '—'}`
-    : (c.productivity.notScorable ? '—' : (c.productivity.productivityPct == null ? '—' : c.productivity.productivityPct + '%'));
+  renderCardsList();
+}
+// Which team a person is in NOW (the group is just a label — the card's
+// numbers stay frozen, but grouping follows the current assignment so
+// moving someone into Management doesn't require re-finalising a month).
+function cardGroup(c){
+  const e = empById(c.id);
+  return e ? (e.prodGroup || 'processor') : (c.group || 'processor');
+}
+let _cardsGroup = 'all';
+function setCardsGroup(g){ _cardsGroup = g; renderCardsList(); }
+function renderCardsList(){
+  const d = _cardsData, body = document.getElementById('cardsBody'), tabs = document.getElementById('cardsGroupTabs');
+  if(!d) return;
+  const many = d.cards.length > 1;
+  tabs.style.display = many ? '' : 'none';
+  if(!many){ tabs.innerHTML = ''; return; }
+  const counts = { all: d.cards.length };
+  Object.keys(PROD_GROUP_LABELS).forEach(k => { counts[k] = d.cards.filter(c => cardGroup(c) === k).length; });
+  tabs.innerHTML = [['all', 'All'], ...Object.entries(PROD_GROUP_LABELS)]
+    .map(([k, l]) => `<button class="src-subtab${k === _cardsGroup ? ' on' : ''}" onclick="setCardsGroup('${k}')">${l} (${counts[k]})</button>`).join('');
+  const g = _cardsGroup;
+  const list = d.cards.filter(c => g === 'all' || cardGroup(c) === g).sort((a, b) => a.name.localeCompare(b.name));
+  if(!list.length){ body.innerHTML = `<div style="color:var(--text-faint);padding:14px 0;">No one is in ${esc(PROD_GROUP_LABELS[g] || g)}.${isSuperAdmin ? ' Set people\'s group from the Productivity tab.' : ''}</div>`; return; }
+  const pct = v => v == null ? '—' : v + '%';
+  const rate = (a, t) => t ? Math.round(a / t * 1000) / 10 : null;
+  const rateTd = v => `<td style="text-align:right;font-weight:700;color:${v == null ? 'var(--text-faint)' : scoreColor(v)};">${pct(v)}</td>`;
   const netColor = n => n > 0 ? 'var(--teal)' : n < 0 ? 'var(--coral)' : 'var(--text-faint)';
+  const R = 'text-align:right;', MONO = 'text-align:right;font-family:var(--font-mono);';
+  const personTd = c => `<td><div class="tl-name">${esc(c.name)}</div><div class="tl-sub">${esc(c.team)}</div></td>`;
+  const tailTd = c => `<td style="${R}font-weight:700;color:${netColor(c.marks.net)};">${c.marks.net > 0 ? '+' : ''}${c.marks.net}</td><td style="${R}">${c.recognition.kudos}</td><td><span style="color:var(--purple);font-size:12px;font-weight:600;">View →</span></td>`;
+  const prodPct = c => c.productivity.notScorable ? null : c.productivity.productivityPct;
+  let head, rowHtml;
+  if(g === 'admin'){
+    head = ['Person', 'Calls', 'Acknowledged', 'Not acknowledged', 'Call rate', 'Emails', 'Acknowledged', 'Not acknowledged', 'Email rate', 'Marks (net)', 'Kudos'];
+    rowHtml = c => { const a = c.activity;
+      return personTd(c) + `<td style="${R}">${a.calls.total}</td><td style="${R}color:var(--teal);">${a.calls.ack}</td><td style="${R}color:${a.calls.notAck ? 'var(--coral)' : 'var(--text-faint)'};">${a.calls.notAck}</td>${rateTd(rate(a.calls.ack, a.calls.total))}`
+        + `<td style="${R}">${a.emails.total}</td><td style="${R}color:var(--teal);">${a.emails.ack}</td><td style="${R}color:${a.emails.notAck ? 'var(--coral)' : 'var(--text-faint)'};">${a.emails.notAck}</td>${rateTd(rate(a.emails.ack, a.emails.total))}` + tailTd(c); };
+  } else if(g === 'all'){
+    head = ['Person', 'Group', 'Productivity', 'Qualified', 'Marks (net)', 'Kudos'];
+    rowHtml = c => { const cg = cardGroup(c), a = c.activity;
+      const measure = cg === 'admin' ? `Calls ${pct(rate(a.calls.ack, a.calls.total))} · Emails ${pct(rate(a.emails.ack, a.emails.total))}` : pct(prodPct(c));
+      return personTd(c) + `<td>${esc(PROD_GROUP_LABELS[cg] || cg)}</td><td style="${R}font-weight:700;">${esc(measure)}</td><td style="${MONO}">${cg === 'admin' ? '—' : c.productivity.qualifiedHours.toFixed(1) + 'h'}</td>` + tailTd(c); };
+  } else {
+    head = ['Person', 'Productivity', 'Qualified', 'Capacity', 'Held at month-end', 'Commitment', 'Reports on time', 'Marks (net)', 'Kudos'];
+    rowHtml = c => { const p = c.productivity;
+      return personTd(c) + rateTd(prodPct(c)) + `<td style="${MONO}">${p.qualifiedHours.toFixed(1)}h</td><td style="${MONO}">${p.capacityHours.toFixed(1)}h</td><td style="${MONO}">${p.bankedHoldHours ? p.bankedHoldHours.toFixed(1) + 'h' : '—'}</td>`
+        + rateTd(p.commitmentPct) + `<td style="${R}">${p.reportsOnTime}/${p.reportsRequired}</td>` + tailTd(c); };
+  }
+  const thCell = (h, i) => `<th${i === 0 || h === 'Group' ? '' : ` style="text-align:right;"`}>${h}</th>`;
   body.innerHTML = `<div style="max-height:62vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
-    <thead><tr><th>Person</th><th>Group</th><th style="text-align:right;">Productivity</th><th style="text-align:right;">Qualified</th><th style="text-align:right;">Marks (net)</th><th style="text-align:right;">Kudos</th><th></th></tr></thead>
-    <tbody>${d.cards.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => `<tr style="cursor:pointer;" onclick="openMonthlyCardModal('${esc(c.id)}')">
-      <td><div class="tl-name">${esc(c.name)}</div><div class="tl-sub">${esc(c.team)}</div></td>
-      <td>${esc(PROD_GROUP_LABELS[c.group] || c.group)}</td>
-      <td style="text-align:right;font-weight:700;">${esc(measure(c))}</td>
-      <td style="text-align:right;font-family:var(--font-mono);">${c.group === 'admin' ? '—' : c.productivity.qualifiedHours.toFixed(1) + 'h'}</td>
-      <td style="text-align:right;font-weight:700;color:${netColor(c.marks.net)};">${c.marks.net > 0 ? '+' : ''}${c.marks.net}</td>
-      <td style="text-align:right;">${c.recognition.kudos}</td>
-      <td><span style="color:var(--purple);font-size:12px;font-weight:600;">View →</span></td></tr>`).join('')}</tbody></table></div>`;
+    <thead><tr>${head.map(thCell).join('')}<th></th></tr></thead>
+    <tbody>${list.map(c => `<tr style="cursor:pointer;" onclick="openMonthlyCardModal('${esc(c.id)}')">${rowHtml(c)}</tr>`).join('')}</tbody></table></div>`;
 }
 function monthlyCardHtml(c){
   const p = c.productivity, a = c.activity;
@@ -8270,7 +8310,8 @@ function monthlyCardHtml(c){
   const rate = (x, t) => t ? Math.round(x / t * 1000) / 10 : null;
   const cr = rate(a.calls.ack, a.calls.total), er = rate(a.emails.ack, a.emails.total);
   const ruleLabel = r => r === 'on_hold_month_close' ? 'Held at month-end (hours banked)' : r === 'historical' ? 'Completed' : (r || '—');
-  const main = c.group === 'admin' ? `<div class="top-grid">
+  const cg = cardGroup(c);
+  const main = cg === 'admin' ? `<div class="top-grid">
       ${tile('Calls', `${a.calls.ack}<small> / ${a.calls.total}</small>`, cr == null ? 'no calls' : cr + '% acknowledged', cr == null ? '' : scoreColor(cr))}
       ${tile('Calls not acknowledged', a.calls.notAck, '', a.calls.notAck ? 'var(--coral)' : '')}
       ${tile('Emails', `${a.emails.ack}<small> / ${a.emails.total}</small>`, er == null ? 'no emails' : er + '% acknowledged', er == null ? '' : scoreColor(er))}
@@ -8283,7 +8324,7 @@ function monthlyCardHtml(c){
       ${tile('Reports on time', `${p.reportsOnTime}<small> / ${p.reportsRequired}</small>`, p.reportSentRate == null ? '' : p.reportSentRate + '% rate')}
     </div>${p.qualifiedTasks.length ? `<h4 style="margin:14px 0 4px;">Credited tasks (${p.qualifiedTasks.length})</h4><div style="max-height:30vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><tbody>${p.qualifiedTasks.map(t => `<tr><td style="padding:5px 6px;border-top:1px solid var(--panel-border);">${esc(t.name)}<div class="tl-sub">${esc(t.clientName || '—')} · ${esc(ruleLabel(t.rule))}</div></td><td style="padding:5px 6px;border-top:1px solid var(--panel-border);text-align:right;font-family:var(--font-mono);">${Number(t.creditedHours).toFixed(2)}h</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   const net = c.marks.net;
-  return `<div style="margin-bottom:8px;"><b style="font-size:16px;">${esc(c.name)}</b> <span style="color:var(--text-faint);">${esc(c.team)} · ${esc(c.jobTitle || '')} · ${esc(PROD_GROUP_LABELS[c.group] || c.group)}</span></div>
+  return `<div style="margin-bottom:8px;"><b style="font-size:16px;">${esc(c.name)}</b> <span style="color:var(--text-faint);">${esc(c.team)} · ${esc(c.jobTitle || '')} · ${esc(PROD_GROUP_LABELS[cg] || cg)}</span></div>
     ${main}
     <h4 style="margin:14px 0 6px;">Marks &amp; recognition</h4>
     <div class="top-grid">
@@ -8304,14 +8345,14 @@ function downloadCardsCsv(){
   const d = _cardsData; if(!d) return;
   const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const head = ['Name','Team','Group','Capacity h','Qualified h','Held-at-month-end h','Productivity %','Commitment %','Reports on time','Reports required','Calls total','Calls acknowledged','Calls not acknowledged','Emails total','Emails acknowledged','Emails not acknowledged','Marks net','Kudos','Points'];
-  const rows = d.cards.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => [c.name, c.team, PROD_GROUP_LABELS[c.group] || c.group,
+  const rows = d.cards.filter(c => _cardsGroup === 'all' || cardGroup(c) === _cardsGroup).sort((a, b) => a.name.localeCompare(b.name)).map(c => [c.name, c.team, PROD_GROUP_LABELS[cardGroup(c)] || cardGroup(c),
     c.productivity.capacityHours, c.productivity.qualifiedHours, c.productivity.bankedHoldHours, c.productivity.productivityPct, c.productivity.commitmentPct,
     c.productivity.reportsOnTime, c.productivity.reportsRequired, c.activity.calls.total, c.activity.calls.ack, c.activity.calls.notAck,
     c.activity.emails.total, c.activity.emails.ack, c.activity.emails.notAck, c.marks.net, c.recognition.kudos, c.recognition.points]);
   const csv = [head, ...rows].map(r => r.map(q).join(',')).join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' }));
-  a.download = `monthly-cards-${d.period}.csv`;
+  a.download = `monthly-cards-${d.period}${_cardsGroup === 'all' ? '' : '-' + _cardsGroup}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
 }
 async function renderProductivityView(){

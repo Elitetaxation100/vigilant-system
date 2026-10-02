@@ -172,10 +172,10 @@ function publicEmployee(e, viewerIsAdmin) {
   return rest;
 }
 function findEmployee(state, id) { return state.employees.find(e => e.id === id); }
-// Which productivity model someone is measured by. Processors (the default)
-// and Marketing are hours-based; Admin staff are measured by calls and
+// Which productivity model someone is measured by. Processors (the default),
+// Marketing and Management are hours-based; Admin staff are measured by calls and
 // emails acknowledged instead. Set by a superadmin from the Productivity tab.
-const PROD_GROUPS = ['processor', 'admin', 'marketing'];
+const PROD_GROUPS = ['processor', 'admin', 'marketing', 'management'];
 function prodGroupOf(emp) { return emp && PROD_GROUPS.includes(emp.prodGroup) ? emp.prodGroup : 'processor'; }
 function findTask(state, id) { return state.tasks.find(t => t.id === id); }
 function isAdminRole(role) { return role === 'admin' || role === 'superadmin'; }
@@ -3673,7 +3673,7 @@ app.post('/api/employees/:id/prod-group', requireAuth, requireSuperAdmin, (req, 
   const emp = findEmployee(state, req.params.id);
   if (!emp) return res.status(404).json({ error: 'Employee not found.' });
   const group = String((req.body || {}).group || '');
-  if (!PROD_GROUPS.includes(group)) return res.status(400).json({ error: 'Group must be processor, admin or marketing.' });
+  if (!PROD_GROUPS.includes(group)) return res.status(400).json({ error: 'Group must be processor, admin, marketing or management.' });
   emp.prodGroup = group;
   db.save();
   res.json({ employee: publicEmployee(emp, true) });
