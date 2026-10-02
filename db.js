@@ -418,6 +418,10 @@ function runMigrations(state) {
   // and reactable. See connector.js awardPoints/reactToPoints.
   if (!Array.isArray(state.points)) state.points = [];
   if (typeof state.pointsSeq !== 'number') state.pointsSeq = 0;
+  // Marks — signed performance marks (positive or negative) a manager gives
+  // an employee with a required reason. See the /api/marks endpoints.
+  if (!Array.isArray(state.marks)) state.marks = [];
+  if (typeof state.marksSeq !== 'number') state.marksSeq = 0;
   // Productivity rebuild — the working-day holiday calendar moves from a
   // hardcoded list (calendar.js) to an admin-manageable table, seeded once
   // from that same list so nothing changes on day one. { date, name,

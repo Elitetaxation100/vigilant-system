@@ -914,10 +914,12 @@ function logEvent(state, empId, text, meta) {
 // In-app notification for one person. `text` is plain (no HTML). Deduped so a
 // repeated event of the same type on the same task doesn't stack while still
 // unread. Returns the row (or the existing unread one).
-function notify(state, empId, type, text, taskId) {
+function notify(state, empId, type, text, taskId, opts) {
   if (!empId) return null;
   if (!Array.isArray(state.notifications)) state.notifications = [];
-  const dupe = state.notifications.find(n => n.empId === empId && n.type === type && n.taskId === (taskId || null) && !n.seenAt);
+  // opts.noDedupe: for events not tied to a task (e.g. marks) where two
+  // different ones in a row must both show, not overwrite each other.
+  const dupe = !(opts && opts.noDedupe) && state.notifications.find(n => n.empId === empId && n.type === type && n.taskId === (taskId || null) && !n.seenAt);
   if (dupe) { dupe.text = text; dupe.at = new Date().toISOString(); return dupe; }
   const row = {
     id: 'n-' + (state.notificationSeq = (state.notificationSeq || 0) + 1),
@@ -931,7 +933,7 @@ function notify(state, empId, type, text, taskId) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -2709,6 +2711,64 @@ app.delete('/api/points/:id', requireAuth, (req, res) => {
   const r = deletePoints(db.get(), { pointsId: req.params.id, byId: req.employee.id });
   if (!r.ok) return res.status(r.error.includes('not found') ? 404 : 403).json({ error: r.error });
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// MARKS — signed performance marks (positive or negative) a manager gives
+// an employee, each with a required reason. Same authority boundary as
+// acting on someone's work (canManageEmployee): a superadmin can mark
+// anyone, an admin only their own team; nobody can mark themselves.
+// Visibility: an employee sees only their own, an admin their team's, a
+// superadmin everyone's. A mark is never deleted — voiding keeps it on
+// record (struck through in the UI, excluded from totals). Standalone for
+// now: nothing here feeds Productivity or the Report Card yet.
+// ---------------------------------------------------------------------------
+app.get('/api/marks', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  let list = state.marks || [];
+  if (me.accessRole === 'employee') list = list.filter(m => m.toId === me.id);
+  else if (me.accessRole === 'admin') {
+    const ids = new Set([me.id, ...teamRoster(state, me).map(e => e.id)]);
+    list = list.filter(m => ids.has(m.toId));
+  }
+  res.json({ marks: list.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')) });
+});
+app.post('/api/marks', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const { toId, points, reason } = req.body || {};
+  const to = findEmployee(state, toId);
+  if (!to) return res.status(400).json({ error: 'Choose who the mark is for.' });
+  if (to.id === me.id) return res.status(400).json({ error: "You can't give marks to yourself." });
+  if (me.accessRole === 'employee') return res.status(403).json({ error: 'Only a manager can give marks.' });
+  if (!canManageEmployee(state, me, to.id)) return res.status(403).json({ error: "You can only give marks to people on your own team." });
+  const pts = Math.round(Number(points));
+  if (!Number.isFinite(pts) || pts === 0) return res.status(400).json({ error: 'Marks must be a non-zero whole number (negative to deduct).' });
+  if (Math.abs(pts) > 10000) return res.status(400).json({ error: 'That is too large — marks are limited to ±10,000 each.' });
+  const why = String(reason || '').trim().slice(0, 300);
+  if (why.length < 3) return res.status(400).json({ error: 'A reason is required.' });
+  state.marksSeq = (state.marksSeq || 0) + 1;
+  const row = { id: 'mk' + state.marksSeq, toId: to.id, byId: me.id, points: pts, reason: why, createdAt: new Date().toISOString(), voidedAt: null, voidedBy: null };
+  state.marks.push(row);
+  const label = (pts > 0 ? '+' : '') + pts.toLocaleString();
+  logEvent(state, to.id, `<b>${escHtml(me.name)}</b> gave you <b>${label} marks</b> — "${escHtml(why)}".`);
+  notify(state, to.id, 'mark', `${me.name} gave you ${label} marks — ${why}`, null, { noDedupe: true });
+  db.save();
+  res.status(201).json({ mark: row });
+});
+app.post('/api/marks/:id/void', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const row = (state.marks || []).find(m => m.id === req.params.id);
+  if (!row) return res.status(404).json({ error: 'Mark not found.' });
+  if (row.voidedAt) return res.status(400).json({ error: 'Already voided.' });
+  if (me.accessRole !== 'superadmin' && row.byId !== me.id) return res.status(403).json({ error: 'Only the person who gave it, or a superadmin, can void a mark.' });
+  row.voidedAt = new Date().toISOString();
+  row.voidedBy = me.id;
+  logEvent(state, row.toId, `A mark of <b>${row.points > 0 ? '+' : ''}${row.points}</b> was voided by <b>${escHtml(me.name)}</b>.`);
+  db.save();
+  res.json({ mark: row });
 });
 
 // Resubmit — the assignee fixes a task they've already accepted the

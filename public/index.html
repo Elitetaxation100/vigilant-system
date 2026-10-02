@@ -1771,6 +1771,41 @@
           </div>
         </div>
         </div>
+        <div class="perf-tab" id="tab-marks" style="display:none;">
+        <div class="panel" id="marksGivePanel" style="display:none;">
+          <div class="panel-head"><h2>Give marks</h2></div>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Add or deduct marks for someone on your team. A reason is required, and they're notified. Marks are kept on record — a mistake can be voided but never silently deleted.</p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end;">
+            <div class="field" style="margin:0;"><label>Person</label><select id="markTo"></select></div>
+            <div class="field" style="margin:0;"><label>Type</label>
+              <div class="src-subtabs" style="margin:0;">
+                <button class="src-subtab on" id="markSignPos" onclick="setMarkSign(1)">＋ Positive</button>
+                <button class="src-subtab" id="markSignNeg" onclick="setMarkSign(-1)">－ Negative</button>
+              </div>
+            </div>
+            <div class="field" style="margin:0;"><label>Marks</label><input type="number" id="markPoints" min="1" max="10000" step="1" placeholder="e.g. 5"></div>
+          </div>
+          <div class="field" style="margin-top:12px;"><label>Reason <span class="req-mark">*</span></label><textarea id="markReason" placeholder="e.g. Called the client back within the hour as promised"></textarea></div>
+          <div class="modal-error" id="markErr"></div>
+          <div style="display:flex;justify-content:flex-end;"><button class="btn primary" onclick="submitMark()">Give marks</button></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h2 id="marksTitle">Marks</h2>
+            <div class="panel-head-actions">
+              <select id="marksPeriod" onchange="renderMarksList()">
+                <option value="month" selected>This month</option>
+                <option value="last">Last month</option>
+                <option value="all">All time</option>
+              </select>
+              <select id="marksPerson" onchange="renderMarksList()"></select>
+            </div>
+          </div>
+          <div id="marksSummary"></div>
+          <h3 style="font-size:14px;margin:18px 0 8px;">History</h3>
+          <div id="marksHistory"></div>
+        </div>
+        </div>
         <!-- Report Card is the default tab — the only one of the three
              guaranteed to be visible to every role, so it's never blank. -->
         <div class="perf-tab" id="tab-report" style="display:block;">
@@ -2938,7 +2973,7 @@ const titles = {
   taxonomy: ['Task Taxonomy', 'Canonical departments and services, and a privacy report on task titles — superadmin only'],
   assignments: ['Team Assignments', "Who's responsible for each Aircall agent's calls, and who owns each connected mailbox — superadmin only"],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
-  performance: ['Performance', 'Your Report Card, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
+  performance: ['Performance', 'Your Report Card and marks, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
   calls: ['Calls', "Every call tagged to you, filterable by day, week or month and by outcome — superadmins see the whole firm, filterable by owner and agent"],
   emails: ['Email', "Every incoming message from the 4 connected mailboxes, filterable by day, week or month and by status — superadmins see the whole firm, filterable by owner and mailbox. Mail sent by us isn't shown here."],
   kudos: ['Kudos', 'Firm-wide recognition, visible to everyone — anyone can recommend, your team\'s manager (or Shubam, firm-wide) awards the star level'],
@@ -2988,6 +3023,7 @@ const PERF_TABS = [
   ['report', 'My Report Card', false],
   ['productivity', 'Productivity', true],
   ['analytics', 'Analytics', true],
+  ['marks', 'Marks', false],
 ];
 function renderPerformanceView(){
   const visible = PERF_TABS.filter(([,,superOnly]) => !superOnly || isSuperAdmin);
@@ -2999,6 +3035,120 @@ function renderPerformanceView(){
   if(_perfTab === 'report') renderReportCard();
   else if(_perfTab === 'productivity') renderProductivityView();
   else if(_perfTab === 'analytics') renderChartBuilder();
+  else if(_perfTab === 'marks') renderMarksTab();
+}
+/* Marks — positive/negative performance marks with a required reason.
+   Givers (admin: own team, superadmin: anyone) get the form; everyone sees
+   the marks they're allowed to (server-scoped, see GET /api/marks). Voided
+   marks stay visible but struck through and out of the totals. */
+let _marksData = [];
+let _markSign = 1;
+function marksGiveablePeople(){
+  if(isSuperAdmin) return employees.filter(e => e.id !== currentViewerId);
+  if(isAdmin) return myScopedPeople().filter(e => e.id !== currentViewerId);
+  return [];
+}
+function setMarkSign(s){
+  _markSign = s;
+  document.getElementById('markSignPos').classList.toggle('on', s > 0);
+  document.getElementById('markSignNeg').classList.toggle('on', s < 0);
+}
+async function renderMarksTab(){
+  try { _marksData = (await api('/api/marks')).marks || []; }
+  catch(e){ document.getElementById('marksHistory').innerHTML = `<div style="color:var(--text-faint);padding:12px 0;">${esc(e.message)}</div>`; return; }
+  const givers = marksGiveablePeople();
+  document.getElementById('marksGivePanel').style.display = givers.length ? '' : 'none';
+  document.getElementById('markTo').innerHTML = '<option value="">— Choose —</option>' + givers.slice().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(e => `<option value="${esc(e.id)}">${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('');
+  const personSel = document.getElementById('marksPerson');
+  const prev = personSel.value;
+  const ids = [...new Set(_marksData.map(m => m.toId))];
+  personSel.style.display = (isAdmin || isSuperAdmin) ? '' : 'none';
+  personSel.innerHTML = '<option value="">Everyone</option>' + ids.map(id => (empById(id)||{id,name:id}))
+    .sort((a,b)=>a.name.localeCompare(b.name)).map(e => `<option value="${esc(e.id)}"${e.id===prev?' selected':''}>${esc(e.name)}</option>`).join('');
+  document.getElementById('marksTitle').textContent = (isAdmin || isSuperAdmin) ? 'Marks' : 'My marks';
+  renderMarksList();
+}
+function _marksInPeriod(m){
+  const p = document.getElementById('marksPeriod').value;
+  if(p === 'all') return true;
+  const ym = todayISO().slice(0,7);
+  if(p === 'month') return dayOf(m.createdAt).slice(0,7) === ym;
+  const d = new Date(ym + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() - 1);
+  return dayOf(m.createdAt).slice(0,7) === d.toISOString().slice(0,7);
+}
+function renderMarksList(){
+  const who = document.getElementById('marksPerson').value;
+  const rows = _marksData.filter(m => _marksInPeriod(m) && (!who || m.toId === who));
+  const live = rows.filter(m => !m.voidedAt);
+  const byPerson = {};
+  live.forEach(m => {
+    const b = byPerson[m.toId] = byPerson[m.toId] || { id: m.toId, pos: 0, neg: 0, n: 0 };
+    if(m.points > 0) b.pos += m.points; else b.neg += m.points;
+    b.n++;
+  });
+  const sum = Object.values(byPerson).sort((a,b) => (b.pos+b.neg) - (a.pos+a.neg));
+  const fmt = n => (n > 0 ? '+' : '') + n.toLocaleString();
+  const netColor = n => n > 0 ? 'var(--teal)' : n < 0 ? 'var(--coral)' : 'var(--text-faint)';
+  document.getElementById('marksSummary').innerHTML = sum.length ? `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead><tr><th>Person</th><th style="text-align:right;">Positive</th><th style="text-align:right;">Negative</th><th style="text-align:right;">Net</th><th style="text-align:right;">Marks</th></tr></thead>
+      <tbody>${sum.map(b => { const net = b.pos + b.neg; return `<tr style="cursor:pointer;" onclick="document.getElementById('marksPerson').value='${esc(b.id)}';renderMarksList();">
+        <td>${esc((empById(b.id)||{}).name || '—')}</td>
+        <td style="text-align:right;color:var(--teal);">${b.pos ? fmt(b.pos) : '—'}</td>
+        <td style="text-align:right;color:var(--coral);">${b.neg ? fmt(b.neg) : '—'}</td>
+        <td style="text-align:right;font-weight:700;color:${netColor(net)};">${fmt(net)}</td>
+        <td style="text-align:right;">${b.n}</td></tr>`; }).join('')}</tbody></table>`
+    : '<div style="color:var(--text-faint);padding:12px 0;">No marks in this period.</div>';
+  const canVoid = m => !m.voidedAt && (isSuperAdmin || m.byId === currentViewerId);
+  document.getElementById('marksHistory').innerHTML = rows.length ? rows.map(m => {
+    const to = empById(m.toId), by = empById(m.byId);
+    const col = m.points > 0 ? 'var(--teal)' : 'var(--coral)';
+    return `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--panel-border);${m.voidedAt ? 'opacity:.55;' : ''}">
+      <div style="min-width:64px;font-weight:700;color:${col};${m.voidedAt ? 'text-decoration:line-through;' : ''}">${fmt(m.points)}</div>
+      <div style="flex:1;">
+        <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(m.createdAt))}</span></div>
+        <div style="font-size:13px;color:var(--text-dim);margin-top:2px;">${esc(m.reason)}</div>
+        ${m.voidedAt ? `<div style="font-size:12px;color:var(--text-faint);margin-top:2px;">Voided by ${esc((empById(m.voidedBy)||{}).name || '—')}, ${fmtDate(dayOf(m.voidedAt))}</div>` : ''}
+      </div>
+      ${canVoid(m) ? `<button class="btn small" onclick="voidMark('${esc(m.id)}')">Void</button>` : ''}
+    </div>`;
+  }).join('') : '<div style="color:var(--text-faint);padding:12px 0;">Nothing to show.</div>';
+}
+async function submitMark(){
+  const errEl = document.getElementById('markErr');
+  errEl.style.display = 'none';
+  const toId = document.getElementById('markTo').value;
+  const n = Math.round(Number(document.getElementById('markPoints').value));
+  const reason = document.getElementById('markReason').value.trim();
+  const fail = m => { errEl.textContent = m; errEl.style.display = 'block'; };
+  if(!toId) return fail('Choose who the mark is for.');
+  if(!(n > 0)) return fail('Enter how many marks (a positive number — use the Negative button to deduct).');
+  if(reason.length < 3) return fail('A reason is required.');
+  try {
+    await api('/api/marks', { method:'POST', body: JSON.stringify({ toId, points: _markSign * n, reason }) });
+    document.getElementById('markPoints').value = '';
+    document.getElementById('markReason').value = '';
+    showToast('success', _markSign > 0 ? 'Marks added' : 'Marks deducted', '');
+    await renderMarksTab();
+  } catch(e){ fail(e.message); }
+}
+function voidMark(id){
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Void this mark?</h3>
+    <div class="modal-sub">It stays on record, struck through, and no longer counts toward totals. This can't be undone.</div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn coral" onclick="doVoidMark('${esc(id)}')">Void</button>
+    </div>`;
+  openModal();
+}
+async function doVoidMark(id){
+  try {
+    await api(`/api/marks/${encodeURIComponent(id)}/void`, { method:'POST' });
+    closeModal();
+    showToast('info', 'Mark voided', '');
+    await renderMarksTab();
+  } catch(e){ closeModal(); showToast('error', 'Could not void', e.message); }
 }
 function setPerfTab(id){
   _perfTab = id;
@@ -4457,7 +4607,7 @@ function renderDeadlineBanner(){
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
 let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
-const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙' };
+const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊' };
 async function refreshNotifications(opts){
   opts = opts || {};
   if(!session) return;
