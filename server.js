@@ -933,7 +933,7 @@ function notify(state, empId, type, text, taskId, opts) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -2714,8 +2714,64 @@ app.delete('/api/points/:id', requireAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// WALL REACTIONS + COMMENTS — any signed-in employee can react to or comment
+// on a Kudos or Points award (the wall is firm-wide and public). Comments
+// live on the award row itself; the author or a superadmin can remove one.
+// (Points reactions pre-date this and live in connector.js reactToPoints.)
+// ---------------------------------------------------------------------------
+const WALL_LISTS = { kudos: s => s.kudos, points: s => s.points };
+function wallRow(state, kind, id) {
+  const list = WALL_LISTS[kind] && WALL_LISTS[kind](state);
+  return Array.isArray(list) ? list.find(r => r.id === id) : null;
+}
+app.post('/api/kudos/:id/react', requireAuth, (req, res) => {
+  const state = db.get();
+  const row = wallRow(state, 'kudos', req.params.id);
+  if (!row) return res.status(404).json({ error: 'Kudos award not found.' });
+  const emoji = String((req.body || {}).emoji || '👍').slice(0, 8);
+  row.reactions = row.reactions || [];
+  const mine = row.reactions.find(r => r.empId === req.employee.id);
+  if (mine && mine.emoji === emoji) row.reactions = row.reactions.filter(r => r.empId !== req.employee.id);
+  else if (mine) { mine.emoji = emoji; mine.at = new Date().toISOString(); }
+  else row.reactions.push({ empId: req.employee.id, emoji, at: new Date().toISOString() });
+  db.save();
+  res.json({ kudos: row });
+});
+app.post('/api/:kind(kudos|points)/:id/comments', requireAuth, (req, res) => {
+  const state = db.get();
+  const kind = req.params.kind;
+  const row = wallRow(state, kind, req.params.id);
+  if (!row) return res.status(404).json({ error: 'Award not found.' });
+  const text = String((req.body || {}).text || '').trim().slice(0, 500);
+  if (!text) return res.status(400).json({ error: 'Write something first.' });
+  row.comments = row.comments || [];
+  if (row.comments.length >= 200) return res.status(400).json({ error: 'This thread is full.' });
+  state.wallCommentSeq = (state.wallCommentSeq || 0) + 1;
+  row.comments.push({ id: 'wc' + state.wallCommentSeq, empId: req.employee.id, text, at: new Date().toISOString() });
+  // tell the recipient and the giver (not the commenter themselves)
+  const to = findEmployee(state, row.toId);
+  new Set([row.toId, row.byId]).forEach(id => {
+    if (id && id !== req.employee.id) notify(state, id, 'comment',
+      `${req.employee.name} commented on ${to ? to.name + "'s" : 'a'} ${kind === 'kudos' ? 'kudos' : 'points'}: "${text.slice(0, 80)}"`, null, { noDedupe: true });
+  });
+  db.save();
+  res.status(201).json({ [kind]: row });
+});
+app.delete('/api/:kind(kudos|points)/:id/comments/:cid', requireAuth, (req, res) => {
+  const state = db.get();
+  const kind = req.params.kind;
+  const row = wallRow(state, kind, req.params.id);
+  const c = row && (row.comments || []).find(x => x.id === req.params.cid);
+  if (!c) return res.status(404).json({ error: 'Comment not found.' });
+  if (c.empId !== req.employee.id && req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Only the author or a superadmin can remove a comment.' });
+  row.comments = row.comments.filter(x => x.id !== c.id);
+  db.save();
+  res.json({ [kind]: row });
+});
+
+// ---------------------------------------------------------------------------
 // MARKS — signed performance marks (positive or negative) a manager gives
-// an employee, each with a required reason. Same authority boundary as
+// an employee, each with a reason and/or a screenshot. Same authority boundary as
 // acting on someone's work (canManageEmployee): a superadmin can mark
 // anyone, an admin only their own team; nobody can mark themselves.
 // Visibility: an employee sees only their own, an admin their team's, a
@@ -2723,21 +2779,37 @@ app.delete('/api/points/:id', requireAuth, (req, res) => {
 // record (struck through in the UI, excluded from totals). Standalone for
 // now: nothing here feeds Productivity or the Report Card yet.
 // ---------------------------------------------------------------------------
+// A mark can carry a screenshot ("snip") as its evidence instead of — or as
+// well as — a typed reason. The image stays out of the list payload (heavy,
+// like a review's error screenshot) and is fetched on demand from
+// /api/marks/:id/screenshot, which only the giver, the receiver, the
+// receiver's team admin and superadmins may read — i.e. everyone who can
+// see the mark itself.
+function markVisibleTo(state, me, m) {
+  if (me.accessRole === 'superadmin') return true;
+  if (m.toId === me.id || m.byId === me.id) return true;
+  return me.accessRole === 'admin' && teamRoster(state, me).some(e => e.id === m.toId);
+}
+function markForClient(m) {
+  const { screenshot, ...rest } = m;
+  return { ...rest, hasScreenshot: !!screenshot };
+}
 app.get('/api/marks', requireAuth, (req, res) => {
   const state = db.get();
   const me = req.employee;
-  let list = state.marks || [];
-  if (me.accessRole === 'employee') list = list.filter(m => m.toId === me.id);
-  else if (me.accessRole === 'admin') {
-    const ids = new Set([me.id, ...teamRoster(state, me).map(e => e.id)]);
-    list = list.filter(m => ids.has(m.toId));
-  }
-  res.json({ marks: list.slice().sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')) });
+  const list = (state.marks || []).filter(m => markVisibleTo(state, me, m));
+  res.json({ marks: list.map(markForClient).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')) });
+});
+app.get('/api/marks/:id/screenshot', requireAuth, (req, res) => {
+  const state = db.get();
+  const m = (state.marks || []).find(x => x.id === req.params.id);
+  if (!m || !m.screenshot || !markVisibleTo(state, req.employee, m)) return res.status(404).json({ error: 'No screenshot.' });
+  res.json({ screenshot: m.screenshot });
 });
 app.post('/api/marks', requireAuth, (req, res) => {
   const state = db.get();
   const me = req.employee;
-  const { toId, points, reason } = req.body || {};
+  const { toId, points, reason, screenshot } = req.body || {};
   const to = findEmployee(state, toId);
   if (!to) return res.status(400).json({ error: 'Choose who the mark is for.' });
   if (to.id === me.id) return res.status(400).json({ error: "You can't give marks to yourself." });
@@ -2747,15 +2819,23 @@ app.post('/api/marks', requireAuth, (req, res) => {
   if (!Number.isFinite(pts) || pts === 0) return res.status(400).json({ error: 'Marks must be a non-zero whole number (negative to deduct).' });
   if (Math.abs(pts) > 10000) return res.status(400).json({ error: 'That is too large — marks are limited to ±10,000 each.' });
   const why = String(reason || '').trim().slice(0, 300);
-  if (why.length < 3) return res.status(400).json({ error: 'A reason is required.' });
+  let shot = null;
+  if (screenshot != null && screenshot !== '') {
+    if (typeof screenshot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(screenshot) || screenshot.length > 6_000_000) {
+      return res.status(400).json({ error: 'The snip must be an image under about 4 MB.' });
+    }
+    shot = screenshot;
+  }
+  if (why.length < 3 && !shot) return res.status(400).json({ error: 'Add a reason, a snip, or both.' });
   state.marksSeq = (state.marksSeq || 0) + 1;
-  const row = { id: 'mk' + state.marksSeq, toId: to.id, byId: me.id, points: pts, reason: why, createdAt: new Date().toISOString(), voidedAt: null, voidedBy: null };
+  const row = { id: 'mk' + state.marksSeq, toId: to.id, byId: me.id, points: pts, reason: why, screenshot: shot, createdAt: new Date().toISOString(), voidedAt: null, voidedBy: null };
   state.marks.push(row);
   const label = (pts > 0 ? '+' : '') + pts.toLocaleString();
-  logEvent(state, to.id, `<b>${escHtml(me.name)}</b> gave you <b>${label} marks</b> — "${escHtml(why)}".`);
-  notify(state, to.id, 'mark', `${me.name} gave you ${label} marks — ${why}`, null, { noDedupe: true });
+  const detail = why || 'see the attached snip';
+  logEvent(state, to.id, `<b>${escHtml(me.name)}</b> gave you <b>${label} marks</b> — "${escHtml(detail)}"${why && shot ? ' (snip attached)' : ''}.`);
+  notify(state, to.id, 'mark', `${me.name} gave you ${label} marks — ${detail}`, null, { noDedupe: true });
   db.save();
-  res.status(201).json({ mark: row });
+  res.status(201).json({ mark: markForClient(row) });
 });
 app.post('/api/marks/:id/void', requireAuth, (req, res) => {
   const state = db.get();
@@ -2768,7 +2848,7 @@ app.post('/api/marks/:id/void', requireAuth, (req, res) => {
   row.voidedBy = me.id;
   logEvent(state, row.toId, `A mark of <b>${row.points > 0 ? '+' : ''}${row.points}</b> was voided by <b>${escHtml(me.name)}</b>.`);
   db.save();
-  res.json({ mark: row });
+  res.json({ mark: markForClient(row) });
 });
 
 // Resubmit — the assignee fixes a task they've already accepted the

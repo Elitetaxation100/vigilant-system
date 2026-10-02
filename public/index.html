@@ -1785,7 +1785,16 @@
             </div>
             <div class="field" style="margin:0;"><label>Marks</label><input type="number" id="markPoints" min="1" max="10000" step="1" placeholder="e.g. 5"></div>
           </div>
-          <div class="field" style="margin-top:12px;"><label>Reason <span class="req-mark">*</span></label><textarea id="markReason" placeholder="e.g. Called the client back within the hour as promised"></textarea></div>
+          <div class="field" style="margin-top:12px;"><label>Reason or snip <span class="req-mark">*</span> <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">— add a reason, a snip, or both</span></label>
+            <textarea id="markReason" placeholder="e.g. Called the client back within the hour as promised"></textarea>
+            <div id="markSnipZone" style="margin-top:8px;border:1px dashed var(--panel-border);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--text-dim);display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+              <span>📋 Paste a snip here with <b>Ctrl+V</b> (Win+Shift+S to take one), or</span>
+              <button class="btn small" type="button" onclick="document.getElementById('markSnipFile').click()">Choose an image</button>
+              <input type="file" id="markSnipFile" accept="image/*" style="display:none;" onchange="setMarkSnip(this.files[0]); this.value='';">
+              <div id="markSnipPreview" style="width:100%;"></div>
+            </div>
+            <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Both you and the person receiving the mark can see the snip.</div>
+          </div>
           <div class="modal-error" id="markErr"></div>
           <div style="display:flex;justify-content:flex-end;"><button class="btn primary" onclick="submitMark()">Give marks</button></div>
         </div>
@@ -3043,6 +3052,41 @@ function renderPerformanceView(){
    marks stay visible but struck through and out of the totals. */
 let _marksData = [];
 let _markSign = 1;
+let _markShot = null; // data URL of the snip attached to the mark being written
+async function setMarkSnip(file){
+  if(!file || !file.type || !file.type.startsWith('image/')){ showToast('error', 'Not an image', 'Paste or choose a screenshot image.'); return; }
+  try { _markShot = await downscaleImage(file, 1600, 0.82); }
+  catch(e){ showToast('error', 'Could not read that image', ''); return; }
+  renderMarkSnipPreview();
+}
+function renderMarkSnipPreview(){
+  const box = document.getElementById('markSnipPreview');
+  if(!box) return;
+  box.innerHTML = _markShot ? `<div style="position:relative;display:inline-block;">
+      <img src="${_markShot}" alt="snip preview" style="max-width:100%;max-height:200px;border:1px solid var(--panel-border);border-radius:6px;display:block;">
+      <div onclick="_markShot=null;renderMarkSnipPreview();" title="Remove the snip" style="position:absolute;top:4px;right:4px;background:var(--panel);border:1px solid var(--panel-border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;">✕</div>
+    </div>` : '';
+}
+// Ctrl+V of a screenshot while the Marks form is on screen attaches it —
+// the point of "snipping": Win+Shift+S, then paste straight in.
+document.addEventListener('paste', e => {
+  const panel = document.getElementById('marksGivePanel');
+  if(_perfTab !== 'marks' || !panel || panel.style.display === 'none' || panel.offsetParent === null) return;
+  if(document.getElementById('modalOverlay').classList.contains('active')) return;
+  const item = [...((e.clipboardData && e.clipboardData.items) || [])].find(i => i.type && i.type.startsWith('image/'));
+  if(!item) return; // plain text paste into the reason box etc. behaves normally
+  e.preventDefault();
+  setMarkSnip(item.getAsFile());
+});
+async function viewMarkSnip(id){
+  document.getElementById('modalBox').innerHTML = `<h3>Snip</h3><div id="markSnipHolder" style="margin:12px 0;color:var(--text-faint);">Loading…</div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
+  openModal();
+  try {
+    const r = await api(`/api/marks/${encodeURIComponent(id)}/screenshot`);
+    document.getElementById('markSnipHolder').innerHTML = `<img src="${r.screenshot}" alt="snip" style="max-width:100%;max-height:70vh;border:1px solid var(--panel-border);border-radius:6px;display:block;">`;
+  } catch(e){ document.getElementById('markSnipHolder').textContent = e.message; }
+}
 function marksGiveablePeople(){
   if(isSuperAdmin) return employees.filter(e => e.id !== currentViewerId);
   if(isAdmin) return myScopedPeople().filter(e => e.id !== currentViewerId);
@@ -3107,7 +3151,8 @@ function renderMarksList(){
       <div style="min-width:64px;font-weight:700;color:${col};${m.voidedAt ? 'text-decoration:line-through;' : ''}">${fmt(m.points)}</div>
       <div style="flex:1;">
         <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(m.createdAt))}</span></div>
-        <div style="font-size:13px;color:var(--text-dim);margin-top:2px;">${esc(m.reason)}</div>
+        ${m.reason ? `<div style="font-size:13px;color:var(--text-dim);margin-top:2px;">${esc(m.reason)}</div>` : ''}
+        ${m.hasScreenshot ? `<button class="btn small" style="margin-top:6px;" onclick="viewMarkSnip('${esc(m.id)}')">📎 View snip</button>` : ''}
         ${m.voidedAt ? `<div style="font-size:12px;color:var(--text-faint);margin-top:2px;">Voided by ${esc((empById(m.voidedBy)||{}).name || '—')}, ${fmtDate(dayOf(m.voidedAt))}</div>` : ''}
       </div>
       ${canVoid(m) ? `<button class="btn small" onclick="voidMark('${esc(m.id)}')">Void</button>` : ''}
@@ -3123,11 +3168,12 @@ async function submitMark(){
   const fail = m => { errEl.textContent = m; errEl.style.display = 'block'; };
   if(!toId) return fail('Choose who the mark is for.');
   if(!(n > 0)) return fail('Enter how many marks (a positive number — use the Negative button to deduct).');
-  if(reason.length < 3) return fail('A reason is required.');
+  if(reason.length < 3 && !_markShot) return fail('Add a reason, a snip, or both.');
   try {
-    await api('/api/marks', { method:'POST', body: JSON.stringify({ toId, points: _markSign * n, reason }) });
+    await api('/api/marks', { method:'POST', body: JSON.stringify({ toId, points: _markSign * n, reason, screenshot: _markShot || undefined }) });
     document.getElementById('markPoints').value = '';
     document.getElementById('markReason').value = '';
+    _markShot = null; renderMarkSnipPreview();
     showToast('success', _markSign > 0 ? 'Marks added' : 'Marks deducted', '');
     await renderMarksTab();
   } catch(e){ fail(e.message); }
@@ -3569,8 +3615,91 @@ async function renderKudosView(){
       </div>
       <div style="font-size:12.5px;color:var(--text-faint);margin-top:2px;">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(k.awardedAt))}</div>
       ${k.note ? `<div style="font-size:13px;color:var(--text-dim);margin-top:6px;">"${esc(k.note)}"</div>` : ''}
+      ${wallActionsHtml('kudos', k.id)}
     </div>`;
   }).join('');
+  _kudosWall = list;
+  list.forEach(k => { renderWallReactions('kudos', k.id); renderWallComments('kudos', k.id); });
+}
+/* Reactions + comments on wall entries. Any signed-in employee can react
+   to or comment on a Kudos or Points award; the author of a comment (or a
+   superadmin) can remove it. Data lives on the award rows themselves
+   (_kudosWall / _pointsData), updated from each server response. */
+let _kudosWall = [];
+const _wallOpen = new Set(); // "kind:id" threads currently expanded
+const WALL_EMOJI = ['👍','🎉','👏','❤️','🔥'];
+function _wallRow(kind, id){ return (kind === 'kudos' ? _kudosWall : _pointsData).find(r => r.id === id); }
+function wallActionsHtml(kind, id){
+  const i = esc(id);
+  return `<div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;align-items:center;">
+      ${kind === 'kudos' ? `<span id="wr-kudos-${i}" style="display:inline-flex;gap:4px;"></span>` : `<span id="wall-react-${i}" style="display:inline-flex;gap:4px;"></span>`}
+      <button class="btn small" style="padding:2px 9px;" id="wcb-${kind}-${i}" onclick="toggleWallComments('${kind}','${i}')">💬</button>
+    </div>
+    <div id="wc-${kind}-${i}"></div>`;
+}
+function renderWallReactions(kind, id){
+  const row = _wallRow(kind, id), wrap = document.getElementById(`wr-${kind}-${id}`);
+  if(!row || !wrap) return;
+  const mine = (row.reactions || []).find(r => r.empId === currentViewerId);
+  const counts = {};
+  (row.reactions || []).forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; });
+  wrap.innerHTML = WALL_EMOJI.map(e => `<button class="btn small" style="padding:2px 7px;${mine && mine.emoji===e ? 'border-color:var(--purple);background:color-mix(in srgb, var(--purple) 14%, transparent);' : ''}" onclick="reactToKudosAward('${esc(id)}','${e}')">${e}${counts[e] ? ' '+counts[e] : ''}</button>`).join('');
+}
+async function reactToKudosAward(id, emoji){
+  try {
+    const r = await api(`/api/kudos/${encodeURIComponent(id)}/react`, { method:'POST', body: JSON.stringify({ emoji }) });
+    const i = _kudosWall.findIndex(k => k.id === id);
+    if(i >= 0) _kudosWall[i] = r.kudos;
+    renderWallReactions('kudos', id);
+  } catch(e){ /* non-fatal */ }
+}
+function renderWallComments(kind, id){
+  const row = _wallRow(kind, id), box = document.getElementById(`wc-${kind}-${id}`), btn = document.getElementById(`wcb-${kind}-${id}`);
+  if(!row || !box) return;
+  const cs = row.comments || [];
+  if(btn) btn.textContent = '💬' + (cs.length ? ' ' + cs.length : ' Comment');
+  if(!_wallOpen.has(kind + ':' + id)){ box.innerHTML = ''; return; }
+  const typed = (document.getElementById(`wc-in-${kind}-${id}`) || {}).value || '';
+  box.innerHTML = `<div style="margin-top:8px;">
+      ${cs.map(c => `<div style="display:flex;gap:8px;padding:6px 0;border-top:1px solid var(--panel-border);font-size:13px;">
+        <div style="flex:1;"><b>${esc((empById(c.empId)||{}).name || '—')}</b> <span style="color:var(--text-faint);font-size:12px;">${_relTime(c.at)}</span>
+          <div style="color:var(--text-dim);white-space:pre-wrap;word-break:break-word;">${esc(c.text)}</div></div>
+        ${(c.empId === currentViewerId || isSuperAdmin) ? `<span onclick="deleteWallComment('${kind}','${esc(id)}','${esc(c.id)}')" title="Remove comment" style="cursor:pointer;color:var(--text-faint);">✕</span>` : ''}
+      </div>`).join('')}
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <input type="text" id="wc-in-${kind}-${esc(id)}" maxlength="500" placeholder="Write a comment…" value="${esc(typed)}" style="flex:1;" onkeydown="if(event.key==='Enter'){postWallComment('${kind}','${esc(id)}');}">
+        <button class="btn small primary" onclick="postWallComment('${kind}','${esc(id)}')">Post</button>
+      </div></div>`;
+}
+function toggleWallComments(kind, id){
+  const key = kind + ':' + id;
+  if(_wallOpen.has(key)) _wallOpen.delete(key); else _wallOpen.add(key);
+  renderWallComments(kind, id);
+  if(_wallOpen.has(key)){ const inp = document.getElementById(`wc-in-${kind}-${id}`); if(inp) inp.focus(); }
+}
+function _wallStore(kind, id, updated){
+  const arr = kind === 'kudos' ? _kudosWall : _pointsData;
+  const i = arr.findIndex(r => r.id === id);
+  if(i >= 0) arr[i] = updated;
+}
+async function postWallComment(kind, id){
+  const inp = document.getElementById(`wc-in-${kind}-${id}`);
+  const text = inp ? inp.value.trim() : '';
+  if(!text) return;
+  try {
+    const r = await api(`/api/${kind}/${encodeURIComponent(id)}/comments`, { method:'POST', body: JSON.stringify({ text }) });
+    _wallStore(kind, id, r[kind]);
+    if(inp) inp.value = '';
+    renderWallComments(kind, id);
+    const again = document.getElementById(`wc-in-${kind}-${id}`); if(again) again.focus();
+  } catch(e){ showToast('error', 'Could not post', e.message); }
+}
+async function deleteWallComment(kind, id, cid){
+  try {
+    const r = await api(`/api/${kind}/${encodeURIComponent(id)}/comments/${encodeURIComponent(cid)}`, { method:'DELETE' });
+    _wallStore(kind, id, r[kind]);
+    renderWallComments(kind, id);
+  } catch(e){ showToast('error', 'Could not remove', e.message); }
 }
 // Firm-wide "someone got kudos" broadcast — same shape as Points'
 // refreshPoints/showPointsAnnouncement: everyone hears the popper/applause
@@ -4607,7 +4736,7 @@ function renderDeadlineBanner(){
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
 let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
-const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊' };
+const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬' };
 async function refreshNotifications(opts){
   opts = opts || {};
   if(!session) return;
@@ -4740,10 +4869,10 @@ async function renderPointsWall(){
       </div>
       <div style="font-size:12.5px;color:var(--text-faint);margin-top:2px;">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(p.awardedAt))}</div>
       ${p.note ? `<div style="font-size:13px;color:var(--text-dim);margin-top:6px;">"${esc(p.note)}"</div>` : ''}
-      <div id="wall-react-${esc(p.id)}" style="display:flex;gap:4px;margin-top:8px;"></div>
+      ${wallActionsHtml('points', p.id)}
     </div>`;
   }).join('');
-  _pointsData.forEach(p => renderPointsReactions(p, 'wall-react-'));
+  _pointsData.forEach(p => { renderPointsReactions(p, 'wall-react-'); renderWallComments('points', p.id); });
 }
 // Founder-only cleanup for a test/mistaken entry — see connector.js deletePoints.
 async function deletePointsAward(id){
