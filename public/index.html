@@ -1795,6 +1795,14 @@
         </div>
         </div>
         <div class="perf-tab" id="tab-marks" style="display:none;">
+        <div class="panel" id="workshopsPanel">
+          <div class="panel-head">
+            <h2>Workshop pre-reading</h2>
+            <div class="panel-head-actions"><button class="btn small primary" id="newWorkshopBtn" style="display:none;" onclick="openWorkshopModal()">+ New workshop</button></div>
+          </div>
+          <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 8px;">Read the pre-reading before each workshop and confirm with <b>I've read it</b>. Anyone who turns up without having read it gets negative marks.</p>
+          <div id="workshopsBody"></div>
+        </div>
         <div class="panel" id="marksGivePanel" style="display:none;">
           <div class="panel-head"><h2>Give marks</h2></div>
           <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Add or deduct marks for someone on your team. A reason is required, and they're notified. Marks are kept on record — a mistake can be voided but never silently deleted.</p>
@@ -1807,6 +1815,7 @@
               </div>
             </div>
             <div class="field" style="margin:0;"><label>Marks</label><input type="number" id="markPoints" min="1" max="10000" step="1" placeholder="e.g. 5"></div>
+            <div class="field" style="margin:0;"><label>Workshop pre-reading <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">— optional</span></label><select id="markWorkshop" onchange="onMarkWorkshopChange()"></select></div>
           </div>
           <div class="field" style="margin-top:12px;"><label>Reason or snip <span class="req-mark">*</span> <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">— add a reason, a snip, or both</span></label>
             <textarea id="markReason" placeholder="e.g. Called the client back within the hour as promised"></textarea>
@@ -3123,12 +3132,16 @@ function setMarkSign(s){
   document.getElementById('markSignNeg').classList.toggle('on', s < 0);
 }
 async function renderMarksTab(){
+  await refreshWorkshops();
+  renderWorkshopsPanel();
   try { _marksData = (await api('/api/marks')).marks || []; }
   catch(e){ document.getElementById('marksHistory').innerHTML = `<div style="color:var(--text-faint);padding:12px 0;">${esc(e.message)}</div>`; return; }
   const givers = marksGiveablePeople();
   document.getElementById('marksGivePanel').style.display = givers.length ? '' : 'none';
   document.getElementById('markTo').innerHTML = '<option value="">— Choose —</option>' + givers.slice().sort((a,b)=>a.name.localeCompare(b.name))
     .map(e => `<option value="${esc(e.id)}">${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('');
+  const wsSel = document.getElementById('markWorkshop');
+  if(wsSel){ const cur = wsSel.value; wsSel.innerHTML = '<option value="">— Not a pre-reading mark —</option>' + _workshopsData.map(w => `<option value="${esc(w.id)}"${w.id === cur ? ' selected' : ''}>${esc(w.name)} · ${fmtDate(w.date)}</option>`).join(''); }
   const personSel = document.getElementById('marksPerson');
   const prev = personSel.value;
   const ids = [...new Set(_marksData.map(m => m.toId))];
@@ -3175,7 +3188,7 @@ function renderMarksList(){
     return `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--panel-border);${m.voidedAt ? 'opacity:.55;' : ''}">
       <div style="min-width:64px;font-weight:700;color:${col};${m.voidedAt ? 'text-decoration:line-through;' : ''}">${fmt(m.points)}</div>
       <div style="flex:1;">
-        <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(m.createdAt))}</span></div>
+        <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(m.createdAt))}</span>${m.type === 'pre_reading' ? ' <span class="badge awaiting dot" style="font-size:10px;">📖 Pre-reading</span>' : ''}</div>
         ${m.reason ? `<div style="font-size:13px;color:var(--text-dim);margin-top:2px;">${esc(m.reason)}</div>` : ''}
         ${m.hasScreenshot ? `<button class="btn small" style="margin-top:6px;" onclick="viewMarkSnip('${esc(m.id)}')">📎 View snip</button>` : ''}
         ${m.voidedAt ? `<div style="font-size:12px;color:var(--text-faint);margin-top:2px;">Voided by ${esc((empById(m.voidedBy)||{}).name || '—')}, ${fmtDate(dayOf(m.voidedAt))}</div>` : ''}
@@ -3195,9 +3208,10 @@ async function submitMark(){
   if(!(n > 0)) return fail('Enter how many marks (a positive number — use the Negative button to deduct).');
   if(reason.length < 3 && !_markShot) return fail('Add a reason, a snip, or both.');
   try {
-    await api('/api/marks', { method:'POST', body: JSON.stringify({ toId, points: _markSign * n, reason, screenshot: _markShot || undefined }) });
+    await api('/api/marks', { method:'POST', body: JSON.stringify({ toId, points: _markSign * n, reason, screenshot: _markShot || undefined, workshopId: document.getElementById('markWorkshop').value || undefined }) });
     document.getElementById('markPoints').value = '';
     document.getElementById('markReason').value = '';
+    document.getElementById('markWorkshop').value = ''; onMarkWorkshopChange();
     _markShot = null; renderMarkSnipPreview();
     showToast('success', _markSign > 0 ? 'Marks added' : 'Marks deducted', '');
     await renderMarksTab();
@@ -3220,6 +3234,138 @@ async function doVoidMark(id){
     showToast('info', 'Mark voided', '');
     await renderMarksTab();
   } catch(e){ closeModal(); showToast('error', 'Could not void', e.message); }
+}
+/* Workshop pre-reading. A superadmin sets up each workshop (name, date,
+   optional reading link/notes, penalty — default −1); everyone confirms
+   "I've read it"; the superadmin then reviews who hasn't and applies the
+   penalty as ordinary pre-reading Marks, leaving out anyone they choose.
+   Nothing is automatic. Unread workshops also show as a dashboard banner. */
+let _workshopsData = [];
+async function refreshWorkshops(){
+  if(!session) return;
+  try { _workshopsData = (await api('/api/workshops')).workshops || []; } catch(e){ return; }
+  renderDeadlineBanner();
+  if(_perfTab === 'marks') renderWorkshopsPanel();
+}
+function workshopWhen(w){
+  const t = todayISO(), ms = (a, b) => Math.round((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 864e5);
+  if(w.date === t) return 'today';
+  const d = w.date > t ? ms(w.date, t) : ms(t, w.date);
+  return w.date > t ? `in ${d} day${d === 1 ? '' : 's'}` : `${d} day${d === 1 ? '' : 's'} ago`;
+}
+function renderWorkshopsPanel(){
+  const body = document.getElementById('workshopsBody');
+  if(!body) return;
+  document.getElementById('newWorkshopBtn').style.display = isSuperAdmin ? '' : 'none';
+  if(!_workshopsData.length){
+    body.innerHTML = `<div style="color:var(--text-faint);padding:6px 0;">${isSuperAdmin ? 'No workshops yet — add one with “+ New workshop”.' : 'No workshop pre-reading right now.'}</div>`;
+    return;
+  }
+  const faint = 'color:var(--text-faint);';
+  body.innerHTML = _workshopsData.map(w => {
+    const mine = w.myPenalised
+      ? `<span style="color:var(--coral);font-weight:700;">−${w.penalty} mark applied — pre-reading not done</span>`
+      : w.myReadAt ? `<span style="color:var(--teal);font-weight:700;">✓ You've read it</span> <span style="${faint}font-size:12px;">${fmtDate(dayOf(w.myReadAt))}</span>`
+      : `<button class="btn small primary" onclick="markWorkshopRead('${esc(w.id)}')">I've read it</button>`;
+    return `<div style="border-top:1px solid var(--panel-border);padding:12px 0;display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;">
+      <div style="min-width:220px;flex:1;">
+        <div style="font-size:14.5px;font-weight:700;">${esc(w.name)} <span style="font-weight:400;${faint}font-size:12.5px;">· ${fmtDate(w.date)} (${workshopWhen(w)}) · −${w.penalty} mark${w.penalty === 1 ? '' : 's'} if not read</span></div>
+        ${w.notes ? `<div style="font-size:13px;color:var(--text-dim);margin-top:3px;white-space:pre-wrap;">${esc(w.notes)}</div>` : ''}
+        ${w.url ? `<div style="margin-top:5px;"><a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);font-weight:600;font-size:13px;">📖 Open the pre-reading →</a></div>` : ''}
+        ${isSuperAdmin ? `<div style="font-size:12.5px;${faint}margin-top:5px;">${w.readCount} of ${w.total} have read it · ${Object.keys(w.penalised || {}).length} marked</div>` : ''}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end;">${mine}
+        ${isSuperAdmin ? `<div style="display:flex;gap:6px;"><button class="btn small" onclick="openWorkshopModal('${esc(w.id)}')">Edit</button><button class="btn small coral" onclick="openWorkshopReviewModal('${esc(w.id)}')">Review &amp; apply −${w.penalty}</button></div>` : ''}
+      </div></div>`;
+  }).join('');
+}
+async function markWorkshopRead(id){
+  try {
+    await api(`/api/workshops/${encodeURIComponent(id)}/read`, { method:'POST', body: '{}' });
+    showToast('success', "Thanks — noted", "You've confirmed the pre-reading.");
+    await refreshWorkshops();
+  } catch(e){ showToast('error', 'Could not save', e.message); }
+}
+function openWorkshopModal(id){
+  const w = id ? _workshopsData.find(x => x.id === id) : null;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>${w ? 'Edit' : 'New'} workshop</h3>
+    <div class="modal-sub">${w ? '' : 'Everyone is notified to read the pre-reading before the date. '}Marks are only applied when you choose to — nothing is automatic.</div>
+    <div class="field"><label>Name</label><input type="text" id="wsName" maxlength="80" placeholder="e.g. Workshop 1" value="${esc(w ? w.name : '')}"></div>
+    <div class="field"><label>Workshop date</label><input type="date" id="wsDate" value="${esc(w ? w.date : '')}"></div>
+    <div class="field"><label>Pre-reading link <span style="color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label><input type="text" id="wsUrl" placeholder="https://docs.google.com/…" value="${esc(w && w.url ? w.url : '')}"></div>
+    <div class="field"><label>What to read <span style="color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label><textarea id="wsNotes" maxlength="500" placeholder="e.g. Chapters 1–3 of the GST guide">${esc(w ? w.notes : '')}</textarea></div>
+    <div class="field"><label>Marks deducted if not read</label><input type="number" id="wsPenalty" min="1" max="100" step="1" value="${w ? w.penalty : 1}"></div>
+    <div class="modal-error" id="wsErr"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitWorkshop('${w ? esc(w.id) : ''}')">${w ? 'Save' : 'Create workshop'}</button></div>`;
+  openModal();
+}
+async function submitWorkshop(id){
+  const errEl = document.getElementById('wsErr');
+  const body = { name: document.getElementById('wsName').value.trim(), date: document.getElementById('wsDate').value,
+    url: document.getElementById('wsUrl').value.trim(), notes: document.getElementById('wsNotes').value.trim(), penalty: parseInt(document.getElementById('wsPenalty').value, 10) || 1 };
+  try {
+    await api(id ? `/api/workshops/${encodeURIComponent(id)}` : '/api/workshops', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(body) });
+    closeModal();
+    showToast('success', id ? 'Workshop updated' : 'Workshop created', id ? '' : 'Everyone has been notified to read it.');
+    await refreshWorkshops();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+// Who hasn't read it, with the ones to mark ticked — untick anyone to leave
+// out (e.g. on leave). "Mark read" records reading on someone's behalf.
+async function openWorkshopReviewModal(id){
+  await refreshWorkshops();
+  const w = _workshopsData.find(x => x.id === id); if(!w) return;
+  const people = employees.filter(e => e.id !== currentViewerId).sort((a, b) => a.name.localeCompare(b.name));
+  const read = w.reads || {}, pen = w.penalised || {};
+  const unread = people.filter(e => !read[e.id] && !pen[e.id]);
+  const row = e => {
+    const st = pen[e.id] ? `<span style="color:var(--coral);">Marked −${w.penalty}</span>`
+      : read[e.id] ? `<span style="color:var(--teal);">✓ Read ${fmtDate(dayOf(read[e.id]))}</span>`
+      : `<button class="btn small" onclick="markWorkshopReadFor('${esc(w.id)}','${esc(e.id)}')">Mark as read</button>`;
+    return `<tr><td style="padding:6px 4px;width:28px;">${!read[e.id] && !pen[e.id] ? `<input type="checkbox" class="wsPick" value="${esc(e.id)}" checked onchange="updateWorkshopReviewCount()">` : ''}</td>
+      <td style="padding:6px 4px;"><b>${esc(e.name)}</b> <span style="color:var(--text-faint);font-size:12px;">${esc(e.team || '')}</span></td><td style="padding:6px 4px;text-align:right;">${st}</td></tr>`;
+  };
+  document.getElementById('modalBox').innerHTML = `<div class="tasklist-modal">
+    <h3>${esc(w.name)} — who hasn't read it</h3>
+    <div class="modal-sub">${fmtDate(w.date)} · ${w.readCount} of ${w.total} have read it · ticked people get −${w.penalty} mark${w.penalty === 1 ? '' : 's'} (you're not listed — nobody can mark themselves)</div>
+    <div style="max-height:46vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13.5px;">${people.map(row).join('')}</table></div>
+    <div class="modal-error" id="wsRevErr"></div>
+    <div class="modal-actions" style="margin-top:12px;"><button class="btn" onclick="closeModal()">Close</button>
+      <button class="btn coral" id="wsApplyBtn" onclick="applyWorkshopPenalty('${esc(w.id)}')" ${unread.length ? '' : 'disabled'}>Apply −${w.penalty} to ${unread.length}</button></div></div>`;
+  openModal();
+}
+function updateWorkshopReviewCount(){
+  const n = document.querySelectorAll('.wsPick:checked').length, btn = document.getElementById('wsApplyBtn');
+  if(!btn) return;
+  const m = /−(\d+)/.exec(btn.textContent);
+  btn.textContent = `Apply −${m ? m[1] : 1} to ${n}`;
+  btn.disabled = n === 0;
+}
+async function markWorkshopReadFor(wid, empId){
+  try { await api(`/api/workshops/${encodeURIComponent(wid)}/read`, { method:'POST', body: JSON.stringify({ empId }) }); await openWorkshopReviewModal(wid); }
+  catch(e){ showToast('error', 'Could not save', e.message); }
+}
+async function applyWorkshopPenalty(wid){
+  const empIds = [...document.querySelectorAll('.wsPick:checked')].map(c => c.value);
+  if(!empIds.length) return;
+  try {
+    const r = await api(`/api/workshops/${encodeURIComponent(wid)}/penalise`, { method:'POST', body: JSON.stringify({ empIds }) });
+    closeModal();
+    showToast('success', 'Marks applied', `−${r.penalty} given to ${r.applied.length} ${r.applied.length === 1 ? 'person' : 'people'} for not doing the ${r.workshop} pre-reading.`);
+    await refreshWorkshops();
+    if(_perfTab === 'marks') await renderMarksTab();
+  } catch(e){ const el = document.getElementById('wsRevErr'); if(el){ el.textContent = e.message; el.style.display = 'block'; } else showToast('error', 'Could not apply', e.message); }
+}
+// Choosing a workshop in the Give marks form makes it a pre-reading mark:
+// negative, at that workshop's penalty, with the standard reason.
+function onMarkWorkshopChange(){
+  const w = _workshopsData.find(x => x.id === document.getElementById('markWorkshop').value);
+  const reason = document.getElementById('markReason');
+  if(!w){ reason.placeholder = 'e.g. Called the client back within the hour as promised'; return; }
+  setMarkSign(-1);
+  document.getElementById('markPoints').value = w.penalty;
+  reason.placeholder = `Did not complete the pre-reading for ${w.name} (filled in automatically if you leave this blank)`;
 }
 function setPerfTab(id){
   _perfTab = id;
@@ -4762,13 +4908,18 @@ function renderDeadlineBanner(){
       banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed</b> — <a href="#" onclick="showView('manager', document.querySelector('.nav-item[data-view=&quot;manager&quot;]')); return false;" style="color:#6D28D9; text-decoration:underline;">review on Manager Dashboard</a></span></div>`);
     }
   }
+  // Workshop pre-reading not yet confirmed (and not already marked down).
+  (_workshopsData || []).filter(w => !w.myReadAt && !w.myPenalised).forEach(w => {
+    const urgent = w.date <= addDaysISO(1);
+    banners.push(`<div class="banner${urgent ? ' warn' : ''}"><span>📖</span><span><b>Pre-reading for ${esc(w.name)}</b> — read it before ${fmtDate(w.date)}; anyone who hasn't gets −${w.penalty} mark${w.penalty === 1 ? '' : 's'}. ${w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline;font-weight:600;">Open material</a> · ` : ''}<a href="#" onclick="event.preventDefault(); markWorkshopRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I've read it</a></span></div>`);
+  });
   wrap.innerHTML = banners.join('');
   bell.classList.toggle('has-alert', banners.length > 0);
 }
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
 let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
-const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋' };
+const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋', workshop:'📖' };
 async function refreshNotifications(opts){
   opts = opts || {};
   if(!session) return;
@@ -4793,7 +4944,7 @@ async function refreshNotifications(opts){
     });
     if(opts.notify && _notifPrevIds){
       const fresh = _notifs.filter(n => !n.seenAt && !_notifPrevIds.has(n.id) && n.type !== 'kudos' && n.type !== 'points').slice(0, 3);
-      const toastTitle = { mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready' };
+      const toastTitle = { mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading' };
       fresh.forEach(n => showToast('info', toastTitle[n.type] || 'New task alert', n.text));
     }
     _notifPrevIds = new Set(_notifs.map(n => n.id));
@@ -11073,6 +11224,7 @@ async function onLoginComplete(){
   await refreshNotifications();
   await refreshWaAwaitingBadge();
   await refreshPoints();
+  await refreshWorkshops();
   await refreshKudosAnnouncements();
   initPushClient();
   await loadPunchState();
@@ -11159,6 +11311,7 @@ function startPolling(){
     await refreshClients();
     await refreshWaAwaitingBadge();
     await refreshPoints();
+    await refreshWorkshops();
     await refreshKudosAnnouncements();
     // If someone's actually sitting on the Kudos page, keep its wall (and
     // the Points panel on it) current too — refreshPoints above only

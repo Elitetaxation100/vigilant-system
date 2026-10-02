@@ -939,7 +939,7 @@ function notify(state, empId, type, text, taskId, opts) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -2785,10 +2785,35 @@ app.get('/api/marks/:id/screenshot', requireAuth, (req, res) => {
   if (!m || !m.screenshot || !markVisibleTo(state, req.employee, m)) return res.status(404).json({ error: 'No screenshot.' });
   res.json({ screenshot: m.screenshot });
 });
+// Creates one mark and tells the person — shared by the manual "Give marks"
+// form and the workshop pre-reading penalty, so both behave identically
+// (activity-feed line, notification, same row shape).
+function addMark(state, me, to, pts, why, shot, workshopId) {
+  state.marksSeq = (state.marksSeq || 0) + 1;
+  const row = {
+    id: 'mk' + state.marksSeq, toId: to.id, byId: me.id, points: pts, reason: why, screenshot: shot || null,
+    type: workshopId ? 'pre_reading' : 'general', workshopId: workshopId || null,
+    createdAt: new Date().toISOString(), voidedAt: null, voidedBy: null,
+  };
+  state.marks.push(row);
+  const label = (pts > 0 ? '+' : '') + pts.toLocaleString();
+  const detail = why || 'see the attached snip';
+  logEvent(state, to.id, `<b>${escHtml(me.name)}</b> gave you <b>${label} marks</b> — "${escHtml(detail)}"${why && shot ? ' (snip attached)' : ''}.`);
+  notify(state, to.id, 'mark', `${me.name} gave you ${label} marks — ${detail}`, null, { noDedupe: true });
+  return row;
+}
+// Everyone who currently has a (non-voided) pre-reading mark for a workshop:
+// { employeeId: markId }. Voiding a mark frees the person to be marked again.
+function workshopPenalties(state, workshopId) {
+  const out = {};
+  (state.marks || []).forEach(m => { if (m.workshopId === workshopId && !m.voidedAt) out[m.toId] = m.id; });
+  return out;
+}
+function workshopById(state, id) { return (state.workshops || []).find(w => w.id === id); }
 app.post('/api/marks', requireAuth, (req, res) => {
   const state = db.get();
   const me = req.employee;
-  const { toId, points, reason, screenshot } = req.body || {};
+  const { toId, points, reason, screenshot, workshopId } = req.body || {};
   const to = findEmployee(state, toId);
   if (!to) return res.status(400).json({ error: 'Choose who the mark is for.' });
   if (to.id === me.id) return res.status(400).json({ error: "You can't give marks to yourself." });
@@ -2797,7 +2822,7 @@ app.post('/api/marks', requireAuth, (req, res) => {
   const pts = Math.round(Number(points));
   if (!Number.isFinite(pts) || pts === 0) return res.status(400).json({ error: 'Marks must be a non-zero whole number (negative to deduct).' });
   if (Math.abs(pts) > 10000) return res.status(400).json({ error: 'That is too large — marks are limited to ±10,000 each.' });
-  const why = String(reason || '').trim().slice(0, 300);
+  let why = String(reason || '').trim().slice(0, 300);
   let shot = null;
   if (screenshot != null && screenshot !== '') {
     if (typeof screenshot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(screenshot) || screenshot.length > 6_000_000) {
@@ -2805,16 +2830,138 @@ app.post('/api/marks', requireAuth, (req, res) => {
     }
     shot = screenshot;
   }
+  // A workshop pre-reading mark: tied to that workshop, one per person (until
+  // a mistaken one is voided), with the standard reason filled in if blank.
+  let wid = null;
+  if (workshopId) {
+    const w = workshopById(state, String(workshopId));
+    if (!w) return res.status(400).json({ error: 'That workshop was not found.' });
+    if (workshopPenalties(state, w.id)[to.id]) return res.status(409).json({ error: `${to.name} already has a pre-reading mark for ${w.name}.` });
+    wid = w.id;
+    if (!why) why = `Did not complete the pre-reading for ${w.name}`;
+  }
   if (why.length < 3 && !shot) return res.status(400).json({ error: 'Add a reason, a snip, or both.' });
-  state.marksSeq = (state.marksSeq || 0) + 1;
-  const row = { id: 'mk' + state.marksSeq, toId: to.id, byId: me.id, points: pts, reason: why, screenshot: shot, createdAt: new Date().toISOString(), voidedAt: null, voidedBy: null };
-  state.marks.push(row);
-  const label = (pts > 0 ? '+' : '') + pts.toLocaleString();
-  const detail = why || 'see the attached snip';
-  logEvent(state, to.id, `<b>${escHtml(me.name)}</b> gave you <b>${label} marks</b> — "${escHtml(detail)}"${why && shot ? ' (snip attached)' : ''}.`);
-  notify(state, to.id, 'mark', `${me.name} gave you ${label} marks — ${detail}`, null, { noDedupe: true });
+  const row = addMark(state, me, to, pts, why, shot, wid);
   db.save();
   res.status(201).json({ mark: markForClient(row) });
+});
+
+// ---------------------------------------------------------------------------
+// WORKSHOPS — pre-reading. A superadmin sets up each workshop (Workshop 1,
+// Workshop 2, …) with a date, optional reading material and a mark penalty
+// (default −1). Everyone is asked to read it beforehand and confirms with "I've
+// read it". At or after the workshop the superadmin reviews who hasn't and
+// applies the penalty as ordinary Marks (pre-reading type), with the option
+// to leave people out; a manager can also give the same mark one-by-one from
+// the Give marks form. Nothing is automatic — a person is only marked down
+// by a human pressing the button.
+// ---------------------------------------------------------------------------
+function workshopForClient(state, w, me) {
+  const reads = w.reads || {};
+  const penalties = workshopPenalties(state, w.id);
+  const out = {
+    id: w.id, name: w.name, date: w.date, url: w.url || null, notes: w.notes || '', penalty: w.penalty,
+    createdAt: w.createdAt, myReadAt: reads[me.id] || null, myPenalised: !!penalties[me.id],
+    readCount: Object.keys(reads).length, total: state.employees.length,
+  };
+  if (me.accessRole === 'superadmin') { out.reads = reads; out.penalised = penalties; }
+  return out;
+}
+function cleanWorkshopFields(body, out) {
+  const b = body || {};
+  if (b.name !== undefined) {
+    const n = String(b.name || '').trim().slice(0, 80);
+    if (!n) return 'Give the workshop a name, e.g. "Workshop 1".';
+    out.name = n;
+  }
+  if (b.date !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(b.date || ''))) return 'Pick the workshop date.';
+    out.date = String(b.date);
+  }
+  if (b.url !== undefined) {
+    const u = String(b.url || '').trim();
+    if (u && !/^https?:\/\/\S+$/i.test(u)) return 'The pre-reading link must start with http:// or https://.';
+    out.url = u || null;
+  }
+  if (b.notes !== undefined) out.notes = String(b.notes || '').trim().slice(0, 500);
+  if (b.penalty !== undefined) {
+    const p = Math.round(Number(b.penalty));
+    if (!(p >= 1 && p <= 100)) return 'The penalty must be between 1 and 100 marks.';
+    out.penalty = p;
+  }
+  return null;
+}
+app.get('/api/workshops', requireAuth, (req, res) => {
+  const state = db.get();
+  const list = (state.workshops || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  res.json({ workshops: list.map(w => workshopForClient(state, w, req.employee)) });
+});
+app.post('/api/workshops', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const f = { penalty: 1, url: null, notes: '' };
+  const bad = cleanWorkshopFields(req.body, f);
+  if (bad) return res.status(400).json({ error: bad });
+  if (!f.name || !f.date) return res.status(400).json({ error: 'A workshop needs a name and a date.' });
+  state.workshopSeq = (state.workshopSeq || 0) + 1;
+  const w = { id: 'ws' + state.workshopSeq, name: f.name, date: f.date, url: f.url, notes: f.notes, penalty: f.penalty,
+    createdBy: req.employee.id, createdAt: new Date().toISOString(), reads: {} };
+  state.workshops.push(w);
+  state.employees.forEach(e => notify(state, e.id, 'workshop',
+    `Pre-reading for ${w.name}: please read it before ${w.date}. Anyone who hasn't gets −${w.penalty} mark.`, null, { noDedupe: true }));
+  db.save();
+  res.status(201).json({ workshop: workshopForClient(state, w, req.employee) });
+});
+app.patch('/api/workshops/:id', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const w = workshopById(state, req.params.id);
+  if (!w) return res.status(404).json({ error: 'Workshop not found.' });
+  const f = {};
+  const bad = cleanWorkshopFields(req.body, f);
+  if (bad) return res.status(400).json({ error: bad });
+  Object.assign(w, f);
+  db.save();
+  res.json({ workshop: workshopForClient(state, w, req.employee) });
+});
+// "I've read it" — for yourself; a superadmin can also confirm on someone
+// else's behalf (e.g. they read it in print). Idempotent.
+app.post('/api/workshops/:id/read', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const w = workshopById(state, req.params.id);
+  if (!w) return res.status(404).json({ error: 'Workshop not found.' });
+  let empId = me.id;
+  const target = (req.body || {}).empId;
+  if (target && target !== me.id) {
+    if (me.accessRole !== 'superadmin') return res.status(403).json({ error: 'You can only confirm your own reading.' });
+    if (!findEmployee(state, target)) return res.status(404).json({ error: 'Employee not found.' });
+    empId = target;
+  }
+  w.reads = w.reads || {};
+  if (!w.reads[empId]) { w.reads[empId] = new Date().toISOString(); db.save(); }
+  res.json({ workshop: workshopForClient(state, w, me) });
+});
+// Apply the pre-reading penalty to everyone who hasn't read it (or just the
+// ids given). Skips anyone who has read it, anyone already marked for this
+// workshop, and the superadmin themself (nobody can mark themselves).
+app.post('/api/workshops/:id/penalise', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const w = workshopById(state, req.params.id);
+  if (!w) return res.status(404).json({ error: 'Workshop not found.' });
+  const penalties = workshopPenalties(state, w.id);
+  const ids = Array.isArray((req.body || {}).empIds) ? [...new Set(req.body.empIds.map(String))] : state.employees.map(e => e.id);
+  const applied = [], skipped = { read: 0, already: 0, self: 0, unknown: 0 };
+  ids.forEach(id => {
+    const e = findEmployee(state, id);
+    if (!e) { skipped.unknown++; return; }
+    if (e.id === me.id) { skipped.self++; return; }
+    if ((w.reads || {})[e.id]) { skipped.read++; return; }
+    if (penalties[e.id]) { skipped.already++; return; }
+    addMark(state, me, e, -w.penalty, `Did not complete the pre-reading for ${w.name}`, null, w.id);
+    applied.push(e.name);
+  });
+  if (applied.length) db.save();
+  res.json({ ok: true, workshop: w.name, penalty: w.penalty, applied, skipped });
 });
 app.post('/api/marks/:id/void', requireAuth, (req, res) => {
   const state = db.get();
