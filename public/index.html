@@ -391,6 +391,11 @@
   .panel-head h2{ font-family:var(--font-display); font-size:18px; font-weight:700; letter-spacing:-.1px; }
   .panel-head h2::before{ content:''; display:inline-block; width:4px; height:15px; border-radius:2px; background:linear-gradient(180deg,var(--purple),var(--mint-deep)); margin-right:9px; vertical-align:-2px; }
   .panel-head-actions{ display:flex; gap:10px; }
+  #markSnipZone{ border:2px dashed var(--panel-border); border-radius:10px; padding:16px 14px; font-size:13.5px; color:var(--text-dim); cursor:pointer; text-align:center; outline:none; transition:.15s; }
+  #markSnipZone > div:first-child{ justify-content:center; }
+  #markSnipZone:hover{ border-color:var(--purple); }
+  #markSnipZone:focus{ border-color:var(--purple); background:var(--panel-2); color:var(--text); }
+  #markSnipPreview:not(:empty){ margin-top:10px; text-align:left; }
   body:has(#view-performance.active) #deadlineBannerWrap{ display:none; }
   .btn{ display:flex; align-items:center; gap:7px; background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text); font-size:14px; font-weight:600; padding:8px 14px; border-radius:var(--radius-s); transition:box-shadow .18s ease, border-color .15s ease, color .15s ease, transform .12s ease, background .15s ease;}
   .btn:hover{ border-color:var(--purple); color:var(--purple); }
@@ -1820,9 +1825,12 @@
           <div class="field" style="margin-top:12px;"><label>Reason <span class="req-mark">*</span></label>
             <textarea id="markReason" rows="2" placeholder="e.g. Called the client back within the hour as promised"></textarea>
           </div>
-          <div id="markSnipZone" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;color:var(--text-dim);">
-            <button class="btn small" type="button" onclick="document.getElementById('markSnipFile').click()">📎 Add a snip</button>
-            <span style="color:var(--text-faint);">or paste one with Ctrl+V — the person can see it too</span>
+          <div id="markSnipZone" tabindex="0" role="button" aria-label="Click here, then press Ctrl+V to paste a snip"
+               onclick="this.focus()" onfocus="markSnipZoneState(true)" onblur="markSnipZoneState(false)">
+            <div id="markSnipHint" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span id="markSnipHintText">📋 Click here, then press <b>Ctrl+V</b> to paste a snip</span>
+              <button class="btn small" type="button" onclick="event.stopPropagation();document.getElementById('markSnipFile').click()">or choose an image</button>
+            </div>
             <input type="file" id="markSnipFile" accept="image/*" style="display:none;" onchange="setMarkSnip(this.files[0]); this.value='';">
             <div id="markSnipPreview" style="width:100%;"></div>
           </div>
@@ -3100,14 +3108,18 @@ function renderMarkSnipPreview(){
       <div onclick="_markShot=null;renderMarkSnipPreview();" title="Remove the snip" style="position:absolute;top:4px;right:4px;background:var(--panel);border:1px solid var(--panel-border);border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:12px;">✕</div>
     </div>` : '';
 }
-// Ctrl+V of a screenshot while the Marks form is on screen attaches it —
-// the point of "snipping": Win+Shift+S, then paste straight in.
+// A snip is pasted only into the dedicated snip box: click it (it highlights
+// and says "press Ctrl+V now"), then Ctrl+V. Pasting anywhere else on the
+// page does nothing, so a stray Ctrl+V can't attach a screenshot by accident.
+function markSnipZoneState(on){
+  const t = document.getElementById('markSnipHintText');
+  if(t) t.innerHTML = on ? '✅ Ready — press <b>Ctrl+V</b> now' : '📋 Click here, then press <b>Ctrl+V</b> to paste a snip';
+}
 document.addEventListener('paste', e => {
-  const panel = document.getElementById('marksGivePanel');
-  if(_perfTab !== 'marks' || !panel || panel.style.display === 'none' || panel.offsetParent === null) return;
-  if(document.getElementById('modalOverlay').classList.contains('active')) return;
+  const zone = document.getElementById('markSnipZone');
+  if(!zone || document.activeElement !== zone) return;
   const item = [...((e.clipboardData && e.clipboardData.items) || [])].find(i => i.type && i.type.startsWith('image/'));
-  if(!item) return; // plain text paste into the reason box etc. behaves normally
+  if(!item){ showToast('error', 'No image on the clipboard', 'Take a snip first (Win+Shift+S), then press Ctrl+V.'); e.preventDefault(); return; }
   e.preventDefault();
   setMarkSnip(item.getAsFile());
 });
