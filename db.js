@@ -28,7 +28,8 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const cal = require('./calendar');
 
-const DATA_DIR = path.join(__dirname, 'data');
+// TM_DATA_DIR lets the automated tests run against a throwaway folder instead of the real data.
+const DATA_DIR = process.env.TM_DATA_DIR || path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 
 // Postgres is used when DATABASE_URL is present and not explicitly disabled.
