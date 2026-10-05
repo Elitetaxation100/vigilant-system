@@ -4363,14 +4363,9 @@ function srcTag(source){
 let _crmPullLast = null;
 function crmPullHtml(d){
   const p = _crmPullLast || d.pull;
-  const stages = (d.clientStages || []).join(', ');
   let out = '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">'
     + '<div style="font-weight:700;">Clients from the CRM</div>'
-    + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 10px;">Reads the CRM contact list. Existing clients are linked to their CRM contact by email, phone or exact name; contacts in the stages you list below are added as new clients. Everyone else is left alone. Run a preview first &mdash; it changes nothing.</div>'
-    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'
-    + '<label for="crmStages" style="font-size:12.5px;">Stages that count as a client</label>'
-    + '<input id="crmStages" type="text" value="' + esc(stages) + '" placeholder="e.g. client, active" style="min-width:200px;flex:1;">'
-    + '<button class="btn small" onclick="crmSaveStages()">Save</button></div>'
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 10px;">A CRM contact counts as a <b>client</b> when authority is signed <b>and</b> the PBQ is done (we have everything needed to start work). Existing clients are linked to their CRM contact by email, phone or exact name; contacts that meet the rule and are not here yet are added. Everyone else is left alone. Run a preview first &mdash; it changes nothing.</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
     + '<button class="btn small" id="crmPreviewBtn" onclick="crmPull(false)">Preview</button>'
     + '<button class="btn small primary" onclick="crmPull(true)">Apply now</button>'
@@ -4379,20 +4374,22 @@ function crmPullHtml(d){
     if(!p.ok){
       out += '<div style="margin-top:10px;color:var(--coral);font-size:13px;">' + esc(p.mode === 'apply' ? 'Last run' : 'Last preview') + ' failed: ' + esc(p.error || 'unknown error') + (p.fieldNames && p.fieldNames.length ? '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);">reply had: ' + esc(p.fieldNames.join(', ')) + '</div>' : '') + '</div>';
     } else {
-      const sc = Object.entries(p.stageCounts || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ');
       const sm = p.samples || {};
+      const ev = p.evidence || {};
+      const tallyOf = o => Object.entries(o || {}).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => esc(k) + ' ' + v).join(' &middot; ');
       const list = (t, a) => a && a.length ? '<div style="font-size:12.5px;margin-top:4px;"><b>' + t + '</b> ' + a.map(esc).join('; ') + '</div>' : '';
+      const pg = p.paging || {};
       out += '<div style="margin-top:12px;font-size:13px;">'
-        + '<div style="color:var(--text-dim);">' + (p.mode === 'apply' ? 'Last run' : 'Last preview') + ' &middot; ' + esc(new Date(p.at).toLocaleString()) + ' &middot; ' + p.received + ' contacts received</div>'
+        + '<div style="color:var(--text-dim);">' + (p.mode === 'apply' ? 'Last run' : 'Last preview') + ' &middot; ' + esc(new Date(p.at).toLocaleString()) + ' &middot; ' + p.received + ' contacts received' + (pg.how ? ' (got more than one page by ' + esc(pg.how) + ')' : '') + '</div>'
         + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0;">'
         + '<span>' + p.alreadyLinked + ' already linked</span>'
         + '<span>' + p.linkable + ' ' + (p.mode === 'apply' ? 'linked just now' : 'to link') + '</span>'
         + '<span>' + p.toCreate + ' ' + (p.mode === 'apply' ? 'added as new clients' : 'to add as new clients') + '</span>'
         + '<span style="color:var(--amber);">' + p.ambiguous + ' unclear (more than one match)</span>'
         + '<span style="color:var(--text-faint);">' + p.notClients + ' not clients (left alone)</span></div>'
-        + (sc ? '<div style="font-size:12.5px;color:var(--text-dim);">Stages in the CRM: ' + sc + '</div>' : '')
-        + (p.maybeTruncated ? '<div style="font-size:12.5px;color:var(--amber);margin-top:4px;">' + p.received + ' is a round number &mdash; the CRM may be returning only the first page. Tell me and I will look at how it pages.</div>' : '')
-        + (!(p.stagesUsed || []).length ? '<div style="font-size:12.5px;color:var(--amber);margin-top:4px;">No client stages saved yet, so no new clients will be added &mdash; only existing ones linked.</div>' : '')
+        + '<div style="font-size:12.5px;color:var(--text-dim);">Evidence: ' + (ev.authoritySigned || 0) + ' have authority signed &middot; ' + (ev.onboardingDone || 0) + ' have PBQ done &middot; <b>' + (ev.both || 0) + ' have both (= clients)</b></div>'
+        + (p.values ? '<div style="font-size:12px;color:var(--text-faint);margin-top:2px;">Onboarding stage: ' + tallyOf(p.values.onboarding) + '<br>Lead stage: ' + tallyOf(p.values.lead) + '<br>Status: ' + tallyOf(p.values.status) + '</div>' : '')
+        + (p.maybeTruncated ? '<div style="font-size:12.5px;color:var(--amber);margin-top:4px;">The CRM may be returning only part of its list (' + p.received + ' contacts) and I could not find a way to get the rest. Send me the list-pipeline docs.</div>' : '')
         + list('Would link:', sm.link) + list('Would add:', sm.create) + list('Unclear:', sm.ambiguous)
         + (p.fieldNames && p.fieldNames.length ? '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);margin-top:6px;word-break:break-word;">contact fields: ' + esc(p.fieldNames.join(', ')) + '</div>' : '')
         + '</div>';
@@ -4408,10 +4405,6 @@ async function crmPull(apply){
     showToast(r.result.ok ? 'success' : 'error', apply ? 'Client sync finished' : 'Preview ready', r.result.ok ? (r.result.received + ' contacts read.') : (r.result.error || 'Could not read the CRM.'));
     if(apply && typeof refreshClients === 'function') refreshClients();
   } catch(e){ showToast('error', 'Could not reach the CRM', e.message); }
-  loadCrmConnection();
-}
-async function crmSaveStages(){
-  try { await api('/api/admin/crm-sync/settings', { method:'POST', body: JSON.stringify({ clientStages: document.getElementById('crmStages').value }) }); showToast('success', 'Saved', 'Client stages updated.'); } catch(e){ showToast('error', 'Could not save', e.message); }
   loadCrmConnection();
 }
 async function crmSaveAuto(on){

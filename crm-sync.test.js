@@ -68,6 +68,19 @@ test('contact fields are read from likely names', () => {
   const c = sync.mapContact({ id: 7, first_name: 'Jo', last_name: 'Lee', email: 'J@X.nz', pipeline_stage: 'Client', agent_id: 'u1' });
   assert.equal(c.name, 'Jo Lee'); assert.equal(c.email, 'j@x.nz'); assert.equal(c.stage, 'client'); assert.equal(c.owner.crmUserId, 'u1');
 });
+test('a client = authority signed AND pbq done (everything needed to start work)', () => {
+  const c = row => sync.isClientContact(sync.mapContact(row));
+  assert.equal(c({ id: 1, authority_signed: true, pbq_done_at: '2026-09-01T00:00:00Z' }), true);
+  assert.equal(c({ id: 2, authority_signed: '2026-08-30T01:00:00Z', pbq_done_at: '2026-09-02' }), true);
+  assert.equal(c({ id: 3, authority_signed: true, pbq_done_at: null, processed_at: '2026-09-01' }), false); // pbq not done
+  assert.equal(c({ id: 4, authority_signed: false, pbq_done_at: '2026-09-01T00:00:00Z' }), false); // not signed
+  assert.equal(c({ id: 5, authority_signed: 'no', pbq_done_at: '2026-09-01' }), false);
+  assert.equal(c({ id: 6, pbq_done_at: '2026-09-01' }), false);
+  assert.equal(c({ id: 7, authority_signed: null, onboarding_stage: 'completed' }), false);
+});
+test('flag columns: booleans, yes/no and timestamps', () => {
+  [[true, true], [false, false], ['yes', true], ['No', false], ['2026-01-01', true], [null, false], ['', false], [0, false], [1, true]].forEach(([v, want]) => assert.equal(sync.isSet(v), want, String(v)));
+});
 test('record keeps counts, the latest outcome and field names only', () => {
   const state = {};
   sync.record(state, 'task', 'INSERT', 'ok', 'created', 't1', ['id', 'title']);

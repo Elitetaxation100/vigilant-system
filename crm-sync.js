@@ -129,6 +129,13 @@ function normPhone(v) {
   const d = blank(v) ? '' : String(v).replace(/\D/g, '');
   return d.length >= 7 ? d.slice(-8) : null;
 }
+// A flag column can be a boolean, a "yes", or a timestamp of when it happened.
+function isSet(v) {
+  if (blank(v)) return false;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v !== 0;
+  return !/^(false|no|n|0|null|none|pending)$/i.test(String(v).trim());
+}
 function mapContact(row) {
   const first = str(pick(row, ['first_name', 'firstname', 'given_name']));
   const last = str(pick(row, ['last_name', 'lastname', 'surname', 'family_name']));
@@ -140,12 +147,24 @@ function mapContact(row) {
     category: str(pick(row, ['category', 'type'])),
     stage: lower(pick(row, ['stage', 'pipeline_stage', 'onboarding_stage', 'status'])),
     linkedTmId: str(pick(row, ['task_manager_client_id'])),
+    // What the CRM says about onboarding — the rule for "is a client" is
+    // isClientContact(): authority signed AND onboarding finished.
+    authoritySigned: isSet(pick(row, ['authority_signed', 'authority_signed_at', 'authority_received_at'])),
+    // "Onboarding finished" = pbq_done_at is set: we then hold everything needed to start work (for now).
+    onboardingDone: isSet(row && row.pbq_done_at),
+    stages: {
+      status: lower(row && row.status), lead: lower(row && row.lead_stage), onboarding: lower(row && row.onboarding_stage),
+    },
     owner: {
       crmUserId: str(pick(row, ['owner_id', 'assigned_to', 'agent_id', 'account_manager_id', 'assigned_user_id'])),
       email: lower(pick(row, ['owner_email', 'assigned_to_email', 'agent_email'])),
     },
   };
 }
+// The user's definition: a client is someone whose onboarding is finished and
+// whose authority is signed. "Finished" means pbq_done_at is set — we then
+// have all the information needed to start working on them.
+const isClientContact = c => !!(c && c.authoritySigned && c.onboardingDone);
 // Which existing client is this contact? Linked id first, then the id the CRM
 // stored back, then email, phone, and finally an exact name — each only when
 // it points at exactly ONE client that isn't already tied to another contact.
@@ -184,4 +203,4 @@ function record(state, kind, type, outcome, note, crmId, keys) {
   if (s.events.length > 60) s.events.length = 60;
 }
 
-module.exports = { pick, normalizeEvent, toDay, toStamp, nzLocalToISO, extractList, normPhone, mapContact, matchClient, mapTask, mapAttendance, record };
+module.exports = { pick, normalizeEvent, toDay, toStamp, nzLocalToISO, extractList, normPhone, isSet, isClientContact, mapContact, matchClient, mapTask, mapAttendance, record };

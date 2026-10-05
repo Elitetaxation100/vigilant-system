@@ -2723,11 +2723,67 @@ async function handleCrmUser(payload) {
 }
 
 // Pull contacts from the CRM's list-pipeline action and bring them in as
-// clients. Two jobs: (1) tie existing clients to their CRM contact (by email,
-// phone, then exact name — only when it is unambiguous) and (2) add contacts
-// whose CRM stage the superadmin has said means "a client". Everything else is
-// left alone, so leads never become clients by accident. A preview (apply =
-// false) changes nothing and reports exactly what would happen.
+// clients. A contact IS a client when its authority is signed AND pbq_done_at is set (we hold
+// everything needed to start work) (crmSync.isClientContact). Two jobs: (1) tie existing clients to
+// their CRM contact (by email, phone, then exact name — only when it is
+// unambiguous) and (2) add contacts that meet that rule. Everyone else is left
+// alone, so leads never become clients by accident. A preview (apply = false)
+// changes nothing and reports exactly what would happen, plus the evidence
+// (how many contacts have authority signed / PBQ done, and the
+// stage values the CRM uses) so the rule can be checked against real data.
+
+// list-pipeline's paging isn't documented to us. If the first answer is a round
+// number (a typical page size), try the usual ways of asking for more — each is
+// a harmless read — and keep whichever returns contacts we haven't seen.
+async function fetchCrmContacts() {
+  const first = await crmApi('list-pipeline', {});
+  if (!first.ok) return { ok: false, error: first.error };
+  const firstRows = crmSync.extractList(first.result);
+  if (!firstRows) return { ok: true, rows: null, raw: first.result };
+  const idOf = r => (r && r.id != null ? String(r.id) : null);
+  const info = { pages: 1, how: null, mayBeIncomplete: false };
+  let rows = firstRows.slice();
+  const size = firstRows.length;
+  if (size >= 20 && [20, 25, 30, 50, 100, 200, 250, 500, 1000].includes(size)) {
+    const seen = new Set(rows.map(idOf));
+    const tryParams = async (params) => {
+      const r = await crmApi('list-pipeline', params);
+      const got = r.ok ? crmSync.extractList(r.result) : null;
+      return got ? got.filter(x => idOf(x) && !seen.has(idOf(x))) : [];
+    };
+    // one big request?
+    const big = await tryParams({ limit: 1000 });
+    if (big.length) {
+      big.forEach(x => { seen.add(idOf(x)); rows.push(x); });
+      info.how = 'limit'; info.pages = 2;
+      if (rows.length >= 1000) info.mayBeIncomplete = true;
+    } else {
+      // page by offset, else by page number
+      const modes = [
+        { how: 'offset', params: n => ({ offset: n * size }) },
+        { how: 'page', params: n => ({ page: n + 1 }) },
+      ];
+      for (const m of modes) {
+        const more = await tryParams(m.params(1));
+        if (!more.length) continue;
+        info.how = m.how;
+        more.forEach(x => { seen.add(idOf(x)); rows.push(x); });
+        info.pages = 2;
+        for (let n = 2; n < 40; n++) {
+          const next = await tryParams(m.params(n));
+          if (!next.length) break;
+          next.forEach(x => { seen.add(idOf(x)); rows.push(x); });
+          info.pages++;
+        }
+        if (info.pages >= 40) info.mayBeIncomplete = true;
+        break;
+      }
+      if (!info.how) info.mayBeIncomplete = true; // could not get past the first page
+    }
+  }
+  return { ok: true, rows, info };
+}
+
 async function pullCrmClients(opts) {
   const apply = !!(opts && opts.apply);
   const state = db.get();
@@ -2740,31 +2796,35 @@ async function pullCrmClients(opts) {
     db.save();
     return res;
   };
-  const r = await crmApi('list-pipeline', {});
-  if (!r.ok) { res.error = r.error; return finish('could not fetch: ' + r.error, 'error'); }
-  const rows = crmSync.extractList(r.result);
+  const got = await fetchCrmContacts();
+  if (!got.ok) { res.error = got.error; return finish('could not fetch: ' + got.error, 'error'); }
+  const rows = got.rows;
   if (!rows) {
     res.error = 'The CRM answered, but no list of contacts was found in the reply.';
-    res.fieldNames = Object.keys(r.result || {});
+    res.fieldNames = Object.keys(got.raw || {});
     return finish(res.error, 'error');
   }
   res.received = rows.length;
-  res.maybeTruncated = [20, 25, 50, 100, 200, 250, 500, 1000].includes(rows.length);
+  res.paging = got.info;
+  res.maybeTruncated = !!got.info.mayBeIncomplete;
   const names = new Set();
   rows.slice(0, 25).forEach(x => Object.keys(x || {}).forEach(k => names.add(k)));
   res.fieldNames = [...names].slice(0, 40);
 
   state.clients = state.clients || [];
-  const stages = (sync.clientStages || []).map(s => String(s).trim().toLowerCase()).filter(Boolean);
-  const stageCounts = {};
   const tally = { alreadyLinked: 0, linkable: 0, ambiguous: 0, toCreate: 0, notClients: 0, noId: 0, created: 0, linked: 0, updated: 0 };
+  const evidence = { authoritySigned: 0, onboardingDone: 0, both: 0 };
+  const values = { status: {}, lead: {}, onboarding: {} };
   res.samples = { link: [], create: [], ambiguous: [] };
   const created = [];
   for (const row of rows) {
     const c = crmSync.mapContact(row);
     if (!c.id) { tally.noId++; continue; }
-    const st = c.stage || '(no stage)';
-    stageCounts[st] = (stageCounts[st] || 0) + 1;
+    if (c.authoritySigned) evidence.authoritySigned++;
+    if (c.onboardingDone) evidence.onboardingDone++;
+    const isClient = crmSync.isClientContact(c);
+    if (isClient) evidence.both++;
+    Object.keys(values).forEach(k => { const v = c.stages[k] || '(none)'; values[k][v] = (values[k][v] || 0) + 1; });
     const m = crmSync.matchClient(state.clients, c);
     if (m && m.ambiguous) { tally.ambiguous++; if (res.samples.ambiguous.length < 10) res.samples.ambiguous.push(c.name || c.id); continue; }
     if (m && m.by === 'linked') {
@@ -2785,7 +2845,7 @@ async function pullCrmClients(opts) {
       if (apply) { m.client.crmContactId = c.id; tally.linked++; }
       continue;
     }
-    if (stages.length && c.stage && stages.includes(c.stage)) {
+    if (isClient) {
       tally.toCreate++;
       if (res.samples.create.length < 10) res.samples.create.push(c.name || c.id);
       if (apply) {
@@ -2803,8 +2863,8 @@ async function pullCrmClients(opts) {
     }
     tally.notClients++;
   }
-  res.stageCounts = stageCounts;
-  res.stagesUsed = stages;
+  res.evidence = evidence;
+  res.values = values;
   Object.assign(res, tally);
   res.ok = true;
   const note = apply
