@@ -1220,6 +1220,7 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
       .map(m => ({ team: m.team.trim(), level: m.level === 'admin' ? 'admin' : 'member' }));
   }
   if (typeof req.body.isFounder === 'boolean') emp.isFounder = req.body.isFounder;
+  if (typeof req.body.isHr === 'boolean' && emp.email !== 'hr@elitetaxation.co.nz') emp.isHr = req.body.isHr;
   // Read-only firm-wide Commitment Dashboard observer — no other powers.
   if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
   // Time-boxed self-edit grant (estimate, due date & client date on their own tasks).
@@ -4564,7 +4565,7 @@ app.post('/api/attendance/ingest', (req, res) => {
 // goes to 'cancelled'.
 // ---------------------------------------------------------------------------
 function leaveVisibleTo(state, me) {
-  if (me.accessRole === 'superadmin') return (state.leaveRequests || []).slice();
+  if (me.accessRole === 'superadmin' || me.isHr) return (state.leaveRequests || []).slice();
   // A plain employee sees only their own; a manager sees their whole team's
   // (same boundary as the attendance log).
   const ids = isAdminRole(me.accessRole)
@@ -4684,6 +4685,34 @@ app.post('/api/leave/:id/decision', requireAuth, (req, res) => {
   logEvent(state, l.employeeId, `Time off ${l.from}${l.to !== l.from ? '–' + l.to : ''} <b>${approve ? 'approved' : 'declined'}</b> by ${escHtml(me.name)}.`);
   db.save();
   res.json({ leave: publicLeave(state, l) });
+});
+// HR (and superadmins) can turn a half day — or a part-day of custom hours — into
+// a full day off, for anyone in the org EXCEPT the founder (only the founder
+// changes their own). The record keeps who changed it and what it was before.
+app.post('/api/leave/:id/make-full-day', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  if (!me.isHr && me.accessRole !== 'superadmin') return res.status(403).json({ error: 'Only HR can change a half day into a full day.' });
+  const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
+  if (!l) return res.status(404).json({ error: 'Request not found.' });
+  const emp = findEmployee(state, l.employeeId);
+  if (!emp) return res.status(404).json({ error: 'Employee not found.' });
+  if (emp.isFounder && emp.id !== me.id) return res.status(403).json({ error: "The founder's time off can only be changed by the founder." });
+  if (!['pending', 'approved'].includes(l.status)) return res.status(409).json({ error: `That request is ${l.status} — nothing to change.` });
+  if (!l.halfDay && !(l.hours > 0)) return res.status(409).json({ error: 'That is already a full day.' });
+  const was = l.halfDay ? `half day (${l.halfDay === 'AM' ? 'morning' : 'afternoon'})` : `${l.hours}h part-day`;
+  l.history = l.history || [];
+  l.history.push({ at: new Date().toISOString(), by: me.id, change: `${was} → full day` });
+  l.halfDay = null;
+  l.hours = null;
+  logEvent(state, emp.id, `Time off ${l.from} changed from a ${escHtml(was)} to a <b>full day</b> by ${escHtml(me.name)}.`);
+  if (emp.id !== me.id) {
+    notify(state, emp.id, 'leave', `${me.name} changed your time off on ${l.from} from a ${was} to a full day.`, null);
+    logEvent(state, me.id, `Changed <b>${escHtml(emp.name)}</b>'s ${escHtml(was)} on ${l.from} to a full day.`);
+  }
+  db.save();
+  const closedMonths = Object.values(state.monthlyCards || {}).filter(c => c && c.from && c.to && !(l.to < c.from || l.from > c.to)).map(c => c.period);
+  res.json({ leave: publicLeave(state, l), closedMonths });
 });
 app.post('/api/leave/:id/cancel', requireAuth, (req, res) => {
   const state = db.get();

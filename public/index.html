@@ -5034,13 +5034,18 @@ async function renderTimeOff(){
       || (isAdmin && l.team === myTeamName());
     const cancel = (mineOrManaged && ['pending','approved'].includes(l.status) && (l.to >= todayISO() || isSuperAdmin))
       ? `<button class="btn-ghost btn-sm" onclick="cancelLeave('${l.id}')">Cancel</button>` : '';
+    const target = empById(l.employeeId);
+    const canFull = !!(session && (session.isHr || isSuperAdmin)) && (l.halfDay || l.hours > 0) && ['pending','approved'].includes(l.status)
+      && !(target && target.isFounder && target.id !== currentViewerId);
+    const fullBtn = canFull ? `<button class="btn-ghost btn-sm" onclick="makeFullDay('${l.id}')" title="Count this as a full day off">Make full day</button>` : '';
     const decided = (l.decidedAt && l.status !== 'pending') ? ` · ${l.status} ${fmtDate(l.decidedAt.slice(0,10))}` : '';
     return `<div class="to-row">
       <div class="to-main">
         <b>${esc(l.employeeName)}</b> · ${fmtRange(l)}
-        <div style="font-size:12px; color:var(--text-faint);">${esc(l.type.toLowerCase())}${l.halfDay ? ' · half day' : ''}${l.reason ? ' · ' + esc(l.reason) : ''}${l.backdated ? ' · added after the fact' : ''}${decided}</div>
+        <div style="font-size:12px; color:var(--text-faint);">${esc(l.type.toLowerCase())}${l.halfDay ? ' · half day' : ''}${(l.history||[]).length ? ' · changed to a full day by HR' : ''}${l.reason ? ' · ' + esc(l.reason) : ''}${l.backdated ? ' · added after the fact' : ''}${decided}</div>
       </div>
       ${badge(l.status)}
+      ${fullBtn}
       ${cancel}
     </div>`;
   }).join('') : `<div style="font-size:13.5px; color:var(--text-faint); padding:12px 2px;">No time off booked yet.</div>`;
@@ -5131,6 +5136,18 @@ async function decideLeave(id, approve){
     renderTimeOff();
     refreshWorkload();
   } catch(e){ showToast('error', 'Could not update', e.message); }
+}
+async function makeFullDay(id){
+  const l = _leaveRows.find(x => x.id === id);
+  const what = l && l.halfDay ? 'half day' : 'part-day';
+  if(!confirm(`Change this ${what} to a full day off${l ? ' for ' + l.employeeName : ''}? It will count as a full day of leave.`)) return;
+  try {
+    const r = await api(`/api/leave/${id}/make-full-day`, { method:'POST' });
+    showToast('success', 'Now a full day', 'Capacity is updated.');
+    if(r && r.closedMonths && r.closedMonths.length) showToast('info', 'That month is already closed', 'Reopen and re-close ' + r.closedMonths.join(', ') + ' for its monthly card to include this change.');
+    renderTimeOff();
+    refreshWorkload();
+  } catch(e){ showToast('error', 'Could not change it', e.message); }
 }
 async function cancelLeave(id){
   if(!confirm('Cancel this time off?')) return;
@@ -12192,6 +12209,10 @@ function openManageEmployee(id){
         <input type="checkbox" id="meFounder" ${e.isFounder ? 'checked' : ''}> <span>Founder — sees every team's board</span>
       </label>
       <label style="display:flex; align-items:flex-start; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
+        <input type="checkbox" id="meIsHr" ${e.isHr ? 'checked' : ''} ${e.email === 'hr@elitetaxation.co.nz' ? 'disabled' : ''} style="margin-top:3px;">
+        <span>HR — can change a half day into a full day for anyone except the founder</span>
+      </label>
+      <label style="display:flex; align-items:flex-start; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
         <input type="checkbox" id="meDashObserver" ${e.dashObserver ? 'checked' : ''} style="margin-top:3px;">
         <span>Dashboard observer — can open <b>any</b> employee's Commitment Dashboard, read-only<br><span style="color:var(--text-faint);font-size:12.5px;">No other powers: can't assign, reassign, review, or change anything outside their own work.</span></span>
       </label>
@@ -12284,6 +12305,7 @@ async function submitManageEmployee(id){
   // Teams & Access — calls-into-tasks, Phase 1b
   const memberships = meMembershipsDraft.map(m => ({ team: m.team, level: m.level }));
   const isFounder = document.getElementById('meFounder').checked;
+  const isHr = document.getElementById('meIsHr').checked;
   const dashObserver = document.getElementById('meDashObserver').checked;
   const whatsappAccess = document.getElementById('meWhatsappAccess').checked;
   const slackUserId = document.getElementById('meSlackId').value.trim();
@@ -12305,7 +12327,7 @@ async function submitManageEmployee(id){
   }
   try {
     const payload = { accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
-      memberships, isFounder, dashObserver, whatsappAccess, slackUserId, aircallAgentId, gmailAddresses, doneDelegateId: doneDelegateId || null };
+      memberships, isFounder, isHr, dashObserver, whatsappAccess, slackUserId, aircallAgentId, gmailAddresses, doneDelegateId: doneDelegateId || null };
     if(selfEditUntil !== undefined) payload.selfEditUntil = selfEditUntil;
     if(crmIdEl) payload.crmUserId = crmIdEl.value.trim();
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify(payload)});

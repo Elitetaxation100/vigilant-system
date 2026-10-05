@@ -194,6 +194,9 @@ function ensureOrgChart(state) {
   // seeded or previously set to. Enforced every startup so it can't drift.
   const hrAdmin = byEmail('hr@elitetaxation.co.nz');
   [shubham, vishal, parvinder, hrAdmin].filter(Boolean).forEach(e => { e.accessRole = 'superadmin'; });
+  // HR Administrator is the HR role (can turn half days into full days — see
+  // /api/leave/:id/make-full-day). Others can be flagged HR in Manage Access.
+  if (hrAdmin) hrAdmin.isHr = true;
 }
 
 // Delete any lingering record for a retired employee every startup, and
