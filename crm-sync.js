@@ -174,7 +174,8 @@ function matchClient(clients, c) {
   if (hit) return { client: hit, by: 'linked' };
   if (c.linkedTmId) { hit = clients.find(x => x.id === c.linkedTmId && free(x)); if (hit) return { client: hit, by: 'stored id' }; }
   const tries = [
-    ['email', c.email, x => lower(x.email) === c.email],
+    // the firm's own address is shared by many records (training, test, staff) — never proof of identity
+    ['email', c.email && !/@elitetaxation\.co\.nz$/i.test(c.email) && c.email, x => lower(x.email) === c.email],
     ['phone', normPhone(c.phone), x => normPhone(x.phone) === normPhone(c.phone)],
     // a bare first name ("Varun") is not enough to say two records are the same person
     ['name', c.name && /\S\s+\S/.test(c.name.trim()) && c.name.trim().toLowerCase(), x => x.name && x.name.trim().toLowerCase() === c.name.toLowerCase()],

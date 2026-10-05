@@ -61,6 +61,9 @@ test('a contact is matched to the one client it is, never a guess', () => {
   assert.equal(m({ id: 'k3', email: 'same@t.nz' }).ambiguous, true);
   assert.equal(m({ id: 'k4', name: 'kiwi plumbing' }).client.id, 'c1');
   assert.equal(m({ id: 'k5', name: 'Nobody' }), null);
+  // the firm's own email address is not proof of identity
+  const own = [{ id: 'c8', name: 'Training module', email: 'info@elitetaxation.co.nz' }];
+  assert.equal(sync.matchClient(own, sync.mapContact({ id: 'k8', name: 'Elite Taxation', email: 'info@elitetaxation.co.nz' })), null);
   // a bare first name is never enough
   const first = [{ id: 'c9', name: 'Varun', email: 'v@v.nz' }];
   assert.equal(sync.matchClient(first, sync.mapContact({ id: 'k9', name: 'varun' })), null);
