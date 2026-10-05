@@ -1422,7 +1422,7 @@
           <select id="tasksStatusFilter" onchange="renderTasksPage()"></select>
         </div>
         <table>
-          <thead><tr><th>Task</th><th>Client</th><th style="width:110px;">Owner</th><th style="width:60px;">Hrs</th><th style="width:120px;">Due</th><th style="width:150px;">Status</th></tr></thead>
+          <thead><tr><th>Task</th><th>Client</th><th style="width:110px;">Owner</th><th style="width:60px;">Hrs</th><th style="width:120px;">Due</th><th style="width:150px;">Status</th><th style="width:72px;"></th></tr></thead>
           <tbody id="tasksPageBody"></tbody>
         </table>
         <div id="tasksPageEmpty" style="display:none;padding:20px;text-align:center;color:var(--text-faint);">No tasks match this view.</div>
@@ -2325,6 +2325,15 @@
    whatever it returns. No more per-browser copies of the data.
    ========================================================================= */
 const API_BASE = ''; // same-origin: this page is served BY the server it talks to
+// A second click on the same button within a moment is ignored, so a double-click
+// on "Create task", "Done", "Accept" … can't send the request twice.
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('#modalBox button, button.primary, .verify-btn');
+  if(!b) return;
+  if(b.dataset.busy){ e.stopImmediatePropagation(); e.preventDefault(); return; }
+  b.dataset.busy = '1';
+  setTimeout(() => { delete b.dataset.busy; }, 1000);
+}, true);
 // The login lives in sessionStorage, not localStorage: it survives a refresh of
 // this tab but is gone the moment the tab (or window) is closed, so reopening
 // the Task Manager always asks for a login again. Any token an older version
@@ -3061,7 +3070,7 @@ function reportsToSendFor(who){
 // routing as the AGENT_MAP pattern used for call notifications.
 const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
 function iAmProfitConfirmOwner(){
-  return !!(session && (String(session.email||'').toLowerCase() === PROFIT_CONFIRM_EMAIL || session.accessRole === 'superadmin'));
+  return !!(session && String(session.email||'').toLowerCase() === PROFIT_CONFIRM_EMAIL);
 }
 // Kudos — mirrors connector.js KUDOS_MANAGERS / canAwardKudosTo exactly
 // (team substring match, or Shubam firm-wide, or superadmin). Keep these
@@ -3096,8 +3105,16 @@ function iCanAwardKudosToAnyone(){
   const myEmail = String(session.email||'').toLowerCase();
   return myEmail === PROFIT_CONFIRM_EMAIL || KUDOS_MANAGERS.some(r => r.email === myEmail);
 }
+// Shubam sees every request. Another superadmin is only a backup: they see a
+// request once it has waited two days, and never one they sent themselves — so
+// it leaves the reviewer's lists the moment it's sent.
 function profitConfirmsPendingFor(){
-  return tasks.filter(t => t.profitConfirmStatus === 'pending');
+  const all = tasks.filter(t => t.profitConfirmStatus === 'pending');
+  if(iAmProfitConfirmOwner()) return all;
+  if(session && session.accessRole === 'superadmin'){
+    return all.filter(t => t.profitConfirmRequestedBy !== currentViewerId && t.profitConfirmRequestedAt && (Date.now() - new Date(t.profitConfirmRequestedAt).getTime()) > 2 * 864e5);
+  }
+  return [];
 }
 // Can the viewer manage who sends this report / decide it's sent? The
 // reviewer, a manager over the assignee, or the current report owner.
@@ -5038,8 +5055,17 @@ async function togglePunch(){
   if(punching){
     const blockers = punchOutBlockers();
     if(blockers.length > 0){ openUnacceptedBlockModal(blockers); return; }
+    openPunchOutConfirm();
+    return;
   }
   doTogglePunch();
+}
+// One accidental click used to end the day for good — so ask first.
+function openPunchOutConfirm(){
+  document.getElementById('modalBox').innerHTML = `<h3>Punch out for today?</h3>
+    <div class="modal-sub">This ends your working day. You can't punch back in unless a manager reopens your day.</div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Stay on the clock</button><button class="btn primary" onclick="closeModal();doTogglePunch()">Punch out</button></div>`;
+  openModal();
 }
 function openUnacceptedBlockModal(list){
   list = (list || []).map(x => findTask(x.id) || x);
@@ -5127,7 +5153,7 @@ function renderDeadlineBanner(){
   _bannerLists = {};
   const seeList = key => `<a href="#" onclick="event.preventDefault(); openBannerList('${key}');" style="text-decoration:underline;font-weight:600;">see list</a>`;
   if(awaitingNew.length > 0){
-    _bannerLists.awaitingNew = { title: 'New tasks assigned to you', subtitle: 'Accept or propose a new window', list: awaitingNew };
+    _bannerLists.awaitingNew = { title: 'New tasks assigned to you', subtitle: 'Accept or propose a new date', list: awaitingNew };
     banners.push(`<div class="banner"><span>📥</span><span><b>${awaitingNew.length} new task${awaitingNew.length>1?'s':''}</b> assigned to you — ${bannerRef(awaitingNew)} · ${seeList('awaitingNew')}</span></div>`);
   }
   if(awaitingRework.length > 0){
@@ -5149,13 +5175,13 @@ function renderDeadlineBanner(){
     banners.push(`<div class="banner ${overdueN ? 'warn' : ''}"><span>📨</span><span><b>${reportsToSend.length} report${reportsToSend.length>1?'s':''} to send</b>${overdueN ? ` — ${overdueN} overdue` : ''} — ${bannerRef(reportsToSend)} · <a href="#" onclick="event.preventDefault(); openReportsToSendModal();" style="text-decoration:underline;font-weight:600;">see list</a></span></div>`);
   }
   const profitConfirms = profitConfirmsPendingFor();
-  if(profitConfirms.length > 0 && iAmProfitConfirmOwner()){
+  if(profitConfirms.length > 0){
     banners.push(`<div class="banner"><span>💰</span><span><b>${profitConfirms.length} task${profitConfirms.length>1?'s':''} awaiting profit confirmation</b> — ${bannerRef(profitConfirms)} · <a href="#" onclick="event.preventDefault(); openProfitConfirmsModal();" style="text-decoration:underline;font-weight:600;">see list</a></span></div>`);
   }
   if(isAdmin){
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
     if(proposedOrg.length > 0){
-      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed</b> — <a href="#" onclick="openProposedWindows(); return false;" style="color:#6D28D9; text-decoration:underline;">review and decide</a></span></div>`);
+      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} new date${proposedOrg.length>1?'s':''} proposed</b> — <a href="#" onclick="openProposedWindows(); return false;" style="color:#6D28D9; text-decoration:underline;">review and decide</a></span></div>`);
     }
   }
   // Workshop pre-reading not yet confirmed (and not already marked down).
@@ -5649,7 +5675,7 @@ function actionCell(t){
     html += `<button class="verify-btn" onclick="openProposeModal('${t.id}')">Propose new date</button>`;
   } else if(t.status === 'window_proposed'){
     if(isAdmin){
-      if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;">⚠ Rework — window proposed instead of starting the fix</span>`;
+      if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;">⚠ Fix needed — a new date was proposed instead of starting</span>`;
       html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="approveProposal('${t.id}')">Approve</button>`;
       html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="rejectProposal('${t.id}')">Reject</button>`;
     } else {
@@ -5955,7 +5981,7 @@ function refreshReportsToSendTile(){
 function refreshProfitConfirmTile(){
   const tile = document.getElementById('profitConfirmTile');
   if(!tile) return;
-  if(isMirroring() || !iAmProfitConfirmOwner()){ tile.style.display = 'none'; return; }
+  if(isMirroring()){ tile.style.display = 'none'; return; }
   const n = profitConfirmsPendingFor().length;
   if(!n){ tile.style.display = 'none'; return; }
   tile.style.display = '';
@@ -6099,18 +6125,19 @@ function onPlateToday(t){
   if(t.timerStartedAt || ['awaiting_acceptance', 'rework', 'window_proposed'].includes(t.status)) return true;
   return t.status !== 'on_hold' && !!t.internalDeadline && t.internalDeadline <= todayISO();
 }
-// A range that includes today also takes everything on today's plate — so the
-// "to do today" number and the list under it are always the same tasks.
+// A range that includes today shows everything still open (a person's to-do
+// list shouldn't go blank because the work is due tomorrow); a past range shows
+// what was finished, started or due in it.
 function taskInRange(t, from, to){
   const inR = iso => !!iso && iso >= from && iso <= to;
-  if(inR(t.completedAt ? dayOf(t.completedAt) : '') || inR(t.internalDeadline) || inR(t.startedAt ? dayOf(t.startedAt) : '')) return true;
   const today = todayISO();
-  return from <= today && to >= today && onPlateToday(t);
+  if(t.status !== 'completed' && t.status !== 'pending_approval' && from <= today && to >= today) return true;
+  return inR(t.completedAt ? dayOf(t.completedAt) : '') || inR(t.internalDeadline) || inR(t.startedAt ? dayOf(t.startedAt) : '');
 }
 function dashHintText(){
   const rl = dashRangeLabel(), { from, to } = dashRangeBounds(), today = todayISO();
-  return 'finished, started or due ' + (rl === 'today' || rl === 'yesterday' ? rl : rl === 'all time' ? 'on any date' : 'between ' + rl)
-    + (from <= today && to >= today ? ', plus anything still open that is overdue' : '');
+  const when = rl === 'today' || rl === 'yesterday' ? rl : rl === 'all time' ? 'on any date' : 'between ' + rl;
+  return from <= today && to >= today ? 'everything still open, plus work finished or started ' + when : 'finished, started or due ' + when;
 }
 function isOverdueNow(t){
   return t.status !== 'completed' && t.status !== 'on_hold' && t.status !== 'pending_approval' && !!t.internalDeadline && t.internalDeadline < todayISO();
@@ -6212,7 +6239,7 @@ function renderDashToday(){
   const windows = tasks.filter(t => t.status === 'window_proposed' && t.assignedTo !== currentViewerId).length;
   const toSend = reportsToSendFor(currentViewerId).length;
   const notices = [
-    windows ? `<div class="banner"><span>🗓</span><span><b>${windows} new window${windows === 1 ? '' : 's'} proposed</b> by your team — <a href="#" onclick="event.preventDefault();openProposedWindows();" style="text-decoration:underline;font-weight:600;">review and decide</a></span></div>` : '',
+    windows ? `<div class="banner"><span>🗓</span><span><b>${windows} new date${windows === 1 ? '' : 's'} proposed</b> by your team — <a href="#" onclick="event.preventDefault();openProposedWindows();" style="text-decoration:underline;font-weight:600;">review and decide</a></span></div>` : '',
     toSend ? `<div class="banner"><span>📨</span><span><b>${toSend} report${toSend === 1 ? '' : 's'} to send</b> to clients — <a href="#" onclick="event.preventDefault();openReviewsPage();" style="text-decoration:underline;font-weight:600;">open Reviews</a></span></div>` : '',
   ].join('');
   const mineRows = mineList.slice().sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999')).slice(0, 6).map(t => `<div class="to-row" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
@@ -6332,6 +6359,7 @@ function renderDashTeam(){
       ${b.groups[k].map(t => `<div class="tm-task" onclick="openTaskTrailModal('${t.id}')">
         <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(t.clientName || 'Internal')}${dashNoteHtml(t)}</small></span>
         <span class="tm-task-meta">${isOverdueNow(t) ? '<span class="dash-bad">overdue · </span>' : ''}${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
+        <span class="wk-act" onclick="event.stopPropagation()">${isOverdueNow(t) ? `<button class="verify-btn" style="border-color:var(--coral);color:var(--coral);" onclick="nudgeTask('${t.id}')">Nudge</button>` : ''}<button class="verify-btn" title="Nudge, reassign, edit dates, remove…" onclick="openTaskActions('${t.id}')">⋯ More</button></span>
       </div>`).join('')}`).join('');
     return `<details class="tm-person" ${open ? 'open' : ''} ontoggle="this.open ? _teamOpen.add('${p.id}') : _teamOpen.delete('${p.id}')">
       <summary>
@@ -6357,8 +6385,12 @@ function onWorkFilter(){
 function openTaskActions(id){
   const t = findTask(id); if(!t) return;
   document.getElementById('modalBox').innerHTML = `<h3>${esc(t.name || 'Task')}</h3>
-    <div class="modal-sub">${esc(t.clientName || 'Internal')}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}</div>
-    <div style="margin:14px 0;">${actionCell(t)}</div>
+    <div class="modal-sub">${esc(t.clientName || 'Internal')}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}${t.assignedTo !== currentViewerId ? ' · with ' + esc((empById(t.assignedTo) || {}).name || '—') : ''}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
+      ${t.assignedTo !== currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval' ? `<button class="verify-btn" style="border-color:var(--coral);color:var(--coral);" onclick="closeModal();nudgeTask('${t.id}')">Nudge ${esc(((empById(t.assignedTo) || {}).name || 'them').split(' ')[0])}</button>` : ''}
+      <button class="verify-btn" onclick="closeModal();openTaskTrailModal('${t.id}')">View history</button>
+    </div>
+    <div style="margin:10px 0 14px;">${actionCell(t)}</div>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
   openModal();
 }
@@ -6378,14 +6410,14 @@ function renderDashWork(){
   const extra = (_myExtra || []).reduce((s, x) => s + x.extra, 0);
   const cell = (num, text, sub, fn, color) => `<button class="wk-cell" onclick="${fn}"><b${color ? ` style="color:${color};"` : ''}>${num}</b><span>${text}</span>${sub ? `<small>${sub}</small>` : ''}</button>`;
   const cells = [
-    cell(toDo, 'To do today', '', 'openMyTodayList()'),
+    cell(toDo, 'To do today', `${mine.filter(t => t.status !== 'completed').length} open in total`, 'openMyTodayList()'),
     cell(toReview, 'To review ↗', toReview ? 'open Reviews' : 'all clear', 'openReviewsPage()', toReview ? 'var(--amber)' : ''),
     cell(sent, 'Sent for review', 'waiting on a checker', 'openMyInReview()'),
     cell(doneP.length, 'Done', `${doneHrs.toFixed(1)}h · ${esc(label)}`, 'openMyDoneList(empPeriodBounds().start, isoDayBefore(empPeriodBounds().end))', 'var(--teal)'),
     cell(extra > 0.05 ? extra.toFixed(1) + 'h' : '0', 'Extra hours', 'over estimate', 'openMyExtraHours()', extra > 0.05 ? 'var(--coral)' : ''),
   ];
   if(_myCalls && _myCalls.total) cells.push(cell(_myCalls.remaining, 'Calls remaining', `${_myCalls.listened} of ${_myCalls.total} listened`, "showView('calls', document.querySelector('.nav-item[data-view=&quot;calls&quot;]'))", 'var(--amber)'));
-  const pc = iAmProfitConfirmOwner() ? profitConfirmsPendingFor().length : 0;
+  const pc = profitConfirmsPendingFor().length;
   if(pc) cells.push(cell(pc, 'Profit confirmations', 'waiting on you', 'openProfitConfirmsModal()', 'var(--purple)'));
   const rs = reportsToSendFor(currentViewerId).length;
   if(rs) cells.push(cell(rs, 'Reports to send', 'ready to go to clients', 'openReviewsPage()', 'var(--purple)'));
@@ -6876,11 +6908,20 @@ function renderNeedsAttention(){
 /* P2 — record a manual chase against a task. The server appends it to the
    reminder ledger and pings the assignee; the 3rd chase on an open task
    also pings their manager. */
-async function nudgeTask(id){
-  const note = prompt('Add a short note for the assignee (optional):', '') ;
-  if(note === null) return;
+function nudgeTask(id){
+  const t = findTask(id); if(!t) return;
+  const emp = empById(t.assignedTo);
+  document.getElementById('modalBox').innerHTML = `<h3>Nudge ${esc(emp ? emp.name.split(' ')[0] : 'them')}</h3>
+    <div class="modal-sub">${esc(t.name)}${t.clientName ? ' — ' + esc(t.clientName) : ''}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}</div>
+    <div class="field"><label>Note <span class="at-hint">optional</span></label><textarea id="nudgeNote" placeholder="e.g. Client is chasing — can you get this out today?"></textarea></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitNudge('${t.id}')">Send nudge</button></div>`;
+  openModal();
+}
+async function submitNudge(id){
+  const note = ((document.getElementById('nudgeNote') || {}).value || '').trim();
   try {
-    const r = await api(`/api/tasks/${id}/nudge`, { method: 'POST', body: JSON.stringify({ note: note || undefined }) });
+    const r = await api(`/api/tasks/${encodeURIComponent(id)}/nudge`, { method: 'POST', body: JSON.stringify({ note: note || undefined }) });
+    closeModal();
     showToast('success', 'Nudged', `Chased ${r.reminderCount} time${r.reminderCount === 1 ? '' : 's'} so far.`);
     refreshTasks();
   } catch(e){ showToast('error', 'Could not nudge', e.message); }
@@ -6960,7 +7001,7 @@ function openNewAssignmentModal(){
   const anyRework = pending.some(isReworkFlagged);
   document.getElementById('modalBox').innerHTML = `
     <h3>${anyRework ? '📥 Work Awaiting Your Response' : '📥 New Work Assigned'}</h3>
-    <div class="modal-sub">Accept it or propose a new window — nothing starts the clock until you do.</div>
+    <div class="modal-sub">Accept it or propose a new date — nothing starts the clock until you do.</div>
     <div style="max-height:280px; overflow-y:auto; margin-bottom:6px;">
       ${pending.map(t => {
         const flagged = isReworkFlagged(t);
@@ -7407,8 +7448,8 @@ function openProposeModal(id){
     <div class="modal-sub">${esc(t.name)} — ${esc(t.scope)}</div>
     <div class="field"><label>Client committed date</label><input type="text" value="${fmtDate(t.clientDate)}" disabled></div>
     <div class="field"><label>Current internal deadline</label><input type="text" value="${fmtDate(t.internalDeadline)}" disabled></div>
-    <div class="field"><label>Proposed new deadline</label><input type="date" id="proposeDate" value="${t.internalDeadline||todayISO()}"></div>
-    <div class="field"><label>Reason for extension</label><textarea id="proposeReason" placeholder="e.g. Awaiting supporting documents from client"></textarea></div>
+    <div class="field"><label>Proposed new deadline</label><input type="date" id="proposeDate" min="${todayISO()}" value="${t.internalDeadline && t.internalDeadline >= todayISO() ? t.internalDeadline : todayISO()}"></div>
+    <div class="field"><label>Reason <span class="req-mark">*</span></label><textarea id="proposeReason" placeholder="e.g. Awaiting supporting documents from client"></textarea></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn primary" onclick="submitPropose('${id}')">Send to Manager</button>
@@ -7419,10 +7460,12 @@ function openProposeModal(id){
 async function submitPropose(id){
   const date = document.getElementById('proposeDate').value;
   const reason = document.getElementById('proposeReason').value;
+  if(!date || date < todayISO()){ showToast('error', 'Pick a date', 'Choose the new date from today onward.'); return; }
+  if(reason.trim().length < 3){ showToast('error', 'Add a reason', 'Say briefly why you need the new date.'); return; }
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/propose-window`, { method:'POST', body: JSON.stringify({date, reason}) });
     closeModal(); await refreshTasks(); await refreshActivity();
-  } catch(e){ showToast('error', 'Could not propose window', e.message); }
+  } catch(e){ showToast('error', 'Could not propose the date', e.message); }
 }
 // Every proposed window waiting on a manager, with Approve / Reject right there.
 function openProposedWindows(){
@@ -7439,7 +7482,7 @@ function openProposedWindows(){
       </div></div>`;
   };
   document.getElementById('modalBox').innerHTML = `<div class="tasklist-modal">
-    <h3>New windows proposed <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
+    <h3>New dates proposed <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
     <div class="modal-sub">Your team asked for a new due date on these. Approve to accept it, or reject to keep the old date.</div>
     ${list.length ? `<div style="max-height:55vh;overflow-y:auto;">${list.map(row).join('')}</div>` : '<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting on you.</p>'}
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div></div>`;
@@ -7451,11 +7494,11 @@ async function decideWindow(id, approve){
 }
 async function approveProposal(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/approve-window`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
-  catch(e){ showToast('error', 'Could not approve window', e.message); }
+  catch(e){ showToast('error', 'Could not approve the date', e.message); }
 }
 async function rejectProposal(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/reject-window`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
-  catch(e){ showToast('error', 'Could not reject window', e.message); }
+  catch(e){ showToast('error', 'Could not reject the date', e.message); }
 }
 /* =========================================================================
    RECURRING DAILY TASKS — a template for something someone does every
@@ -8205,6 +8248,8 @@ async function submitAssign(mode){
   const tat = parseFloat(document.getElementById('atTat').value);
   if(!(tat > 0)){ showErr('Enter the estimated time in hours — it\'s required.'); return; }
   if(!deadline){ showErr('Pick a due date — it\'s required.'); return; }
+  if(deadline < todayISO()){ showErr("The due date can't be in the past — pick today or a later day."); return; }
+  if(tat > 100){ showErr("That's more than 100 hours — split it into smaller tasks."); return; }
   let team = (document.getElementById('atTeam') || {}).value || '';
   if(team === '__custom__') team = ((document.getElementById('atTeamCustom') || {}).value || '').trim();
   const payload = { mode, name, assignedTo, internalDeadline: deadline, tat, team };
@@ -8431,7 +8476,7 @@ function openReassignModal(id){
   }
   document.getElementById('modalBox').innerHTML = `
     <h3>Reassign Task</h3>
-    <div class="modal-sub">${esc(t.name)} — currently with ${esc(empById(t.assignedTo)?.name || '—')}. The new assignee gets the same Accept / Propose Window step as a brand-new assignment before their clock starts.</div>
+    <div class="modal-sub">${esc(t.name)} — currently with ${esc(empById(t.assignedTo)?.name || '—')}. The new assignee gets the same Accept / Propose new date step as a brand-new assignment before their clock starts.</div>
     <div class="field"><label>Reassign to</label><select id="rsAssignee">${options.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
     <div class="field"><label>Reason (optional)</label><input type="text" id="rsReason" placeholder="e.g. workload rebalancing"></div>
     <div class="modal-error" id="reassignError"></div>
@@ -8452,7 +8497,7 @@ async function submitReassign(id){
       closeModal();
       await refreshTasks();
       await refreshActivity({ silent:true });
-      showToast('success', 'Task reassigned', `${empById(body.newAssigneeId)?.name || 'New assignee'} must accept or propose a new window.`);
+      showToast('success', 'Task reassigned', `${empById(body.newAssigneeId)?.name || 'New assignee'} must accept or propose a new date.`);
     } catch(e){
       const el = document.getElementById('reassignError');
       if(el){ el.textContent = e.message; el.style.display = 'block'; } else { showToast('error', 'Could not reassign task', e.message); }
@@ -9073,7 +9118,7 @@ const EXCLUSION_HELP = {
   'On hold': "On hold — not counted until it's finished (or banked at month-end).",
   'Needs rework': 'Sent back for rework — not counted until it is fixed and passes review.',
   'Awaiting acceptance': "The person hasn't accepted the task yet.",
-  'Window proposed': 'A new window was proposed and is waiting for approval.',
+  'Window proposed': 'A new date was proposed and is waiting for approval.',
   'Missing allocated-hours snapshot': 'A data problem: this task has no agreed hours recorded, so it cannot be credited.',
   'Invalid completion timestamp': 'A data problem: this task has no valid completion time, so it cannot be credited.',
 };
@@ -9833,6 +9878,7 @@ function renderTasksPage(resetTabs){
       <td style="font-family:var(--font-mono);">${t.tat}h</td>
       <td style="${overdue?'color:#C2410C;font-weight:600;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${overdue?' · overdue':''}</td>
       <td>${statusBadge(t)}</td>
+      <td onclick="event.stopPropagation()"><button class="verify-btn" title="Nudge, reassign, edit dates, remove…" onclick="openTaskActions('${t.id}')">⋯</button></td>
     </tr>`;
   }).join('');
   document.getElementById('tasksPageEmpty').style.display = list.length ? 'none' : '';
@@ -9905,7 +9951,7 @@ function renderReviewsView(){
       <span class="wk-act">${btn}</span></div>`;
   const awaitingAll = myReviewTasks();
   const reworkAll = tasks.filter(t => isReworkFlagged(t) && t.assignedTo === currentViewerId);
-  const profitAll = iAmProfitConfirmOwner() ? profitConfirmsPendingFor() : [];
+  const profitAll = profitConfirmsPendingFor();
   const toSendAll = reportsToSendFor(currentViewerId);
 
   // the employee filter lists everyone who has something in any queue, with how many
@@ -9967,7 +10013,7 @@ function renderReviewsView(){
 function updateReviewsNavBadge(){
   const badge = document.getElementById('reviewsNavBadge');
   if(!badge) return;
-  const n = myReviewTasks().length + (iAmProfitConfirmOwner() ? profitConfirmsPendingFor().length : 0) + reportsToSendFor(currentViewerId).length;
+  const n = myReviewTasks().length + profitConfirmsPendingFor().length + reportsToSendFor(currentViewerId).length;
   if(n > 0){ badge.textContent = n; badge.style.display = ''; } else badge.style.display = 'none';
 }
 function openMyReviewQueue(){

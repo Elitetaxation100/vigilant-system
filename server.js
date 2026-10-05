@@ -938,7 +938,7 @@ function notify(state, empId, type, text, taskId, opts) {
   // forget; the in-app inbox is the source of truth.
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
-    rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation',
+    rework: 'Task sent back', due: 'Task due', window: 'New date decision', profit_confirm: 'Profit confirmation',
     kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
@@ -1724,6 +1724,10 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   const numTat = parseFloat(tat);
   if (!(numTat > 0)) return res.status(400).json({ error: 'A task needs an estimated time in hours.' });
   if (!internalDeadline) return res.status(400).json({ error: 'A task needs a due date.' });
+  if (numTat > 100) return res.status(400).json({ error: "That's more than 100 hours — split it into smaller tasks." });
+  if (/^\d{4}-\d{2}-\d{2}/.test(String(internalDeadline)) && String(internalDeadline).slice(0, 10) < todayISO()) {
+    return res.status(400).json({ error: "The due date can't be in the past — pick today or a later day." });
+  }
 
   // Two capacity checks for a team assignment:
   //  - impossible: the due date itself doesn't leave enough raw capacity for
@@ -1831,7 +1835,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
       client: task.clientName, clientDate: task.clientDate, internalDeadline: task.internalDeadline
     });
     const overNote = task.overAllocated ? ` This is ${task.overAllocated.overBy}h over your capacity for that date — it'll count as extra hours.` : '';
-    notify(state, assignee, 'assigned', `${req.employee.name} assigned you "${task.name}" — accept it or propose a new window.${overNote}`, task.id);
+    notify(state, assignee, 'assigned', `${req.employee.name} assigned you "${task.name}" — accept it or propose a new date.${overNote}`, task.id);
   }
   db.save();
   res.status(201).json({ task: taskForClient(task) });
@@ -2406,7 +2410,7 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     t.status = 'awaiting_acceptance';
     t.reworkCount = (t.reworkCount || 0) + 1;
     t.faultType = faultType;
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for rework — error found. Accept it (or propose a new window) to start fixing it. ${note ? 'Note: ' + escHtml(note) : ''}`);
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for rework — error found. Accept it (or propose a new date) to start fixing it. ${note ? 'Note: ' + escHtml(note) : ''}`);
     notify(state, t.assignedTo, 'rework', `"${t.name}" was sent back for rework${note ? ' — ' + note : ''}. Accept it to start fixing.`, t.id);
   } else {
     // A client task then asks "send it to the client?"; an internal task
@@ -2593,7 +2597,8 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
   const owner = profitConfirmOwner(state);
-  const allowed = (owner && req.employee.id === owner.id) || req.employee.accessRole === 'superadmin';
+  const isBackup = req.employee.accessRole === 'superadmin' && t.profitConfirmRequestedBy !== req.employee.id; // backup for Shubam — never for your own request
+  const allowed = (owner && req.employee.id === owner.id) || isBackup;
   if (!allowed) return res.status(403).json({ error: 'Only Shubam Sharma can confirm this.' });
   if (t.profitConfirmStatus !== 'pending') return res.status(400).json({ error: 'This task has no pending profit confirmation.' });
   t.profitConfirmStatus = 'confirmed';
@@ -3038,10 +3043,13 @@ app.post('/api/tasks/:id/propose-window', requireAuth, (req, res) => {
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   const { date, reason } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error: 'Pick the new date you are proposing.' });
+  if (String(date) < todayISO()) return res.status(400).json({ error: "The proposed date can't be in the past." });
+  if (String(reason || '').trim().length < 3) return res.status(400).json({ error: 'Say briefly why you need the new date.' });
   t.proposedDate = date;
-  t.proposedReason = reason;
+  t.proposedReason = String(reason).trim().slice(0, 400);
   t.status = 'window_proposed';
-  logEvent(state, t.assignedTo, `Proposed a new window for "${escHtml(t.name)}" — ${escHtml(date)}. Reason: ${escHtml(reason) || 'not specified'}.`);
+  logEvent(state, t.assignedTo, `Proposed a new date for "${escHtml(t.name)}" — ${escHtml(date)}. Reason: ${escHtml(reason) || 'not specified'}.`);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -3067,7 +3075,7 @@ app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
   t.timerStartedAt = null; // not running — Start begins the clock
 
   logEvent(state, req.employee.id, `Approved the proposed window for "${escHtml(t.name)}" — now due ${t.internalDeadline}.`);
-  notify(state, t.assignedTo, 'window', `${req.employee.name} approved your new window for "${t.name}" — now due ${t.internalDeadline}.`, t.id);
+  notify(state, t.assignedTo, 'window', `${req.employee.name} approved your new date for "${t.name}" — now due ${t.internalDeadline}.`, t.id);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -3282,7 +3290,7 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   t.reworkStartedAt = null;
   t.timerStartedAt = null;
   const reworkNote = t.reviewStatus === 'error' ? ' This task is flagged for rework — the new assignee will see the reviewer\'s note.' : '';
-  notify(state, newAssigneeId, 'assigned', `${req.employee.name} reassigned "${t.name}" to you — accept it or propose a new window.`, t.id);
+  notify(state, newAssigneeId, 'assigned', `${req.employee.name} reassigned "${t.name}" to you — accept it or propose a new date.`, t.id);
   logEvent(state, newAssigneeId, `Task "${escHtml(t.name)}" reassigned from <b>${fromEmp ? escHtml(fromEmp.name) : '—'}</b> to <b>${escHtml(newEmp.name)}</b> — approval needed before the clock starts.${reworkNote}${reason ? ' Reason: ' + escHtml(reason) : ''}`, {
     client: t.clientName, clientDate: t.clientDate, internalDeadline: t.internalDeadline, reassignReason: reason || null
   });
@@ -4044,9 +4052,28 @@ app.get('/api/activity', requireAuth, (req, res) => {
 // point: a task alert can't be "missed" silently — delivery and whether it
 // was opened are both on the record.
 // ---------------------------------------------------------------------------
+// An unread alert about something that's since been dealt with ("due soon and
+// not started" once it's done, "accept this task" once accepted…) is no longer
+// news — it's left out of the inbox and the unread count. Nothing is deleted
+// and seenAt is never touched, so "did they open it" stays truthful.
+function notificationResolved(state, n) {
+  if (!n.taskId) return false;
+  const t = findTask(state, n.taskId);
+  if (!t) return true;
+  switch (n.type) {
+    case 'due': return t.status === 'completed' || t.status === 'on_hold' || !!t.startedAt || t.assignedTo !== n.empId;
+    case 'assigned': return t.assignedTo !== n.empId || t.status !== 'awaiting_acceptance';
+    case 'nudge': return t.status === 'completed' || t.assignedTo !== n.empId;
+    case 'review': return t.status !== 'completed' || !!t.reviewStatus || t.reviewerId !== n.empId;
+    case 'rework': return t.assignedTo !== n.empId || t.status !== 'awaiting_acceptance';
+    case 'send_report': return !t.awaitingClientDecision || t.reportSendOwner !== n.empId;
+    case 'profit_confirm': return t.profitConfirmStatus !== 'pending' && !t.awaitingClientDecision;
+    default: return false;
+  }
+}
 app.get('/api/notifications', requireAuth, (req, res) => {
   const state = db.get();
-  const mine = (state.notifications || []).filter(n => n.empId === req.employee.id)
+  const mine = (state.notifications || []).filter(n => n.empId === req.employee.id && (n.seenAt || !notificationResolved(state, n)))
     .sort((a, b) => (a.at < b.at ? 1 : -1));
   res.json({
     notifications: mine.slice(0, 80),
@@ -5063,6 +5090,10 @@ app.post('/api/emails/:id/task', requireAuth, (req, res) => {
   const numTat = parseFloat(tat);
   if (!(numTat > 0)) return res.status(400).json({ error: 'A task needs an estimated time in hours.' });
   if (!internalDeadline) return res.status(400).json({ error: 'A task needs a due date.' });
+  if (numTat > 100) return res.status(400).json({ error: "That's more than 100 hours — split it into smaller tasks." });
+  if (/^\d{4}-\d{2}-\d{2}/.test(String(internalDeadline)) && String(internalDeadline).slice(0, 10) < todayISO()) {
+    return res.status(400).json({ error: "The due date can't be in the past — pick today or a later day." });
+  }
   const assignee = findEmployee(state, assignedTo);
   if (!assignee) return res.status(400).json({ error: 'Choose who this should go to.' });
   const status = assignee.id === req.employee.id ? 'accepted' : 'awaiting_acceptance';
@@ -5093,7 +5124,7 @@ app.post('/api/emails/:id/task', requireAuth, (req, res) => {
   state.tasks.unshift(task);
   e.taskId = task.id;
   logEvent(state, assignee.id, `Task created from an email — <b>${escHtml(e.fromAddress)}</b> — "${escHtml(task.name)}".`);
-  if (status === 'awaiting_acceptance') notify(state, assignee.id, 'assigned', `${req.employee.name} assigned you "${task.name}" from an email — accept it or propose a new window.`, task.id);
+  if (status === 'awaiting_acceptance') notify(state, assignee.id, 'assigned', `${req.employee.name} assigned you "${task.name}" from an email — accept it or propose a new date.`, task.id);
   db.save();
   res.status(201).json({ task: taskForClient(task) });
 });
@@ -5207,6 +5238,10 @@ app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAcces
   const numTat = parseFloat(tat);
   if (!(numTat > 0)) return res.status(400).json({ error: 'A task needs an estimated time in hours.' });
   if (!internalDeadline) return res.status(400).json({ error: 'A task needs a due date.' });
+  if (numTat > 100) return res.status(400).json({ error: "That's more than 100 hours — split it into smaller tasks." });
+  if (/^\d{4}-\d{2}-\d{2}/.test(String(internalDeadline)) && String(internalDeadline).slice(0, 10) < todayISO()) {
+    return res.status(400).json({ error: "The due date can't be in the past — pick today or a later day." });
+  }
   const assignee = findEmployee(state, assignedTo);
   if (!assignee) return res.status(400).json({ error: 'Choose who this should go to.' });
   const status = assignee.id === req.employee.id ? 'accepted' : 'awaiting_acceptance';
@@ -5236,7 +5271,7 @@ app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAcces
   state.tasks.unshift(task);
   c.taskIds = c.taskIds || []; c.taskIds.push(task.id);
   logEvent(state, assignee.id, `Task created from a WhatsApp message — <b>${escHtml(c.name)}</b> — "${escHtml(task.name)}".`);
-  if (status === 'awaiting_acceptance') notify(state, assignee.id, 'assigned', `${req.employee.name} assigned you "${task.name}" from a WhatsApp message — accept it or propose a new window.`, task.id);
+  if (status === 'awaiting_acceptance') notify(state, assignee.id, 'assigned', `${req.employee.name} assigned you "${task.name}" from a WhatsApp message — accept it or propose a new date.`, task.id);
   db.save();
   res.status(201).json({ task: taskForClient(task) });
 });
