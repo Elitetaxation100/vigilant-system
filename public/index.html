@@ -205,16 +205,24 @@
   .dash-range-note{ font-size:12.5px; color:var(--text-faint); }
   .tm-list{ background:var(--panel); border:1px solid var(--panel-border); border-radius:14px; overflow:hidden; }
   .tm-person + .tm-person{ border-top:1px solid var(--panel-border); }
-  .tm-person > summary{ list-style:none; display:grid; grid-template-columns:auto minmax(120px,1.1fr) auto minmax(110px,170px) 16px; gap:14px; align-items:center; padding:11px 16px; cursor:pointer; }
+  .tm-person > summary{ list-style:none; display:grid; grid-template-columns:auto minmax(110px,.8fr) minmax(0,2fr) minmax(110px,160px) 16px; gap:14px; align-items:center; padding:11px 16px; cursor:pointer; }
   .tm-person > summary::-webkit-details-marker{ display:none; }
   .tm-person > summary:hover{ background:var(--panel-2); }
   .tm-av{ width:32px; height:32px; border-radius:50%; background:color-mix(in srgb, var(--purple) 14%, transparent); color:var(--purple); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; }
   .tm-name{ display:flex; flex-direction:column; font-weight:600; font-size:14px; line-height:1.25; min-width:0; }
   .tm-name small, .tm-task-main small{ font-weight:400; font-size:12px; color:var(--text-faint); }
-  .tm-stats{ display:flex; gap:6px; flex-wrap:wrap; }
+  .tm-stats{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; justify-content:flex-end; }
   .tm-chip{ font-size:12px; color:var(--text-dim); background:var(--panel-2); border-radius:999px; padding:3px 9px; white-space:nowrap; }
   .tm-chip b{ color:var(--text); }
   .tm-chip.good b{ color:var(--teal); }
+  .tm-chip.total{ background:none; padding-left:0; color:var(--text); font-weight:600; }
+  .tm-chip[class*="c-"]::before{ content:''; display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:1px; background:var(--dot, var(--text-faint)); }
+  .c-progress{ --dot:var(--teal); } .c-yet{ --dot:var(--purple); } .c-paused{ --dot:var(--amber); } .c-rework{ --dot:var(--coral); } .c-awaiting{ --dot:var(--amber); }
+  .c-window{ --dot:var(--purple); } .c-hold{ --dot:var(--text-faint); } .c-review{ --dot:var(--amber); } .c-done{ --dot:var(--teal); }
+  .tm-group{ display:flex; align-items:center; gap:8px; padding:12px 0 2px; font-size:11.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--text-dim); }
+  .tm-group::before{ content:''; width:7px; height:7px; border-radius:50%; background:var(--dot, var(--text-faint)); }
+  .tm-group b{ font-weight:600; color:var(--text-faint); }
+  .tm-group + .tm-task{ border-top:none; }
   .tm-chip.bad{ background:color-mix(in srgb, var(--coral) 14%, transparent); } .tm-chip.bad, .tm-chip.bad b{ color:var(--coral); }
   .tm-load{ display:flex; flex-direction:column; gap:4px; min-width:0; }
   .tm-load small{ font-size:11.5px; color:var(--text-faint); white-space:nowrap; }
@@ -6049,14 +6057,12 @@ function renderDashToday(){
       <div class="to-main"><b>${esc(t.name)}</b>${t.clientName ? ` <span style="color:var(--text-faint);">— ${esc(t.clientName)}</span>` : ''}
         <div style="font-size:12px;color:var(--text-faint);">${miniState(t) || (t.status === 'completed' ? 'Finished' : '')}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}</div></div>
     </div>`).join('');
-  const chip = (n, txt, cls) => n ? `<span class="${cls || ''}" style="white-space:nowrap;"><b>${n}</b> ${txt}</span>` : '';
-  const teamRows = stats.map(({ p, s }) => `<div class="to-row" style="cursor:pointer;" onclick="openTeamPerson('${p.id}')">
+  const teamRows = stats.map(({ p }) => {
+    const b = dashPersonRows(p.id, from, to, '_all');
+    return `<div class="to-row" style="cursor:pointer;" onclick="openTeamPerson('${p.id}')">
       <div class="to-main"><b>${esc(p.name)}</b>
-        <div style="font-size:12.5px;color:var(--text-dim);display:flex;gap:12px;flex-wrap:wrap;margin-top:2px;">
-          ${chip(s.done.length, `finished${s.doneHrs ? ' (' + s.doneHrs.toFixed(1) + 'h)' : ''}`) || '<span style="color:var(--text-faint);">nothing finished</span>'}
-          ${chip(s.due.length, 'due')}${chip(s.open.length, 'open now')}${chip(s.overdue.length, 'overdue', 'dash-bad')}
-        </div></div><span style="color:var(--text-faint);">›</span>
-    </div>`).join('');
+        <div class="tm-stats" style="margin-top:5px;">${dashChips(b, p.id, '_all')}</div></div><span style="color:var(--text-faint);">›</span></div>`;
+  }).join('');
   el.innerHTML = `
     <div class="top-grid" style="margin-bottom:16px;">
       ${dashTile('📝', 'Reviews waiting', rev.length, rev.length ? (revOverdue ? `${revOverdue} past the client date` : `oldest ${oldest}d`) : 'all clear', rev.length ? 'var(--amber)' : '', 'openReviewsPage()')}
@@ -6080,6 +6086,40 @@ function onTeamFilter(){
   renderDashTeam();
 }
 function _initials(name){ return String(name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
+// One breakdown, used everywhere a person's work is summarised, so the numbers
+// on the row always add up to the tasks listed under it.
+const DASH_CATS = [['progress', 'In progress'], ['yet', 'Yet to start'], ['paused', 'Paused'], ['rework', 'Needs rework'], ['awaiting', 'Awaiting acceptance'],
+  ['window', 'Window proposed'], ['hold', 'On hold'], ['review', 'Sent for review'], ['done', 'Done']];
+function dashCat(t){
+  if(t.status === 'completed') return t.reviewStatus ? 'done' : 'review';
+  if(t.status === 'on_hold') return 'hold';
+  if(t.status === 'rework') return 'rework';
+  if(t.status === 'awaiting_acceptance') return 'awaiting';
+  if(t.status === 'window_proposed') return 'window';
+  if(t.status === 'accepted') return t.timerStartedAt ? 'progress' : (t.startedAt ? 'paused' : 'yet');
+  return 'yet';
+}
+function dashPersonRows(personId, from, to, status){
+  const mine = tasks.filter(t => t.assignedTo === personId && t.status !== 'pending_approval');
+  const rows = mine.filter(t => status === 'overdue' ? isOverdueNow(t) : (matchesStatusFilter(t, status) && taskInRange(t, from, to)))
+    .sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+  const groups = {};
+  rows.forEach(t => { (groups[dashCat(t)] = groups[dashCat(t)] || []).push(t); });
+  return { rows, groups, overdueNow: mine.filter(isOverdueNow).length };
+}
+function dashChips(b, personId, status){
+  const total = `<span class="tm-chip total"><b>${b.rows.length}</b> ${b.rows.length === 1 ? 'task' : 'tasks'}</span>`;
+  const cats = DASH_CATS.filter(([k]) => b.groups[k]).map(([k, l]) => `<span class="tm-chip c-${k}"><b>${b.groups[k].length}</b> ${l.toLowerCase()}</span>`).join('');
+  const od = (b.overdueNow && status !== 'overdue')
+    ? `<span class="tm-chip bad" title="Open and past their due date right now — whatever the date range" onclick="event.preventDefault();event.stopPropagation();showTeamOverdue('${personId}')"><b>${b.overdueNow}</b> overdue now</span>` : '';
+  return total + cats + od;
+}
+function showTeamOverdue(id){ _teamPerson = id; _teamStatus = 'overdue'; _teamOpen.add(id); setDashTab('team'); }
+function onTeamFilter(){
+  _teamStatus = document.getElementById('dashTeamStatus').value;
+  _teamPerson = document.getElementById('dashTeamPerson').value;
+  renderDashTeam();
+}
 function renderDashTeam(){
   const list = document.getElementById('dashTeamList');
   if(!list) return;
@@ -6099,9 +6139,7 @@ function renderDashTeam(){
   const shown = people.filter(p => !_teamPerson || p.id === _teamPerson);
   const todayTeam = (_todayData && _todayData.team) || [];
   list.innerHTML = shown.length ? `<div class="tm-list">${shown.map(p => {
-    const s = dashPersonStats(p.id, from, to);
-    const rows = s.mine.filter(t => _teamStatus === 'overdue' ? isOverdueNow(t) : (matchesStatusFilter(t, _teamStatus) && taskInRange(t, from, to)))
-      .sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+    const b = dashPersonRows(p.id, from, to, _teamStatus);
     const tt = todayTeam.find(r => r.id === p.id);
     let load = '';
     if(tt){
@@ -6113,23 +6151,20 @@ function renderDashTeam(){
       }
     }
     const open = _teamOpen.has(p.id) || !!_teamPerson;
+    const groupsHtml = DASH_CATS.filter(([k]) => b.groups[k]).map(([k, label]) => `<div class="tm-group c-${k}"><span>${label}</span><b>${b.groups[k].length}</b></div>
+      ${b.groups[k].map(t => `<div class="tm-task" onclick="openTaskTrailModal('${t.id}')">
+        <span class="tm-task-main"><b>${esc(t.name)}</b>${t.clientName ? `<small>${esc(t.clientName)}</small>` : ''}</span>
+        <span class="tm-task-meta">${isOverdueNow(t) ? '<span class="dash-bad">overdue · </span>' : ''}${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
+      </div>`).join('')}`).join('');
     return `<details class="tm-person" ${open ? 'open' : ''} ontoggle="this.open ? _teamOpen.add('${p.id}') : _teamOpen.delete('${p.id}')">
       <summary>
         <span class="tm-av">${esc(_initials(p.name))}</span>
         <span class="tm-name">${esc(p.name)}${p.team ? `<small>${esc(p.team)}</small>` : ''}</span>
-        <span class="tm-stats">
-          <span class="tm-chip good"><b>${s.done.length}</b> finished</span>
-          <span class="tm-chip"><b>${s.open.length}</b> open</span>
-          ${s.overdue.length ? `<span class="tm-chip bad"><b>${s.overdue.length}</b> overdue</span>` : ''}
-        </span>
+        <span class="tm-stats">${dashChips(b, p.id, _teamStatus)}</span>
         ${load}
         <span class="tm-chev" aria-hidden="true">›</span>
       </summary>
-      <div class="tm-tasks">${rows.length ? rows.map(t => `<div class="tm-task" onclick="openTaskTrailModal('${t.id}')">
-          <span class="tm-task-main"><b>${esc(t.name)}</b>${t.clientName ? `<small>${esc(t.clientName)}</small>` : ''}</span>
-          <span class="tm-task-meta">${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
-          <span class="tm-task-st">${statusBadge(t)}</span>
-        </div>`).join('') : '<div class="tm-empty">Nothing matches these filters.</div>'}</div>
+      <div class="tm-tasks">${groupsHtml || '<div class="tm-empty">Nothing matches these filters.</div>'}</div>
     </details>`;
   }).join('')}</div>` : '<div class="tm-empty">No one on your team yet.</div>';
 }
