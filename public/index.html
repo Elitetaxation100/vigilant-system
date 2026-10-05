@@ -1108,7 +1108,7 @@
           <select id="dashRangeSel" onchange="onDashRange()">
             <option value="today">Today</option><option value="yesterday">Yesterday</option>
             <option value="this-week">This week</option><option value="last-week">Last week</option>
-            <option value="this-month">This month</option><option value="last-month">Last month</option>
+            <option value="this-month">This month</option><option value="last-month">Last month</option><option value="all">All time</option>
             <option value="custom">Pick dates…</option>
           </select>
           <span id="dashRangeCustom" style="display:none;"><input type="date" id="dashRangeFrom" onchange="onDashRange()"> → <input type="date" id="dashRangeTo" onchange="onDashRange()"></span>
@@ -1117,7 +1117,7 @@
             <select id="dashWorkStatus" onchange="onWorkFilter()" aria-label="Work status">
               <option value="_all">All work</option><option value="_done">Done (reviewed)</option><option value="_inreview">In review</option>
               <option value="_inprogress">In progress</option><option value="_yettostart">Yet to start</option>
-              <option value="on_hold">On hold</option><option value="rework">Needs rework</option><option value="overdue">Overdue (now)</option>
+              <option value="on_hold">On hold</option><option value="rework">Needs rework</option><option value="overdue">Overdue</option>
             </select>
             <input type="text" id="dashWorkSearch" placeholder="Search tasks…" oninput="onWorkFilter()" aria-label="Search tasks">
           </span>
@@ -1126,7 +1126,7 @@
             <select id="dashTeamStatus" onchange="onTeamFilter()" aria-label="Work status">
               <option value="_all">All work</option><option value="_done">Done (reviewed)</option><option value="_inreview">In review</option>
               <option value="_inprogress">In progress</option><option value="_yettostart">Yet to start</option>
-              <option value="on_hold">On hold</option><option value="rework">Needs rework</option><option value="overdue">Overdue (now)</option>
+              <option value="on_hold">On hold</option><option value="rework">Needs rework</option><option value="overdue">Overdue</option>
             </select>
           </span>
         </div>
@@ -5940,6 +5940,7 @@ function openReviewsPage(){ showView('reviews', document.querySelector('.nav-ite
 function dashRangeBounds(){
   const today = todayISO(), p = _dashRange.preset;
   const dow = (new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7; // Monday = 0
+  if(p === 'all') return { from: '2000-01-01', to: '2999-12-31' };
   if(p === 'yesterday'){ const y = addDaysISO(-1); return { from: y, to: y }; }
   if(p === 'this-week') return { from: addDaysISO(-dow), to: today };
   if(p === 'last-week') return { from: addDaysISO(-dow - 7), to: addDaysISO(-dow - 1) };
@@ -5959,6 +5960,7 @@ function dashRangeLabel(){
   const { from, to } = dashRangeBounds(), p = _dashRange.preset;
   if(p === 'today') return 'today';
   if(p === 'yesterday') return 'yesterday';
+  if(p === 'all') return 'all time';
   return from === to ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`;
 }
 function onDashRange(){
@@ -5977,6 +5979,10 @@ function syncEmpRange(){
   const { from, to } = dashRangeBounds();
   const sel = document.getElementById('empPeriod'), a = document.getElementById('empCStart'), b = document.getElementById('empCEnd');
   if(!sel || !a || !b) return;
+  if(_dashRange.preset === 'all'){ // "My work" has its own All time period
+    if(sel.value === 'all') return;
+    sel.value = 'all'; onEmpPeriodChange(); renderGreeting(); renderMyDay(); return;
+  }
   if(sel.value === 'custom' && a.value === from && b.value === to) return;
   sel.value = 'custom'; a.value = from; b.value = to;
   onEmpPeriodChange();
@@ -6022,7 +6028,7 @@ function taskInRange(t, from, to){
 }
 function dashHintText(){
   const rl = dashRangeLabel(), { from, to } = dashRangeBounds(), today = todayISO();
-  return 'finished, started or due ' + (rl === 'today' || rl === 'yesterday' ? rl : 'between ' + rl)
+  return 'finished, started or due ' + (rl === 'today' || rl === 'yesterday' ? rl : rl === 'all time' ? 'on any date' : 'between ' + rl)
     + (from <= today && to >= today ? ', plus anything still open that is overdue' : '');
 }
 function isOverdueNow(t){
@@ -6166,17 +6172,21 @@ function dashCat(t){
 }
 function dashPersonRows(personId, from, to, status){
   const mine = tasks.filter(t => t.assignedTo === personId && t.status !== 'pending_approval');
-  const rows = mine.filter(t => status === 'overdue' ? isOverdueNow(t) : (matchesStatusFilter(t, status) && taskInRange(t, from, to)))
+  // The date range decides which tasks are in play; the status filter can only
+  // narrow that list (Overdue included), never widen it — so "All work" always
+  // contains whatever any other status shows.
+  const inRange = mine.filter(t => taskInRange(t, from, to));
+  const rows = inRange.filter(t => status === 'overdue' ? isOverdueNow(t) : matchesStatusFilter(t, status))
     .sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
   const groups = {};
   rows.forEach(t => { (groups[dashCat(t)] = groups[dashCat(t)] || []).push(t); });
-  return { rows, groups, overdueNow: mine.filter(isOverdueNow).length };
+  return { rows, groups, overdueNow: inRange.filter(isOverdueNow).length };
 }
 function dashChips(b, personId, status){
   const total = `<span class="tm-chip total"><b>${b.rows.length}</b> ${b.rows.length === 1 ? 'task' : 'tasks'}</span>`;
   const cats = DASH_CATS.filter(([k]) => b.groups[k]).map(([k, l]) => `<span class="tm-chip c-${k}"><b>${b.groups[k].length}</b> ${l.toLowerCase()}</span>`).join('');
   const od = (b.overdueNow && status !== 'overdue')
-    ? `<span class="tm-chip bad" title="Open and past their due date right now — whatever the date range" onclick="event.preventDefault();event.stopPropagation();showTeamOverdue('${personId}')"><b>${b.overdueNow}</b> overdue now</span>` : '';
+    ? `<span class="tm-chip bad" title="Open and past their due date — click to show only these" onclick="event.preventDefault();event.stopPropagation();showTeamOverdue('${personId}')"><b>${b.overdueNow}</b> overdue</span>` : '';
   return total + cats + od;
 }
 function showTeamOverdue(id){ _teamPerson = id; _teamStatus = 'overdue'; _teamOpen.add(id); setDashTab('team'); }
@@ -6198,9 +6208,7 @@ function renderDashTeam(){
   ps.value = _teamPerson;
   document.getElementById('dashTeamStatus').value = _teamStatus;
   const rl = dashRangeLabel();
-  document.getElementById('dashTeamHint').textContent = _teamStatus === 'overdue'
-    ? 'Overdue is as of right now, so the date range does not apply.'
-    : 'Work ' + dashHintText() + '.';
+  document.getElementById('dashTeamHint').textContent = 'Work ' + dashHintText() + '.';
   const shown = people.filter(p => !_teamPerson || p.id === _teamPerson);
   const todayTeam = (_todayData && _todayData.team) || [];
   list.innerHTML = shown.length ? `<div class="tm-list">${shown.map(p => {
@@ -6299,7 +6307,7 @@ function renderDashWork(){
   el.innerHTML = `<div class="wk-strip">${cells.join('')}</div>${cap}
     <div class="tm-list">
       <div class="wk-list-head">
-        <span class="wk-count"><b>${rows.length}</b> ${rows.length === 1 ? 'task' : 'tasks'} <small>${_workStatus === 'overdue' ? 'overdue right now' : dashHintText()}</small>${b.overdueNow && _workStatus !== 'overdue' ? ` <button class="tm-chip bad" style="border:none;cursor:pointer;margin-left:8px;" title="Open and past their due date right now — whatever the date range" onclick="showWorkOverdue()"><b>${b.overdueNow}</b> overdue now</button>` : ''}</span>
+        <span class="wk-count"><b>${rows.length}</b> ${rows.length === 1 ? 'task' : 'tasks'} <small>${dashHintText()}</small>${b.overdueNow && _workStatus !== 'overdue' ? ` <button class="tm-chip bad" style="border:none;cursor:pointer;margin-left:8px;" title="Open and past their due date — click to show only these" onclick="showWorkOverdue()"><b>${b.overdueNow}</b> overdue</button>` : ''}</span>
         <span class="wk-btns">
           <button class="btn small primary" onclick="openAssignModal('me')">+ Add a task</button>
           <button class="btn small" onclick="openRecurringModal()">🔁 Daily tasks</button>
