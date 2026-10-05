@@ -2452,13 +2452,25 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
   if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
-  const { status, note, faultType, reviewHours, screenshot, score } = req.body || {};
+  const { status, note, faultType, reviewHours, screenshot, score, marks, marksReason } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
   if (status === 'error' && !['processor', 'sop', 'other'].includes(faultType)) {
     return res.status(400).json({ error: 'Choose the cause: a processor fault, an SOP/manager fault, or other.' });
   }
   if (score != null && (!(Number(score) >= 0) || Number(score) > 100)) {
     return res.status(400).json({ error: 'Score must be between 0 and 100.' });
+  }
+  // Optional marks for the processor — positive rewards, negative deducts. Works
+  // the same on a clean review and on a rework. Checked BEFORE anything changes,
+  // so a bad number never leaves a half-recorded review.
+  let markPts = 0;
+  const assigneeForMarks = findEmployee(state, t.assignedTo);
+  if (marks != null && marks !== '' && Number(marks) !== 0) {
+    markPts = Math.round(Number(marks));
+    if (!Number.isFinite(markPts) || markPts === 0) return res.status(400).json({ error: 'Marks must be a whole number — negative to deduct.' });
+    if (Math.abs(markPts) > 10000) return res.status(400).json({ error: 'That is too large — marks are limited to ±10,000 each.' });
+    if (!assigneeForMarks) return res.status(400).json({ error: 'This task has no assignee to give marks to.' });
+    if (assigneeForMarks.id === req.employee.id) return res.status(400).json({ error: "You can't give marks to yourself." });
   }
   const rh = Number(reviewHours);
   t.reviewStatus = status;
@@ -2499,6 +2511,13 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     managers.forEach(m => {
       logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was reviewed clean by <b>${escHtml(req.employee.name)}</b>.`);
     });
+  }
+  if (markPts) {
+    const why = (String(marksReason || '').trim() || (note ? 'Review: ' + String(note).trim() : 'Review of "' + t.name + '"' + (status === 'error' ? ' — rework needed' : ''))).slice(0, 300);
+    addMark(state, req.employee, assigneeForMarks, markPts, why, null, null, t.id);
+    t.reviewMarks = markPts;
+  } else {
+    t.reviewMarks = null;
   }
   db.save();
   res.json({ task: taskForClient(t) });
@@ -2892,11 +2911,11 @@ app.get('/api/marks/:id/screenshot', requireAuth, (req, res) => {
 // Creates one mark and tells the person — shared by the manual "Give marks"
 // form and the workshop pre-reading penalty, so both behave identically
 // (activity-feed line, notification, same row shape).
-function addMark(state, me, to, pts, why, shot, workshopId) {
+function addMark(state, me, to, pts, why, shot, workshopId, taskId) {
   state.marksSeq = (state.marksSeq || 0) + 1;
   const row = {
     id: 'mk' + state.marksSeq, toId: to.id, byId: me.id, points: pts, reason: why, screenshot: shot || null,
-    type: workshopId ? 'pre_reading' : 'general', workshopId: workshopId || null,
+    type: workshopId ? 'pre_reading' : (taskId ? 'review' : 'general'), workshopId: workshopId || null, taskId: taskId || null,
     createdAt: new Date().toISOString(), voidedAt: null, voidedBy: null,
   };
   state.marks.push(row);

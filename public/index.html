@@ -3418,7 +3418,7 @@ function renderMarksList(){
     return `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--panel-border);${m.voidedAt ? 'opacity:.55;' : ''}">
       <div style="min-width:64px;font-weight:700;color:${col};${m.voidedAt ? 'text-decoration:line-through;' : ''}">${fmt(m.points)}</div>
       <div style="flex:1;">
-        <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(m.createdAt))}</span>${m.type === 'pre_reading' ? ' <span class="badge awaiting dot" style="font-size:10px;">📖 Pre-reading</span>' : ''}</div>
+        <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(m.createdAt))}</span>${m.type === 'pre_reading' ? ' <span class="badge awaiting dot" style="font-size:10px;">📖 Pre-reading</span>' : ''}${m.type === 'review' ? ' <span class="badge awaiting dot" style="font-size:10px;">🔍 Review' + (m.taskId ? ' ' + esc(taskNo(m.taskId)) : '') + '</span>' : ''}</div>
         ${m.reason ? `<div style="font-size:13px;color:var(--text-dim);margin-top:2px;">${esc(m.reason)}</div>` : ''}
         ${m.hasScreenshot ? `<button class="btn small" style="margin-top:6px;" onclick="viewMarkSnip('${esc(m.id)}')">📎 View snip</button>` : ''}
         ${m.voidedAt ? `<div style="font-size:12px;color:var(--text-faint);margin-top:2px;">Voided by ${esc((empById(m.voidedBy)||{}).name || '—')}, ${fmtDate(dayOf(m.voidedAt))}</div>` : ''}
@@ -10959,6 +10959,14 @@ function openReviewScoreModal(){
     <div class="field"><label>Score <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(0–100, optional)</span></label>
       <input type="number" id="reviewScoreInput" min="0" max="100" step="1" placeholder="e.g. 90" value="${_revState.score != null ? _revState.score : ''}">
     </div>
+    <div class="field"><label>Marks <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional — + rewards, − deducts${isClean ? '' : '; rework usually costs marks'})</span></label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        ${[-5,-3,-1,1,3,5].map(n => `<button type="button" class="btn small" onclick="setReviewMarks(${n})" style="min-width:44px;color:${n<0?'var(--coral)':'var(--teal)'};">${n>0?'+':'−'}${Math.abs(n)}</button>`).join('')}
+        <button type="button" class="btn small" onclick="setReviewMarks('')">None</button>
+      </div>
+      <input type="number" id="reviewMarksInput" step="1" placeholder="e.g. -2 to deduct, 2 to reward" value="${_revState.marks != null ? _revState.marks : ''}">
+      <input type="text" id="reviewMarksWhy" maxlength="300" placeholder="Why? (optional — defaults to your review note)" value="${esc(_revState.marksWhy || '')}" style="margin-top:6px;">
+    </div>
     ${linksBlock}
     <div class="modal-error" id="reviewScoreErr"></div>
     ${isClean && !isInternal ? `<div class="rv-choices">
@@ -10980,14 +10988,25 @@ function openReviewScoreModal(){
 // — stash it on _revState first so re-opening the score step restores it.
 // "Rework needed" from the score screen: keep whatever score was typed and go
 // straight to "whose fault was it?" — the same path the first screen's switch takes.
-function reviewReworkInstead(){
+function setReviewMarks(n){
+  const el = document.getElementById('reviewMarksInput');
+  if(el) el.value = n;
+}
+// Remember what was typed in the score/marks fields before the modal body is replaced.
+function stashReviewScreen(){
   const scoreEl = document.getElementById('reviewScoreInput');
+  const mEl = document.getElementById('reviewMarksInput');
+  const wEl = document.getElementById('reviewMarksWhy');
   _revState.score = scoreEl && scoreEl.value !== '' ? scoreEl.value : undefined;
+  _revState.marks = mEl && mEl.value !== '' ? mEl.value : undefined;
+  _revState.marksWhy = wEl ? wEl.value.trim() : '';
+}
+function reviewReworkInstead(){
+  stashReviewScreen();
   openReviewFaultModal();
 }
 function reviewScoreGoBack(isClean){
-  const scoreEl = document.getElementById('reviewScoreInput');
-  _revState.score = scoreEl && scoreEl.value !== '' ? scoreEl.value : undefined;
+  stashReviewScreen();
   if(isClean) openReviewFormModal(_revState.id);
   else openReviewDetailFormModal();
 }
@@ -11012,6 +11031,18 @@ async function submitReviewFinal(action){
       return;
     }
   }
+  let marksVal; // undefined = no marks, which is fine
+  const marksEl = document.getElementById('reviewMarksInput');
+  if(marksEl && marksEl.value !== ''){
+    marksVal = Math.round(Number(marksEl.value));
+    if(!Number.isFinite(marksVal) || Math.abs(marksVal) > 10000){
+      const e = document.getElementById('reviewScoreErr');
+      e.textContent = 'Marks must be a whole number (negative to deduct), up to 10,000.'; e.style.display = 'block';
+      return;
+    }
+    if(marksVal === 0) marksVal = undefined;
+  }
+  const marksWhy = ((document.getElementById('reviewMarksWhy') || {}).value || '').trim() || undefined;
   let waivedReason;
   if(action === 'waive'){
     waivedReason = (document.getElementById('stcWaiveReason')||{}).value || '';
@@ -11029,6 +11060,7 @@ async function submitReviewFinal(action){
     await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({
       status: decision, note, faultType: _revState.faultType || undefined,
       reviewHours: _revState.hours, screenshot: _revState.screenshot || undefined, score: scoreVal,
+      marks: marksVal, marksReason: marksVal ? marksWhy : undefined,
     }) });
     // Sheet/Cashbook links live on this same screen now for a clean review.
     const sheetEl = document.getElementById('stcSheetLink');
@@ -11070,7 +11102,7 @@ async function submitReviewFinal(action){
     await refreshTasks();
     await refreshActivity({ silent: true });
     closeModal();
-    showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', scoreVal != null ? `Scored ${scoreVal}/100.` : '');
+    showToast(decision === 'clean' ? 'success' : 'error', decision === 'clean' ? 'Marked clean' : 'Error flagged', [scoreVal != null ? `Scored ${scoreVal}/100.` : '', marksVal ? `${marksVal > 0 ? '+' : ''}${marksVal} marks given.` : ''].filter(Boolean).join(' '));
   } catch(e){
     const el = document.getElementById('reviewScoreErr');
     el.textContent = e.message; el.style.display = 'block';
@@ -11470,6 +11502,7 @@ function openReworkDetailModal(id){
       <div><b style="color:#7A2A0C;">Flagged by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
       <div style="margin-top:6px;"><b style="color:#7A2A0C;">What was wrong:</b><br>${t.reviewNote ? esc(t.reviewNote) : 'No notes recorded.'}</div>
       ${t.reviewScore != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Score given:</b> ${t.reviewScore}/100</div>` : ''}
+      ${t.reviewMarks ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Marks:</b> ${t.reviewMarks > 0 ? '+' : ''}${t.reviewMarks}</div>` : ''}
       ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
