@@ -279,6 +279,28 @@
     .wk-act{ justify-content:flex-start; flex-wrap:wrap; }
   }
   .tm-open{ padding:8px 0 0; }
+  .at-row2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .at-more{ border:1px solid var(--panel-border); border-radius:10px; padding:0 12px; margin:6px 0 12px; }
+  .at-more > summary{ cursor:pointer; padding:10px 0; font-size:13.5px; font-weight:600; color:var(--text-dim); list-style:none; }
+  .at-more > summary::-webkit-details-marker{ display:none; }
+  .at-more > summary::before{ content:'▸'; display:inline-block; margin-right:8px; transition:transform .15s; }
+  .at-more[open] > summary::before{ transform:rotate(90deg); }
+  .at-more > summary span{ font-weight:400; font-size:12px; color:var(--text-faint); margin-left:6px; }
+  .at-more[open]{ padding-bottom:4px; }
+  .at-hint{ font-weight:400; color:var(--text-faint); text-transform:none; letter-spacing:0; }
+  .at-bulk{ font-size:12.5px; color:var(--text-faint); text-decoration:underline; }
+  .guide-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:14px; padding:14px 16px; margin-bottom:16px; }
+  .guide-head{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
+  .guide-x{ background:none; border:none; color:var(--text-faint); font-size:12.5px; cursor:pointer; }
+  .guide-x:hover{ color:var(--text); }
+  .guide-steps{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; }
+  .guide-step{ display:flex; gap:10px; align-items:flex-start; }
+  .guide-n{ flex:none; width:24px; height:24px; border-radius:50%; background:color-mix(in srgb, var(--purple) 14%, transparent); color:var(--purple); font-weight:700; font-size:12.5px; display:flex; align-items:center; justify-content:center; }
+  .guide-t{ display:flex; flex-direction:column; gap:3px; font-size:13px; } .guide-t span{ color:var(--text-dim); } .guide-t .btn{ align-self:flex-start; margin-top:4px; }
+  .guide-foot{ margin-top:10px; font-size:12.5px; color:var(--text-faint); }
+  .pulse{ animation:punchPulse 1s ease-in-out 2; }
+  @keyframes punchPulse{ 0%,100%{ box-shadow:0 0 0 0 transparent; } 50%{ box-shadow:0 0 0 6px color-mix(in srgb, var(--purple) 35%, transparent); } }
+  @media (max-width:560px){ .at-row2{ grid-template-columns:1fr; } }
   .tm-empty{ font-size:13px; color:var(--text-faint); padding:12px 16px; }
   .dash-range select, .dash-range input[type=date]{ height:34px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); border-radius:9px; padding:0 10px; font-size:13px; font-family:var(--font-body); }
   .dash-range select:focus, .dash-range input:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
@@ -1027,56 +1049,40 @@
     </div>
 
     <div class="nav-section">
-      <div class="nav-title">Dashboard</div>
       <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> My Dashboard</div>
       <details class="nav-drop" id="mgmtNavGroup">
         <summary class="nav-item nav-sub" id="mgmtNavToggle" style="display:none;"><span class="nav-icon">▾</span> Management dashboards</summary>
         <div class="nav-item nav-sub" id="teamBoardNavSection" data-view="teamboard" style="display:none;" onclick="showView('teamboard', this)"><span class="nav-icon">◲</span> Team Board</div>
         <div class="nav-item nav-sub" id="founderNavSection" data-view="founder" style="display:none;" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div>
       </details>
-    </div>
-    <div class="nav-section">
-      <div class="nav-title">Tasks</div>
       <div class="nav-item" data-view="tasks" onclick="showView('tasks', this)"><span class="nav-icon">✓</span> Tasks</div>
-      <div class="nav-item nav-sub" onclick="openCreateTaskModal()"><span class="nav-icon">✚</span> Create Task</div>
+      <div class="nav-item nav-sub" onclick="openNewTask()"><span class="nav-icon">✚</span> New task</div>
       <!-- assignTeamNavItem / bulkAssignNavItem: no longer separate nav rows,
            but kept as real (hidden) elements — onLoginComplete/logoutSession
-           already toggle these exact ids, and openCreateTaskModal's isAdmin
-           check mirrors the same gate, so nothing needs to change there. -->
+           already toggle these exact ids. -->
       <div id="assignTeamNavItem" style="display:none;"></div>
       <div id="bulkAssignNavItem" style="display:none;"></div>
-    </div>
-    <div class="nav-section">
-      <div class="nav-title">Reviews</div>
       <div class="nav-item" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadge" style="display:none;"></span></div>
-    </div>
-    <div class="nav-section">
       <details class="nav-drop" id="perfNavGroup">
         <summary class="nav-item nav-sub"><span class="nav-icon">▾</span> Performance</summary>
         <div class="nav-item nav-sub" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
-        <div class="nav-item nav-sub" data-view="kudos" onclick="showView('kudos', this)"><span class="nav-icon">🏆</span> Kudos</div>
+        <div class="nav-item nav-sub" data-view="kudos" onclick="showView('kudos', this)"><span class="nav-icon">🏆</span> Recognition</div>
       </details>
-    </div>
-    <div class="nav-section">
-      <div class="nav-title">Calls</div>
-      <div class="nav-item" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
-      <div class="nav-item" data-view="emails" onclick="showView('emails', this)"><span class="nav-icon">✉</span> Email</div>
-    </div>
-    <div class="nav-section" id="clientsNavSection">
-      <div class="nav-title">Clients</div>
-      <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
-    </div>
-    <div class="nav-section">
-      <div class="nav-title">Time & Attendance</div>
       <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
-      <div class="nav-item nav-sub" id="attendanceNavSection" data-view="attendance" style="display:none;" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
-    </div>
-    <div class="nav-section" id="employeesNavSection" style="display:none;">
-      <div class="nav-title">Admin Settings</div>
-      <div class="nav-item" id="adminNavItem" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Admin</div>
-      <div class="nav-item" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
-      <div class="nav-item" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Taxonomy</div>
-      <div class="nav-item" data-view="assignments" onclick="showView('assignments', this)"><span class="nav-icon">🔀</span> Team Assignments</div>
+      <details class="nav-drop" id="moreNavGroup">
+        <summary class="nav-item nav-sub"><span class="nav-icon">▾</span> More</summary>
+        <div class="nav-item nav-sub" id="callsNavItem" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
+        <div class="nav-item nav-sub" id="emailsNavItem" data-view="emails" onclick="showView('emails', this)"><span class="nav-icon">✉</span> Email</div>
+        <div id="moreNavAnchor"></div>
+        <div class="nav-item nav-sub" id="clientsNavSection" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
+        <div class="nav-item nav-sub" id="attendanceNavSection" data-view="attendance" style="display:none;" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
+        <div id="employeesNavSection" style="display:none;">
+          <div class="nav-item nav-sub" id="adminNavItem" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Admin</div>
+          <div class="nav-item nav-sub" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
+          <div class="nav-item nav-sub" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Taxonomy</div>
+          <div class="nav-item nav-sub" data-view="assignments" onclick="showView('assignments', this)"><span class="nav-icon">🔀</span> Team Assignments</div>
+        </div>
+      </details>
     </div>
 
     <div class="admin-box">
@@ -1110,6 +1116,7 @@
             <button class="um-row" id="kudosReplayIcon" role="menuitem" onclick="closeUserMenu();replayLastKudos()"><span class="um-ic">🎉</span>Replay my last Kudos</button>
             <button class="um-row" id="whatsappNavSection" data-view="whatsapp" role="menuitem" style="display:none;" onclick="closeUserMenu();showView('whatsapp', document.getElementById('whatsappNavSection'))"><span class="um-ic">💬</span>WhatsApp<span class="notif-badge um-badge" id="waNavBadge" style="display:none;">0</span></button>
             <button class="um-row" id="themeToggle" role="menuitem" onclick="toggleTheme()"><span class="um-ic">🌙</span>Dark mode</button>
+            <button class="um-row" role="menuitem" onclick="showGuideAgain()"><span class="um-ic">❓</span>How this works</button>
             <div class="um-sep"></div>
             <button class="um-row" role="menuitem" onclick="closeUserMenu();openAdminLogin()"><span class="um-ic">👤</span>Account &amp; log out</button>
           </div>
@@ -1124,6 +1131,7 @@
       <!-- ===================== DASHBOARD VIEW ===================== -->
       <section class="view active" id="view-dashboard">
         <div id="myGreetingWrap"></div>
+        <div id="guideWrap"></div>
 
         <!-- Role tabs: shown only to managers/reviewers (see renderDashTabs). Everyone else just gets #dashTab-work. -->
         <div class="src-subtabs" id="dashTabs" style="display:none;margin-bottom:16px;"></div>
@@ -1249,7 +1257,7 @@
             <h2>To do — by date</h2>
             <span class="fold-hint" id="todoFoldHint">click to open</span>
             <button class="btn small" style="margin-left:auto;" onclick="event.preventDefault(); event.stopPropagation(); openRecurringModal()">🔁 Daily tasks</button>
-            <button class="btn primary small" id="dashAddTaskBtn" onclick="event.preventDefault(); event.stopPropagation(); openAssignModal('me')">+ Add a task</button>
+            <button class="btn primary small" id="dashAddTaskBtn" onclick="event.preventDefault(); event.stopPropagation(); openNewTask()">+ New task</button>
           </summary>
           <div id="myDayWrap"></div>
         </details>
@@ -1257,7 +1265,7 @@
         <details class="panel panel-fold" style="margin-bottom:24px;">
           <summary><h2>All my tasks</h2><span class="fold-hint">full table · search &amp; filter</span></summary>
           <div class="panel-head-actions" style="margin-bottom:12px;">
-            <button class="btn primary small" id="assignTeamBtn" style="display:none;" onclick="event.stopPropagation(); openAssignModal('team')">+ Assign Task</button>
+            <span id="assignTeamBtn" style="display:none;"></span>
           </div>
           <div class="filter-row">
             <input type="text" id="taskSearch" placeholder="Search by task, client, ID…" oninput="renderTaskTable()">
@@ -2117,6 +2125,9 @@
       </section>
 
       <section class="view" id="view-kudos">
+        <div class="src-subtabs" id="recTabs" style="margin-bottom:8px;"></div>
+        <div class="dash-range-note" id="recHint" style="margin:0 2px 14px;"></div>
+        <div id="rec-kudos">
         <div class="panel">
           <div class="panel-head">
             <h2>Kudos</h2>
@@ -2139,12 +2150,16 @@
           <div id="kudosEmpty" style="display:none;padding:16px 4px;font-size:13.5px;color:var(--text-faint);">No kudos awarded yet — be the first to recommend someone.</div>
         </div>
 
+        </div>
+        <div id="rec-points" style="display:none;">
         <div class="panel">
-          <div class="panel-head"><h2>Points</h2></div>
+          <div class="panel-head"><h2>Points</h2><div class="panel-head-actions"><button class="btn primary" id="givePointsBtn" style="display:none;" onclick="openGivePointsModal()">🪙 Give points</button></div></div>
           <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Firm-wide points awarded by an admin or the founder. React to celebrate with them.</p>
           <div id="pointsWall" style="display:flex;flex-direction:column;gap:10px;"></div>
           <div id="pointsEmpty" style="display:none;padding:16px 4px;font-size:13.5px;color:var(--text-faint);">No points awarded yet.</div>
         </div>
+        </div>
+        <div id="rec-marks" style="display:none;"></div>
       </section>
 
       <section class="view" id="view-clients">
@@ -3176,7 +3191,7 @@ const titles = {
   performance: ['Performance', 'Your Report Card and marks, and — for superadmins — team Productivity and the Analytics chart builder, one page'],
   calls: ['Calls', "Every call tagged to you, filterable by day, week or month and by outcome — superadmins see the whole firm, filterable by owner and agent"],
   emails: ['Email', "Every incoming message from the 4 connected mailboxes, filterable by day, week or month and by status — superadmins see the whole firm, filterable by owner and mailbox. Mail sent by us isn't shown here."],
-  kudos: ['Kudos', 'Firm-wide recognition, visible to everyone — anyone can recommend, your team\'s manager (or Shubam, firm-wide) awards the star level'],
+  kudos: ['Recognition', 'Kudos, points and marks — in one place'],
   timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
@@ -3221,7 +3236,6 @@ const PERF_TABS = [
   ['report', 'My Report Card', false],
   ['productivity', 'Productivity', true],
   ['analytics', 'Analytics', true],
-  ['marks', 'Marks', false],
   ['cards', 'Monthly Cards', false],
 ];
 function renderPerformanceView(){
@@ -3234,7 +3248,6 @@ function renderPerformanceView(){
   if(_perfTab === 'report') renderReportCard();
   else if(_perfTab === 'productivity') renderProductivityView();
   else if(_perfTab === 'analytics') renderChartBuilder();
-  else if(_perfTab === 'marks') renderMarksTab();
   else if(_perfTab === 'cards') renderMonthlyCardsTab();
 }
 /* Marks — positive/negative performance marks with a required reason.
@@ -3403,7 +3416,7 @@ async function refreshWorkshops(){
   if(!session) return;
   try { _workshopsData = (await api('/api/workshops')).workshops || []; } catch(e){ return; }
   renderDeadlineBanner();
-  if(_perfTab === 'marks') renderWorkshopsPanel();
+  if(recViewActive() && _recTab === 'marks') renderWorkshopsPanel();
 }
 function workshopWhen(w){
   const t = todayISO(), ms = (a, b) => Math.round((new Date(a + 'T00:00:00Z') - new Date(b + 'T00:00:00Z')) / 864e5);
@@ -3516,7 +3529,7 @@ async function applyWorkshopPenalty(wid){
     closeModal();
     showToast('success', 'Marks applied', `−${r.penalty} given to ${r.applied.length} ${r.applied.length === 1 ? 'person' : 'people'} for not doing the ${r.workshop} pre-reading.`);
     await refreshWorkshops();
-    if(_perfTab === 'marks') await renderMarksTab();
+    if(recViewActive() && _recTab === 'marks') await renderMarksTab();
   } catch(e){ const el = document.getElementById('wsRevErr'); if(el){ el.textContent = e.message; el.style.display = 'block'; } else showToast('error', 'Could not apply', e.message); }
 }
 function setPerfTab(id){
@@ -3898,6 +3911,7 @@ async function submitEmailTask(emailId){
    see who's been recognized and who's been recommended.
    ========================================================================= */
 async function renderKudosView(){
+  renderRecTabs();
   const giveBtn = document.getElementById('giveKudosBtn');
   if(giveBtn) giveBtn.style.display = iCanAwardKudosToAnyone() ? '' : 'none';
   renderPointsWall();
@@ -4252,6 +4266,7 @@ function showView(id, el){
     const grp = document.getElementById('mgmtNavGroup');
     if(grp) grp.open = true; // never land on a page whose own nav row is hidden inside a collapsed dropdown
   }
+  if(MORE_VIEWS.includes(id)){ const mg = document.getElementById('moreNavGroup'); if(mg) mg.open = true; } // never land on a page hidden inside a closed dropdown
   if(['performance','kudos'].includes(id)){
     const perfGrp = document.getElementById('perfNavGroup');
     if(perfGrp) perfGrp.open = true;
@@ -5730,6 +5745,7 @@ function renderTaskTable(){
   renderGreeting();
   renderEmployeeStats();
   renderDashTabs();
+  renderGuide();
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
   if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
   if(document.getElementById('view-teamboard')?.classList.contains('active')) renderTeamBoard();
@@ -6367,9 +6383,8 @@ function renderDashWork(){
       <div class="wk-list-head">
         <span class="wk-count"><b>${rows.length}</b> ${rows.length === 1 ? 'task' : 'tasks'} <small>${dashHintText()}</small>${b.overdueNow && _workStatus !== 'overdue' ? ` <button class="tm-chip bad" style="border:none;cursor:pointer;margin-left:8px;" title="Open and past their due date — click to show only these" onclick="showWorkOverdue()"><b>${b.overdueNow}</b> overdue</button>` : ''}</span>
         <span class="wk-btns">
-          <button class="btn small primary" onclick="openAssignModal('me')">+ Add a task</button>
+          <button class="btn small primary" onclick="openNewTask()">+ New task</button>
           <button class="btn small" onclick="openRecurringModal()">🔁 Daily tasks</button>
-          ${isAdmin ? `<button class="btn small" onclick="openAssignModal('team')">+ Assign task</button>` : ''}
         </span>
       </div>
       <div class="wk-body">${body || `<div class="tm-empty">${_workQuery || _workStatus !== '_all' ? 'Nothing matches these filters.' : 'Nothing in this range.'}</div>`}</div>
@@ -7716,7 +7731,221 @@ function onAtDeptChange(){
 // nav items. Routes straight to whichever existing modal handles it —
 // none of that logic is duplicated or rewritten here. Every role sees all
 // three choices — anyone can assign work to anyone else in the firm.
-function openCreateTaskModal(){
+/* =========================================================================
+   NEW TASK — one short form for every kind of task. What, for whom, by when
+   (+ the client and hours the system needs); everything else is folded under
+   "More options". Replaces the "Who's this for?" step and the two long forms.
+   Assigning to yourself creates the task straight away; assigning to someone
+   else sends it to them for acceptance, with the same capacity checks as before.
+   ========================================================================= */
+function openNewTask(who){
+  const noClients = clients.length === 0;
+  const others = assigneeOptionsForPicker().filter(e => e.id !== currentViewerId);
+  const meRec = currentViewer() || {};
+  const optFor = e => {
+    const w = workload.find(x => x.id === e.id);
+    const ct = w && w.committedThrough;
+    const load = ct && ct > todayISO() ? ` — free from ${fmtDate(ct)}` : (w && w.freeCapacityNext5wd != null ? ` — ${w.freeCapacityNext5wd}h free this week` : '');
+    return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${load}</option>`;
+  };
+  const choose = who === 'choose';
+  document.getElementById('modalBox').innerHTML = `
+    <h3>+ New task</h3>
+    <div class="modal-sub">What needs doing, for whom, and by when.</div>
+    <div class="field"><label>Kind of task</label>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn small atKindBtn primary" data-kind="client" onclick="setAssignKind('client')"${noClients ? ' disabled title="Add a client first"' : ''}>Client work</button>
+        <button type="button" class="btn small atKindBtn" data-kind="internal" onclick="setAssignKind('internal')">Internal task</button>
+      </div>
+    </div>
+    <div class="field"><label>What needs doing? <span class="req-mark">*</span></label><input type="text" id="atName" placeholder="e.g. GST Return / Train new hire on cashbook" autocomplete="off"></div>
+    <div class="field"><label>For</label>
+      <select id="atAssignee" onchange="atAssigneeChanged()">
+        ${choose ? '<option value="">— Choose —</option>' : ''}<option value="${esc(currentViewerId)}"${choose ? '' : ' selected'}>Me${meRec.team ? ' — ' + esc(meRec.team) : ''}</option>
+        ${others.map(optFor).join('')}
+      </select>
+      <div id="atPlanHint" style="font-size:12.5px;color:var(--text-dim);margin-top:6px;line-height:1.5;"></div>
+    </div>
+    <div id="atClientBlock"${noClients ? ' style="display:none;"' : ''}>
+      <div class="field"><label>Client <span class="req-mark">*</span></label>
+        <input type="text" id="atClientId" list="atClientList" placeholder="Start typing a client name…" autocomplete="off" spellcheck="false">
+        <datalist id="atClientList">${clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(c=>`<option value="${esc(c.name)}"></option>`).join('')}</datalist>
+        <div id="atClientErr" style="font-size:12px;color:var(--coral);margin-top:4px;display:none;">Pick a client from the list (or add it first in Clients).</div>
+      </div>
+    </div>
+    <div class="at-row2">
+      <div class="field"><label id="atTatLabel">Hours <span class="req-mark">*</span></label><input type="number" id="atTat" value="1" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
+      <div class="field"><label id="atDeadlineLabel">Due date <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}" onchange="atPlanPreview(); atSyncClientDate()"></div>
+    </div>
+    <div id="atImpossibleWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 45%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55; color:var(--flag); font-weight:600;"></div>
+    <div id="atOverloadWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 35%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55;">
+      <div id="atOverloadText" style="color:var(--flag); font-weight:600;"></div>
+      <div id="atConflictList" style="margin-top:8px;"></div>
+      <label style="display:flex; gap:8px; align-items:flex-start; margin-top:8px; font-weight:500; color:var(--text-dim); cursor:pointer;">
+        <input type="checkbox" id="atAcceptOverload" onchange="atRefreshSubmitBtn()" style="margin-top:2px;">
+        <span>Assign anyway — push the task(s) above out to make room.</span>
+      </label>
+    </div>
+    <details class="at-more">
+      <summary>More options <span>task type, team, department, client date</span></summary>
+      <div id="atClientOnly"${noClients ? ' style="display:none;"' : ''}>
+        <div class="field"><label>Task type <span class="at-hint">fills in the name and hours for you</span></label><select id="atPreset" onchange="applyTaskPreset()">${taskPresetOptionsHtml()}</select></div>
+      </div>
+      <div class="field"><label>Team / work category</label>
+        <select id="atTeam" onchange="onAtTeamChange()">${teamCategoryOptionsHtml(meRec.team || '')}</select>
+        <input type="text" id="atTeamCustom" placeholder="Type a team or work category" style="display:none; margin-top:8px;">
+      </div>
+      <div class="field"><label>Department <span class="at-hint">optional, for reporting</span></label>
+        <select id="atDept" onchange="onAtDeptChange()">
+          <option value="">— none —</option>
+          ${taxonomyDepartments.map(d => `<option value="${esc(d.name)}">${esc(d.name)}</option>`).join('')}
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div class="field" id="atServiceWrap" style="display:none;"><label>Service</label><select id="atService"></select></div>
+      <div class="field" id="atDeptOtherWrap" style="display:none;"><label>Why "Other"? <span class="req-mark">*</span></label><input type="text" id="atDeptOther" placeholder="e.g. cross-department cover work"></div>
+      <div id="atInternalRefWrap" class="field" style="display:none;">
+        <label>Client or group <span class="at-hint">optional, e.g. a client name for a payment task, or "Payroll"</span></label>
+        <input type="text" id="atInternalRef" list="atClientList" placeholder="e.g. City Cabs Ltd · Payroll · Admin" autocomplete="off">
+      </div>
+      <div class="field" id="atClientDateWrap"><label>Client commitment date <span class="at-hint">auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
+    </details>
+    <div class="modal-error" id="assignError">Please enter a task name.</div>
+    <div class="modal-actions" style="align-items:center;">
+      <a href="#" class="at-bulk" onclick="closeModal();openBulkAssignModal();return false;">Many tasks at once? Bulk import</a>
+      <span style="flex:1;"></span>
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="atSubmitBtn" data-base="${choose ? 'Send for acceptance' : 'Create task'}" onclick="submitNewTask()">${choose ? 'Send for acceptance' : 'Create task'}</button>
+    </div>
+  `;
+  openModal();
+  window.__stickyModal = true;              // don't close on a click outside a half-filled form
+  _atClientDateTouched = false;
+  _atOverload = null;
+  _atImpossible = false;
+  setAssignKind(noClients ? 'internal' : 'client');
+  atAssigneeChanged();
+  const nm = document.getElementById('atName'); if(nm) nm.focus();
+}
+// "For" changed: the button says what will happen, and the capacity check only
+// applies when the work is going to someone else (same rule the server uses).
+function atAssigneeChanged(){
+  const sel = document.getElementById('atAssignee'), btn = document.getElementById('atSubmitBtn');
+  if(btn && sel) btn.dataset.base = (sel.value && sel.value === currentViewerId) ? 'Create task' : 'Send for acceptance';
+  atRefreshSubmitBtn();
+  atPlanPreview();
+  atSyncClientDate();
+}
+function submitNewTask(){
+  const sel = document.getElementById('atAssignee');
+  const v = sel ? sel.value : '';
+  return submitAssign(v === currentViewerId ? 'me' : 'team');
+}
+
+/* =========================================================================
+   RECOGNITION — Kudos, Points and Marks on one page, three tabs. (Marks used
+   to be a Performance tab; its content is moved here the first time the page
+   opens so none of its logic had to change.)
+   ========================================================================= */
+let _recTab = 'kudos';
+try { const s = sessionStorage.getItem('govOsRecTab'); if(['kudos', 'points', 'marks'].includes(s)) _recTab = s; } catch(e){}
+function recViewActive(){ const v = document.getElementById('view-kudos'); return !!(v && v.classList.contains('active')); }
+function setRecTab(id){
+  _recTab = id;
+  try { sessionStorage.setItem('govOsRecTab', id); } catch(e){}
+  renderRecTabs();
+}
+function renderRecTabs(){
+  const bar = document.getElementById('recTabs');
+  if(!bar) return;
+  const marks = document.getElementById('tab-marks'), host = document.getElementById('rec-marks');
+  if(marks && host && marks.parentElement !== host){ marks.classList.remove('perf-tab'); marks.style.display = ''; host.appendChild(marks); }
+  const gp = document.getElementById('givePointsBtn');
+  if(gp) gp.style.display = isAdmin ? '' : 'none';
+  bar.innerHTML = [['kudos', 'Kudos'], ['points', 'Points'], ['marks', 'Marks']]
+    .map(([id, label]) => `<button class="src-subtab${_recTab === id ? ' on' : ''}" onclick="setRecTab('${id}')">${label}</button>`).join('');
+  ['kudos', 'points', 'marks'].forEach(id => { const el = document.getElementById('rec-' + id); if(el) el.style.display = id === _recTab ? '' : 'none'; });
+  const hint = document.getElementById('recHint');
+  if(hint) hint.textContent = { kudos: 'Public thanks — anyone can recommend someone, a manager awards the stars.', points: 'Firm-wide points awarded by an admin or the founder.', marks: 'Private performance marks, positive or negative, with a reason or a snip.' }[_recTab];
+  if(_recTab === 'marks') renderMarksTab();
+}
+
+/* =========================================================================
+   FIRST-TIME GUIDE — the three things to do each day, by role. Shows at the
+   top of the dashboard until it's dismissed; "How this works" in the account
+   menu brings it back.
+   ========================================================================= */
+function guideKey(){ return 'govOsGuide_' + (currentViewerId || ''); }
+function guideDismissed(){ try { return localStorage.getItem(guideKey()) === 'done'; } catch(e){ return false; } }
+function dismissGuide(){ try { localStorage.setItem(guideKey(), 'done'); } catch(e){} renderGuide(); }
+function showGuideAgain(){
+  try { localStorage.removeItem(guideKey()); } catch(e){}
+  closeUserMenu();
+  showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
+  renderGuide();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function guideSteps(){
+  const founder = !!(session && session.isFounder);
+  if(founder) return { title: 'Your three daily checks', steps: [
+    ['See the whole firm', 'Founder View shows every team and person in one place.', "showView('founder', document.querySelector('.nav-item[data-view=&quot;founder&quot;]'))", 'Open Founder View'],
+    ['Clear what is waiting on you', 'Reviews, profit confirmations and reports to send are all on the Reviews page.', 'openReviewsPage()', 'Open Reviews'],
+    ['Say well done', 'Recognition has Kudos, Points and Marks in one place.', "showView('kudos', document.querySelector('.nav-item[data-view=&quot;kudos&quot;]'))", 'Open Recognition'],
+  ] };
+  if(isAdmin) return { title: 'Your three daily checks', steps: [
+    ['Review what is waiting', 'Work your team finished is waiting for your check.', 'openReviewsPage()', 'Open Reviews'],
+    ["Look for late or stuck work", 'My team shows each person, with overdue work in red.', "_teamPerson='';_teamStatus='overdue';setDashTab('team')", 'Open My team'],
+    ['Give out work', 'Use + New task. Choose who it is for and the due date; the system checks their capacity.', 'openNewTask()', '+ New task'],
+  ] };
+  return { title: 'Your three daily steps', steps: [
+    ['Punch in', 'Start your day with Punch In (the clock on the left), and Punch Out when you finish.', "const b=document.getElementById('punchBtn'); if(b){ b.scrollIntoView({block:'center'}); b.classList.add('pulse'); setTimeout(()=>b.classList.remove('pulse'),2500); }", 'Show me the clock'],
+    ['Accept and do your tasks', 'New work arrives as "To do · new" — accept it. Then use Start while you work, and Done (or Send for review if it needs checking) when you finish.', "document.getElementById('todoPanel')?.setAttribute('open',''); document.getElementById('todoPanel')?.scrollIntoView({behavior:'smooth'})", 'Go to my to-do'],
+    ['Watch your alerts', 'The bell tells you about new tasks, reviews and rework. Anything marked red is late.', 'openNotifications()', 'Open the bell'],
+  ] };
+}
+function renderGuide(){
+  const wrap = document.getElementById('guideWrap');
+  if(!wrap) return;
+  if(!session || guideDismissed() || isMirroring()){ wrap.innerHTML = ''; return; }
+  const g = guideSteps();
+  wrap.innerHTML = `<div class="guide-card">
+    <div class="guide-head"><b>👋 ${esc(g.title)}</b><button class="guide-x" onclick="dismissGuide()" title="Got it — hide this" aria-label="Hide the guide">Got it ✕</button></div>
+    <div class="guide-steps">${g.steps.map((s, i) => `<div class="guide-step">
+      <div class="guide-n">${i + 1}</div>
+      <div class="guide-t"><b>${esc(s[0])}</b><span>${esc(s[1])}</span><button class="btn small" onclick="${s[2]}">${esc(s[3])}</button></div>
+    </div>`).join('')}</div>
+    <div class="guide-foot">Not sure what a status means? <a href="#" onclick="event.preventDefault();openStatusHelp()">See the five statuses</a></div>
+  </div>`;
+}
+
+/* =========================================================================
+   SIDEBAR — what you use every day stays on top; the rest lives under "More".
+   Calls and Email come up to the main list for people who actually handle
+   calls or a shared mailbox.
+   ========================================================================= */
+const MORE_VIEWS = ['calls', 'emails', 'clients', 'attendance', 'admin', 'employees', 'taxonomy', 'assignments'];
+function arrangeSidebar(){
+  const me = currentViewer() || {};
+  const handlesCalls = !!me.aircallAgentId;
+  const handlesEmail = Array.isArray(me.gmailAddresses) && me.gmailAddresses.length > 0;
+  const more = document.getElementById('moreNavGroup'), anchor = document.getElementById('moreNavAnchor');
+  const place = (id, main) => {
+    const el = document.getElementById(id);
+    if(!el || !more) return;
+    if(main) more.parentElement.insertBefore(el, more); else if(anchor) anchor.insertAdjacentElement('beforebegin', el);
+    el.classList.toggle('nav-sub', !main);
+  };
+  place('callsNavItem', handlesCalls);
+  place('emailsNavItem', handlesEmail);
+}
+function openStatusHelp(){
+  const items = STATUS_HELP.split('. ').map(x => x.replace(/\.$/, '').split(' — '));
+  document.getElementById('modalBox').innerHTML = `<h3>What the five statuses mean</h3>
+    <div style="margin:12px 0;">${items.map(([n, t]) => `<div style="padding:8px 0;border-top:1px solid var(--panel-border);"><b>${esc(n)}</b><div style="font-size:13.5px;color:var(--text-dim);">${esc(t || '')}</div></div>`).join('')}</div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
+  openModal();
+}
+function _openCreateTaskModalOld(){
   document.getElementById('modalBox').innerHTML = `
     <h3>+ Create Task</h3>
     <div class="modal-sub">Who's this for?</div>
@@ -7735,7 +7964,10 @@ function openCreateTaskModal(){
   `;
   openModal();
 }
-function openAssignModal(mode){
+// Every old entry point now opens the one New task form.
+function openCreateTaskModal(){ openNewTask(); }
+function openAssignModal(mode){ openNewTask(mode === 'team' ? 'choose' : ''); }
+function _openAssignModalOld(mode){
   const isTeam = mode === 'team';
   if(isTeam){
     const allowed = anyEmployeeInFirm();
@@ -7852,6 +8084,13 @@ function atPlanPreview(){
     const hint = document.getElementById('atPlanHint');
     const sel = document.getElementById('atAssignee');
     if(!hint || !sel || !sel.value) return;
+    if(sel.value === currentViewerId){ // for yourself: no capacity gate (the server doesn't apply one either)
+      hint.textContent = ''; _atOverload = null; _atImpossible = false;
+      ['atImpossibleWarn', 'atOverloadWarn'].forEach(id => { const e = document.getElementById(id); if(e) e.style.display = 'none'; });
+      const cb0 = document.getElementById('atAcceptOverload'); if(cb0) cb0.checked = false;
+      atRefreshSubmitBtn();
+      return;
+    }
     const hours = parseFloat((document.getElementById('atTat')||{}).value) || 3;
     const by = (document.getElementById('atDeadline')||{}).value || '';
     let p;
@@ -11916,6 +12155,7 @@ async function onLoginComplete(){
   document.getElementById('topRole').textContent = session.jobTitle + ' · ' + session.team;
 
   await refreshEmployees();
+  arrangeSidebar();
   // Team Board — for anyone who leads a team: an admin/superadmin, or a
   // founder. Scoped by the real .team field.
   {
