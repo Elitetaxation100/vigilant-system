@@ -20,7 +20,7 @@
     --line:         #ECE5D4;
     --text:         #21261F;
     --text-dim:     #5B6355;
-    --text-faint:   #8A9082;
+    --text-faint:   #656C5E;
     /* accents double as saturated fills AND as text — these light values
        stay legible on white; the dark theme swaps in brighter ones below.
        --purple is the primary (Elite Taxation forest green); --teal is a
@@ -59,7 +59,7 @@
     --line:         #1F2C43;
     --text:         #E4EAF4;
     --text-dim:     #9BA9C1;
-    --text-faint:   #6A7A97;
+    --text-faint:   #8896B0;
     --purple:       #4FAE86;
     --teal:         #3BB7CC;
     --amber:        #F0B93E;
@@ -301,6 +301,13 @@
   .pulse{ animation:punchPulse 1s ease-in-out 2; }
   @keyframes punchPulse{ 0%,100%{ box-shadow:0 0 0 0 transparent; } 50%{ box-shadow:0 0 0 6px color-mix(in srgb, var(--purple) 35%, transparent); } }
   @media (max-width:560px){ .at-row2{ grid-template-columns:1fr; } }
+  .rv-link{ color:var(--purple); font-weight:600; }
+  .menu-pop{ position:relative; }
+  .menu-pop > summary{ list-style:none; cursor:pointer; }
+  .menu-pop > summary::-webkit-details-marker{ display:none; }
+  .menu-pop-list{ position:absolute; right:0; top:calc(100% + 6px); min-width:210px; background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; box-shadow:0 14px 34px rgba(0,0,0,.16); padding:6px; z-index:50; display:flex; flex-direction:column; }
+  .menu-pop-list button{ text-align:left; background:none; border:none; padding:9px 10px; border-radius:8px; font:inherit; font-size:13.5px; color:var(--text); cursor:pointer; }
+  .menu-pop-list button:hover{ background:var(--panel-2); }
   .tm-empty{ font-size:13px; color:var(--text-faint); padding:12px 16px; }
   .dash-range select, .dash-range input[type=date]{ height:34px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); border-radius:9px; padding:0 10px; font-size:13px; font-family:var(--font-body); }
   .dash-range select:focus, .dash-range input:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
@@ -830,7 +837,7 @@
      stays dark in both themes, so it re-declares the tokens locally ====== */
   .cc{
     --panel:#131F33; --panel-2:#0F1A2C; --panel-border:#27364F; --line:#1F2C43;
-    --text:#E4EAF4; --text-dim:#9BA9C1; --text-faint:#6A7A97; --bg-deep:#0A1220;
+    --text:#E4EAF4; --text-dim:#9BA9C1; --text-faint:#8896B0; --bg-deep:#0A1220;
     --purple:#4FAE86; --teal:#3BB7CC; --amber:#F0B93E; --coral:#F0603E;
     background:var(--bg-deep); border-radius:20px; padding:26px 28px 32px; margin:-4px 0 4px;
     color:var(--text); font-family:var(--font-body);
@@ -1099,8 +1106,8 @@
     <div class="topbar">
       <button class="nav-toggle" id="navToggle" onclick="toggleMobileNav()" aria-label="Open menu">☰</button>
       <div style="flex:1;min-width:0;">
-        <h1 id="pageTitle">Commitment Dashboard</h1>
-        <div class="sub" id="pageSub">Verification matrix & live task tracking</div>
+        <h1 id="pageTitle">My Dashboard</h1>
+        <div class="sub" id="pageSub">Your work, your numbers, your commitments</div>
       </div>
       <div class="topbar-right">
         <div class="bell" id="bellIcon" onclick="openNotifications()" title="Notifications">🔔<span class="notif-badge" id="notifBadge" hidden>0</span></div>
@@ -1369,11 +1376,18 @@
 
       <!-- ===================== TASKS (My/Team/All, saved filters, recurring/removed/bulk) ===================== -->
       <section class="view" id="view-tasks">
-        <div class="src-subtabs" id="tasksScopeTabs"></div>
-        <div class="panel-head-actions" style="margin:12px 0;display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn small" onclick="openRecurringModal()">🔁 Recurring / Daily Tasks</button>
-          <button class="btn small" onclick="openTrashModal()">🗑 Recently Removed</button>
-          <button class="btn small" onclick="openBulkAssignModal()">≣ Bulk Import</button>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
+          <div class="src-subtabs" id="tasksScopeTabs"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+            <button class="btn small primary" onclick="openNewTask()">+ New task</button>
+            <details class="menu-pop"><summary class="btn small">⋯ More</summary>
+              <div class="menu-pop-list">
+                <button onclick="openRecurringModal()">🔁 Daily / recurring tasks</button>
+                <button onclick="openBulkAssignModal()">≣ Bulk import</button>
+                <button onclick="openTrashModal()">🗑 Recently removed</button>
+              </div>
+            </details>
+          </div>
         </div>
         <div class="src-subtabs" id="tasksSavedFilters"></div>
         <div class="filter-row">
@@ -1389,43 +1403,10 @@
 
       <!-- ===================== REVIEWS (dedicated home for review + send/profit-confirm actions) ===================== -->
       <section class="view" id="view-reviews">
-        <div class="banner">
-          <span>📝</span>
-          <span><b>Reviews.</b> Everything waiting on you as a reviewer or a report-sender, in one place — sorted by client-commitment risk, then how long it's been waiting.</span>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><h2>Awaiting your review</h2></div>
-          <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Employee</th><th>Submitted</th><th>Waiting</th><th>Commitment</th><th>Sheet</th><th>Cashbook</th><th></th></tr></thead>
-            <tbody id="revAwaitingBody"></tbody>
-          </table>
-          <div id="revAwaitingEmpty" style="display:none;padding:16px 4px;font-size:13.5px;color:var(--text-faint);">Nothing waiting for your review right now.</div>
-        </div>
-
-        <div class="panel" id="revReworkPanel" style="display:none;">
-          <div class="panel-head"><h2>Needs your rework</h2></div>
-          <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Reviewer</th><th>Flagged</th><th>Note</th><th></th></tr></thead>
-            <tbody id="revReworkBody"></tbody>
-          </table>
-        </div>
-
-        <div class="panel" id="revProfitPanel" style="display:none;">
-          <div class="panel-head"><h2>Profit confirmations</h2></div>
-          <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Owner</th><th>Sheet</th><th>Cashbook</th><th></th></tr></thead>
-            <tbody id="revProfitBody"></tbody>
-          </table>
-        </div>
-
-        <div class="panel" id="revSendPanel" style="display:none;">
-          <div class="panel-head"><h2>Reports to send</h2></div>
-          <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Reviewed</th><th>Commitment</th><th></th></tr></thead>
-            <tbody id="revSendBody"></tbody>
-          </table>
-        </div>
+        <div id="rvAwaiting"></div>
+        <div id="rvRework" style="margin-top:16px;"></div>
+        <div id="rvProfit" style="margin-top:16px;"></div>
+        <div id="rvSend" style="margin-top:16px;"></div>
       </section>
 
       <!-- ===================== TEAM BOARD (membership-scoped) ===================== -->
@@ -3184,7 +3165,7 @@ function dashboardScopeLabelShort(){ return ''; }
 const titles = {
   dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
   tasks: ['Tasks', 'My Tasks, Team Tasks and All Tasks — with saved filters, recurring tasks, and Recently Removed'],
-  reviews: ['Reviews', 'Awaiting review, rework, profit confirmation, and reports to send — one queue'],
+  reviews: ['Reviews', 'Everything waiting on you — the ones most at risk of missing the client date come first'],
   taxonomy: ['Task Taxonomy', 'Canonical departments and services, and a privacy report on task titles — superadmin only'],
   assignments: ['Team Assignments', "Who's responsible for each Aircall agent's calls, and who owns each connected mailbox — superadmin only"],
   manager: ['Manager Dashboard', 'Your team — adherence, capacity, quality, sliced by person and date'],
@@ -5028,7 +5009,7 @@ function openUnacceptedBlockModal(list){
     let actions = '';
     if(t.status === 'awaiting_acceptance'){
       actions = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTaskFromBlock('${t.id}')">Accept</button>
-                 <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>`;
+                 <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose new date</button>`;
     } else if(t.status === 'rework'){
       actions = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="closeModal(); openReworkDetailModal('${t.id}')">View &amp; Resubmit</button>`;
     } else {
@@ -5111,7 +5092,7 @@ function renderDeadlineBanner(){
     banners.push(`<div class="banner"><span>📥</span><span><b>${awaitingNew.length} new task${awaitingNew.length>1?'s':''}</b> assigned to you — ${bannerRef(awaitingNew)} · ${seeList('awaitingNew')}</span></div>`);
   }
   if(awaitingRework.length > 0){
-    _bannerLists.awaitingRework = { title: 'Sent back for rework', subtitle: 'Accept to start fixing, or propose a new window', list: awaitingRework };
+    _bannerLists.awaitingRework = { title: 'Sent back for rework', subtitle: 'Accept to start fixing, or propose a new date', list: awaitingRework };
     banners.push(`<div class="banner warn"><span>⚠</span><span><b>${awaitingRework.length} task${awaitingRework.length>1?'s':''}</b> sent back for rework — ${bannerRef(awaitingRework)} · ${seeList('awaitingRework')}</span></div>`);
   }
   if(dueToday.length > 0){
@@ -5621,12 +5602,12 @@ function actionCell(t){
     }
   } else if(t.status === 'awaiting_acceptance' && isMine){
     if(flagged){
-      html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back for rework</span>`;
+      html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back to fix</span>`;
       html += `<span style="display:inline-flex;align-items:center;gap:8px;margin-right:8px;"><span style="font-size:12.5px;color:var(--text-dim);">Start rework</span><div class="toggle-switch" onclick="acceptTask('${t.id}')" title="Accept and start fixing"></div></span>`;
     } else {
       html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Accept</button>`;
     }
-    html += `<button class="verify-btn" onclick="openProposeModal('${t.id}')">Propose Window</button>`;
+    html += `<button class="verify-btn" onclick="openProposeModal('${t.id}')">Propose new date</button>`;
   } else if(t.status === 'window_proposed'){
     if(isAdmin){
       if(flagged) html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;">⚠ Rework — window proposed instead of starting the fix</span>`;
@@ -5650,10 +5631,10 @@ function actionCell(t){
     }
   } else if(t.status === 'rework'){
     if(isMine){
-      html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="openReworkDetailModal('${t.id}')">View Error &amp; Resubmit</button>`;
+      html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="openReworkDetailModal('${t.id}')">See what to fix</button>`;
       html += holdControlsHtml(t);
     } else {
-      html += `<span style="font-size:13px;color:var(--text-faint);" title="${esc(t.reviewNote||'')}">Sent back for rework</span>`;
+      html += `<span style="font-size:13px;color:var(--text-faint);" title="${esc(t.reviewNote||'')}">Sent back to fix</span>`;
     }
   } else if(t.status === 'completed'){
     // The Status column already shows ✓ Done / Sent for Review / Error —
@@ -6316,7 +6297,7 @@ function renderDashTeam(){
   }).join('')}</div>` : '<div class="tm-empty">No one on your team yet.</div>';
 }
 /* ---- My work tab (managers/reviewers): one summary strip + one grouped list ---- */
-let _workStatus = '_all', _workQuery = '';
+let _workStatus = 'todo', _workQuery = ''; // My work opens on To do
 function onWorkFilter(){
   _workStatus = document.getElementById('dashWorkStatus').value;
   _workQuery = document.getElementById('dashWorkSearch').value.trim().toLowerCase();
@@ -6596,8 +6577,13 @@ let _todayData = null;
 async function refreshToday(){
   const dashActive = document.getElementById('view-dashboard')?.classList.contains('active');
   const as = (isMirroring() && dashActive) ? '?as=' + encodeURIComponent(_dashMirror) : '';
-  try { _todayData = await api('/api/today' + as); }
-  catch(e){ _todayData = null; renderTodayGauge(); renderCapacityCard(); renderTodayTeam(); return; }
+  let fresh;
+  try { fresh = await api('/api/today' + as); }
+  catch(e){ _todayData = null; _todaySig = null; renderTodayGauge(); renderCapacityCard(); renderTodayTeam(); return; }
+  const tsig = JSON.stringify(fresh) + as;
+  _todayData = fresh;
+  if(tsig === _todaySig) return; // nothing new — leave the screen alone
+  _todaySig = tsig;
   renderTodayGauge();
   renderCapacityCard();
   renderTodayTeam();
@@ -6855,12 +6841,17 @@ async function nudgeTask(id){
    allowed to do what; the client refetches afterward so everyone (this
    browser included) sees the authoritative result.
    ========================================================================= */
+let _tasksSig = null, _lastFullRender = 0, _workloadSig = null, _todaySig = null;
 async function refreshTasks(){
   try {
     const { tasks: fresh } = await api('/api/tasks');
-    tasks = fresh;
+    const sig = JSON.stringify(fresh), now = Date.now();
+    // Redraw only when the data changed (or once a minute, for time-based text),
+    // so the page stays still while you're reading or about to click.
+    const unchanged = sig === _tasksSig && (now - _lastFullRender) < 60000;
+    tasks = fresh; _tasksSig = sig;
     checkForNewAssignments();
-    renderTaskTable();
+    if(!unchanged){ renderTaskTable(); _lastFullRender = now; }
     updateReviewsNavBadge();
   } catch(e){ console.error('Failed to refresh tasks', e); }
   await refreshWorkload();
@@ -6873,7 +6864,10 @@ async function refreshWorkload(){
   if(!isAdmin){ workload = []; return; }
   try {
     const { workload: fresh } = await api('/api/workload');
+    const sig = JSON.stringify(fresh);
     workload = fresh;
+    if(sig === _workloadSig) return;
+    _workloadSig = sig;
     renderDeadlineBanner();
     renderWorkloadBlockers();
   } catch(e){ console.error('Failed to refresh workload', e); }
@@ -6925,7 +6919,7 @@ function openNewAssignmentModal(){
           <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${flagged ? ' · Sent back for rework' + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') : ''}</div>
           <div style="display:flex; gap:8px;">
             <button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTaskFromNewAssignment('${t.id}')">Accept</button>
-            <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose Window</button>
+            <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose new date</button>
           </div>
         </div>`;
       }).join('')}
@@ -7358,7 +7352,7 @@ async function submitSendForReview(id){
 function openProposeModal(id){
   const t = findTask(id);
   document.getElementById('modalBox').innerHTML = `
-    <h3>Propose New Window</h3>
+    <h3>Propose a new date</h3>
     <div class="modal-sub">${esc(t.name)} — ${esc(t.scope)}</div>
     <div class="field"><label>Client committed date</label><input type="text" value="${fmtDate(t.clientDate)}" disabled></div>
     <div class="field"><label>Current internal deadline</label><input type="text" value="${fmtDate(t.internalDeadline)}" disabled></div>
@@ -7787,23 +7781,7 @@ function openNewTask(who){
       </label>
     </div>
     <details class="at-more">
-      <summary>More options <span>task type, team, department, client date</span></summary>
-      <div id="atClientOnly"${noClients ? ' style="display:none;"' : ''}>
-        <div class="field"><label>Task type <span class="at-hint">fills in the name and hours for you</span></label><select id="atPreset" onchange="applyTaskPreset()">${taskPresetOptionsHtml()}</select></div>
-      </div>
-      <div class="field"><label>Team / work category</label>
-        <select id="atTeam" onchange="onAtTeamChange()">${teamCategoryOptionsHtml(meRec.team || '')}</select>
-        <input type="text" id="atTeamCustom" placeholder="Type a team or work category" style="display:none; margin-top:8px;">
-      </div>
-      <div class="field"><label>Department <span class="at-hint">optional, for reporting</span></label>
-        <select id="atDept" onchange="onAtDeptChange()">
-          <option value="">— none —</option>
-          ${taxonomyDepartments.map(d => `<option value="${esc(d.name)}">${esc(d.name)}</option>`).join('')}
-          <option value="Other">Other</option>
-        </select>
-      </div>
-      <div class="field" id="atServiceWrap" style="display:none;"><label>Service</label><select id="atService"></select></div>
-      <div class="field" id="atDeptOtherWrap" style="display:none;"><label>Why "Other"? <span class="req-mark">*</span></label><input type="text" id="atDeptOther" placeholder="e.g. cross-department cover work"></div>
+      <summary>More options <span>client date, group</span></summary>
       <div id="atInternalRefWrap" class="field" style="display:none;">
         <label>Client or group <span class="at-hint">optional, e.g. a client name for a payment task, or "Payroll"</span></label>
         <input type="text" id="atInternalRef" list="atClientList" placeholder="e.g. City Cabs Ltd · Payroll · Admin" autocomplete="off">
@@ -9819,69 +9797,53 @@ function daysWaiting(t){
   return from ? Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 86400000)) : 0;
 }
 function renderReviewsView(){
-  // Hoisted so the awaiting-review table can show the same Sheet/Cashbook
-  // links (attached at Mark Complete, before review) as the panels below.
-  const linkTag = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">${label}</a>` : `<span style="color:var(--text-faint);">—</span>`;
+  const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="rv-link">${label}</a>` : '';
+  const sec = (id, title, n, rows, empty, hideWhenEmpty) => {
+    const el = document.getElementById(id);
+    if(!el) return;
+    if(hideWhenEmpty && !n){ el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="tm-list"><div class="wk-list-head"><span class="wk-count"><b>${n}</b> ${title}</span></div>
+      <div class="wk-body">${n ? rows : `<div class="tm-empty">${empty}</div>`}</div></div>`;
+  };
+  const row = (t, sub, meta, btn) => `<div class="wk-task" style="cursor:default;">
+      <span class="tm-task-main"><b>${esc(t.name)}</b><small>${sub}</small></span>
+      <span class="tm-task-meta">${meta}</span>
+      <span class="wk-act">${btn}</span></div>`;
   const awaiting = myReviewTasks().slice().sort((a,b) => {
     const riskA = a.reviewOverdue ? 1 : 0, riskB = b.reviewOverdue ? 1 : 0;
     if(riskA !== riskB) return riskB - riskA;
     if(daysWaiting(a) !== daysWaiting(b)) return daysWaiting(b) - daysWaiting(a);
     return (a.clientDate || '9999').localeCompare(b.clientDate || '9999');
   });
-  document.getElementById('revAwaitingBody').innerHTML = awaiting.map(t => {
+  sec('rvAwaiting', 'waiting for your review', awaiting.length, awaiting.map(t => {
     const o = empById(t.assignedTo);
-    return `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + taskNo(t.id) : ''}</td>
-      <td>${o ? esc(o.name) : '—'}</td>
-      <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
-      <td style="${t.reviewOverdue?'color:#C2410C;font-weight:600;':''}">${daysWaiting(t)}d</td>
-      <td>${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reviewOverdue ? ' · overdue' : ''}</td>
-      <td>${linkTag(t.sheetLink, 'Sheet')}</td>
-      <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
-      <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Review</button></td>
-    </tr>`;
-  }).join('');
-  document.getElementById('revAwaitingEmpty').style.display = awaiting.length ? 'none' : '';
+    const links = [link(t.sheetLink, 'Sheet'), link(t.cashbookLink, 'Cashbook')].filter(Boolean).join(' · ');
+    return row(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)} · from ${o ? esc(o.name) : '—'}${links ? ' · ' + links : ''}`,
+      `${t.reviewOverdue ? '<span class="dash-bad">overdue · </span>' : ''}waiting ${daysWaiting(t)}d · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}`,
+      `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openReviewFormModal('${t.id}')">📝 Review</button>`);
+  }).join(''), 'Nothing waiting for your review — all clear.', false);
 
   const rework = tasks.filter(t => isReworkFlagged(t) && t.assignedTo === currentViewerId);
-  document.getElementById('revReworkPanel').style.display = rework.length ? '' : 'none';
-  document.getElementById('revReworkBody').innerHTML = rework.map(t => {
+  sec('rvRework', 'sent back to you to fix', rework.length, rework.map(t => {
     const r = empById(t.reviewedBy);
-    return `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + taskNo(t.id) : ''}</td>
-      <td>${r ? esc(r.name) : '—'}</td>
-      <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
-      <td class="tl-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.reviewNote||'')}">${esc(t.reviewNote || '—')}</td>
-      <td><span style="display:inline-flex;align-items:center;gap:8px;"><span style="font-size:12.5px;color:var(--text-dim);">Start rework</span><div class="toggle-switch" onclick="acceptTask('${t.id}')" title="Accept and start fixing"></div></span></td>
-    </tr>`;
-  }).join('');
+    return row(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)} · flagged by ${r ? esc(r.name) : '—'}${t.reviewNote ? ' — ' + esc(t.reviewNote) : ''}`,
+      `${t.reviewedAt ? 'flagged ' + fmtDate(dayOf(t.reviewedAt)) : ''}`,
+      `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Start fixing</button>`);
+  }).join(''), '', true);
 
-  const showProfit = iAmProfitConfirmOwner();
-  const profit = showProfit ? profitConfirmsPendingFor() : [];
-  document.getElementById('revProfitPanel').style.display = profit.length ? '' : 'none';
-  document.getElementById('revProfitBody').innerHTML = profit.map(t => {
+  const profit = iAmProfitConfirmOwner() ? profitConfirmsPendingFor() : [];
+  sec('rvProfit', 'waiting for your profit confirmation', profit.length, profit.map(t => {
     const o = empById(t.assignedTo);
-    return `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + taskNo(t.id) : ''}</td>
-      <td>${o ? esc(o.name) : '—'}</td>
-      <td>${linkTag(t.sheetLink, 'Sheet')}</td>
-      <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
-      <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="submitProfitConfirmDone('${t.id}')">✓ Done</button></td>
-    </tr>`;
-  }).join('');
+    const links = [link(t.sheetLink, 'Sheet'), link(t.cashbookLink, 'Cashbook')].filter(Boolean).join(' · ');
+    return row(t, `${esc(t.clientName || '—')} · ${taskNo(t.id)} · owner ${o ? esc(o.name) : '—'}${links ? ' · ' + links : ''}`, '',
+      `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="submitProfitConfirmDone('${t.id}')">✓ Profit confirmed</button>`);
+  }).join(''), '', true);
 
   const toSend = reportsToSendFor(currentViewerId).slice().sort((a,b) => (a.clientDate||'9999').localeCompare(b.clientDate||'9999'));
-  document.getElementById('revSendPanel').style.display = toSend.length ? '' : 'none';
-  document.getElementById('revSendBody').innerHTML = toSend.map(t => `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + taskNo(t.id) : ''}</td>
-      <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
-      <td style="${t.reportOverdue?'color:#C2410C;font-weight:600;':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}</td>
-      <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openSendToClientModal('${t.id}')">Send?</button></td>
-    </tr>`).join('');
+  sec('rvSend', 'reports ready to send to the client', toSend.length, toSend.map(t => row(t,
+    `${esc(t.clientName || '—')} · ${taskNo(t.id)}`,
+    `${t.reportOverdue ? '<span class="dash-bad">overdue · </span>' : ''}reviewed ${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'} · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}`,
+    `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openSendToClientModal('${t.id}')">Send to client</button>`)).join(''), '', true);
 
   updateReviewsNavBadge();
 }
@@ -11166,7 +11128,7 @@ function openReworkDetailModal(id){
   if(!t) return;
   const reviewer = empById(t.reviewedBy);
   document.getElementById('modalBox').innerHTML = `
-    <h3>⚠ Needs Rework — ${esc(t.name)}</h3>
+    <h3>⚠ Fix needed — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName) || '—'} ${t.scope ? '· ' + esc(t.scope) : ''}${t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
     <div style="background:var(--coral-dim); border:1px solid #F0603E4a; border-radius:10px; padding:14px 16px; margin:14px 0; font-size:13.5px; color:#9A3412; line-height:1.8;">
       <div><b style="color:#7A2A0C;">Flagged by:</b> ${reviewer ? esc(reviewer.name) : '—'}</div>
@@ -12072,7 +12034,7 @@ async function submitLogin(){
     });
     authToken = token;
     _tokSet(token);
-    _dashRange = { preset: 'today', from: '', to: '' }; _dashTab = 'today'; // every login starts on Today
+    _dashRange = { preset: 'today', from: '', to: '' }; _dashTab = 'today'; _workStatus = 'todo'; // every login starts on Today / To do
     try { sessionStorage.removeItem('govOsDashRange'); sessionStorage.removeItem('govOsDashTab'); } catch(e){}
     session = employee;
     isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
@@ -12202,7 +12164,7 @@ function logoutSession(){
   authToken = null;
   _tokClear();
   session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null; _dashMirror = null;
-  _dashRange = { preset: 'today', from: '', to: '' }; _dashTab = 'today'; // a new login starts on Today
+  _dashRange = { preset: 'today', from: '', to: '' }; _dashTab = 'today'; _workStatus = 'todo'; // a new login starts on Today / To do
   try { sessionStorage.removeItem('govOsDashRange'); sessionStorage.removeItem('govOsDashTab'); } catch(e){}
   _notifs = []; _notifUnread = 0; _notifPrevIds = null; renderNotifBadge();
   seenAwaitingIds = null;
