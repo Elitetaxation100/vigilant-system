@@ -197,6 +197,12 @@
   .banner .tag{ font-family:var(--font-mono); background:#00000010; padding:1px 7px; border-radius:5px; font-size:13.5px; }
   .banner.warn{ background:var(--coral-dim); border-color:var(--coral)4a; color:#9A3412; }
   .banner.warn b{ color:#7A2A0C; }
+  .banner-x{ margin-left:auto; flex:none; background:none; border:none; color:inherit; opacity:.55; font-size:15px; line-height:1; padding:4px 7px; border-radius:6px; cursor:pointer; }
+  .banner-x:hover{ opacity:1; background:#00000012; }
+  .dash-bad{ color:#C2410C; }
+  .dash-range, .dash-filters{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .dash-filters{ margin-bottom:14px; }
+  .dash-range-note{ font-size:13px; color:var(--text-faint); }
 
   .stat-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:22px; }
   .stat-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:16px 16px 14px; position:relative; overflow:hidden; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
@@ -791,6 +797,8 @@
   .dscope .dg{ display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--panel-border); border-radius:9px; padding:5px 6px 5px 12px; }
   .dscope .dg label{ font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); }
   .dscope select, .dscope input[type=date]{ background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:7px; padding:6px 9px; font-size:13.5px; font-family:var(--font-body); }
+  .dash-range select, .dash-range input[type=date], .dash-filters select{ background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:7px; padding:7px 10px; font-size:13.5px; font-family:var(--font-body); }
+  .dash-range select:focus, .dash-range input:focus, .dash-filters select:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
   .dscope select:focus, .dscope input:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
   .dscope .dcmp{ display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--text-dim); background:var(--panel); border:1px solid var(--panel-border); border-radius:9px; padding:8px 12px; cursor:pointer; }
   .dscope .dcmp input{ accent-color:var(--purple); }
@@ -1032,13 +1040,33 @@
 
         <!-- Role tabs: shown only to managers/reviewers (see renderDashTabs). Everyone else just gets #dashTab-work. -->
         <div class="src-subtabs" id="dashTabs" style="display:none;margin-bottom:16px;"></div>
+        <div class="dash-range" id="dashRange" style="display:none;margin-bottom:16px;">
+          <select id="dashRangeSel" onchange="onDashRange()">
+            <option value="today">Today</option><option value="yesterday">Yesterday</option>
+            <option value="this-week">This week</option><option value="last-week">Last week</option>
+            <option value="this-month">This month</option><option value="last-month">Last month</option>
+            <option value="custom">Pick dates…</option>
+          </select>
+          <span id="dashRangeCustom" style="display:none;"><input type="date" id="dashRangeFrom" onchange="onDashRange()"> → <input type="date" id="dashRangeTo" onchange="onDashRange()"></span>
+          <span class="dash-range-note" id="dashRangeNote"></span>
+        </div>
         <div id="dashTab-today" style="display:none;"></div>
-        <div id="dashTab-reviews" style="display:none;"></div>
-        <div id="dashTab-team" style="display:none;"></div>
+        <div id="dashTab-team" style="display:none;">
+          <div class="dash-filters">
+            <select id="dashTeamPerson" onchange="onTeamFilter()" aria-label="Person"></select>
+            <select id="dashTeamStatus" onchange="onTeamFilter()" aria-label="Work status">
+              <option value="_all">All work</option><option value="_done">Done (reviewed)</option><option value="_inreview">In review</option>
+              <option value="_inprogress">In progress</option><option value="_yettostart">Yet to start</option>
+              <option value="on_hold">On hold</option><option value="rework">Needs rework</option><option value="overdue">Overdue (now)</option>
+            </select>
+            <span class="dash-range-note" id="dashTeamHint"></span>
+          </div>
+          <div id="dashTeamList"></div>
+        </div>
         <div id="dashTab-work">
         <div class="dscope" id="empScope" style="margin-bottom:16px;">
           <div class="dg"><label>Viewing</label><span id="empWhoChip" style="font-size:13px;font-weight:600;color:var(--text);padding:6px 4px;">👤 My work</span></div>
-          <div class="dg">
+          <div class="dg" id="empPeriodGroup">
             <label>Period</label>
             <select id="empPeriod" onchange="onEmpPeriodChange()">
               <option value="this-week">This week</option>
@@ -1051,7 +1079,7 @@
               <option value="custom">Custom range…</option>
             </select>
           </div>
-          <span class="drange"><input type="date" id="empCStart" onchange="renderEmployeeStats()"> → <input type="date" id="empCEnd" onchange="renderEmployeeStats()"></span>
+          <span class="drange" id="empRangeInputs"><input type="date" id="empCStart" onchange="renderEmployeeStats()"> → <input type="date" id="empCEnd" onchange="renderEmployeeStats()"></span>
           <span class="dcrumb" id="empCrumb"></span>
         </div>
 
@@ -4983,8 +5011,26 @@ function renderDeadlineBanner(){
     const urgent = w.date <= addDaysISO(1);
     banners.push(`<div class="banner${urgent ? ' warn' : ''}"><span>📖</span><span><b>Pre-reading for ${esc(w.name)}</b> — read it before ${fmtDate(w.date)}; anyone who hasn't gets −${w.penalty} mark${w.penalty === 1 ? '' : 's'}. ${w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline;font-weight:600;">Open material</a> · ` : ''}<a href="#" onclick="event.preventDefault(); markWorkshopRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I've read it</a></span></div>`);
   });
+  // Each banner can be dismissed with ✕. The dismissal is keyed to the banner's
+  // exact text, so it comes back if the number or the tasks in it change.
+  const dismissed = getDismissedBanners();
+  banners = banners.map(h => ({ h, k: bannerKey(h) })).filter(x => !dismissed.includes(x.k))
+    .map(x => x.h.replace(/<\/div>\s*$/, `<button class="banner-x" onclick="dismissBanner('${x.k}')" title="Dismiss" aria-label="Dismiss">✕</button></div>`));
   wrap.innerHTML = banners.join('');
   bell.classList.toggle('has-alert', banners.length > 0);
+}
+function bannerKey(html){
+  const text = String(html).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  let h = 5381; for(let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
+  return 'b' + h.toString(36);
+}
+function getDismissedBanners(){
+  try { const a = JSON.parse(localStorage.getItem('govOsDismissedBanners') || '[]'); return Array.isArray(a) ? a : []; } catch(e){ return []; }
+}
+function dismissBanner(key){
+  const a = getDismissedBanners(); if(!a.includes(key)) a.push(key);
+  try { localStorage.setItem('govOsDismissedBanners', JSON.stringify(a.slice(-80))); } catch(e){}
+  renderDeadlineBanner();
 }
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
@@ -5653,8 +5699,9 @@ function empPeriodBounds(){
   }
   else { start = iso(new Date(now.getFullYear(), now.getMonth(), 1)); }
   const labels = { 'this-week':'This week','this-month':'This month','this-quarter':'This quarter','this-year':'This year','last-30':'Last 30 days','last-90':'Last 90 days','all':'All time' };
+  const _cs = (document.getElementById('empCStart')||{}).value, _ce = (document.getElementById('empCEnd')||{}).value;
   const label = p === 'custom'
-    ? ((document.getElementById('empCStart')||{}).value || '?') + ' – ' + ((document.getElementById('empCEnd')||{}).value || '?')
+    ? ((_cs && _ce && _cs === _ce) ? (_cs === todayISO() ? 'today' : _cs === addDaysISO(-1) ? 'yesterday' : fmtDate(_cs)) : (_cs ? fmtDate(_cs) : '?') + ' – ' + (_ce ? fmtDate(_ce) : '?'))
     : (labels[p] || 'This month');
   return { start, end, label };
 }
@@ -5771,15 +5818,19 @@ function myCallsDayLabel(dayISO){
   return fmtDate(dayISO);
 }
 /* =========================================================================
-   ROLE DASHBOARD TABS — managers/reviewers (accessRole 'admin') get "My
-   Dashboard" as four tabs instead of one long page: Today (what needs them
-   now), My work (their own personal dashboard, unchanged), Reviews, My team.
-   Employees and the founder keep their current page. Everything here reads
-   the same already-scoped data (tasks / _todayData / workload) — no new
-   server calls and no second copy of any review or capacity logic.
+   ROLE DASHBOARD TABS — managers/reviewers get "My Dashboard" as tabs:
+   Today (what needs them now + what the team did), My work (their own
+   personal dashboard), My team (person by person, filterable) and Reviews
+   (opens the Reviews page). One date range, set once under the tabs, drives
+   Today, My work and My team. Employees and the founder keep their current
+   page. Everything reads the same already-scoped data — no new server calls.
    ========================================================================= */
 let _dashTab = 'today';
-try { const s = localStorage.getItem('govOsDashTab'); if(['today','work','reviews','team'].includes(s)) _dashTab = s; } catch(e){}
+try { const s = localStorage.getItem('govOsDashTab'); if(['today','work','team'].includes(s)) _dashTab = s; } catch(e){}
+let _dashRange = { preset: 'today', from: '', to: '' };
+try { const r = JSON.parse(localStorage.getItem('govOsDashRange') || 'null'); if(r && r.preset) _dashRange = r; } catch(e){}
+let _teamStatus = '_all', _teamPerson = '';
+const _teamClosed = new Set(); // people whose section the user collapsed
 // Anyone who runs a team (managers, and superadmins who aren't the founder —
 // Parvinder is both manager and reviewer). The founder has Founder View and
 // keeps the page as it is.
@@ -5792,36 +5843,118 @@ function setDashTab(id){
   try { localStorage.setItem('govOsDashTab', id); } catch(e){}
   renderDashTabs();
 }
-function dashTeamIds(){ return new Set(myScopedPeople().filter(e => e.id !== currentViewerId).map(e => e.id)); }
-function dashTeamTasks(){
-  const ids = dashTeamIds();
-  return tasks.filter(t => ids.has(t.assignedTo));
+function openReviewsPage(){ showView('reviews', document.querySelector('.nav-item[data-view="reviews"]')); }
+
+/* ---- the shared date range ---- */
+function dashRangeBounds(){
+  const today = todayISO(), p = _dashRange.preset;
+  const dow = (new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7; // Monday = 0
+  if(p === 'yesterday'){ const y = addDaysISO(-1); return { from: y, to: y }; }
+  if(p === 'this-week') return { from: addDaysISO(-dow), to: today };
+  if(p === 'last-week') return { from: addDaysISO(-dow - 7), to: addDaysISO(-dow - 1) };
+  if(p === 'this-month') return { from: today.slice(0, 8) + '01', to: today };
+  if(p === 'last-month'){
+    const y = +today.slice(0, 4), m = +today.slice(5, 7);
+    return { from: new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10), to: new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10) };
+  }
+  if(p === 'custom'){
+    let a = _dashRange.from || today, b = _dashRange.to || a;
+    if(a > b){ const x = a; a = b; b = x; }
+    return { from: a, to: b };
+  }
+  return { from: today, to: today };
 }
-// Late / due-soon work across the team. On hold and awaiting-approval work is
-// deliberately left out — it isn't "late" while it's parked.
-function dashTeamLate(){
-  const today = todayISO(), soon = addDaysISO(1);
-  const open = dashTeamTasks().filter(t => t.status !== 'completed' && t.status !== 'on_hold' && t.status !== 'pending_approval' && t.internalDeadline);
+function dashRangeLabel(){
+  const { from, to } = dashRangeBounds(), p = _dashRange.preset;
+  if(p === 'today') return 'today';
+  if(p === 'yesterday') return 'yesterday';
+  return from === to ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`;
+}
+function onDashRange(){
+  const p = document.getElementById('dashRangeSel').value;
+  _dashRange.preset = p;
+  if(p === 'custom'){
+    _dashRange.from = document.getElementById('dashRangeFrom').value || _dashRange.from || todayISO();
+    _dashRange.to = document.getElementById('dashRangeTo').value || _dashRange.to || _dashRange.from;
+  }
+  try { localStorage.setItem('govOsDashRange', JSON.stringify(_dashRange)); } catch(e){}
+  renderDashTabs();
+}
+// "My work" has its own period engine; feed it the shared range so all the
+// tiles, the greeting and the lists on that tab follow the same dates.
+function syncEmpRange(){
+  const { from, to } = dashRangeBounds();
+  const sel = document.getElementById('empPeriod'), a = document.getElementById('empCStart'), b = document.getElementById('empCEnd');
+  if(!sel || !a || !b) return;
+  if(sel.value === 'custom' && a.value === from && b.value === to) return;
+  sel.value = 'custom'; a.value = from; b.value = to;
+  onEmpPeriodChange();
+  renderGreeting();
+  renderMyDay();
+}
+function renderDashRangeBar(show){
+  const bar = document.getElementById('dashRange');
+  if(!bar) return;
+  bar.style.display = show ? '' : 'none';
+  if(!show) return;
+  const { from, to } = dashRangeBounds();
+  const sel = document.getElementById('dashRangeSel');
+  if(sel.value !== _dashRange.preset) sel.value = _dashRange.preset;
+  const custom = _dashRange.preset === 'custom';
+  document.getElementById('dashRangeCustom').style.display = custom ? '' : 'none';
+  if(custom){
+    const fa = document.getElementById('dashRangeFrom'), fb = document.getElementById('dashRangeTo');
+    if(document.activeElement !== fa) fa.value = from;
+    if(document.activeElement !== fb) fb.value = to;
+  }
+  document.getElementById('dashRangeNote').textContent = (_dashRange.preset === 'today' || _dashRange.preset === 'yesterday') ? fmtDate(from) : '';
+}
+
+/* ---- what counts as "the team's work in the range" ---- */
+// finished, started or due inside the range
+function taskInRange(t, from, to){
+  const inR = iso => !!iso && iso >= from && iso <= to;
+  return inR(t.completedAt ? dayOf(t.completedAt) : '') || inR(t.internalDeadline) || inR(t.startedAt ? dayOf(t.startedAt) : '');
+}
+function isOverdueNow(t){
+  return t.status !== 'completed' && t.status !== 'on_hold' && t.status !== 'pending_approval' && !!t.internalDeadline && t.internalDeadline < todayISO();
+}
+function dashTeamPeople(){
+  return myScopedPeople().filter(e => e.id !== currentViewerId).sort((a, b) => a.name.localeCompare(b.name));
+}
+function dashPersonStats(personId, from, to){
+  const mine = tasks.filter(t => t.assignedTo === personId);
+  const done = mine.filter(t => t.status === 'completed' && t.completedAt && dayOf(t.completedAt) >= from && dayOf(t.completedAt) <= to);
   return {
-    overdue: open.filter(t => t.internalDeadline < today).sort((a, b) => a.internalDeadline.localeCompare(b.internalDeadline)),
-    soon: open.filter(t => t.internalDeadline >= today && t.internalDeadline <= soon).sort((a, b) => a.internalDeadline.localeCompare(b.internalDeadline)),
+    mine, done,
+    doneHrs: done.reduce((s, t) => s + taskHrs(t), 0),
+    due: mine.filter(t => t.internalDeadline && t.internalDeadline >= from && t.internalDeadline <= to),
+    open: mine.filter(t => t.status !== 'completed' && t.status !== 'pending_approval'),
+    overdue: mine.filter(isOverdueNow),
   };
 }
+
 function renderDashTabs(){
   const tabs = document.getElementById('dashTabs');
   if(!tabs) return;
   const on = dashTabsOn();
-  ['today', 'reviews', 'team', 'work'].forEach(id => {
+  ['today', 'team', 'work'].forEach(id => {
     const el = document.getElementById('dashTab-' + id);
     if(el) el.style.display = (on ? id === _dashTab : id === 'work') ? '' : 'none';
   });
   tabs.style.display = on ? '' : 'none';
+  // On "My work" the shared range replaces that tab's own Period picker.
+  const pg = document.getElementById('empPeriodGroup'), ri = document.getElementById('empRangeInputs');
+  if(pg) pg.style.display = on ? 'none' : '';
+  if(ri) ri.style.display = on ? 'none' : '';
+  renderDashRangeBar(on);
   if(!on) return;
+  syncEmpRange();
   const nRev = myReviewTasks().length;
-  tabs.innerHTML = [['today', 'Today'], ['work', 'My work'], ['reviews', 'Reviews' + (nRev ? ` <span class="ct">${nRev}</span>` : '')], ['team', 'My team']]
-    .map(([id, label]) => `<button class="src-subtab${_dashTab === id ? ' on' : ''}" onclick="setDashTab('${id}')">${label}</button>`).join('');
+  tabs.innerHTML = [['today', 'Today'], ['work', 'My work'], ['team', 'My team']]
+    .map(([id, label]) => `<button class="src-subtab${_dashTab === id ? ' on' : ''}" onclick="setDashTab('${id}')">${label}</button>`).join('')
+    + `<button class="src-subtab" onclick="openReviewsPage()">Reviews${nRev ? ` <span class="ct">${nRev}</span>` : ''} ↗</button>`;
   if(_dashTab === 'today') renderDashToday();
-  else if(_dashTab === 'reviews') renderDashReviews();
   else if(_dashTab === 'team') renderDashTeam();
 }
 window._dashLists = {};
@@ -5837,114 +5970,106 @@ function dashTile(icon, label, value, sub, color, onclick){
     <div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>
   </div>`;
 }
+function openTeamPerson(id){ _teamPerson = id; setDashTab('team'); }
 function renderDashToday(){
   const el = document.getElementById('dashTab-today');
   if(!el) return;
   const today = todayISO();
+  const { from, to } = dashRangeBounds();
+  const label = dashRangeLabel();
   const rev = myReviewTasks();
   const revOverdue = rev.filter(t => t.reviewOverdue).length;
   const oldest = rev.reduce((m, t) => Math.max(m, daysWaiting(t)), 0);
-  const late = dashTeamLate();
-  const mineToday = tasks.filter(t => t.assignedTo === currentViewerId && (
-    t.status !== 'completed' && t.status !== 'pending_approval' && (t.timerStartedAt || ['awaiting_acceptance', 'rework', 'window_proposed'].includes(t.status)
-      || (t.status !== 'on_hold' && t.internalDeadline && t.internalDeadline <= today))));
+  const people = dashTeamPeople();
+  const stats = people.map(p => ({ p, s: dashPersonStats(p.id, from, to) }));
+  const teamOverdue = stats.flatMap(x => x.s.overdue);
+  const teamDone = stats.flatMap(x => x.s.done);
+  const teamDoneHrs = stats.reduce((n, x) => n + x.s.doneHrs, 0);
   const me = _todayData && _todayData.me;
-  const people = n => new Set(n.map(t => t.assignedTo)).size;
-  window._dashLists.overdue = late.overdue;
-  window._dashLists.soon = late.soon;
-  window._dashLists.mine = mineToday;
+  const isToday = _dashRange.preset === 'today';
+  // "My to-do": today's actionable work when the range is today, otherwise
+  // my own work finished, started or due in the range.
+  const mineList = isToday
+    ? tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval' && (t.timerStartedAt
+        || ['awaiting_acceptance', 'rework', 'window_proposed'].includes(t.status) || (t.status !== 'on_hold' && t.internalDeadline && t.internalDeadline <= today)))
+    : tasks.filter(t => t.assignedTo === currentViewerId && taskInRange(t, from, to));
+  window._dashLists.overdue = teamOverdue;
+  window._dashLists.done = teamDone;
+  window._dashLists.mine = mineList;
   const windows = tasks.filter(t => t.status === 'window_proposed' && t.assignedTo !== currentViewerId).length;
   const toSend = reportsToSendFor(currentViewerId).length;
-  const waiting = [
+  const notices = [
     windows ? `<div class="banner"><span>🗓</span><span><b>${windows} new window${windows === 1 ? '' : 's'} proposed</b> by your team — <a href="#" onclick="event.preventDefault();showView('manager', document.querySelector('.nav-item[data-view=&quot;manager&quot;]'));" style="text-decoration:underline;font-weight:600;">decide on the Manager Dashboard</a></span></div>` : '',
-    toSend ? `<div class="banner"><span>📨</span><span><b>${toSend} report${toSend === 1 ? '' : 's'} to send</b> to clients — <a href="#" onclick="event.preventDefault();setDashTab('reviews');" style="text-decoration:underline;font-weight:600;">see them in Reviews</a></span></div>` : '',
+    toSend ? `<div class="banner"><span>📨</span><span><b>${toSend} report${toSend === 1 ? '' : 's'} to send</b> to clients — <a href="#" onclick="event.preventDefault();openReviewsPage();" style="text-decoration:underline;font-weight:600;">open Reviews</a></span></div>` : '',
   ].join('');
-  const mineRows = mineToday.slice().sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999')).slice(0, 6).map(t => `<div class="to-row" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
+  const mineRows = mineList.slice().sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999')).slice(0, 6).map(t => `<div class="to-row" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
       <div class="to-main"><b>${esc(t.name)}</b>${t.clientName ? ` <span style="color:var(--text-faint);">— ${esc(t.clientName)}</span>` : ''}
-        <div style="font-size:12px;color:var(--text-faint);">${miniState(t) || 'Due ' + fmtDate(t.internalDeadline)}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}</div></div>
+        <div style="font-size:12px;color:var(--text-faint);">${miniState(t) || (t.status === 'completed' ? 'Finished' : '')}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}</div></div>
+    </div>`).join('');
+  const chip = (n, txt, cls) => n ? `<span class="${cls || ''}" style="white-space:nowrap;"><b>${n}</b> ${txt}</span>` : '';
+  const teamRows = stats.map(({ p, s }) => `<div class="to-row" style="cursor:pointer;" onclick="openTeamPerson('${p.id}')">
+      <div class="to-main"><b>${esc(p.name)}</b>
+        <div style="font-size:12.5px;color:var(--text-dim);display:flex;gap:12px;flex-wrap:wrap;margin-top:2px;">
+          ${chip(s.done.length, `finished${s.doneHrs ? ' (' + s.doneHrs.toFixed(1) + 'h)' : ''}`) || '<span style="color:var(--text-faint);">nothing finished</span>'}
+          ${chip(s.due.length, 'due')}${chip(s.open.length, 'open now')}${chip(s.overdue.length, 'overdue', 'dash-bad')}
+        </div></div><span style="color:var(--text-faint);">›</span>
     </div>`).join('');
   el.innerHTML = `
     <div class="top-grid" style="margin-bottom:16px;">
-      ${dashTile('📝', 'Reviews waiting', rev.length, rev.length ? (revOverdue ? `${revOverdue} past the client date` : `oldest ${oldest}d`) : 'all clear', rev.length ? 'var(--amber)' : '', "setDashTab('reviews')")}
-      ${dashTile('⚠', 'Team overdue', late.overdue.length, late.overdue.length ? `${people(late.overdue)} ${people(late.overdue) === 1 ? 'person' : 'people'}` : 'nothing late', late.overdue.length ? 'var(--coral)' : '', "openDashList('overdue','Team — overdue')")}
-      ${dashTile('⏳', 'Due today / tomorrow', late.soon.length, late.soon.length ? `${people(late.soon)} ${people(late.soon) === 1 ? 'person' : 'people'}` : 'nothing close', '', "openDashList('soon','Team — due today or tomorrow')")}
-      ${dashTile('◷', 'My to-do today', mineToday.length, me && me.pendingHours ? `${me.pendingHours}h to clear` : '', '', "openDashList('mine','My to-do today')")}
+      ${dashTile('📝', 'Reviews waiting', rev.length, rev.length ? (revOverdue ? `${revOverdue} past the client date` : `oldest ${oldest}d`) : 'all clear', rev.length ? 'var(--amber)' : '', 'openReviewsPage()')}
+      ${dashTile('⚠', 'Team overdue', teamOverdue.length, teamOverdue.length ? `${new Set(teamOverdue.map(t => t.assignedTo)).size} ${new Set(teamOverdue.map(t => t.assignedTo)).size === 1 ? 'person' : 'people'} · right now` : 'nothing late', teamOverdue.length ? 'var(--coral)' : '', "openDashList('overdue','Team — overdue')")}
+      ${dashTile('✓', 'Team finished', teamDone.length, `${teamDoneHrs.toFixed(1)}h · ${esc(label)}`, 'var(--teal)', "openDashList('done','Team — finished ' + dashRangeLabel())")}
+      ${dashTile('◷', isToday ? 'My to-do today' : 'My work', mineList.length, isToday ? (me && me.pendingHours ? `${me.pendingHours}h to clear` : '') : esc(label), '', "openDashList('mine','My work — ' + dashRangeLabel())")}
     </div>
-    ${waiting ? `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">${waiting}</div>` : ''}
+    ${notices ? `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">${notices}</div>` : ''}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start;">
-      <div class="panel"><div class="panel-head"><h2>Team today</h2><button class="btn small" onclick="setDashTab('team')">Full team view</button></div><div id="dashTodayTeam">Loading…</div></div>
-      <div class="panel"><div class="panel-head"><h2>My to-do today</h2><button class="btn small" onclick="setDashTab('work')">Open My work</button></div>
-        ${mineRows || '<div style="font-size:13.5px;color:var(--text-faint);">Nothing due today — all clear.</div>'}
-        ${mineToday.length > 6 ? `<div style="padding-top:8px;font-size:12.5px;"><a href="#" onclick="event.preventDefault();setDashTab('work');" style="color:var(--purple);font-weight:600;">+${mineToday.length - 6} more in My work →</a></div>` : ''}
+      <div class="panel"><div class="panel-head"><h2>What the team did — ${esc(label)}</h2><button class="btn small" onclick="_teamPerson='';setDashTab('team')">Open My team</button></div>
+        ${teamRows || '<div style="font-size:13.5px;color:var(--text-faint);">No one on your team yet.</div>'}</div>
+      <div class="panel"><div class="panel-head"><h2>${isToday ? 'My to-do today' : 'My work — ' + esc(label)}</h2><button class="btn small" onclick="setDashTab('work')">Open My work</button></div>
+        ${mineRows || `<div style="font-size:13.5px;color:var(--text-faint);">${isToday ? 'Nothing due today — all clear.' : 'Nothing in this range.'}</div>`}
+        ${mineList.length > 6 ? `<div style="padding-top:8px;font-size:12.5px;"><a href="#" onclick="event.preventDefault();setDashTab('work');" style="color:var(--purple);font-weight:600;">+${mineList.length - 6} more in My work →</a></div>` : ''}
       </div>
     </div>`;
-  renderTodayTeam();
 }
-function renderDashReviews(){
-  const el = document.getElementById('dashTab-reviews');
-  if(!el) return;
-  const awaiting = myReviewTasks().slice().sort((a, b) => {
-    const ra = a.reviewOverdue ? 1 : 0, rb = b.reviewOverdue ? 1 : 0;
-    if(ra !== rb) return rb - ra;
-    if(daysWaiting(a) !== daysWaiting(b)) return daysWaiting(b) - daysWaiting(a);
-    return (a.clientDate || '9999').localeCompare(b.clientDate || '9999');
-  });
-  const toSend = reportsToSendFor(currentViewerId).slice().sort((a, b) => (a.clientDate || '9999').localeCompare(b.clientDate || '9999'));
-  const rework = tasks.filter(t => isReworkFlagged(t) && t.assignedTo === currentViewerId);
-  const row = (t, who, btn) => `<div class="to-row">
-      <div class="to-main"><b>${esc(t.name)}</b>${t.clientName ? ` <span style="color:var(--text-faint);">— ${esc(t.clientName)}</span>` : ''}
-        <div style="font-size:12px;color:var(--text-faint);">${who}</div></div>${btn}</div>`;
-  el.innerHTML = `
-    <div class="panel">
-      <div class="panel-head"><h2>Waiting for your review <span class="badge pending dot">${awaiting.length}</span></h2><button class="btn small" onclick="showView('reviews', document.querySelector('.nav-item[data-view=&quot;reviews&quot;]'))">Full Reviews page</button></div>
-      ${awaiting.length ? awaiting.map(t => {
-        const o = empById(t.assignedTo);
-        const w = daysWaiting(t);
-        return row(t, `from ${o ? esc(o.name) : '—'} · waiting ${w}d · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reviewOverdue ? ' · <b style="color:#C2410C;">overdue</b>' : ''}`,
-          `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Review</button>`);
-      }).join('') : '<div style="font-size:13.5px;color:var(--text-faint);">Nothing waiting for your review — all clear.</div>'}
-    </div>
-    ${toSend.length ? `<div class="panel" style="margin-top:16px;">
-      <div class="panel-head"><h2>Reports to send <span class="badge pending dot">${toSend.length}</span></h2></div>
-      ${toSend.map(t => row(t, `reviewed ${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'} · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' · <b style="color:#C2410C;">overdue</b>' : ''}`,
-        `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openSendToClientModal('${t.id}')">Send?</button>`)).join('')}
-    </div>` : ''}
-    ${rework.length ? `<div class="panel" style="margin-top:16px;">
-      <div class="panel-head"><h2>Sent back to you for rework <span class="badge overdue dot">${rework.length}</span></h2></div>
-      ${rework.map(t => row(t, `flagged by ${esc((empById(t.reviewedBy) || {}).name || '—')}${t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}`,
-        `<div class="toggle-switch" onclick="acceptTask('${t.id}')" title="Accept and start fixing"></div>`)).join('')}
-    </div>` : ''}`;
+function onTeamFilter(){
+  _teamStatus = document.getElementById('dashTeamStatus').value;
+  _teamPerson = document.getElementById('dashTeamPerson').value;
+  renderDashTeam();
 }
 function renderDashTeam(){
-  const el = document.getElementById('dashTab-team');
-  if(!el) return;
-  const late = dashTeamLate();
-  const today = todayISO();
-  const list = [...late.overdue, ...late.soon];
-  const item = t => {
-    const emp = empById(t.assignedTo);
-    const days = Math.round((new Date(today) - new Date(t.internalDeadline)) / 86400000);
-    const when = days > 0 ? `<b style="color:#C2410C;">${days} day${days === 1 ? '' : 's'} overdue</b>` : (days === 0 ? 'due today' : 'due tomorrow');
-    return `<div class="to-row">
-      <div class="to-main"><b>${esc(t.name)}</b>${t.clientName ? ` <span style="color:var(--text-faint);">— ${esc(t.clientName)}</span>` : ''}
-        <div style="font-size:12px;color:var(--text-faint);">${emp ? esc(emp.name) : 'Unassigned'} · ${when}${t.reminderCount ? ` · chased ${t.reminderCount}×` : ''}</div></div>
-      ${emp && emp.id !== currentViewerId ? `<button class="btn-ghost btn-sm" onclick="nudgeTask('${t.id}')">Nudge</button>` : ''}
-    </div>`;
-  };
-  el.innerHTML = `
-    <div class="panel" style="margin-bottom:16px;">
-      <div class="panel-head"><h2>Overdue and due soon <span class="badge ${late.overdue.length ? 'overdue' : 'completed'} dot">${list.length}</span></h2></div>
-      ${list.length ? list.slice(0, 8).map(item).join('') + (list.length > 8 ? `<div style="padding-top:8px;font-size:12.5px;"><a href="#" onclick="event.preventDefault();openDashList('overdue','Team — overdue');" style="color:var(--purple);font-weight:600;">${late.overdue.length} overdue in total →</a></div>` : '')
-        : '<div style="font-size:13.5px;color:var(--text-faint);">Nothing overdue or due soon — the team is on track.</div>'}
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start;">
-      <div class="panel"><div class="panel-head"><h2>Today across the team</h2></div><div id="dashTeamToday">Loading…</div></div>
-      <div class="panel"><div class="panel-head"><h2>Team capacity</h2></div><div id="dashTeamCapacity" class="cap-list"></div></div>
-    </div>
-    <div id="dashTeamDelivery" style="margin-top:16px;"></div>`;
-  renderTodayTeam();
-  renderWorkloadBlockers();
-  renderDeliveryStrip('dashTeamDelivery', dashTeamTasks(), myTeamName() || 'My team');
+  const list = document.getElementById('dashTeamList');
+  if(!list) return;
+  const { from, to } = dashRangeBounds();
+  const people = dashTeamPeople();
+  // filters live outside the list so a background refresh never closes a dropdown
+  const ps = document.getElementById('dashTeamPerson');
+  const want = '<option value="">Everyone</option>' + people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+  if(ps.dataset.sig !== want){ ps.innerHTML = want; ps.dataset.sig = want; }
+  if(!people.some(p => p.id === _teamPerson)) _teamPerson = '';
+  ps.value = _teamPerson;
+  document.getElementById('dashTeamStatus').value = _teamStatus;
+  document.getElementById('dashTeamHint').textContent = _teamStatus === 'overdue'
+    ? 'Overdue is as of right now, so the date range does not apply to it.'
+    : `Tasks finished, started or due ${dashRangeLabel() === 'today' || dashRangeLabel() === 'yesterday' ? dashRangeLabel() : 'between ' + dashRangeLabel()}.`;
+  const shown = people.filter(p => !_teamPerson || p.id === _teamPerson);
+  const todayTeam = (_todayData && _todayData.team) || [];
+  const pill = s => ({ over: 'over capacity', light: 'light day', balanced: 'on track', off: 'off today' }[s] || '');
+  list.innerHTML = shown.map(p => {
+    const s = dashPersonStats(p.id, from, to);
+    const rows = s.mine.filter(t => _teamStatus === 'overdue' ? isOverdueNow(t) : (matchesStatusFilter(t, _teamStatus) && taskInRange(t, from, to)))
+      .sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+    const tt = todayTeam.find(r => r.id === p.id);
+    const now = tt ? (tt.onLeaveToday ? 'on leave today' : `${tt.pendingHours}h pending today · ${tt.capacityToday}h capacity${pill(tt.status) ? ' · ' + pill(tt.status) : ''}`) : '';
+    return `<details class="panel panel-fold" ${_teamClosed.has(p.id) ? '' : 'open'} ontoggle="this.open ? _teamClosed.delete('${p.id}') : _teamClosed.add('${p.id}')" style="margin-bottom:12px;">
+      <summary><h2>${esc(p.name)}</h2>
+        <span class="fold-hint">${s.done.length} finished · ${s.open.length} open${s.overdue.length ? ` · <b style="color:#C2410C;">${s.overdue.length} overdue</b>` : ''}${now ? ' · ' + esc(now) : ''}</span></summary>
+      ${rows.length ? rows.map(t => `<div class="to-row" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
+          <div class="to-main"><b>${esc(t.name)}</b>${t.clientName ? ` <span style="color:var(--text-faint);">— ${esc(t.clientName)}</span>` : ''}
+            <div style="font-size:12px;color:var(--text-faint);">${t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date'}${t.tat ? ' · ' + t.tat + 'h' : ''}${t.completedAt ? ' · finished ' + fmtDate(dayOf(t.completedAt)) : ''}</div></div>
+          ${statusBadge(t)}
+        </div>`).join('') : '<div style="font-size:13.5px;color:var(--text-faint);padding:6px 0;">Nothing matches these filters.</div>'}
+    </details>`;
+  }).join('') || '<div style="font-size:13.5px;color:var(--text-faint);">No one on your team yet.</div>';
 }
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
@@ -5972,6 +6097,7 @@ function renderGreeting(){
   const endDay = new Date(ey, em - 1, ed - 1);
   const endIncl = `${endDay.getFullYear()}-${String(endDay.getMonth() + 1).padStart(2, '0')}-${String(endDay.getDate()).padStart(2, '0')}`;
   const phrase = (start === today && endIncl === today) ? 'today'
+    : (start === endIncl && p === 'custom') ? (start === addDaysISO(-1) ? 'yesterday' : 'on ' + fmtDate(start))
     : p === 'this-week' ? 'this week'
     : p === 'this-month' ? 'this month'
     : p === 'this-quarter' ? 'this quarter'
