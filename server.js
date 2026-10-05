@@ -1455,7 +1455,10 @@ app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   const state = db.get();
   const sync = state.crmSync || { events: [], counts: {} };
-  const base = (process.env.APP_BASE_URL || (req.protocol + '://' + req.get('host'))).replace(/\/$/, '');
+  // Behind Railway's proxy req.protocol is "http"; the public address is https.
+  const host = req.get('host') || '';
+  const proto = /^(localhost|127\.|\[::1\])/.test(host) ? req.protocol : 'https';
+  const base = (process.env.APP_BASE_URL || (proto + '://' + host)).replace(/\/$/, '');
   const emps = state.employees || [];
   const clients = (state.clients || []);
   res.json({
