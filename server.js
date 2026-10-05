@@ -15,6 +15,8 @@ const rateLimit = require('express-rate-limit');
 const db = require('./db');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
+const crmSync = require('./crm-sync');
+const crmApply = require('./crm-apply');
 
 // ---------------------------------------------------------------------------
 // WEB PUSH — browser notifications that fire even when the app isn't open.
@@ -140,7 +142,7 @@ const WEAK_PASSWORD_ERROR = 'Password must be at least 8 characters.';
 // server restart. Set JWT_SECRET yourself as an environment variable in
 // production if you'd rather not have it sitting in a file.
 // ---------------------------------------------------------------------------
-const SECRET_PATH = path.join(__dirname, 'data', 'jwt-secret.txt');
+const SECRET_PATH = path.join(process.env.TM_DATA_DIR || path.join(__dirname, 'data'), 'jwt-secret.txt');
 let JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   if (fs.existsSync(SECRET_PATH)) {
@@ -1082,6 +1084,7 @@ function requireAuth(req, res, next) {
     const state = db.get();
     const emp = findEmployee(state, payload.id);
     if (!emp) return res.status(401).json({ error: 'Account no longer exists.' });
+    if (emp.accessDisabled) return res.status(403).json({ error: 'account_deactivated', message: 'This account has been deactivated. Please contact HR or an admin.' });
     req.employee = emp;
     const policyAllowed = ['/api/auth/me', '/api/auth/change-password', '/api/policy-compliance'].includes(req.path);
     const policyLock = !policyAllowed && policyCompliance.lockResponse(emp);
@@ -1119,6 +1122,7 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
   if (!emp || !bcrypt.compareSync(password, emp.passwordHash)) {
     return res.status(401).json({ error: 'Incorrect email or password.' });
   }
+  if (emp.accessDisabled) return res.status(403).json({ error: 'This account has been deactivated. Please contact HR or an admin.' });
   const isAdminAcct = isAdminRole(emp.accessRole);
   // Two separate login "pages" on the frontend — Employee vs Admin/Superadmin.
   // Enforced here too, not just hidden in the UI: an employee's password
@@ -1434,24 +1438,55 @@ app.get('/api/clients', requireAuth, (req, res) => {
   res.json({ clients: state.clients });
 });
 
+// HR policy compliance (ET-CRM → here). Same secret + real statuses as the other
+// ET-CRM webhooks: 401 bad secret · 400 invalid · 202 person not linked (queued
+// for an admin) · 200 applied. Only the compliance STATE is stored — never the
+// policy documents. Normal employees with a pending policy are blocked from
+// work (423); admins/superadmins keep emergency access (see policy-compliance.js).
 app.post('/webhooks/crm-policy-compliance', (req, res) => {
   const configuredSecret = process.env.CRM_WEBHOOK_SECRET;
   if (!configuredSecret) return res.status(503).json({ error: 'CRM policy compliance sync is not configured.' });
+  const state = db.get();
   if (!policyCompliance.secretsEqual(req.headers['x-crm-webhook-secret'], configuredSecret)) {
+    crmSync.record(state, 'policy', '—', 'error', 'rejected: bad secret', null, null); db.save();
     return res.status(401).json({ error: 'Invalid CRM webhook credentials.' });
   }
+  const keys = Object.keys(req.body && typeof req.body === 'object' ? req.body : {});
   const validated = policyCompliance.validatePayload(req.body);
-  if (!validated.ok) return res.status(400).json({ error: validated.error });
-  const state = db.get();
+  if (!validated.ok) {
+    crmSync.record(state, 'policy', '—', 'invalid', validated.error, null, keys); db.save();
+    return res.status(400).json({ error: validated.error });
+  }
   const result = policyCompliance.applyCompliance(state, validated, new Date().toISOString(), req.body.policy || {});
-  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  if (!result.ok) {
+    crmSync.noteUnlinked(state, 'policy', { crmUserId: validated.crmUserId, email: validated.email }, null);
+    crmSync.record(state, 'policy', 'UPDATE', 'unlinked', 'CRM user ' + validated.crmUserId + ' is not linked to an employee (or the work email is ambiguous)', validated.crmUserId, keys); db.save();
+    return res.status(202).json({ ok: false, skipped: true, outcome: 'unlinked', error: result.error });
+  }
+  crmSync.record(state, 'policy', 'UPDATE', 'updated', result.employee.id + ': ' + (validated.compliant ? 'compliant' : validated.pendingCount + ' pending') + (result.linkedByEmail ? ' (linked by work email)' : ''), validated.crmUserId, keys);
   db.save();
   res.json({ ok: true, employee_id: result.employee.id, linked_by_email: result.linkedByEmail,
     compliant: result.employee.policyCompliance.compliant, pending_count: result.employee.policyCompliance.pendingCount });
 });
-// Admin → CRM connection: what the CRM has sent us, what became of each event,
-// and how many people / clients are linked. Superadmin only. Shows field NAMES
-// from the CRM payloads (never values) so a wrong column guess is visible.
+
+// ---------------------------------------------------------------------------
+// Admin → CRM connection (superadmin). Health per area, the client rule, what is
+// waiting to be linked, and the reconciliation actions. Safe metadata only:
+// field NAMES from ET-CRM payloads, never their values.
+// ---------------------------------------------------------------------------
+function crmSection(state, kinds, extra) {
+  const counts = (state.crmSync && state.crmSync.counts) || {};
+  const out = { created: 0, updated: 0, skipped: 0, errors: 0, conflicts: 0, ambiguous: 0, unlinkedEvents: 0, lastSuccess: null, lastFailure: null, lastEvent: null };
+  kinds.forEach(k => {
+    const c = counts[k]; if (!c) return;
+    out.created += c.created || 0; out.updated += (c.updated || 0) + (c.ok || 0); out.skipped += c.skipped || 0;
+    out.errors += (c.error || 0) + (c.invalid || 0); out.conflicts += c.conflict || 0; out.ambiguous += c.ambiguous || 0; out.unlinkedEvents += c.unlinked || 0;
+    if (c.lastOk && (!out.lastSuccess || c.lastOk > out.lastSuccess)) out.lastSuccess = c.lastOk;
+    if (c.lastFail && (!out.lastFailure || c.lastFail.at > out.lastFailure.at)) out.lastFailure = c.lastFail;
+    if (c.last && (!out.lastEvent || c.last.at > out.lastEvent.at)) out.lastEvent = c.last;
+  });
+  return { ...out, ...(extra || {}) };
+}
 app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   const state = db.get();
@@ -1461,21 +1496,28 @@ app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
   const proto = /^(localhost|127\.|\[::1\])/.test(host) ? req.protocol : 'https';
   const base = (process.env.APP_BASE_URL || (proto + '://' + host)).replace(/\/$/, '');
   const emps = state.employees || [];
-  const clients = (state.clients || []);
+  const clients = state.clients || [];
+  const secret = !!process.env.CRM_WEBHOOK_SECRET, apiKey = !!process.env.CRM_API_KEY;
+  const waiting = kind => Object.values(sync.unlinked || {}).reduce((n, e) => n + ((e.pending || []).filter(p => p.kind === kind).length), 0);
   res.json({
-    configured: { webhookSecret: !!process.env.CRM_WEBHOOK_SECRET, apiKey: !!process.env.CRM_API_KEY },
-    endpoints: ['customer', 'user', 'task', 'attendance'].map(k => ({ kind: k, url: base + '/webhooks/crm-' + k })),
-    counts: sync.counts || {},
-    events: sync.events || [],
-    pull: sync.pull || null, autoPull: !!sync.autoPull, clientStages: sync.clientStages || [],
-    linked: {
-      people: emps.filter(e => e.crmUserId).length, peopleTotal: emps.length,
-      unlinkedPeople: emps.filter(e => !e.crmUserId).map(e => e.name),
-      clients: clients.filter(c => c.crmContactId).length, clientsTotal: clients.length,
+    configured: { webhookSecret: secret, apiKey },
+    endpoints: ['user', 'customer', 'attendance', 'leave', 'policy-compliance'].map(k => ({ kind: k, url: base + '/webhooks/crm-' + k })),
+    sections: {
+      employees: crmSection(state, ['user'], { configured: secret, unlinked: emps.filter(e => !e.crmUserId).length, linked: emps.filter(e => e.crmUserId).length, total: emps.length, disabledByCrm: emps.filter(e => e.accessDisabled && e.accessDisabled.by === 'crm').length }),
+      customers: crmSection(state, ['customer', 'pull'], { configured: secret, linkBackConfigured: apiKey, unlinked: clients.filter(c => !c.crmContactId).length, linked: clients.filter(c => c.crmContactId).length, total: clients.length, linkBack: crmSection(state, ['linkback']) }),
+      attendance: crmSection(state, ['attendance'], { configured: secret, unlinked: waiting('attendance') }),
+      leave: crmSection(state, ['leave'], { configured: secret, unlinked: waiting('leave') }),
+      policy: crmSection(state, ['policy'], { configured: secret, reconcileConfigured: apiKey, unlinked: emps.filter(e => !e.crmUserId).length, blockedNow: emps.filter(e => e.accessRole === 'employee' && policyCompliance.isBlocked(e)).length }),
     },
+    legacyTask: { disabled: true, url: base + '/webhooks/crm-task', refused: ((sync.counts || {}).task || {}).skipped || 0, last: ((sync.counts || {}).task || {}).last || null },
+    eligibility: { rule: { ...crmSync.DEFAULT_ELIGIBILITY, ...(sync.eligibility || {}) }, description: crmSync.describeEligibility(sync.eligibility) },
+    unlinkedUsers: crmSync.unlinkedList(state),
+    employeesToLink: emps.filter(e => !e.crmUserId).map(e => ({ id: e.id, name: e.name, email: e.email })),
+    events: sync.events || [],
+    pull: sync.pull || null, autoPull: !!sync.autoPull,
   });
 });
-// Client pull: preview (changes nothing) or apply; and its settings.
+// Customers — preview (changes nothing) or apply. Same rule as the webhook.
 app.post('/api/admin/crm-sync/pull-clients', requireAuth, async (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   try {
@@ -1483,18 +1525,40 @@ app.post('/api/admin/crm-sync/pull-clients', requireAuth, async (req, res) => {
     res.json({ result: await pullCrmClients({ apply: !!(req.body && req.body.apply) }) });
   } catch (e) { res.status(500).json({ error: String(e && e.message || e) }); }
 });
+// Reconcile one area. Idempotent; apply:false previews.
+app.post('/api/admin/crm-sync/reconcile', requireAuth, async (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const kind = String((req.body && req.body.kind) || '');
+  if (!['employees', 'customers', 'attendance', 'leave', 'policy'].includes(kind)) return res.status(400).json({ error: 'kind must be employees, customers, attendance, leave or policy.' });
+  try {
+    const { reconcileCrm } = require('./connector');
+    res.json({ result: await reconcileCrm(kind, { apply: !!(req.body && req.body.apply) }) });
+  } catch (e) { res.status(500).json({ error: String(e && e.message || e) }); }
+});
 app.post('/api/admin/crm-sync/settings', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   const state = db.get();
   const sync = state.crmSync = state.crmSync || { events: [], counts: {} };
   const b = req.body || {};
-  if (b.clientStages !== undefined) {
-    sync.clientStages = String(Array.isArray(b.clientStages) ? b.clientStages.join(',') : b.clientStages)
-      .split(',').map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 30);
-  }
   if (b.autoPull !== undefined) sync.autoPull = !!b.autoPull;
+  if (b.eligibility && typeof b.eligibility === 'object') {
+    sync.eligibility = { ...crmSync.DEFAULT_ELIGIBILITY, ...(sync.eligibility || {}) };
+    ['requireAuthoritySigned', 'requirePbqDone'].forEach(k => { if (typeof b.eligibility[k] === 'boolean') sync.eligibility[k] = b.eligibility[k]; });
+    logEvent(state, req.employee.id, `Changed the ET-CRM client rule to: <b>${escHtml(crmSync.describeEligibility(sync.eligibility))}</b>.`);
+  }
   db.save();
-  res.json({ autoPull: !!sync.autoPull, clientStages: sync.clientStages || [] });
+  res.json({ autoPull: !!sync.autoPull, eligibility: { ...crmSync.DEFAULT_ELIGIBILITY, ...(sync.eligibility || {}) }, description: crmSync.describeEligibility(sync.eligibility) });
+});
+// Link a CRM user that arrived unmatched to an employee, then replay what waited.
+app.post('/api/admin/crm-sync/link-user', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const r = crmApply.linkUser(state, String((req.body && req.body.crmUserId) || '').trim(), req.body && req.body.employeeId, req.employee.name);
+  if (!r.ok) return res.status(r.http).json({ error: r.error });
+  crmSync.record(state, 'user', 'LINK', 'updated', r.employee.id + ' linked by an admin; replayed ' + r.replayed.attendance + ' attendance, ' + r.replayed.leave + ' leave', r.employee.crmUserId, null);
+  logEvent(state, req.employee.id, `Linked <b>${escHtml(r.employee.name)}</b> to an ET-CRM user.`);
+  db.save();
+  res.json({ ok: true, employeeId: r.employee.id, replayed: r.replayed });
 });
 // Anyone can add a client — an employee adding their own contact defaults to
 // owning it. Only an admin can hand ownership to someone else.
@@ -4670,6 +4734,7 @@ app.post('/api/leave/:id/decision', requireAuth, (req, res) => {
   const me = req.employee;
   const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
   if (!l) return res.status(404).json({ error: 'Request not found.' });
+  if (l.source === 'crm') return res.status(409).json({ error: 'This leave is managed in ET-CRM — change it there.' });
   if (l.status !== 'pending') return res.status(409).json({ error: `Already ${l.status}.` });
   if (l.employeeId === me.id && me.accessRole !== 'superadmin') {
     return res.status(403).json({ error: "You can't decide your own request — your manager does." });
@@ -4695,6 +4760,7 @@ app.post('/api/leave/:id/make-full-day', requireAuth, (req, res) => {
   if (!me.isHr && me.accessRole !== 'superadmin') return res.status(403).json({ error: 'Only HR can change a half day into a full day.' });
   const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
   if (!l) return res.status(404).json({ error: 'Request not found.' });
+  if (l.source === 'crm') return res.status(409).json({ error: 'This leave is managed in ET-CRM — change it there.' });
   const emp = findEmployee(state, l.employeeId);
   if (!emp) return res.status(404).json({ error: 'Employee not found.' });
   if (emp.isFounder && emp.id !== me.id) return res.status(403).json({ error: "The founder's time off can only be changed by the founder." });
@@ -4719,6 +4785,7 @@ app.post('/api/leave/:id/cancel', requireAuth, (req, res) => {
   const me = req.employee;
   const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
   if (!l) return res.status(404).json({ error: 'Request not found.' });
+  if (l.source === 'crm') return res.status(409).json({ error: 'This leave is managed in ET-CRM — change it there.' });
   if (['cancelled', 'rejected'].includes(l.status)) return res.status(409).json({ error: `Already ${l.status}.` });
   const mayCancel = l.employeeId === me.id || l.createdBy === me.id || canManageEmployee(state, me, l.employeeId);
   if (!mayCancel) return res.status(403).json({ error: 'Not yours to cancel.' });
