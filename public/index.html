@@ -302,6 +302,17 @@
   @keyframes punchPulse{ 0%,100%{ box-shadow:0 0 0 0 transparent; } 50%{ box-shadow:0 0 0 6px color-mix(in srgb, var(--purple) 35%, transparent); } }
   @media (max-width:560px){ .at-row2{ grid-template-columns:1fr; } }
   .rv-link{ color:var(--purple); font-weight:600; }
+  .rv-row{ display:grid; grid-template-columns:minmax(0,2.4fr) minmax(90px,1fr) minmax(130px,1.3fr) 56px 82px auto; gap:12px; align-items:center; padding:9px 0; border-top:1px solid var(--panel-border); font-size:13px; }
+  .rv-row .rv-cell{ color:var(--text-dim); }
+  .rv-head{ border-top:none; font-size:11.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--text-faint); padding:8px 0 4px; }
+  .rv-head + .rv-row{ border-top:1px solid var(--panel-border); }
+  @media (max-width:900px){
+    .rv-head{ display:none; }
+    .rv-row{ grid-template-columns:1fr 1fr; gap:4px 12px; }
+    .rv-row .tm-task-main, .rv-row .wk-act{ grid-column:1 / -1; }
+    .rv-row .wk-act{ justify-content:flex-start; margin-top:4px; }
+    .rv-row .rv-cell::before{ content:attr(data-l) ': '; color:var(--text-faint); }
+  }
   .menu-pop{ position:relative; }
   .menu-pop > summary{ list-style:none; cursor:pointer; }
   .menu-pop > summary::-webkit-details-marker{ display:none; }
@@ -9815,14 +9826,22 @@ function daysWaiting(t){
   return from ? Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 86400000)) : 0;
 }
 function renderReviewsView(){
-  const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="rv-link">${label}</a>` : '';
-  const sec = (id, title, n, rows, empty, hideWhenEmpty) => {
+  const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="rv-link">${label}</a>` : '<span style="color:var(--text-faint);">—</span>';
+  const sec = (id, title, n, rows, empty, hideWhenEmpty, head) => {
     const el = document.getElementById(id);
     if(!el) return;
     if(hideWhenEmpty && !n){ el.innerHTML = ''; return; }
     el.innerHTML = `<div class="tm-list"><div class="wk-list-head"><span class="wk-count"><b>${n}</b> ${title}</span></div>
-      <div class="wk-body">${n ? rows : `<div class="tm-empty">${empty}</div>`}</div></div>`;
+      <div class="wk-body">${n ? (head ? `<div class="rv-row rv-head">${head.map(h => `<span>${h}</span>`).join('')}</div>` : '') + rows : `<div class="tm-empty">${empty}</div>`}</div></div>`;
   };
+  // a row with Sheet and Cashbook in columns of their own
+  const grow = (t, sub, c2, c3, btn) => `<div class="rv-row">
+      <span class="tm-task-main"><b>${esc(t.name)}</b><small>${sub}</small></span>
+      <span class="rv-cell" data-l="From">${c2}</span>
+      <span class="rv-cell" data-l="Waiting">${c3}</span>
+      <span class="rv-cell" data-l="Sheet">${link(t.sheetLink, 'Sheet')}</span>
+      <span class="rv-cell" data-l="Cashbook">${link(t.cashbookLink, 'Cashbook')}</span>
+      <span class="wk-act">${btn}</span></div>`;
   const row = (t, sub, meta, btn) => `<div class="wk-task" style="cursor:default;">
       <span class="tm-task-main"><b>${esc(t.name)}</b><small>${sub}</small></span>
       <span class="tm-task-meta">${meta}</span>
@@ -9835,11 +9854,10 @@ function renderReviewsView(){
   });
   sec('rvAwaiting', 'waiting for your review', awaiting.length, awaiting.map(t => {
     const o = empById(t.assignedTo);
-    const links = [link(t.sheetLink, 'Sheet'), link(t.cashbookLink, 'Cashbook')].filter(Boolean).join(' · ');
-    return row(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)} · from ${o ? esc(o.name) : '—'}${links ? ' · ' + links : ''}`,
-      `${t.reviewOverdue ? '<span class="dash-bad">overdue · </span>' : ''}waiting ${daysWaiting(t)}d · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}`,
+    return grow(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)}`, o ? esc(o.name) : '—',
+      `${t.reviewOverdue ? '<span class="dash-bad">overdue · </span>' : ''}${daysWaiting(t)}d · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}`,
       `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openReviewFormModal('${t.id}')">📝 Review</button>`);
-  }).join(''), 'Nothing waiting for your review — all clear.', false);
+  }).join(''), 'Nothing waiting for your review — all clear.', false, ['Task', 'From', 'Waiting', 'Sheet', 'Cashbook', '']);
 
   const rework = tasks.filter(t => isReworkFlagged(t) && t.assignedTo === currentViewerId);
   sec('rvRework', 'sent back to you to fix', rework.length, rework.map(t => {
@@ -9852,10 +9870,9 @@ function renderReviewsView(){
   const profit = iAmProfitConfirmOwner() ? profitConfirmsPendingFor() : [];
   sec('rvProfit', 'waiting for your profit confirmation', profit.length, profit.map(t => {
     const o = empById(t.assignedTo);
-    const links = [link(t.sheetLink, 'Sheet'), link(t.cashbookLink, 'Cashbook')].filter(Boolean).join(' · ');
-    return row(t, `${esc(t.clientName || '—')} · ${taskNo(t.id)} · owner ${o ? esc(o.name) : '—'}${links ? ' · ' + links : ''}`, '',
+    return grow(t, `${esc(t.clientName || '—')} · ${taskNo(t.id)}`, o ? esc(o.name) : '—', 'waiting on you',
       `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="submitProfitConfirmDone('${t.id}')">✓ Profit confirmed</button>`);
-  }).join(''), '', true);
+  }).join(''), '', true, ['Task', 'Owner', 'Status', 'Sheet', 'Cashbook', '']);
 
   const toSend = reportsToSendFor(currentViewerId).slice().sort((a,b) => (a.clientDate||'9999').localeCompare(b.clientDate||'9999'));
   sec('rvSend', 'reports ready to send to the client', toSend.length, toSend.map(t => row(t,
@@ -10245,8 +10262,8 @@ async function renderFounderView(){
     (t.reworkHistory||[]).forEach(h => { if(dashInRange(h.startedAt, r)) cases.push(h.faultType); });
     if(t.reviewStatus === 'error' && dashInRange(t.reviewedAt, r)) cases.push(t.faultType);
   });
-  const proc = cases.filter(f => f === 'processor').length, sop = cases.filter(f => f === 'sop').length;
-  const totCases = proc + sop, uncl = cases.length - totCases;
+  const proc = cases.filter(f => f === 'processor').length, sop = cases.filter(f => f === 'sop').length, oth = cases.filter(f => f === 'other').length;
+  const totCases = proc + sop + oth, uncl = cases.length - totCases;
   document.getElementById('fvReworkCasesNote').textContent = totCases
     ? `${totCases} rework case${totCases===1?'':'s'} in this period${uncl ? ` (${uncl} pre-fault-tracking, not shown)` : ''}`
     : 'No rework cases in this period.';
@@ -10254,14 +10271,17 @@ async function renderFounderView(){
   if(totCases === 0){
     fw.innerHTML = `<div style="font-size:14px;color:var(--text-faint);padding:8px 0;">Nothing to break down.</div>`;
   } else {
-    const pp = Math.round(proc/totCases*100), sp = 100 - pp;
+    const pp = Math.round(proc/totCases*100), sp = Math.round(sop/totCases*100), op = Math.max(0, 100 - pp - sp);
     fw.innerHTML = `
       <div class="fault-card"><div class="fc-top"><span class="fc-label">Processor fault</span><span class="fc-num" style="color:var(--coral);">${proc} <small>(${pp}%)</small></span></div>
         <div class="fault-bar-track"><div class="fault-bar-fill" style="width:${pp}%;background:var(--coral);"></div></div>
         <div class="fc-note">Owner made a mistake despite the SOP being clear. Feeds individual accuracy scores.</div></div>
       <div class="fault-card"><div class="fc-top"><span class="fc-label">SOP / Manager fault</span><span class="fc-num" style="color:var(--amber);">${sop} <small>(${sp}%)</small></span></div>
         <div class="fault-bar-track"><div class="fault-bar-fill" style="width:${sp}%;background:var(--amber);"></div></div>
-        <div class="fc-note">SOP was unclear, missing, or wrong. Manager owns fixing it.</div></div>`;
+        <div class="fc-note">SOP was unclear, missing, or wrong. Manager owns fixing it.</div></div>${oth ? `
+      <div class="fault-card"><div class="fc-top"><span class="fc-label">Other cause</span><span class="fc-num" style="color:var(--text-dim);">${oth} <small>(${op}%)</small></span></div>
+        <div class="fault-bar-track"><div class="fault-bar-fill" style="width:${op}%;background:var(--text-faint);"></div></div>
+        <div class="fc-note">Not the processor's mistake and not an SOP problem — the reviewer explained it in the note.</div></div>` : ''}`;
   }
 
   // ---- by team ----
@@ -10554,6 +10574,7 @@ function openReviewFaultModal(){
         <option value="">Select one…</option>
         <option value="processor">Processor fault — owner made a mistake despite a clear SOP</option>
         <option value="sop">SOP / Manager fault — SOP was unclear, missing, or wrong</option>
+        <option value="other">Other — something else (say what in the note)</option>
       </select>
     </div>
     <div class="modal-error" id="reviewFaultErr"></div>
@@ -10568,7 +10589,7 @@ function reviewFaultNext(){
   const v = document.getElementById('reviewFaultType').value;
   if(!v){
     const e = document.getElementById('reviewFaultErr');
-    e.textContent = 'Choose whether this was a processor fault or an SOP/manager fault.'; e.style.display = 'block';
+    e.textContent = 'Choose the cause: a processor fault, an SOP/manager fault, or other.'; e.style.display = 'block';
     return;
   }
   _revState.faultType = v;
@@ -11039,7 +11060,7 @@ function openTaskTrailModal(id){
   });
 
   (t.reworkHistory||[]).forEach(h => {
-    if(h.startedAt) push(h.startedAt, '⚠', `Sent back for rework (round ${h.round||'?'})${h.faultType ? ' — ' + (h.faultType === 'processor' ? 'processor fault' : 'SOP / manager fault') : ''}${h.reviewNote ? ': “'+esc(h.reviewNote)+'”' : ''}.`);
+    if(h.startedAt) push(h.startedAt, '⚠', `Sent back for rework (round ${h.round||'?'})${h.faultType ? ' — ' + (h.faultType === 'processor' ? 'processor fault' : h.faultType === 'other' ? 'other cause' : 'SOP / manager fault') : ''}${h.reviewNote ? ': “'+esc(h.reviewNote)+'”' : ''}.`);
     if(h.endedAt) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
   });
 

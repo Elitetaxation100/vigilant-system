@@ -2376,8 +2376,8 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
   if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
   const { status, note, faultType, reviewHours, screenshot, score } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
-  if (status === 'error' && !['processor', 'sop'].includes(faultType)) {
-    return res.status(400).json({ error: 'Choose whether this was a processor fault or an SOP/manager fault.' });
+  if (status === 'error' && !['processor', 'sop', 'other'].includes(faultType)) {
+    return res.status(400).json({ error: 'Choose the cause: a processor fault, an SOP/manager fault, or other.' });
   }
   if (score != null && (!(Number(score) >= 0) || Number(score) > 100)) {
     return res.status(400).json({ error: 'Score must be between 0 and 100.' });
