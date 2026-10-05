@@ -200,9 +200,45 @@
   .banner-x{ margin-left:auto; flex:none; background:none; border:none; color:inherit; opacity:.55; font-size:15px; line-height:1; padding:4px 7px; border-radius:6px; cursor:pointer; }
   .banner-x:hover{ opacity:1; background:#00000012; }
   .dash-bad{ color:#C2410C; }
-  .dash-range, .dash-filters{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  .dash-filters{ margin-bottom:14px; }
-  .dash-range-note{ font-size:13px; color:var(--text-faint); }
+  .dash-range{ display:flex; gap:8px 10px; align-items:center; flex-wrap:wrap; }
+  .dash-sep{ display:inline-flex; gap:8px; align-items:center; flex-wrap:wrap; padding-left:12px; border-left:1px solid var(--panel-border); }
+  .dash-range-note{ font-size:12.5px; color:var(--text-faint); }
+  .tm-list{ background:var(--panel); border:1px solid var(--panel-border); border-radius:14px; overflow:hidden; }
+  .tm-person + .tm-person{ border-top:1px solid var(--panel-border); }
+  .tm-person > summary{ list-style:none; display:grid; grid-template-columns:auto minmax(120px,1.1fr) auto minmax(110px,170px) 16px; gap:14px; align-items:center; padding:11px 16px; cursor:pointer; }
+  .tm-person > summary::-webkit-details-marker{ display:none; }
+  .tm-person > summary:hover{ background:var(--panel-2); }
+  .tm-av{ width:32px; height:32px; border-radius:50%; background:color-mix(in srgb, var(--purple) 14%, transparent); color:var(--purple); font-size:12px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+  .tm-name{ display:flex; flex-direction:column; font-weight:600; font-size:14px; line-height:1.25; min-width:0; }
+  .tm-name small, .tm-task-main small{ font-weight:400; font-size:12px; color:var(--text-faint); }
+  .tm-stats{ display:flex; gap:6px; flex-wrap:wrap; }
+  .tm-chip{ font-size:12px; color:var(--text-dim); background:var(--panel-2); border-radius:999px; padding:3px 9px; white-space:nowrap; }
+  .tm-chip b{ color:var(--text); }
+  .tm-chip.good b{ color:var(--teal); }
+  .tm-chip.bad{ background:color-mix(in srgb, var(--coral) 14%, transparent); } .tm-chip.bad, .tm-chip.bad b{ color:var(--coral); }
+  .tm-load{ display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .tm-load small{ font-size:11.5px; color:var(--text-faint); white-space:nowrap; }
+  .tm-bar{ display:block; height:5px; border-radius:999px; background:var(--panel-border); overflow:hidden; }
+  .tm-bar i{ display:block; height:100%; border-radius:999px; background:var(--teal); }
+  .tm-bar i.over{ background:var(--coral); }
+  .tm-chev{ color:var(--text-faint); font-size:18px; transition:transform .15s; justify-self:end; }
+  .tm-person[open] .tm-chev{ transform:rotate(90deg); }
+  .tm-tasks{ max-height:380px; overflow-y:auto; padding:2px 16px 10px 62px; }
+  .tm-task{ display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:12px; align-items:center; padding:8px 0; border-top:1px solid var(--panel-border); font-size:13px; cursor:pointer; }
+  .tm-task:first-child{ border-top:none; }
+  .tm-task:hover .tm-task-main b{ color:var(--purple); }
+  .tm-task-main{ display:flex; flex-direction:column; min-width:0; }
+  .tm-task-meta{ font-size:12px; color:var(--text-faint); white-space:nowrap; }
+  .tm-empty{ font-size:13px; color:var(--text-faint); padding:12px 16px; }
+  .dash-range select, .dash-range input[type=date]{ height:34px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); border-radius:9px; padding:0 10px; font-size:13px; font-family:var(--font-body); }
+  .dash-range select:focus, .dash-range input:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
+  @media (max-width:720px){
+    .tm-person > summary{ grid-template-columns:auto 1fr 16px; row-gap:8px; }
+    .tm-stats, .tm-load{ grid-column:2 / 3; }
+    .tm-tasks{ padding-left:16px; }
+    .tm-task{ grid-template-columns:1fr auto; } .tm-task-meta{ grid-column:1; }
+    .dash-sep{ padding-left:0; border-left:none; }
+  }
 
   .stat-grid{ display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:22px; }
   .stat-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:10px; padding:16px 16px 14px; position:relative; overflow:hidden; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
@@ -797,8 +833,6 @@
   .dscope .dg{ display:flex; align-items:center; gap:8px; background:var(--panel); border:1px solid var(--panel-border); border-radius:9px; padding:5px 6px 5px 12px; }
   .dscope .dg label{ font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); }
   .dscope select, .dscope input[type=date]{ background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:7px; padding:6px 9px; font-size:13.5px; font-family:var(--font-body); }
-  .dash-range select, .dash-range input[type=date], .dash-filters select{ background:var(--bg-deep); border:1px solid var(--panel-border); color:var(--text); border-radius:7px; padding:7px 10px; font-size:13.5px; font-family:var(--font-body); }
-  .dash-range select:focus, .dash-range input:focus, .dash-filters select:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
   .dscope select:focus, .dscope input:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
   .dscope .dcmp{ display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--text-dim); background:var(--panel); border:1px solid var(--panel-border); border-radius:9px; padding:8px 12px; cursor:pointer; }
   .dscope .dcmp input{ accent-color:var(--purple); }
@@ -1049,18 +1083,18 @@
           </select>
           <span id="dashRangeCustom" style="display:none;"><input type="date" id="dashRangeFrom" onchange="onDashRange()"> → <input type="date" id="dashRangeTo" onchange="onDashRange()"></span>
           <span class="dash-range-note" id="dashRangeNote"></span>
-        </div>
-        <div id="dashTab-today" style="display:none;"></div>
-        <div id="dashTab-team" style="display:none;">
-          <div class="dash-filters">
+          <span class="dash-sep" id="dashTeamFilters" style="display:none;">
             <select id="dashTeamPerson" onchange="onTeamFilter()" aria-label="Person"></select>
             <select id="dashTeamStatus" onchange="onTeamFilter()" aria-label="Work status">
               <option value="_all">All work</option><option value="_done">Done (reviewed)</option><option value="_inreview">In review</option>
               <option value="_inprogress">In progress</option><option value="_yettostart">Yet to start</option>
               <option value="on_hold">On hold</option><option value="rework">Needs rework</option><option value="overdue">Overdue (now)</option>
             </select>
-            <span class="dash-range-note" id="dashTeamHint"></span>
-          </div>
+          </span>
+        </div>
+        <div id="dashTab-today" style="display:none;"></div>
+        <div id="dashTab-team" style="display:none;">
+          <div class="dash-range-note" id="dashTeamHint" style="margin:0 2px 10px;"></div>
           <div id="dashTeamList"></div>
         </div>
         <div id="dashTab-work">
@@ -5838,7 +5872,7 @@ try { const s = localStorage.getItem('govOsDashTab'); if(['today','work','team']
 let _dashRange = { preset: 'today', from: '', to: '' };
 try { const r = JSON.parse(localStorage.getItem('govOsDashRange') || 'null'); if(r && r.preset) _dashRange = r; } catch(e){}
 let _teamStatus = '_all', _teamPerson = '';
-const _teamClosed = new Set(); // people whose section the user collapsed
+const _teamOpen = new Set(); // people whose section the user expanded
 // Anyone who runs a team (managers, and superadmins who aren't the founder —
 // Parvinder is both manager and reviewer). The founder has Founder View and
 // keeps the page as it is.
@@ -5915,6 +5949,7 @@ function renderDashRangeBar(show){
     if(document.activeElement !== fa) fa.value = from;
     if(document.activeElement !== fb) fb.value = to;
   }
+  document.getElementById('dashTeamFilters').style.display = _dashTab === 'team' ? '' : 'none';
   document.getElementById('dashRangeNote').textContent = (_dashRange.preset === 'today' || _dashRange.preset === 'yesterday') ? fmtDate(from) : '';
 }
 
@@ -5978,7 +6013,7 @@ function dashTile(icon, label, value, sub, color, onclick){
     <div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${sub}</div>
   </div>`;
 }
-function openTeamPerson(id){ _teamPerson = id; setDashTab('team'); }
+function openTeamPerson(id){ _teamPerson = id; _teamOpen.add(id); setDashTab('team'); }
 function renderDashToday(){
   const el = document.getElementById('dashTab-today');
   if(!el) return;
@@ -6044,40 +6079,59 @@ function onTeamFilter(){
   _teamPerson = document.getElementById('dashTeamPerson').value;
   renderDashTeam();
 }
+function _initials(name){ return String(name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
 function renderDashTeam(){
   const list = document.getElementById('dashTeamList');
   if(!list) return;
   const { from, to } = dashRangeBounds();
   const people = dashTeamPeople();
-  // filters live outside the list so a background refresh never closes a dropdown
+  // the filters live in the toolbar, outside the list, so a background refresh never closes a dropdown
   const ps = document.getElementById('dashTeamPerson');
   const want = '<option value="">Everyone</option>' + people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
   if(ps.dataset.sig !== want){ ps.innerHTML = want; ps.dataset.sig = want; }
   if(!people.some(p => p.id === _teamPerson)) _teamPerson = '';
   ps.value = _teamPerson;
   document.getElementById('dashTeamStatus').value = _teamStatus;
+  const rl = dashRangeLabel();
   document.getElementById('dashTeamHint').textContent = _teamStatus === 'overdue'
-    ? 'Overdue is as of right now, so the date range does not apply to it.'
-    : `Tasks finished, started or due ${dashRangeLabel() === 'today' || dashRangeLabel() === 'yesterday' ? dashRangeLabel() : 'between ' + dashRangeLabel()}.`;
+    ? 'Overdue is as of right now, so the date range does not apply.'
+    : `Work finished, started or due ${rl === 'today' || rl === 'yesterday' ? rl : 'between ' + rl}.`;
   const shown = people.filter(p => !_teamPerson || p.id === _teamPerson);
   const todayTeam = (_todayData && _todayData.team) || [];
-  const pill = s => ({ over: 'over capacity', light: 'light day', balanced: 'on track', off: 'off today' }[s] || '');
-  list.innerHTML = shown.map(p => {
+  list.innerHTML = shown.length ? `<div class="tm-list">${shown.map(p => {
     const s = dashPersonStats(p.id, from, to);
     const rows = s.mine.filter(t => _teamStatus === 'overdue' ? isOverdueNow(t) : (matchesStatusFilter(t, _teamStatus) && taskInRange(t, from, to)))
       .sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
     const tt = todayTeam.find(r => r.id === p.id);
-    const now = tt ? (tt.onLeaveToday ? 'on leave today' : `${tt.pendingHours}h pending today · ${tt.capacityToday}h capacity${pill(tt.status) ? ' · ' + pill(tt.status) : ''}`) : '';
-    return `<details class="panel panel-fold" ${_teamClosed.has(p.id) ? '' : 'open'} ontoggle="this.open ? _teamClosed.delete('${p.id}') : _teamClosed.add('${p.id}')" style="margin-bottom:12px;">
-      <summary><h2>${esc(p.name)}</h2>
-        <span class="fold-hint">${s.done.length} finished · ${s.open.length} open${s.overdue.length ? ` · <b style="color:#C2410C;">${s.overdue.length} overdue</b>` : ''}${now ? ' · ' + esc(now) : ''}</span></summary>
-      ${rows.length ? rows.map(t => `<div class="to-row" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
-          <div class="to-main"><b>${esc(t.name)}</b>${t.clientName ? ` <span style="color:var(--text-faint);">— ${esc(t.clientName)}</span>` : ''}
-            <div style="font-size:12px;color:var(--text-faint);">${t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date'}${t.tat ? ' · ' + t.tat + 'h' : ''}${t.completedAt ? ' · finished ' + fmtDate(dayOf(t.completedAt)) : ''}</div></div>
-          ${statusBadge(t)}
-        </div>`).join('') : '<div style="font-size:13.5px;color:var(--text-faint);padding:6px 0;">Nothing matches these filters.</div>'}
+    let load = '';
+    if(tt){
+      if(tt.onLeaveToday) load = '<span class="tm-load"><small>on leave today</small></span>';
+      else {
+        const cap = tt.capacityToday > 0 ? tt.capacityToday : Math.max(tt.pendingHours, 1);
+        const pct = Math.min(100, Math.round(tt.pendingHours / cap * 100));
+        load = `<span class="tm-load" title="Hours pending today against today's capacity"><span class="tm-bar"><i class="${tt.status === 'over' ? 'over' : ''}" style="width:${pct}%;"></i></span><small>${tt.pendingHours}h of ${tt.capacityToday}h today</small></span>`;
+      }
+    }
+    const open = _teamOpen.has(p.id) || !!_teamPerson;
+    return `<details class="tm-person" ${open ? 'open' : ''} ontoggle="this.open ? _teamOpen.add('${p.id}') : _teamOpen.delete('${p.id}')">
+      <summary>
+        <span class="tm-av">${esc(_initials(p.name))}</span>
+        <span class="tm-name">${esc(p.name)}${p.team ? `<small>${esc(p.team)}</small>` : ''}</span>
+        <span class="tm-stats">
+          <span class="tm-chip good"><b>${s.done.length}</b> finished</span>
+          <span class="tm-chip"><b>${s.open.length}</b> open</span>
+          ${s.overdue.length ? `<span class="tm-chip bad"><b>${s.overdue.length}</b> overdue</span>` : ''}
+        </span>
+        ${load}
+        <span class="tm-chev" aria-hidden="true">›</span>
+      </summary>
+      <div class="tm-tasks">${rows.length ? rows.map(t => `<div class="tm-task" onclick="openTaskTrailModal('${t.id}')">
+          <span class="tm-task-main"><b>${esc(t.name)}</b>${t.clientName ? `<small>${esc(t.clientName)}</small>` : ''}</span>
+          <span class="tm-task-meta">${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
+          <span class="tm-task-st">${statusBadge(t)}</span>
+        </div>`).join('') : '<div class="tm-empty">Nothing matches these filters.</div>'}</div>
     </details>`;
-  }).join('') || '<div style="font-size:13.5px;color:var(--text-faint);">No one on your team yet.</div>';
+  }).join('')}</div>` : '<div class="tm-empty">No one on your team yet.</div>';
 }
 function renderGreeting(){
   const wrap = document.getElementById('myGreetingWrap');
