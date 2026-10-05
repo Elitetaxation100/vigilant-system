@@ -302,6 +302,14 @@
   @keyframes punchPulse{ 0%,100%{ box-shadow:0 0 0 0 transparent; } 50%{ box-shadow:0 0 0 6px color-mix(in srgb, var(--purple) 35%, transparent); } }
   @media (max-width:560px){ .at-row2{ grid-template-columns:1fr; } }
   .rv-link{ color:var(--purple); font-weight:600; }
+  #rvSearch{ width:250px; }
+  @media (max-width:560px){ #rvSearch{ width:100%; } }
+  .waive-fold{ margin-top:12px; font-size:12.5px; }
+  .waive-fold > summary{ cursor:pointer; color:var(--text-faint); text-decoration:underline; list-style:none; display:inline-block; }
+  .waive-fold > summary::-webkit-details-marker{ display:none; }
+  .waive-fold > summary:hover{ color:var(--text-dim); }
+  .waive-body{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+  .waive-select{ flex:1; min-width:200px; background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text); border-radius:8px; padding:7px 10px; font-size:12.5px; font-family:var(--font-body); }
   .rv-row{ display:grid; grid-template-columns:minmax(0,2.4fr) minmax(90px,1fr) minmax(130px,1.3fr) 56px 82px auto; gap:12px; align-items:center; padding:9px 0; border-top:1px solid var(--panel-border); font-size:13px; }
   .rv-row .rv-cell{ color:var(--text-dim); }
   .rv-head{ border-top:none; font-size:11.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--text-faint); padding:8px 0 4px; }
@@ -1422,6 +1430,18 @@
 
       <!-- ===================== REVIEWS (dedicated home for review + send/profit-confirm actions) ===================== -->
       <section class="view" id="view-reviews">
+        <div class="dash-range" id="rvToolbar" style="margin-bottom:16px;">
+          <input type="text" id="rvSearch" placeholder="Search task, client or #number…" oninput="onRvFilter()" aria-label="Search reviews">
+          <select id="rvEmp" onchange="onRvFilter()" aria-label="Employee"></select>
+          <select id="rvRangeSel" onchange="onRvFilter()" aria-label="Date range" title="Dates are when the work was submitted (for fixes and reports: when it was reviewed)">
+            <option value="all">All time</option><option value="today">Today</option><option value="yesterday">Yesterday</option>
+            <option value="this-week">This week</option><option value="last-week">Last week</option>
+            <option value="this-month">This month</option><option value="last-month">Last month</option>
+            <option value="custom">Pick dates…</option>
+          </select>
+          <span id="rvCustom" style="display:none;"><input type="date" id="rvFrom" onchange="onRvFilter()"> → <input type="date" id="rvTo" onchange="onRvFilter()"></span>
+          <button class="btn small" id="rvClear" style="display:none;" onclick="clearRvFilters()">Clear filters</button>
+        </div>
         <div id="rvAwaiting"></div>
         <div id="rvRework" style="margin-top:16px;"></div>
         <div id="rvProfit" style="margin-top:16px;"></div>
@@ -5746,6 +5766,7 @@ function renderTaskTable(){
   renderEmployeeStats();
   renderDashTabs();
   renderGuide();
+  if(document.getElementById('view-reviews')?.classList.contains('active')) renderReviewsView();
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
   if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
   if(document.getElementById('view-teamboard')?.classList.contains('active')) renderTeamBoard();
@@ -5996,8 +6017,9 @@ function setDashTab(id){
 function openReviewsPage(){ showView('reviews', document.querySelector('.nav-item[data-view="reviews"]')); }
 
 /* ---- the shared date range ---- */
-function dashRangeBounds(){
-  const today = todayISO(), p = _dashRange.preset;
+function dashRangeBounds(){ return rangeBoundsFor(_dashRange.preset, _dashRange.from, _dashRange.to); }
+function rangeBoundsFor(p, fromIn, toIn){
+  const today = todayISO();
   const dow = (new Date(today + 'T00:00:00Z').getUTCDay() + 6) % 7; // Monday = 0
   if(p === 'all') return { from: '2000-01-01', to: '2999-12-31' };
   if(p === 'yesterday'){ const y = addDaysISO(-1); return { from: y, to: y }; }
@@ -6009,7 +6031,7 @@ function dashRangeBounds(){
     return { from: new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10), to: new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10) };
   }
   if(p === 'custom'){
-    let a = _dashRange.from || today, b = _dashRange.to || a;
+    let a = fromIn || today, b = toIn || a;
     if(a > b){ const x = a; a = b; b = x; }
     return { from: a, to: b };
   }
@@ -9825,14 +9847,49 @@ function daysWaiting(t){
   const from = t.completedAt || t.reviewedAt;
   return from ? Math.max(0, Math.round((Date.now() - new Date(from).getTime()) / 86400000)) : 0;
 }
+// Filters for the Reviews page. Defaults show everything — a review queue should
+// never hide work you haven't seen. Dates mean "when the work was submitted"
+// (for fixes and reports: when it was reviewed).
+let _rv = { q: '', emp: '', preset: 'all', from: '', to: '' };
+function onRvFilter(){
+  _rv.q = document.getElementById('rvSearch').value.trim().toLowerCase();
+  _rv.emp = document.getElementById('rvEmp').value;
+  _rv.preset = document.getElementById('rvRangeSel').value;
+  if(_rv.preset === 'custom'){
+    _rv.from = document.getElementById('rvFrom').value || _rv.from || todayISO();
+    _rv.to = document.getElementById('rvTo').value || _rv.to || _rv.from;
+  }
+  renderReviewsView();
+}
+function clearRvFilters(){
+  _rv = { q: '', emp: '', preset: 'all', from: '', to: '' };
+  document.getElementById('rvSearch').value = '';
+  renderReviewsView();
+}
+function rvFiltersOn(){ return !!(_rv.q || _rv.emp || _rv.preset !== 'all'); }
 function renderReviewsView(){
   const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="rv-link">${label}</a>` : '<span style="color:var(--text-faint);">—</span>';
-  const sec = (id, title, n, rows, empty, hideWhenEmpty, head) => {
+  const bounds = rangeBoundsFor(_rv.preset, _rv.from, _rv.to);
+  // does a task pass the search, the employee and the date filters? `ts` is the date that matters for its list.
+  const match = (t, ts) => {
+    if(_rv.emp && t.assignedTo !== _rv.emp) return false;
+    if(_rv.q){
+      const hay = ((t.name || '') + ' ' + (t.clientName || '') + ' ' + t.id + ' ' + taskNo(t.id) + ' ' + ((empById(t.assignedTo) || {}).name || '')).toLowerCase();
+      if(!hay.includes(_rv.q)) return false;
+    }
+    if(_rv.preset !== 'all'){
+      const d = ts ? dayOf(ts) : '';
+      if(!d || d < bounds.from || d > bounds.to) return false;
+    }
+    return true;
+  };
+  const sec = (id, title, n, total, rows, empty, hideWhenEmpty, head) => {
     const el = document.getElementById(id);
     if(!el) return;
-    if(hideWhenEmpty && !n){ el.innerHTML = ''; return; }
-    el.innerHTML = `<div class="tm-list"><div class="wk-list-head"><span class="wk-count"><b>${n}</b> ${title}</span></div>
-      <div class="wk-body">${n ? (head ? `<div class="rv-row rv-head">${head.map(h => `<span>${h}</span>`).join('')}</div>` : '') + rows : `<div class="tm-empty">${empty}</div>`}</div></div>`;
+    if(hideWhenEmpty && !total){ el.innerHTML = ''; return; }
+    const count = rvFiltersOn() && total !== n ? `<b>${n}</b> of ${total}` : `<b>${n}</b>`;
+    el.innerHTML = `<div class="tm-list"><div class="wk-list-head"><span class="wk-count">${count} ${title}</span></div>
+      <div class="wk-body">${n ? (head ? `<div class="rv-row rv-head">${head.map(h => `<span>${h}</span>`).join('')}</div>` : '') + rows : `<div class="tm-empty">${total ? 'Nothing matches these filters. <a href="#" onclick="event.preventDefault();clearRvFilters()" style="color:var(--purple);">Clear filters</a>' : empty}</div>`}</div></div>`;
   };
   // a row with Sheet and Cashbook in columns of their own
   const grow = (t, sub, c2, c3, btn) => `<div class="rv-row">
@@ -9846,36 +9903,61 @@ function renderReviewsView(){
       <span class="tm-task-main"><b>${esc(t.name)}</b><small>${sub}</small></span>
       <span class="tm-task-meta">${meta}</span>
       <span class="wk-act">${btn}</span></div>`;
-  const awaiting = myReviewTasks().slice().sort((a,b) => {
+  const awaitingAll = myReviewTasks();
+  const reworkAll = tasks.filter(t => isReworkFlagged(t) && t.assignedTo === currentViewerId);
+  const profitAll = iAmProfitConfirmOwner() ? profitConfirmsPendingFor() : [];
+  const toSendAll = reportsToSendFor(currentViewerId);
+
+  // the employee filter lists everyone who has something in any queue, with how many
+  const counts = {};
+  [...awaitingAll, ...reworkAll, ...profitAll, ...toSendAll].forEach(t => { if(t.assignedTo) counts[t.assignedTo] = (counts[t.assignedTo] || 0) + 1; });
+  const empSel = document.getElementById('rvEmp');
+  if(empSel){
+    const ids = Object.keys(counts).sort((a, b) => ((empById(a) || {}).name || '').localeCompare((empById(b) || {}).name || ''));
+    if(_rv.emp && !ids.includes(_rv.emp)) ids.push(_rv.emp);
+    const html = '<option value="">Everyone</option>' + ids.map(id => `<option value="${esc(id)}">${esc((empById(id) || {}).name || id)} (${counts[id] || 0})</option>`).join('');
+    if(empSel.dataset.sig !== html){ empSel.innerHTML = html; empSel.dataset.sig = html; }
+    empSel.value = _rv.emp;
+  }
+  const rsel = document.getElementById('rvRangeSel'); if(rsel) rsel.value = _rv.preset;
+  const cust = document.getElementById('rvCustom'); if(cust) cust.style.display = _rv.preset === 'custom' ? '' : 'none';
+  if(_rv.preset === 'custom'){
+    const fa2 = document.getElementById('rvFrom'), fb2 = document.getElementById('rvTo');
+    if(fa2 && document.activeElement !== fa2) fa2.value = bounds.from;
+    if(fb2 && document.activeElement !== fb2) fb2.value = bounds.to;
+  }
+  const clr = document.getElementById('rvClear'); if(clr) clr.style.display = rvFiltersOn() ? '' : 'none';
+
+  const awaiting = awaitingAll.filter(t => match(t, t.completedAt)).sort((a,b) => {
     const riskA = a.reviewOverdue ? 1 : 0, riskB = b.reviewOverdue ? 1 : 0;
     if(riskA !== riskB) return riskB - riskA;
     if(daysWaiting(a) !== daysWaiting(b)) return daysWaiting(b) - daysWaiting(a);
     return (a.clientDate || '9999').localeCompare(b.clientDate || '9999');
   });
-  sec('rvAwaiting', 'waiting for your review', awaiting.length, awaiting.map(t => {
+  sec('rvAwaiting', 'waiting for your review', awaiting.length, awaitingAll.length, awaiting.map(t => {
     const o = empById(t.assignedTo);
     return grow(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)}`, o ? esc(o.name) : '—',
       `${t.reviewOverdue ? '<span class="dash-bad">overdue · </span>' : ''}${daysWaiting(t)}d · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}`,
       `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openReviewFormModal('${t.id}')">📝 Review</button>`);
   }).join(''), 'Nothing waiting for your review — all clear.', false, ['Task', 'From', 'Waiting', 'Sheet', 'Cashbook', '']);
 
-  const rework = tasks.filter(t => isReworkFlagged(t) && t.assignedTo === currentViewerId);
-  sec('rvRework', 'sent back to you to fix', rework.length, rework.map(t => {
+  const rework = reworkAll.filter(t => match(t, t.reviewedAt));
+  sec('rvRework', 'sent back to you to fix', rework.length, reworkAll.length, rework.map(t => {
     const r = empById(t.reviewedBy);
     return row(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)} · flagged by ${r ? esc(r.name) : '—'}${t.reviewNote ? ' — ' + esc(t.reviewNote) : ''}`,
       `${t.reviewedAt ? 'flagged ' + fmtDate(dayOf(t.reviewedAt)) : ''}`,
       `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Start fixing</button>`);
   }).join(''), '', true);
 
-  const profit = iAmProfitConfirmOwner() ? profitConfirmsPendingFor() : [];
-  sec('rvProfit', 'waiting for your profit confirmation', profit.length, profit.map(t => {
+  const profit = profitAll.filter(t => match(t, t.profitConfirmRequestedAt || t.completedAt));
+  sec('rvProfit', 'waiting for your profit confirmation', profit.length, profitAll.length, profit.map(t => {
     const o = empById(t.assignedTo);
     return grow(t, `${esc(t.clientName || '—')} · ${taskNo(t.id)}`, o ? esc(o.name) : '—', 'waiting on you',
       `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="submitProfitConfirmDone('${t.id}')">✓ Profit confirmed</button>`);
   }).join(''), '', true, ['Task', 'Owner', 'Status', 'Sheet', 'Cashbook', '']);
 
-  const toSend = reportsToSendFor(currentViewerId).slice().sort((a,b) => (a.clientDate||'9999').localeCompare(b.clientDate||'9999'));
-  sec('rvSend', 'reports ready to send to the client', toSend.length, toSend.map(t => row(t,
+  const toSend = toSendAll.filter(t => match(t, t.reviewedAt)).sort((a,b) => (a.clientDate||'9999').localeCompare(b.clientDate||'9999'));
+  sec('rvSend', 'reports ready to send to the client', toSend.length, toSendAll.length, toSend.map(t => row(t,
     `${esc(t.clientName || '—')} · ${taskNo(t.id)}${t.reportReturnedBy ? ' · reviewed clean by ' + esc((empById(t.reportReturnedBy) || {}).name || 'the reviewer') + ' — no profit confirmation needed' : ''}`,
     `${t.reportOverdue ? '<span class="dash-bad">overdue · </span>' : ''}reviewed ${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'} · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}`,
     `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openSendToClientModal('${t.id}')">Send to client</button>`)).join(''), '', true);
@@ -10664,19 +10746,22 @@ function openReviewScoreModal(){
       <input type="text" id="stcSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
     ${!isInternal ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}` : '';
+  // Rarely needed, so it stays folded away: a report that should never go out.
   const waiveBlock = isClean && !isInternal ? `
-    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--panel-border);">
-      <div style="font-size:12px;color:var(--text-faint);margin-bottom:4px;">Genuinely doesn't need to go out?</div>
-      <select id="stcWaiveReason" style="font-size:12.5px;margin-bottom:6px;">
-        <option value="">— Why not required? —</option>
-        <option value="client_cancelled">Client cancelled the engagement</option>
-        <option value="duplicate_task">Duplicate task</option>
-        <option value="incorporated">Work incorporated into another approved report</option>
-        <option value="client_instruction">Written client instruction not to proceed</option>
-        <option value="admin_correction">Administrator-approved correction</option>
-      </select>
-      <div><a href="#" onclick="event.preventDefault(); submitReviewFinal('waive')" style="font-size:12px;color:var(--text-faint);">Won't be sent — mark not required</a></div>
-    </div>` : '';
+    <details class="waive-fold">
+      <summary>Report won't be sent to the client?</summary>
+      <div class="waive-body">
+        <select id="stcWaiveReason" class="waive-select">
+          <option value="">— Why not required? —</option>
+          <option value="client_cancelled">Client cancelled the engagement</option>
+          <option value="duplicate_task">Duplicate task</option>
+          <option value="incorporated">Work incorporated into another approved report</option>
+          <option value="client_instruction">Written client instruction not to proceed</option>
+          <option value="admin_correction">Administrator-approved correction</option>
+        </select>
+        <button class="btn small" onclick="submitReviewFinal('waive')">Mark not required</button>
+      </div>
+    </details>` : '';
   document.getElementById('modalBox').innerHTML = `
     <h3>Score this work — ${esc(t.name)}</h3>
     <div class="modal-sub">${isClean ? (isInternal ? 'Reviewed clean — no client to send to.' : 'Looks good. What happens next?') : 'Going back for rework'}</div>
