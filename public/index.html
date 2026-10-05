@@ -1438,7 +1438,7 @@
           <div class="panel-head">
             <h2>Daily Login / Logout Log</h2>
           </div>
-          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every employee logs in (Punch In) and out (Punch Out) once per working day. A day with no record means they never logged in — used to flag absence and to adjust productivity against actual shift hours. If someone punches out by mistake, use <b>Reopen</b> to unlock their day.</p>
+          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every employee logs in (Punch In) and out (Punch Out) once per working day. A day with no record means they never logged in — used to flag absence and to adjust productivity against actual shift hours. If someone punches out by mistake, use <b>Reopen</b> to unlock their day, or <b>Edit</b> to correct a login or logout time. <b>All times are New Zealand time.</b></p>
           <table>
             <thead><tr><th>Employee</th><th>Today's Status</th><th>Today Login</th><th>Today Logout</th><th>Last 14 Days</th><th></th></tr></thead>
             <tbody id="attendanceTableBody"></tbody>
@@ -4554,7 +4554,7 @@ async function renderAttendance(){
     return;
   }
   _attendanceRows = rows;
-  const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString('en-NZ', {hour:'2-digit', minute:'2-digit'}) : '—';
+  const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString('en-NZ', {hour:'2-digit', minute:'2-digit', timeZone:'Pacific/Auckland'}) : '—';
   body.innerHTML = rows.map(r => {
     const statusBadgeHtml = r.loggedInNow
       ? `<span class="badge pending dot">● Logged In</span>`
@@ -4562,9 +4562,8 @@ async function renderAttendance(){
     const history = r.history.length
       ? `<div style="max-height:90px; overflow-y:auto; font-size:12px; color:var(--text-faint); line-height:1.7;">${r.history.map(h => `${fmtDate(h.date)}: ${fmtTime(h.loginAt)} → ${fmtTime(h.logoutAt)} (${h.hours}h)`).join('<br>')}</div>`
       : `<span style="font-size:12.5px; color:var(--text-faint);">No history yet</span>`;
-    const action = (r.loggedOutToday && r.canReopen)
-      ? `<button class="btn-ghost btn-sm" onclick="reopenPunch('${r.id}')">Reopen</button>`
-      : '';
+    const action = ((r.loggedOutToday && r.canReopen) ? `<button class="btn-ghost btn-sm" onclick="reopenPunch('${r.id}')">Reopen</button> ` : '')
+      + `<button class="btn-ghost btn-sm" onclick="openAttendanceEdit('${r.id}')">Edit</button>`;
     return `<tr>
       <td>${esc(r.name)}<div style="font-size:12px;color:var(--text-faint);">${esc(r.team)}</div></td>
       <td>${statusBadgeHtml}</td>
@@ -4574,6 +4573,44 @@ async function renderAttendance(){
       <td style="text-align:right;">${action}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:22px;">No employees on file.</td></tr>`;
+}
+/* Founder correction of a login/logout time (NZ time). Picks a day, pre-fills
+   what's on record for it, saves via POST /api/attendance/edit. */
+const _nzHHMM = iso => iso ? new Date(iso).toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', hourCycle:'h23', timeZone:'Pacific/Auckland'}) : '';
+function _attendanceRecordFor(empId, date){
+  const r = _attendanceRows.find(x => x.id === empId) || {};
+  if(date === todayISO() && r.todayLoginAt) return { loginAt: r.todayLoginAt, logoutAt: r.todayLogoutAt };
+  return (r.history || []).find(h => h.date === date) || {};
+}
+function openAttendanceEdit(empId){
+  const r = _attendanceRows.find(x => x.id === empId); if(!r) return;
+  const today = todayISO();
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Edit attendance — ${esc(r.name)}</h3>
+    <div class="modal-sub">Times are <b>New Zealand time</b>. Leave Logout empty if they're still working — a past day left open stays without a logout. The change is saved to the activity log.</div>
+    <div class="field"><label>Day</label><input type="date" id="atDate" max="${today}" value="${today}" onchange="fillAttendanceEdit('${esc(empId)}')"></div>
+    <div class="field"><label>Login time</label><input type="time" id="atLogin"></div>
+    <div class="field"><label>Logout time <span style="color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label><input type="time" id="atLogout"></div>
+    <div class="modal-error" id="atErr"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveAttendanceEdit('${esc(empId)}')">Save</button></div>`;
+  openModal();
+  fillAttendanceEdit(empId);
+}
+function fillAttendanceEdit(empId){
+  const rec = _attendanceRecordFor(empId, document.getElementById('atDate').value);
+  document.getElementById('atLogin').value = _nzHHMM(rec.loginAt);
+  document.getElementById('atLogout').value = _nzHHMM(rec.logoutAt);
+}
+async function saveAttendanceEdit(empId){
+  const errEl = document.getElementById('atErr'); errEl.style.display = 'none';
+  try {
+    await api('/api/attendance/edit', { method:'POST', body: JSON.stringify({ employeeId: empId, date: document.getElementById('atDate').value,
+      login: document.getElementById('atLogin').value, logout: document.getElementById('atLogout').value }) });
+    closeModal();
+    showToast('success', 'Attendance updated', 'The change is in the activity log.');
+    await renderAttendance();
+    if(empId === currentViewerId) loadPunchState();
+  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 /* Undo an accidental punch-out. resumeClock:true (the default here) restarts
    their clock where it stopped — the usual "punched out by mistake mid-day"

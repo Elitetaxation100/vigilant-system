@@ -4262,6 +4262,60 @@ app.get('/api/attendance/all', requireAuth, requireSuperAdmin, (req, res) => {
   res.json({ rows, today });
 });
 
+// Founder correction of a login/logout record — for a forgotten punch-out, a
+// punch at the wrong time, or a day that was never punched. Times are NZ
+// wall-clock (HH:MM) on the chosen day, the same calendar the whole app runs
+// on. Today's live clock is kept in step with the edit, and every change is
+// written to the activity log (who, what it was, what it became).
+const _NZ_PARTS = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+function nzLocalToISO(date, hhmm) {
+  const [y, mo, d] = date.split('-').map(Number), [h, mi] = hhmm.split(':').map(Number);
+  const want = Date.UTC(y, mo - 1, d, h, mi);
+  let guess = want;
+  for (let i = 0; i < 2; i++) { // converge on the NZ offset (handles daylight saving)
+    const p = Object.fromEntries(_NZ_PARTS.formatToParts(new Date(guess)).map(x => [x.type, x.value]));
+    guess += want - Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+  }
+  return new Date(guess).toISOString();
+}
+const _fmtNZTime = iso => iso ? new Date(iso).toLocaleTimeString('en-NZ', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit' }) : 'none';
+app.post('/api/attendance/edit', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const { employeeId, date, login, logout } = req.body || {};
+  const emp = findEmployee(state, employeeId);
+  if (!emp) return res.status(404).json({ error: 'Employee not found.' });
+  const today = todayISO();
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Choose a date.' });
+  if (date > today) return res.status(400).json({ error: "You can't set attendance for a future day." });
+  const hhmm = /^([01]?\d|2[0-3]):[0-5]\d$/;
+  if (typeof login !== 'string' || !hhmm.test(login)) return res.status(400).json({ error: 'Enter a login time.' });
+  const hasLogout = typeof logout === 'string' && logout.trim() !== '';
+  if (hasLogout && !hhmm.test(logout)) return res.status(400).json({ error: 'That logout time is not valid.' });
+  const loginISO = nzLocalToISO(date, login.padStart(5, '0'));
+  const logoutISO = hasLogout ? nzLocalToISO(date, logout.padStart(5, '0')) : null;
+  if (new Date(loginISO).getTime() > Date.now()) return res.status(400).json({ error: "That login time hasn't happened yet." });
+  if (logoutISO) {
+    if (new Date(logoutISO) <= new Date(loginISO)) return res.status(400).json({ error: 'Logout must be after login.' });
+    if (new Date(logoutISO).getTime() > Date.now()) return res.status(400).json({ error: "That logout time hasn't happened yet." });
+  }
+  const st = getPunchState(state, emp.id); // flushes any stale mid-shift record first
+  const day = getAttendanceDay(state, emp.id, date);
+  const before = { login: day.loginAt, logout: day.logoutAt };
+  day.loginAt = loginISO;
+  day.logoutAt = logoutISO;
+  day.secondsWorked = logoutISO ? Math.min(Math.round((new Date(logoutISO) - new Date(loginISO)) / 1000), 16 * 3600) : 0;
+  day.editedBy = req.employee.id;
+  day.editedAt = new Date().toISOString();
+  if (date === today) { // keep today's live clock in step with the record
+    if (logoutISO) { st.punchedOut = true; st.punchedInAt = null; st.seconds = day.secondsWorked; }
+    else { st.punchedOut = false; st.punchedInAt = new Date(loginISO).getTime(); st.seconds = 0; }
+  }
+  logEvent(state, emp.id, `Attendance for ${date} corrected by <b>${escHtml(req.employee.name)}</b>: login ${_fmtNZTime(before.login)} → ${_fmtNZTime(loginISO)}, logout ${_fmtNZTime(before.logout)} → ${_fmtNZTime(logoutISO)} (NZ time).`);
+  if (req.employee.id !== emp.id) logEvent(state, req.employee.id, `Corrected <b>${escHtml(emp.name)}</b>'s attendance for ${date}.`);
+  db.save();
+  res.json({ ok: true, date, loginAt: day.loginAt, logoutAt: day.logoutAt, hours: Math.round(day.secondsWorked / 36) / 100 });
+});
+
 // ---------------------------------------------------------------------------
 // P5 — BIOMETRIC / ATTENDANCE-API INGESTION. Shared-secret, not a user
 // session — a device or an HR system pushes one person-day at a time.
