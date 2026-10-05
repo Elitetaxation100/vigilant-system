@@ -921,6 +921,7 @@
   .src-tag.slack{ background:#7C6CF616; color:#5B4FCF; }
   .src-tag.manual{ background:#00000008; color:var(--text-faint); border:1px solid var(--panel-border); }
   .src-tag.whatsapp{ background:#25D36616; color:#1DA851; }
+  .src-tag.crm{ background:#0E7E9316; color:var(--teal); border:1px solid var(--panel-border); }
   .src-subtabs{ display:flex; gap:6px; margin-bottom:16px; flex-wrap:wrap; }
   .src-subtab{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; font-weight:600; padding:7px 13px; border-radius:20px; transition:.15s; }
   .src-subtab:hover{ border-color:var(--purple); color:#6D28D9; }
@@ -1372,6 +1373,7 @@
             <button class="src-subtab on" data-src="all" onclick="setAdminSrc('all', this)">All <span class="ct" id="adminCtAll">0</span></button>
             <button class="src-subtab" data-src="call" onclick="setAdminSrc('call', this)">☎ Call tasks <span class="ct" id="adminCtCall">0</span></button>
             <button class="src-subtab" data-src="slack_message" onclick="setAdminSrc('slack_message', this)">⌗ Slack tasks <span class="ct" id="adminCtSlack">0</span></button>
+            <button class="src-subtab" data-src="crm" onclick="setAdminSrc('crm', this)">⇄ CRM tasks <span class="ct" id="adminCtCrm">0</span></button>
             <button class="src-subtab" data-src="manual" onclick="setAdminSrc('manual', this)">✎ Manual <span class="ct" id="adminCtManual">0</span></button>
           </div>
           <div class="filter-row">
@@ -1398,6 +1400,14 @@
             </thead>
             <tbody id="adminTaskTableBody"></tbody>
           </table>
+        </div>
+
+        <div class="panel" id="crmConnPanel" style="display:none;">
+          <div class="panel-head">
+            <h2>CRM connection</h2>
+            <div class="panel-head-actions"><button class="btn small" onclick="loadCrmConnection()">Refresh</button></div>
+          </div>
+          <div id="crmConnBody" style="padding:4px 2px;"></div>
         </div>
       </section>
 
@@ -4319,7 +4329,7 @@ function showView(id, el){
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
-  if(id === 'admin') renderAdminView();
+  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); }
   if(id === 'teamboard') renderTeamBoard();
   if(id === 'whatsapp') renderWhatsAppView();
   if(['manager','teamboard','founder','command'].includes(id)){
@@ -4346,7 +4356,57 @@ function srcTag(source){
   if(source === 'call') return '<span class="src-tag call">☎ call</span>';
   if(source === 'slack_message') return '<span class="src-tag slack">⌗ slack</span>';
   if(source === 'whatsapp') return '<span class="src-tag whatsapp">💬 whatsapp</span>';
+  if(source === 'crm') return '<span class="src-tag crm">⇄ crm</span>';
   return '<span class="src-tag manual">✎ manual</span>';
+}
+/* ---- CRM connection (superadmin): what the CRM has sent and what became of it ---- */
+async function loadCrmConnection(){
+  const panel = document.getElementById('crmConnPanel');
+  if(!panel) return;
+  if(!isSuperAdmin){ panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  const body = document.getElementById('crmConnBody');
+  let d;
+  try { d = await api('/api/admin/crm-sync'); }
+  catch(e){ body.innerHTML = '<div style="color:var(--coral);">Could not load the CRM connection: ' + esc(e.message) + '</div>'; return; }
+  const labels = { customer:'Clients', user:'People', task:'Tasks', attendance:'Attendance' };
+  const ago = iso => {
+    if(!iso) return 'nothing received yet';
+    const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+    return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
+  };
+  const tone = o => o === 'ok' ? 'var(--teal)' : o === 'skipped' ? 'var(--amber)' : 'var(--coral)';
+  const cards = d.endpoints.map(ep => {
+    const c = d.counts[ep.kind] || {};
+    const last = c.last;
+    return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;min-width:0;">'
+      + '<div style="font-weight:700;">' + labels[ep.kind] + '</div>'
+      + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 8px;">' + (last ? 'Last: ' + ago(last.at) : 'Nothing received yet') + '</div>'
+      + '<div style="font-size:12.5px;display:flex;gap:10px;flex-wrap:wrap;">'
+      + '<span style="color:var(--teal);">' + (c.ok || 0) + ' worked</span>'
+      + '<span style="color:var(--amber);">' + (c.skipped || 0) + ' skipped</span>'
+      + '<span style="color:var(--coral);">' + (c.error || 0) + ' failed</span></div></div>';
+  }).join('');
+  const urls = d.endpoints.map(ep => '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;"><span style="width:84px;color:var(--text-dim);">' + labels[ep.kind] + '</span><code style="word-break:break-all;">' + esc(ep.url) + '</code></div>').join('');
+  const rows = d.events.slice(0, 25).map(e => '<tr>'
+    + '<td style="white-space:nowrap;color:var(--text-faint);">' + esc(ago(e.at)) + '</td>'
+    + '<td>' + esc(labels[e.kind] || e.kind) + ' <span style="color:var(--text-faint);">' + esc(e.type || '') + '</span></td>'
+    + '<td style="color:' + tone(e.outcome) + ';font-weight:600;">' + esc(e.outcome) + '</td>'
+    + '<td>' + esc(e.note || '') + (e.keys ? '<div style="font-size:11px;color:var(--text-faint);font-family:var(--font-mono);word-break:break-word;">fields: ' + esc(e.keys.join(', ')) + '</div>' : '') + '</td></tr>').join('');
+  body.innerHTML =
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">'
+    + '<span>' + (d.configured.webhookSecret ? '✓' : '✗') + ' Shared secret ' + (d.configured.webhookSecret ? 'set' : '<b style="color:var(--coral);">not set — the CRM cannot send anything</b>') + '</span>'
+    + '<span>' + (d.configured.apiKey ? '✓' : '–') + ' CRM API key ' + (d.configured.apiKey ? 'set' : 'not set (links back to the CRM are skipped)') + '</span>'
+    + '<span>' + d.linked.people + ' of ' + d.linked.peopleTotal + ' people linked to a CRM user</span>'
+    + '<span>' + d.linked.clients + ' of ' + d.linked.clientsTotal + ' clients linked to a CRM contact</span></div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;">' + cards + '</div>'
+    + (d.linked.unlinkedPeople.length ? '<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:12px;">Not linked yet (CRM tasks and attendance for them are skipped): ' + esc(d.linked.unlinkedPeople.join(', ')) + '</div>' : '')
+    + '<div style="font-weight:700;margin:6px 0;">Recent events</div>'
+    + (rows ? '<div style="overflow-x:auto;"><table><thead><tr><th>When</th><th>What</th><th>Result</th><th>Detail</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+             : '<div style="color:var(--text-faint);font-size:13px;">Nothing has arrived from the CRM yet. Give the web addresses below, and the shared secret, to whoever manages the CRM.</div>')
+    + '<details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:600;">Web addresses for the CRM team</summary>'
+    + '<div style="display:grid;gap:6px;margin-top:8px;font-size:13px;">' + urls + '</div>'
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin-top:8px;">Each is a Database Webhook (POST) that sends the header <code>X-CRM-Webhook-Secret</code>. The secret is the CRM_WEBHOOK_SECRET value on Railway — share it with the CRM team directly, not in chat.</div></details>';
 }
 function setAdminSrc(src, el){
   adminSrcFilter = src;
@@ -4370,6 +4430,7 @@ function renderAdminView(){
   setTxt('adminCtCall', bySrc('call'));
   setTxt('adminCtSlack', bySrc('slack_message'));
   setTxt('adminCtManual', bySrc('manual'));
+  setTxt('adminCtCrm', bySrc('crm'));
 
   const openish = all.filter(t => t.status !== 'completed');
   setTxt('adminStatOpen', openish.length);
@@ -4396,7 +4457,7 @@ function renderAdminView(){
   grid.innerHTML = rows.map(t => {
     const a = empById(t.assignedTo);
     const overdue = t.status !== 'completed' && t.internalDeadline && t.internalDeadline < todayISO();
-    const isIntegration = (t.source || 'manual') !== 'manual';
+    const isIntegration = !['manual','crm'].includes(t.source || 'manual');
     let actions = '';
     if(isIntegration && t.status !== 'completed'){
       if(isAdmin || t.assignedTo === currentViewerId){

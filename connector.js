@@ -17,6 +17,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
 const cal = require('./calendar');
+const crmSync = require('./crm-sync');
 
 const cfg = () => ({
   slackBotToken: process.env.SLACK_BOT_TOKEN || '',
@@ -2596,60 +2597,79 @@ function startSchedulers() {
 // are our best read of the CRM's own UI, not its confirmed schema — verify
 // against a real payload (check the Railway logs after the CRM side sends
 // its first webhook) and adjust here if their actual column names differ.
-// A DELETE is logged but never acted on — we don't auto-remove a client or
+// A DELETE is recorded but never acted on — we don't auto-remove a client or
 // an employee's login just because a CRM row disappeared.
+// Four webhooks: customer → client, user → employee, task → a task to accept,
+// attendance → the attendance log. Every event, and what became of it, is
+// recorded in state.crmSync (field NAMES only) for Admin → CRM connection.
 // ---------------------------------------------------------------------------
+// Find the employee a CRM user reference points at: the CRM user id we stored
+// first, then the work email.
+function crmEmployee(state, who) {
+  if (!who) return null;
+  if (who.crmUserId) {
+    const e = (state.employees || []).find(x => x.crmUserId && String(x.crmUserId) === String(who.crmUserId));
+    if (e) return e;
+  }
+  if (who.email) return (state.employees || []).find(x => x.email && x.email.toLowerCase() === who.email) || null;
+  return null;
+}
+
 async function handleCrmCustomer(payload) {
-  // TEMPORARY — logging the raw payload so we can read the CRM's real
-  // column names off Railway once it sends its first real webhook, instead
-  // of guessing. Remove this line once the field mapping below is confirmed
-  // and adjusted to match.
-  clog('info', 'crm-customer RAW payload (temp debug)', payload);
-  const row = payload && payload.record;
-  const type = payload && payload.type;
-  if (!row || !row.id) { clog('warn', 'crm-customer payload missing record.id', { payload }); return; }
-  if (type === 'DELETE') { clog('info', 'crm customer delete — leaving the client as-is', { crmId: row.id }); return; }
+  const ev = crmSync.normalizeEvent(payload);
+  const row = ev.row;
+  const keys = Object.keys(row || {});
+  if (!row || !row.id) { crmSync.record(db.get(), 'customer', ev.type, 'error', 'no record id in the payload', null, keys); clog('warn', 'crm-customer payload missing record.id', { keys }); db.save(); return; }
+  if (ev.type === 'DELETE') { crmSync.record(db.get(), 'customer', ev.type, 'skipped', 'deleted in the CRM — client left as it is', row.id, keys); db.save(); return; }
   const state = db.get();
   state.clients = state.clients || [];
-  const name = String(row.name || row.full_name || 'Unnamed').trim();
+  const name = String(row.name || row.full_name || crmSync.pick(row, ['company_name', 'display_name']) || 'Unnamed').trim();
   const email = row.email ? String(row.email).trim() : null;
   const phone = row.phone ? String(row.phone).trim() : null;
   const category = row.category ? String(row.category).trim() : null;
+  // Who looks after this customer in the CRM — only used to fill an EMPTY
+  // owner here, never to take a client away from someone.
+  const owner = crmEmployee(state, {
+    crmUserId: crmSync.pick(row, ['owner_id', 'assigned_to', 'account_manager_id', 'relationship_manager_id', 'assigned_user_id']),
+    email: crmSync.pick(row, ['owner_email', 'assigned_to_email', 'account_manager_email']),
+  });
   let client = state.clients.find(c => c.crmContactId === row.id);
+  let created = false;
   if (client) {
     client.name = name; client.email = email; client.phone = phone;
     if (category) client.type = category;
+    if (!client.ownerId && owner) client.ownerId = owner.id;
   } else {
+    created = true;
     client = {
       id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000),
       name, email, phone, type: category,
-      ownerId: null, addedBy: null,
+      ownerId: owner ? owner.id : null, addedBy: null,
       crmContactId: row.id,
     };
     state.clients.push(client);
   }
+  crmSync.record(state, 'customer', ev.type, 'ok', (created ? 'client added: ' : 'client updated: ') + name, row.id, keys);
   db.save();
-  clog('info', 'crm customer synced', { crmId: row.id, clientId: client.id, type });
 
   // Write our client id back onto the CRM's own contact record, so it's
-  // visible from either side — not just us knowing their id. Best-effort:
-  // the sync above already saved regardless of whether this succeeds.
-  const link = await crmApi('update-contact', { id: row.id, task_manager_client_id: client.id });
-  if (link.ok) clog('info', 'crm customer link-back ok', { crmId: row.id, clientId: client.id });
-  else clog('warn', 'crm customer link-back failed', { crmId: row.id, clientId: client.id, why: link.error });
+  // visible from either side. Best-effort: the sync above is already saved.
+  if (created) {
+    const link = await crmApi('update-contact', { id: row.id, task_manager_client_id: client.id });
+    if (!link.ok) clog('warn', 'crm customer link-back failed', { crmId: row.id, clientId: client.id, why: link.error });
+  }
 }
 
 async function handleCrmUser(payload) {
-  // TEMPORARY — see matching comment in handleCrmCustomer above.
-  clog('info', 'crm-user RAW payload (temp debug)', payload);
-  const row = payload && payload.record;
-  const type = payload && payload.type;
-  if (!row || !row.id) { clog('warn', 'crm-user payload missing record.id', { payload }); return; }
-  if (type === 'DELETE') { clog('info', 'crm user delete — leaving the login as-is', { crmId: row.id }); return; }
+  const ev = crmSync.normalizeEvent(payload);
+  const row = ev.row;
+  const keys = Object.keys(row || {});
   const state = db.get();
+  if (!row || !row.id) { crmSync.record(state, 'user', ev.type, 'error', 'no record id in the payload', null, keys); db.save(); return; }
+  if (ev.type === 'DELETE') { crmSync.record(state, 'user', ev.type, 'skipped', 'removed in the CRM — login left as it is', row.id, keys); db.save(); return; }
   const name = String(row.name || row.full_name || 'Unnamed').trim();
   const email = row.email ? String(row.email).trim().toLowerCase() : null;
-  if (!email) { clog('warn', 'crm-user webhook has no email — skipping', { crmId: row.id }); return; }
+  if (!email) { crmSync.record(state, 'user', ev.type, 'skipped', 'user has no email', row.id, keys); db.save(); return; }
   const slackUserId = row.slack_user_id || row.slackUserId || null;
 
   let emp = state.employees.find(e => e.crmUserId === row.id);
@@ -2658,8 +2678,15 @@ async function handleCrmUser(payload) {
     emp.name = name;
     emp.crmUserId = row.id;
     if (slackUserId && !emp.slackUserId) emp.slackUserId = slackUserId;
+    crmSync.record(state, 'user', ev.type, 'ok', 'existing person updated: ' + emp.name, row.id, keys);
     db.save();
-    clog('info', 'crm user synced (existing employee updated)', { crmId: row.id, employeeId: emp.id });
+    return;
+  }
+  // Someone we deliberately removed (left the firm) must never be re-created
+  // just because the CRM still lists them.
+  if (db.RETIRED_EMAILS && db.RETIRED_EMAILS.has(email)) {
+    crmSync.record(state, 'user', ev.type, 'skipped', 'retired person — not re-created', row.id, keys);
+    db.save();
     return;
   }
 
@@ -2678,14 +2705,132 @@ async function handleCrmUser(payload) {
     mustChangePassword: true,
   };
   state.employees.push(newEmp);
+  crmSync.record(state, 'user', ev.type, 'ok', 'new person added: ' + name + (slackUserId ? ' (login sent on Slack)' : ' (no Slack — login must be handed over by hand)'), row.id, keys);
   db.save();
-  clog('info', 'crm user synced (new employee created)', { crmId: row.id, employeeId: id, slackLinked: !!slackUserId });
   if (slackUserId) {
     await dm(slackUserId,
       `👋 Welcome! A login for *Elite Taxation Governance OS* has been created for you.\n\n*Email:* ${email}\n*Temporary password:* \`${tempPassword}\`\n\nYou'll be asked to set your own password the first time you log in.`);
   } else {
     clog('warn', 'new crm-synced employee has no linked Slack — temp password could not be delivered, needs manual handoff', { employeeId: id, email });
   }
+}
+
+// A task someone creates in the CRM lands here as a task for the assignee to
+// ACCEPT (or propose another date), exactly like a task a colleague assigns
+// them. Anything the CRM leaves out gets a safe default that is said out loud
+// in the task's scope, so nobody is surprised by it.
+async function handleCrmTask(payload) {
+  const ev = crmSync.normalizeEvent(payload);
+  const row = ev.row;
+  const keys = Object.keys(row || {});
+  const state = db.get();
+  const t = crmSync.mapTask(row);
+  const rec = (outcome, note) => { crmSync.record(state, 'task', ev.type, outcome, note, t.crmTaskId, keys); db.save(); };
+  if (!t.crmTaskId) return rec('error', 'no record id in the payload');
+  if (ev.type === 'DELETE') return rec('skipped', 'deleted in the CRM — the task here is left as it is');
+
+  const existing = (state.tasks || []).find(x => x.source === 'crm' && x.sourceRef === t.crmTaskId);
+  if (existing) {
+    // Only an untouched task follows the CRM — once someone has accepted it,
+    // the plan belongs to them and the CRM must not rewrite it underneath.
+    if (existing.status !== 'awaiting_acceptance') return rec('skipped', 'already accepted here — not changed');
+    if (t.title) existing.name = t.title.slice(0, 200);
+    if (t.due && t.due >= nzToday()) existing.internalDeadline = t.due;
+    if (t.hours > 0 && t.hours <= 100) existing.tat = Math.max(0.25, Math.round(t.hours * 4) / 4);
+    return rec('ok', 'task updated');
+  }
+  if (!t.title) return rec('error', 'task has no title');
+  if (/^(done|complete|completed|closed|cancelled|canceled)$/.test(t.status || '')) return rec('skipped', 'already ' + t.status + ' in the CRM — not brought across');
+
+  const assignee = crmEmployee(state, t.assignee);
+  if (!assignee) return rec('skipped', 'the person it is assigned to is not linked to a login here (CRM user ' + (t.assignee.crmUserId || t.assignee.email || 'not given') + ')');
+  const creator = crmEmployee(state, t.creator);
+
+  const today = nzToday();
+  const notes = [];
+  let tat = t.hours > 0 ? Math.max(0.25, Math.round(Math.min(t.hours, 100) * 4) / 4) : null;
+  if (tat == null) { tat = 1; notes.push('no estimate was set in the CRM, so 1 hour is assumed'); }
+  let due = t.due;
+  if (!due) { due = cal.addWorkingDays(today, 1); notes.push('no due date was set in the CRM, so the next working day is assumed'); }
+  else if (due < today) { notes.push('the CRM due date (' + due + ') had already passed'); due = today; }
+
+  let client = null;
+  if (t.client.crmContactId) client = (state.clients || []).find(c => c.crmContactId && String(c.crmContactId) === t.client.crmContactId) || null;
+  if (!client && t.client.name) client = (state.clients || []).find(c => c.name && c.name.toLowerCase() === t.client.name.toLowerCase()) || null;
+
+  const status = creator && creator.id === assignee.id ? 'accepted' : 'awaiting_acceptance';
+  state.taskSeq = (state.taskSeq || 100) + 1;
+  const now = new Date().toISOString();
+  const scope = [t.note || '', notes.length ? '(From the CRM — ' + notes.join('; ') + '. Adjust when you accept.)' : ''].filter(Boolean).join('\n\n') || '—';
+  const task = {
+    id: '#' + (100000000000 + state.taskSeq), name: t.title.slice(0, 200), scope,
+    kind: client ? 'client' : 'internal', team: assignee.team || null,
+    clientId: client ? client.id : null, clientName: client ? client.name : (t.client.name || ''),
+    internalRef: null,
+    clientDate: null, clientDateOverride: false, internalDeadline: due,
+    points: 0, assignedTo: assignee.id, assignedBy: creator ? creator.id : null,
+    assignedAt: now, reassignHistory: [], status,
+    logged: 0, tat, acceptedAt: status === 'accepted' ? now : null,
+    timerStartedAt: null, startedAt: null, completedAt: null,
+    reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
+    reviewerId: null, closedBy: null, closedAt: null, awaitingClientDecision: false, sentToClient: null, sentToClientAt: null, sentToClientBy: null,
+    sheetLink: null, cashbookLink: null, profitConfirmStatus: null, profitConfirmRequestedAt: null, profitConfirmRequestedBy: null, profitConfirmAt: null, profitConfirmBy: null,
+    productivityAllocatedHoursSnapshot: status === 'accepted' ? tat : null,
+    reportDeliveryStatus: null, reportDeliveryChannel: null, reportDeliveryReference: null,
+    reportDeliveryWaivedReason: null, reportDeliveryWaivedBy: null, reportDeliveryWaivedAt: null,
+    noReviewAuthorizedBy: null, noReviewAuthorizedAt: null, noReviewAuthorizedReason: null,
+    reworkStartedAt: null, faultType: null, reworkHistory: [], holdReasonCode: null,
+    dateHistory: [], tatHistory: [], queries: [], overAllocated: null,
+    source: 'crm', sourceRef: t.crmTaskId,
+  };
+  state.tasks.unshift(task);
+  const { logEvent, notify, escHtml } = require('./server');
+  logEvent(state, assignee.id, `Task created in the CRM — "${escHtml(task.name)}"${client ? ' for <b>' + escHtml(client.name) + '</b>' : ''}.`);
+  if (status === 'awaiting_acceptance') notify(state, assignee.id, 'assigned', `${creator ? creator.name : 'The CRM'} assigned you "${task.name}" — accept it or propose a new date.`, task.id);
+  rec('ok', 'task created for ' + assignee.name + (client ? ' · client ' + client.name : ' · no client matched') + (notes.length ? ' · ' + notes.length + ' default(s) applied' : ''));
+}
+
+// The CRM becomes the source of truth for who was in and for how long. One row
+// per person per day is written into the same attendance log the rest of the
+// app already reads (capacity, leave, report card). An approved leave day wins
+// — the reading is kept as a note, not applied.
+async function handleCrmAttendance(payload) {
+  const ev = crmSync.normalizeEvent(payload);
+  const row = ev.row;
+  const keys = Object.keys(row || {});
+  const state = db.get();
+  const a = crmSync.mapAttendance(row);
+  const rec = (outcome, note) => { crmSync.record(state, 'attendance', ev.type, outcome, note, a.crmAttendanceId, keys); db.save(); };
+  if (ev.type === 'DELETE') return rec('skipped', 'deleted in the CRM — the attendance here is left as it is');
+  const emp = crmEmployee(state, a.user);
+  if (!emp) return rec('skipped', 'not linked to a login here (CRM user ' + (a.user.crmUserId || a.user.email || 'not given') + ')');
+  const date = a.date || (a.inISO ? crmSync.toDay(a.inISO) : null);
+  if (!date) return rec('error', 'no date on the attendance row');
+
+  const inISO = a.inISO || (a.inTime ? crmSync.nzLocalToISO(date, a.inTime) : null);
+  const outISO = a.outISO || (a.outTime ? crmSync.nzLocalToISO(date, a.outTime) : null);
+  let seconds = a.seconds;
+  if (seconds == null || !(seconds >= 0)) seconds = (inISO && outISO) ? Math.max(0, (new Date(outISO) - new Date(inISO)) / 1000) : 0;
+  seconds = Math.min(Math.round(seconds), 16 * 3600);
+
+  state.attendance = state.attendance || {};
+  state.attendance[emp.id] = state.attendance[emp.id] || {};
+  const day = state.attendance[emp.id][date] || { loginAt: null, logoutAt: null, secondsWorked: 0 };
+  day.crmReading = { in: inISO, out: outISO, seconds, at: new Date().toISOString() };
+  const { logEvent } = require('./server');
+  const onLeave = (state.leaveRequests || []).find(l => l.employeeId === emp.id && l.status === 'approved' && l.from <= date && l.to >= date);
+  if (onLeave) {
+    day.note = 'CRM recorded a shift on an approved leave day — not applied to capacity.';
+    state.attendance[emp.id][date] = day;
+    logEvent(state, emp.id, `The CRM recorded a shift on an approved leave day (${date}) — kept for review, not applied.`);
+    return rec('skipped', emp.name + ' ' + date + ': approved leave day — kept as a note');
+  }
+  day.loginAt = inISO || day.loginAt;
+  day.logoutAt = outISO || day.logoutAt;
+  day.secondsWorked = seconds;
+  day.source = 'crm';
+  state.attendance[emp.id][date] = day;
+  rec('ok', emp.name + ' ' + date + ': ' + (Math.round(seconds / 36) / 100) + 'h' + (outISO ? '' : ' (still in)'));
 }
 
 // ---------------------------------------------------------------------------
@@ -2948,21 +3093,27 @@ function mountConnector(app) {
   // CRM (crm.elitetaxation.co.nz) sync — a Supabase Database Webhook on the
   // CRM's customers table and its users table, each pointed at one of these
   // two URLs with header X-CRM-Webhook-Secret: <CRM_WEBHOOK_SECRET>.
-  app.post('/webhooks/crm-customer', (req, res) => {
+
+  const crmRoute = (kind, handler) => app.post('/webhooks/crm-' + kind, (req, res) => {
     const v = verifyCrm(req);
-    if (!v.ok) { clog('warn', 'crm-customer webhook rejected', { why: v.why }); return res.status(401).json({ error: v.why }); }
+    if (!v.ok) {
+      try { crmSync.record(db.get(), kind, '—', 'error', 'rejected: ' + v.why, null, null); db.save(); } catch (e) {}
+      clog('warn', 'crm-' + kind + ' webhook rejected', { why: v.why });
+      return res.status(401).json({ error: v.why });
+    }
     res.status(200).json({ ok: true });
-    handleCrmCustomer(req.body).catch(e => clog('error', 'crm-customer handler threw: ' + (e && e.stack || e)));
+    handler(req.body).catch(e => {
+      try { crmSync.record(db.get(), kind, '—', 'error', 'handler failed: ' + String(e && e.message || e), null, null); db.save(); } catch (e2) {}
+      clog('error', 'crm-' + kind + ' handler threw: ' + (e && e.stack || e));
+    });
   });
-  app.post('/webhooks/crm-user', (req, res) => {
-    const v = verifyCrm(req);
-    if (!v.ok) { clog('warn', 'crm-user webhook rejected', { why: v.why }); return res.status(401).json({ error: v.why }); }
-    res.status(200).json({ ok: true });
-    handleCrmUser(req.body).catch(e => clog('error', 'crm-user handler threw: ' + (e && e.stack || e)));
-  });
+  crmRoute('customer', handleCrmCustomer);
+  crmRoute('user', handleCrmUser);
+  crmRoute('task', handleCrmTask);
+  crmRoute('attendance', handleCrmAttendance);
 
   startSchedulers();
-  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,run-digest,run-personal-digest,run-reminders,run-calls-email-digest,log,health}');
+  console.log('[connector] routes mounted: /webhooks/{aircall,interakt,slack/events,slack/interactivity,crm-customer,crm-user,crm-task,crm-attendance,run-digest,run-personal-digest,run-reminders,run-calls-email-digest,log,health}');
 }
 
 module.exports = {

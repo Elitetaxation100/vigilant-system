@@ -903,6 +903,7 @@ module.exports = {
   logTaskEvent,
   remindersForTask,
   TAXONOMY_SEED,
+  RETIRED_EMAILS,
   PII_EMAIL_RE,
   PII_PHONE_RE,
   _mode: () => (pgActive ? 'postgres' : 'file'),

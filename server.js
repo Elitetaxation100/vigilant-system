@@ -1448,6 +1448,28 @@ app.post('/webhooks/crm-policy-compliance', (req, res) => {
   res.json({ ok: true, employee_id: result.employee.id, linked_by_email: result.linkedByEmail,
     compliant: result.employee.policyCompliance.compliant, pending_count: result.employee.policyCompliance.pendingCount });
 });
+// Admin → CRM connection: what the CRM has sent us, what became of each event,
+// and how many people / clients are linked. Superadmin only. Shows field NAMES
+// from the CRM payloads (never values) so a wrong column guess is visible.
+app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const sync = state.crmSync || { events: [], counts: {} };
+  const base = (process.env.APP_BASE_URL || (req.protocol + '://' + req.get('host'))).replace(/\/$/, '');
+  const emps = state.employees || [];
+  const clients = (state.clients || []);
+  res.json({
+    configured: { webhookSecret: !!process.env.CRM_WEBHOOK_SECRET, apiKey: !!process.env.CRM_API_KEY },
+    endpoints: ['customer', 'user', 'task', 'attendance'].map(k => ({ kind: k, url: base + '/webhooks/crm-' + k })),
+    counts: sync.counts || {},
+    events: sync.events || [],
+    linked: {
+      people: emps.filter(e => e.crmUserId).length, peopleTotal: emps.length,
+      unlinkedPeople: emps.filter(e => !e.crmUserId).map(e => e.name),
+      clients: clients.filter(c => c.crmContactId).length, clientsTotal: clients.length,
+    },
+  });
+});
 // Anyone can add a client — an employee adding their own contact defaults to
 // owning it. Only an admin can hand ownership to someone else.
 app.post('/api/clients', requireAuth, (req, res) => {
