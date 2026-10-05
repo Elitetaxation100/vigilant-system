@@ -1610,7 +1610,7 @@
           <div class="panel-head">
             <h2>Daily Login / Logout Log</h2>
           </div>
-          <p style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every employee logs in (Punch In) and out (Punch Out) once per working day. A day with no record means they never logged in — used to flag absence and to adjust productivity against actual shift hours. If someone punches out by mistake, use <b>Reopen</b> to unlock their day, or <b>Edit</b> to correct a login or logout time. <b>All times are New Zealand time.</b></p>
+          <p id="attIntro" style="font-size:14px; color:var(--text-dim); margin-bottom:14px;">Every employee logs in (Punch In) and out (Punch Out) once per working day. A day with no record means they never logged in — used to flag absence and to adjust productivity against actual shift hours. If someone punches out by mistake, use <b>Reopen</b> to unlock their day, or <b>Edit</b> to correct a login or logout time. <b>All times are New Zealand time.</b></p>
           <table>
             <thead><tr><th>Employee</th><th>Today's Status</th><th>Today Login</th><th>Today Logout</th><th>Last 14 Days</th><th></th></tr></thead>
             <tbody id="attendanceTableBody"></tbody>
@@ -1647,7 +1647,7 @@
 
       <!-- ===================== TIME OFF ===================== -->
       <section class="view" id="view-timeoff">
-        <div class="panel" style="margin-bottom:16px;">
+        <div class="panel" id="toBookPanel" style="margin-bottom:16px;">
           <div class="panel-head"><h2>Book time off</h2></div>
           <p style="font-size:13.5px; color:var(--text-dim); margin-bottom:12px;">Approved leave and half-days lower capacity for those days — the planner, workload and Productivity view all adjust automatically. A future week already reflects it, so assigning work stays realistic.</p>
           <div class="to-form">
@@ -4402,6 +4402,79 @@ function srcTag(source){
   if(source === 'crm') return '<span class="src-tag crm">⇄ crm</span>';
   return '<span class="src-tag manual">✎ manual</span>';
 }
+/* ---- ET-CRM cut-over: attendance / leave come from ET-CRM (switches in Admin → ET-CRM connection) ---- */
+let _crmMode = { attendanceFromCrm: false, leaveFromCrm: false };
+async function loadCrmMode(){
+  try { _crmMode = await api('/api/crm-mode'); } catch(e){ /* keep the last known mode */ }
+  applyClockMode();
+  applyLeaveMode();
+}
+// With attendance from ET-CRM there is no Punch In/Out here: the clock card keeps
+// only the Online/Offline status.
+function applyClockMode(){
+  const off = !!_crmMode.attendanceFromCrm;
+  const btn = document.getElementById('punchBtn'), disp = document.getElementById('clockDisplay');
+  const label = document.querySelector('.clock-card .clock-label');
+  if(btn) btn.style.display = off ? 'none' : '';
+  if(disp){ disp.style.display = off ? 'none' : ''; }
+  if(label){
+    label.textContent = off ? 'Attendance' : 'Time Clock';
+    let note = document.getElementById('clockCrmNote');
+    if(off && !note){ note = document.createElement('div'); note.id = 'clockCrmNote'; note.style.cssText = 'font-size:12px;color:var(--text-dim);margin:4px 0 8px;'; note.textContent = 'Recorded in ET-CRM — nothing to punch here.'; label.after(note); }
+    if(!off && note) note.remove();
+  }
+  if(off && clockInterval){ clearInterval(clockInterval); clockInterval = null; }
+  const intro = document.getElementById('attIntro');
+  if(intro && !intro.dataset.orig) intro.dataset.orig = intro.textContent;
+  if(intro) intro.textContent = off
+    ? 'Attendance now comes from ET-CRM, which is the source of truth. This log shows what ET-CRM has sent; a day is corrected in ET-CRM, not here.'
+    : intro.dataset.orig || intro.textContent;
+  if(typeof renderGuide === 'function') renderGuide();
+}
+// With leave from ET-CRM the booking form and the approvals box go; the list stays.
+function applyLeaveMode(){
+  const off = !!_crmMode.leaveFromCrm;
+  const book = document.getElementById('toBookPanel'), appr = document.getElementById('toApprovalsPanel');
+  if(book) book.style.display = off ? 'none' : '';
+  if(off && appr) appr.style.display = 'none';
+  const list = document.getElementById('toList');
+  if(list){
+    let note = document.getElementById('toCrmNote');
+    if(off && !note){ note = document.createElement('div'); note.id = 'toCrmNote'; note.style.cssText = 'font-size:13.5px;color:var(--text-dim);margin-bottom:10px;padding:10px 12px;border-radius:8px;background:var(--panel-2);'; note.innerHTML = '<b>Leave is managed in ET-CRM.</b> Book or change it there — approved leave shows here automatically and lowers capacity for those days.'; list.before(note); }
+    if(!off && note) note.remove();
+  }
+}
+async function crmSetCutover(kind, on){
+  const what = kind === 'attendance'
+    ? 'Punch In/Out will be switched OFF for everyone, manual attendance edits stop, and attendance comes only from ET-CRM. The "settle all tasks before you punch out" rule will no longer apply.'
+    : 'Booking, approving and changing leave here will be switched OFF; leave comes only from ET-CRM. Existing leave stays and keeps counting.';
+  if(on && !confirm('Switch ' + kind + ' to ET-CRM?\n\n' + what + '\n\nYou can switch it back at any time.')) return;
+  try {
+    await api('/api/admin/crm-sync/cutover', { method:'POST', body: JSON.stringify({ [kind]: on }) });
+    showToast('success', on ? 'ET-CRM is now the source' : 'Switched back to the Task Manager', kind);
+    await loadCrmMode();
+  } catch(e){ showToast('error', 'Could not switch', e.message); }
+  loadCrmConnection();
+}
+function crmCutoverHtml(d){
+  const c = d.cutover; if(!c) return '';
+  const row = (kind, title, c1, lines) => {
+    const state = c1.on ? '<b style="color:var(--teal);">ET-CRM is the source</b>' : '<b>Task Manager (current)</b>';
+    const ev = c1.events ? c1.events + ' event(s) received, last ' + crmAgo(c1.lastOk) : '<span style="color:var(--amber);">nothing received from ET-CRM yet</span>';
+    const btn = c1.on
+      ? '<button class="btn small" onclick="crmSetCutover(\'' + kind + '\', false)">Switch back to the Task Manager</button>'
+      : '<button class="btn small primary" ' + (c1.ready ? '' : 'disabled title="Turns on once real ' + kind + ' has arrived from ET-CRM"') + ' onclick="crmSetCutover(\'' + kind + '\', true)">Make ET-CRM the source</button>';
+    return '<div style="padding:10px 0;border-top:1px solid var(--panel-border);">'
+      + '<div style="font-weight:600;">' + title + ' &mdash; ' + state + '</div>'
+      + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 6px;">' + lines + '<br>' + ev + '</div>' + btn + '</div>';
+  };
+  return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">'
+    + '<div style="font-weight:700;">Cut-over: who is the source of truth?</div>'
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 4px;">Both start on the Task Manager. A switch only turns on after real data has arrived from ET-CRM, and can always be turned back.</div>'
+    + row('attendance', 'Attendance (Punch In/Out)', c.attendance, 'ON: no Punch In/Out, no manual attendance edits; the log shows what ET-CRM sends.')
+    + row('leave', 'Leave', c.leave, 'ON: leave can no longer be booked or approved here; it comes from ET-CRM and still lowers capacity.')
+    + '</div>';
+}
 /* ---- ET-CRM connection (superadmin) ----
    ET-CRM owns employees, customers, attendance, leave and policy compliance;
    the Task Manager owns tasks. This panel shows the health of each live link,
@@ -4562,6 +4635,7 @@ async function loadCrmConnection(){
     + '<div style="font-size:13px;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:var(--panel-2);">'
     + '<b>Legacy CRM Task Sync: Disabled.</b> Tasks live only in the Task Manager &mdash; nothing is imported from ET-CRM.'
     + (d.legacyTask.refused ? ' <span style="color:var(--amber);">' + d.legacyTask.refused + ' call(s) to the old task webhook were refused &mdash; remove that webhook in ET-CRM.</span>' : '') + '</div>'
+    + crmCutoverHtml(d)
     + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:14px;">' + cards + '</div>'
     + crmReconcileResultHtml(_crmReconcileLast)
     + crmUnlinkedHtml(d)
@@ -5093,6 +5167,7 @@ let _leaveRows = [];
 async function renderTimeOff(){
   const list = document.getElementById('toList');
   if(!list) return;
+  applyLeaveMode();
   const whoWrap = document.getElementById('toWhoWrap');
   if(isAdmin && whoWrap){
     // The founder can book (and add missed leave) for anyone, not just their own team.
@@ -5137,10 +5212,11 @@ async function renderTimeOff(){
   list.innerHTML = _leaveRows.length ? _leaveRows.map(l => {
     const mineOrManaged = l.employeeId === currentViewerId || l.createdBy === currentViewerId
       || (isAdmin && l.team === myTeamName());
-    const cancel = (mineOrManaged && ['pending','approved'].includes(l.status) && (l.to >= todayISO() || isSuperAdmin))
+    const editable = l.source !== 'crm' && (!_crmMode.leaveFromCrm || isSuperAdmin); // ET-CRM leave is changed in ET-CRM
+    const cancel = (editable && mineOrManaged && ['pending','approved'].includes(l.status) && (l.to >= todayISO() || isSuperAdmin))
       ? `<button class="btn-ghost btn-sm" onclick="cancelLeave('${l.id}')">Cancel</button>` : '';
     const target = empById(l.employeeId);
-    const canFull = !!(session && (session.isHr || isSuperAdmin)) && (l.halfDay || l.hours > 0) && ['pending','approved'].includes(l.status)
+    const canFull = editable && !!(session && (session.isHr || isSuperAdmin)) && (l.halfDay || l.hours > 0) && ['pending','approved'].includes(l.status)
       && !(target && target.isFounder && target.id !== currentViewerId);
     const fullBtn = canFull ? `<button class="btn-ghost btn-sm" onclick="makeFullDay('${l.id}')" title="Count this as a full day off">Make full day</button>` : '';
     const decided = (l.decidedAt && l.status !== 'pending') ? ` · ${l.status} ${fmtDate(l.decidedAt.slice(0,10))}` : '';
@@ -5272,6 +5348,7 @@ async function cancelLeave(id){
 async function loadPunchState(){
   try {
     const { punch } = await api('/api/punch/me');
+    if(punch.disabled){ _crmMode.attendanceFromCrm = true; applyClockMode(); return; }
     seconds = punch.liveSeconds;
     punching = punch.punching;
     punchedInAt = punch.punchedInAt;
@@ -5313,6 +5390,7 @@ function punchOutBlockers(){
   ));
 }
 async function togglePunch(){
+  if(_crmMode.attendanceFromCrm){ showToast('info', 'Attendance is in ET-CRM', 'There is no Punch In/Out here.'); return; }
   if(!session) return;
   // NON-NEGOTIABLE RULE: you can only punch out when every task is delivered
   // or explicitly on hold. Checked here for instant feedback; the server
@@ -8247,6 +8325,7 @@ function renderGuide(){
   if(!wrap) return;
   if(!session || guideDismissed() || isMirroring()){ wrap.innerHTML = ''; return; }
   const g = guideSteps();
+  if(_crmMode.attendanceFromCrm){ g.steps = g.steps.filter(x => x[0] !== 'Punch in'); if(/three/.test(g.title)) g.title = 'Your daily steps'; }
   wrap.innerHTML = `<div class="guide-card">
     <div class="guide-head"><b>👋 ${esc(g.title)}</b><button class="guide-x" onclick="dismissGuide()" title="Got it — hide this" aria-label="Hide the guide">Got it ✕</button></div>
     <div class="guide-steps">${g.steps.map((s, i) => `<div class="guide-step">
@@ -12633,6 +12712,7 @@ async function onLoginComplete(){
   await refreshKudosAnnouncements();
   initPushClient();
   await loadPunchState();
+  await loadCrmMode();
 
   // Everyone lands on My Dashboard now, admins included — it's already
   // fully populated by refreshTasks() above regardless of role, and

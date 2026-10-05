@@ -1515,6 +1515,7 @@ app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
     employeesToLink: emps.filter(e => !e.crmUserId).map(e => ({ id: e.id, name: e.name, email: e.email })),
     events: sync.events || [],
     pull: sync.pull || null, autoPull: !!sync.autoPull,
+    cutover: crmCutoverStatus(state),
   });
 });
 // Customers — preview (changes nothing) or apply. Same rule as the webhook.
@@ -4325,6 +4326,62 @@ app.post('/api/push/test', requireAuth, async (req, res) => {
   res.json({ ok: true, devices: subs.length });
 });
 
+
+// ---------------------------------------------------------------------------
+// ET-CRM CUT-OVER. ET-CRM is authoritative for attendance and leave. Until a
+// superadmin flips a switch (Admin → ET-CRM connection) the Task Manager's own
+// Punch In/Out and its own leave booking keep working exactly as before. Each
+// switch refuses to turn ON until real data of that kind has arrived from
+// ET-CRM, and can always be turned OFF again (instant rollback).
+//   attendance ON → no Punch In/Out, no manual attendance edits, no device ingest
+//   leave ON      → leave can no longer be booked / approved / changed here
+// Independently of the switches, a day that ET-CRM supplied is never
+// overwritten by a punch, an edit or a device reading.
+// ---------------------------------------------------------------------------
+function crmCutover(state) {
+  const c = (state && state.crmSync && state.crmSync.cutover) || {};
+  return { attendance: !!c.attendance, leave: !!c.leave };
+}
+const crmOwnsDay = day => !!day && day.source === 'crm';
+const CLOCK_BY_CRM = { code: 'CLOCK_MANAGED_BY_CRM', error: 'Attendance now comes from ET-CRM — there is no Punch In/Out here. Ask HR to correct a day in ET-CRM.' };
+const LEAVE_BY_CRM = { code: 'LEAVE_MANAGED_BY_CRM', error: 'Leave is managed in ET-CRM. Book or change it there — it shows here automatically once approved.' };
+function crmEvidence(state, kind) {
+  const c = (((state.crmSync || {}).counts) || {})[kind] || {};
+  return { events: (c.created || 0) + (c.updated || 0) + (c.ok || 0), lastOk: c.lastOk || null };
+}
+function crmCutoverStatus(state) {
+  const cut = crmCutover(state), s = (state.crmSync && state.crmSync.cutover) || {};
+  const part = (kind, on, at) => { const ev = crmEvidence(state, kind); return { on, at: at || null, events: ev.events, lastOk: ev.lastOk, ready: ev.events > 0 }; };
+  return { attendance: part('attendance', cut.attendance, s.attendanceAt), leave: part('leave', cut.leave, s.leaveAt) };
+}
+// What the browser needs to know to hide the clock / the leave form.
+app.get('/api/crm-mode', requireAuth, (req, res) => {
+  const cut = crmCutover(db.get());
+  res.json({ attendanceFromCrm: cut.attendance, leaveFromCrm: cut.leave });
+});
+app.post('/api/admin/crm-sync/cutover', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const sync = state.crmSync = state.crmSync || { events: [], counts: {} };
+  sync.cutover = sync.cutover || {};
+  const b = req.body || {};
+  const now = new Date().toISOString();
+  const labels = { attendance: 'attendance (Punch In/Out)', leave: 'leave booking' };
+  for (const kind of ['attendance', 'leave']) {
+    if (typeof b[kind] !== 'boolean') continue;
+    if (b[kind] && !crmEvidence(state, kind).events) {
+      return res.status(409).json({ error: `No ${kind} has arrived from ET-CRM yet, so ${labels[kind]} stays here. Switch on once a real ${kind} event has been received.` });
+    }
+    if (!!sync.cutover[kind] === b[kind]) continue;
+    sync.cutover[kind] = b[kind];
+    sync.cutover[kind + 'At'] = now;
+    sync.cutover.by = req.employee.id;
+    logEvent(state, req.employee.id, `Switched <b>${b[kind] ? 'ON' : 'OFF'}</b> ET-CRM as the source for ${labels[kind]}.`);
+  }
+  db.save();
+  res.json(crmCutoverStatus(state));
+});
+
 // ---------------------------------------------------------------------------
 // TIME CLOCK / DAILY ATTENDANCE — server-authoritative. The server owns
 // "now", not the browser, so punch times can't be faked or drift across
@@ -4353,11 +4410,13 @@ function getPunchState(state, empId) {
     // plus whatever accrued since the last punch-in into that day's
     // attendance record first, capped the same way attendance/ingest caps a
     // device reading, so a very stale record can't produce a bogus shift.
-    if (existing && existing.punchedInAt) {
+    if (existing && existing.punchedInAt && !crmCutover(state).attendance) {
       const seconds = Math.min(existing.seconds + Math.floor((Date.now() - existing.punchedInAt) / 1000), 16 * 3600);
       const day = getAttendanceDay(state, empId, existing.date);
-      if (!day.logoutAt) day.logoutAt = new Date().toISOString();
-      day.secondsWorked = seconds;
+      if (!crmOwnsDay(day)) {
+        if (!day.logoutAt) day.logoutAt = new Date().toISOString();
+        day.secondsWorked = seconds;
+      }
     }
     state.punchLog[empId] = { date: todayISO(), punchedOut: false, punchedInAt: null, seconds: 0 };
   }
@@ -4367,16 +4426,17 @@ app.get('/api/punch/me', requireAuth, (req, res) => {
   const state = db.get();
   const st = getPunchState(state, req.employee.id);
   const liveSeconds = st.punchedInAt ? st.seconds + Math.floor((Date.now() - st.punchedInAt) / 1000) : st.seconds;
-  res.json({ punch: { ...st, liveSeconds, punching: !!st.punchedInAt } });
+  res.json({ punch: { ...st, liveSeconds, punching: !!st.punchedInAt, disabled: crmCutover(state).attendance } });
 });
 app.post('/api/punch/toggle', requireAuth, (req, res) => {
   const state = db.get();
+  if (crmCutover(state).attendance) return res.status(409).json(CLOCK_BY_CRM);
   const st = getPunchState(state, req.employee.id);
   if (st.punchedOut) return res.status(409).json({ error: 'Already punched out for today.' });
   const day = getAttendanceDay(state, req.employee.id, todayISO());
   if (!st.punchedInAt) {
     st.punchedInAt = Date.now();
-    if (!day.loginAt) day.loginAt = new Date().toISOString();
+    if (!day.loginAt && !crmOwnsDay(day)) day.loginAt = new Date().toISOString();
   } else {
     // NON-NEGOTIABLE RULE: you can only punch out once every task is settled
     // — delivered, or explicitly put on hold with a reason. Anything left
@@ -4424,8 +4484,10 @@ app.post('/api/punch/toggle', requireAuth, (req, res) => {
     st.seconds += Math.floor((Date.now() - st.punchedInAt) / 1000);
     st.punchedInAt = null;
     st.punchedOut = true; // one punch in/out cycle per day, then locked
-    day.logoutAt = new Date().toISOString();
-    day.secondsWorked = st.seconds;
+    if (!crmOwnsDay(day)) { // a day ET-CRM supplied is never overwritten by a punch
+      day.logoutAt = new Date().toISOString();
+      day.secondsWorked = st.seconds;
+    }
   }
   db.save();
   const liveSeconds = st.punchedInAt ? st.seconds + Math.floor((Date.now() - st.punchedInAt) / 1000) : st.seconds;
@@ -4442,6 +4504,7 @@ app.post('/api/punch/toggle', requireAuth, (req, res) => {
 // either way, and the correction is written to the activity log.
 app.post('/api/punch/reopen', requireAuth, (req, res) => {
   const state = db.get();
+  if (crmCutover(state).attendance) return res.status(409).json(CLOCK_BY_CRM);
   const { employeeId, resumeClock } = req.body || {};
   if (!employeeId) return res.status(400).json({ error: 'Which person?' });
   const emp = findEmployee(state, employeeId);
@@ -4455,10 +4518,10 @@ app.post('/api/punch/reopen', requireAuth, (req, res) => {
   }
   const day = getAttendanceDay(state, employeeId, todayISO());
   st.punchedOut = false;
-  day.logoutAt = null;
+  if (!crmOwnsDay(day)) day.logoutAt = null;
   if (resumeClock) {
     st.punchedInAt = Date.now();
-    if (!day.loginAt) day.loginAt = new Date().toISOString();
+    if (!day.loginAt && !crmOwnsDay(day)) day.loginAt = new Date().toISOString();
   } else {
     st.punchedInAt = null;
   }
@@ -4494,7 +4557,7 @@ app.get('/api/attendance/all', requireAuth, requireSuperAdmin, (req, res) => {
       id: emp.id, name: emp.name, team: emp.team,
       loggedInNow: !!live.punchedInAt,
       loggedOutToday: !!live.punchedOut,
-      canReopen: canManageEmployee(state, me, emp.id),
+      canReopen: !crmCutover(state).attendance && canManageEmployee(state, me, emp.id),
       todayLoginAt: hist[today] ? hist[today].loginAt : null,
       todayLogoutAt: hist[today] ? hist[today].logoutAt : null,
       history: dates.map(d => ({
@@ -4526,6 +4589,7 @@ function nzLocalToISO(date, hhmm) {
 const _fmtNZTime = iso => iso ? new Date(iso).toLocaleTimeString('en-NZ', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit' }) : 'none';
 app.post('/api/attendance/edit', requireAuth, requireSuperAdmin, (req, res) => {
   const state = db.get();
+  if (crmCutover(state).attendance) return res.status(409).json(CLOCK_BY_CRM);
   const { employeeId, date, login, logout } = req.body || {};
   const emp = findEmployee(state, employeeId);
   if (!emp) return res.status(404).json({ error: 'Employee not found.' });
@@ -4545,6 +4609,7 @@ app.post('/api/attendance/edit', requireAuth, requireSuperAdmin, (req, res) => {
   }
   const st = getPunchState(state, emp.id); // flushes any stale mid-shift record first
   const day = getAttendanceDay(state, emp.id, date);
+  if (crmOwnsDay(day)) return res.status(409).json({ code: 'DAY_FROM_CRM', error: 'That day came from ET-CRM — correct it there.' });
   const before = { login: day.loginAt, logout: day.logoutAt };
   day.loginAt = loginISO;
   day.logoutAt = logoutISO;
@@ -4577,6 +4642,7 @@ app.post('/api/attendance/ingest', (req, res) => {
   if (!match) return res.status(401).json({ error: 'Bad ingest token.' });
 
   const state = db.get();
+  if (crmCutover(state).attendance) return res.status(409).json(CLOCK_BY_CRM);
   const b = req.body || {};
   const ref = String(b.employeeRef || '').trim();
   const date = (typeof b.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.date)) ? b.date.slice(0, 10) : null;
@@ -4598,6 +4664,7 @@ app.post('/api/attendance/ingest', (req, res) => {
 
   state.attendance[emp.id] = state.attendance[emp.id] || {};
   const rec = state.attendance[emp.id][date] || { loginAt: null, logoutAt: null, secondsWorked: 0 };
+  if (crmOwnsDay(rec)) return res.json({ applied: false, reason: 'day-from-crm', employeeId: emp.id, name: emp.name, date });
   rec.deviceReading = {
     firstIn: b.firstIn || null, lastOut: b.lastOut || null,
     seconds: Math.round(seconds), source: b.source || 'device', at: new Date().toISOString(),
@@ -4674,6 +4741,7 @@ app.get('/api/leave/conflicts', requireAuth, (req, res) => {
 });
 app.post('/api/leave', requireAuth, (req, res) => {
   const state = db.get();
+  if (crmCutover(state).leave) return res.status(409).json(LEAVE_BY_CRM);
   const me = req.employee;
   const b = req.body || {};
   const isDate = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -4731,6 +4799,7 @@ app.post('/api/leave', requireAuth, (req, res) => {
 });
 app.post('/api/leave/:id/decision', requireAuth, (req, res) => {
   const state = db.get();
+  if (crmCutover(state).leave) return res.status(409).json(LEAVE_BY_CRM);
   const me = req.employee;
   const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
   if (!l) return res.status(404).json({ error: 'Request not found.' });
@@ -4756,6 +4825,7 @@ app.post('/api/leave/:id/decision', requireAuth, (req, res) => {
 // changes their own). The record keeps who changed it and what it was before.
 app.post('/api/leave/:id/make-full-day', requireAuth, (req, res) => {
   const state = db.get();
+  if (crmCutover(state).leave) return res.status(409).json(LEAVE_BY_CRM);
   const me = req.employee;
   if (!me.isHr && me.accessRole !== 'superadmin') return res.status(403).json({ error: 'Only HR can change a half day into a full day.' });
   const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
@@ -4786,6 +4856,8 @@ app.post('/api/leave/:id/cancel', requireAuth, (req, res) => {
   const l = (state.leaveRequests || []).find(x => x.id === req.params.id);
   if (!l) return res.status(404).json({ error: 'Request not found.' });
   if (l.source === 'crm') return res.status(409).json({ error: 'This leave is managed in ET-CRM — change it there.' });
+  // Once ET-CRM owns leave, only a superadmin may tidy up an old local record.
+  if (crmCutover(state).leave && me.accessRole !== 'superadmin') return res.status(409).json(LEAVE_BY_CRM);
   if (['cancelled', 'rejected'].includes(l.status)) return res.status(409).json({ error: `Already ${l.status}.` });
   const mayCancel = l.employeeId === me.id || l.createdBy === me.id || canManageEmployee(state, me, l.employeeId);
   if (!mayCancel) return res.status(403).json({ error: 'Not yours to cancel.' });
