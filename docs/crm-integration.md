@@ -1,68 +1,191 @@
-# CRM ↔ Task Manager — setup for the CRM team
+# ET-CRM ↔ Task Manager — production integration contract
 
-The CRM stays the CRM. The Task Manager only **listens** to it: when something
-changes in the CRM, a Supabase Database Webhook tells the Task Manager, which
-updates itself. Nothing here changes how the CRM works.
+Who owns what:
 
-| In the CRM | What happens in the Task Manager |
+| ET-CRM is authoritative for | The Task Manager is authoritative for |
 |---|---|
-| A **user** is added / changed | The person gets (or keeps) a login. New people arrive as a plain *employee*; their temporary password is sent on Slack if the CRM user has a Slack id. People who have left the firm are never re-created. |
-| A **customer** is added / changed | The client appears (or is updated). If the CRM says who looks after them and the Task Manager has no owner yet, that person becomes the owner. We write our client id back to the contact (`task_manager_client_id`) when `CRM_API_KEY` is set. |
-| A **task** is created | A task appears for the assignee as **"needs acceptance"** — they accept it or propose another date, like any task a colleague assigns. Tasks already done in the CRM are not brought across. Once someone has accepted a task, later CRM edits no longer rewrite it. |
-| **Attendance** is recorded | The day's in/out and hours go into the Task Manager's attendance log, which drives capacity, leave and the report card. A day that is an approved leave day is kept as a note, not applied. |
+| Employees / users | **Tasks** and their status / workflow |
+| Customers (contacts) | Productivity and the capacity formula |
+| Attendance | Workshop Saturdays |
+| Leave | Task review, timers, report sending |
+| HR policy compliance | |
 
-Deleting something in the CRM never deletes it in the Task Manager.
+**There is no CRM task sync.** ET-CRM's own task management is decommissioned; the Task Manager is the permanent
+source of truth for tasks. The old `POST /webhooks/crm-task` is disabled (it answers `410`) and nothing is ever
+imported from it.
 
-## What the CRM team sets up
+## The five live webhooks (ET-CRM → Task Manager)
 
-Four Database Webhooks (Supabase → Database → Webhooks), method **POST**, one per table,
-all with the HTTP header `X-CRM-Webhook-Secret: <the shared secret>`:
+All are Supabase Database Webhooks: method **POST**, events **Insert + Update + Delete**, JSON body
+`{ "type": "INSERT|UPDATE|DELETE", "table": "...", "record": { ... }, "old_record": { ... } }`, and the header
 
-| Table | URL |
+```
+X-CRM-Webhook-Secret: <the shared secret>
+```
+
+The secret is compared in constant time. Missing or wrong → `401` and nothing is processed.
+
+| ET-CRM table | URL | Becomes |
+|---|---|---|
+| `crm_users` | `https://<task-manager>/webhooks/crm-user` | employee |
+| `contacts` | `https://<task-manager>/webhooks/crm-customer` | client |
+| `attendance_daily` | `https://<task-manager>/webhooks/crm-attendance` | attendance log |
+| leave requests | `https://<task-manager>/webhooks/crm-leave` | leave (capacity) |
+| policy compliance | `https://<task-manager>/webhooks/crm-policy-compliance` | compliance lock |
+
+Do **not** create a webhook for ET-CRM tasks.
+
+### Response codes (every webhook)
+
+| Code | Meaning |
 |---|---|
-| customers / contacts | `https://<task-manager-host>/webhooks/crm-customer` |
-| users / staff | `https://<task-manager-host>/webhooks/crm-user` |
-| tasks | `https://<task-manager-host>/webhooks/crm-task` |
-| attendance | `https://<task-manager-host>/webhooks/crm-attendance` |
+| `200` | applied (`created` / `updated`) |
+| `202` | safely skipped, or waiting for a person to be linked (`skipped` / `unlinked`) |
+| `400` | invalid payload (a required identity field is missing or malformed) |
+| `401` | missing / wrong secret |
+| `409` | identity conflict (`conflict` / `ambiguous`) — nothing was changed |
+| `500` | a real processing failure |
 
-Events: **INSERT** and **UPDATE** (DELETE is accepted and ignored).
-The exact addresses are shown in the Task Manager under **Admin → CRM connection**.
+A success is never returned when processing failed. The body is `{ "ok": bool, "outcome": "...", "note": "..." }`.
 
-The shared secret is the `CRM_WEBHOOK_SECRET` value on Railway. Hand it over directly
-(password manager / in person) — never in chat or email.
+### A DELETE never deletes history
 
-## Columns we read
+A DELETE in ET-CRM never hard-deletes an employee, client, attendance day or leave record here. Employees and clients
+are marked (`crmDeletedAt`) and kept; a deleted **leave** is set to `cancelled` (so it stops reducing capacity) and kept;
+attendance history is kept. To end someone's access, mark them inactive in ET-CRM (below).
 
-We have not seen the CRM's schema, so each field is read from the first of these that is present.
-If the CRM uses a different name, tell us — it is a one-line change. Admin → CRM connection lists the
-field **names** (never the values) of every event received, so a mismatch is visible straight away.
+## Employees — `/webhooks/crm-user`
 
-**User:** `id`, `name` / `full_name`, `email`, `slack_user_id`
-**Customer:** `id`, `name` / `full_name` / `company_name`, `email`, `phone`, `category`,
-owner = `owner_id` / `assigned_to` / `account_manager_id` (or `owner_email`)
-**Task:** `id`, title = `title` / `name` / `subject`, `description` / `notes`,
-assignee = `assigned_to` / `assignee_id` / `owner_id` (or `assigned_to_email` / `assignee_email`),
-creator = `created_by` (optional), client = `customer_id` / `contact_id` / `client_id`,
-due = `due_date` / `due_at` / `deadline`, estimate = `estimated_hours` or `estimated_minutes`, `status`
-**Attendance:** `id`, person = `user_id` / `employee_id` (or `email`), `date`,
-in = `check_in` / `clock_in`, out = `check_out` / `clock_out` (full timestamps or plain `HH:MM` NZ time),
-optional `hours_worked` / `total_hours` (otherwise out − in)
+```json
+{ "crm_user_id": "uuid", "full_name": "Ann Lee", "email": "ann@elitetaxation.co.nz", "is_active": true,
+  "department": "Tax", "designation": "Accountant", "employment_type": "full_time",
+  "employment_status": "active", "slack_user_id": "U0123", "manager_id": "uuid" }
+```
 
-The `id` of a user row must match what is stored against the person in the Task Manager
-(Manage Access → CRM user id). Until the person is linked — by that id, or by the same work email —
-their tasks and attendance are **skipped**, and Admin → CRM connection says so.
+* **Required:** `crm_user_id`. To *create* someone, `email` is also required.
+* **Matching:** `crm_user_id` first, then a **unique** work email. Never a name. When the email matches, `crm_user_id` is
+  saved on the employee. An email already linked to a *different* CRM user → `409 conflict`. Two employees with that email
+  → `409 ambiguous`. No duplicate `crm_user_id` is ever created.
+* **Idempotent:** the same user again updates the same employee. An unchanged repeat is a `202 skipped`.
+* **New people** start as a plain `employee` on team `Unassigned` with a forced first-login password change; the temporary
+  password is sent on Slack when `slack_user_id` is given (otherwise handed over by hand). Passwords/credentials from
+  ET-CRM are never imported. People on the retired list are never re-created.
+* **Existing people:** name, `department` → `crmDepartment`, `designation` (→ job title only when it is still the default),
+  employment type/status, `manager_id` → `crmManagerId`. **Role, team, managesIds and the org chart are never overwritten.**
+* **Access:** `is_active = false`, or `employment_status` of `inactive`, `terminated` or `resigned`, switches the login off
+  (new sessions *and* existing ones). Their tasks and history are kept and **open work is not reassigned** — superadmins are
+  notified to review it. `on_leave` never disables anything. Active again → access is restored. The last active
+  superadmin is never locked out (`409`).
 
-## Defaults when the CRM leaves something out
+## Customers — `/webhooks/crm-customer`
 
-- No estimate → **1 hour**; no due date → **next working day**; due date already passed → **today**.
-  The task's description says so ("From the CRM — …. Adjust when you accept."), so nobody is surprised.
-- No creator / creator is the assignee → a task you create for yourself is already accepted.
-- No matching client → the task is created without a client (internal).
+```json
+{ "id": "uuid", "name": "Kiwi Plumbing Ltd", "email": "k@kp.nz", "phone": "021 555 0001", "category": "Business",
+  "assigned_to": "<crm_user_id>", "authority_signed": true, "pbq_done_at": "2026-09-01T00:00:00Z",
+  "task_manager_client_id": null }
+```
 
-## Checking it works
+* **Required:** `id` (stored as `crmContactId`).
+* **Matching order:** (1) `crmContactId`; (2) ET-CRM's `task_manager_client_id`; (3) a unique **non-company** email;
+  (4) a unique normalised phone; (5) an exact **multi-word** full name, last. The firm's own `@elitetaxation.co.nz` addresses
+  are never identity proof. Ambiguous → `409`, never merged. A contact whose `task_manager_client_id` points at a client
+  that belongs to a different contact → `409 conflict`.
+* **Who counts as a client (configurable, Admin → ET-CRM connection):** by default **authority signed AND PBQ done**.
+  A contact that does not meet the rule and has no existing client is `202 skipped` with the reason; an already-linked
+  client keeps updating regardless. An existing client is linked (blanks filled, name kept) without needing the rule.
+* **Link-back:** after a client is created or linked, the Task Manager calls ET-CRM's `link-task-manager-client` with
+  `{ id: <crmContactId>, task_manager_client_id: <client.id> }`. ET-CRM's own conflict protection is respected — a *different*
+  existing id is reported as a **conflict** and never overwritten or retried. It runs after the webhook answer, so a slow
+  call never delays it, and its result is shown in the panel.
 
-1. Admin → CRM connection should show the shared secret as set and the four addresses.
-2. Create a test task in the CRM for a linked person. Within seconds the panel shows **Tasks · INSERT · ok**,
-   and the person sees it under "Needs acceptance".
-3. If the panel shows **failed** with `rejected: bad secret`, the header on the Supabase webhook is wrong.
-   If it shows **skipped … not linked**, link that person's CRM user id (or make sure the emails match).
+## Attendance — `/webhooks/crm-attendance`
+
+```json
+{ "crm_attendance_id": "uuid", "crm_user_id": "uuid", "date": "2026-10-05",
+  "check_in_at": "2026-10-04T20:00:00Z", "check_out_at": "2026-10-05T04:30:00Z", "net_minutes": 480, "status": "present" }
+```
+
+* **Required:** `crm_user_id` (or a unique `email`) and `date` (or `check_in_at`, from which the **Pacific/Auckland** day is taken).
+* **Idempotent** on `crm_attendance_id`; fallback `crm_user_id` + date. A correction updates the same day; if the row moves
+  to another date the old day is cleared. Hours come from `net_minutes` (else check-out minus check-in, capped at 16h).
+* ET-CRM is authoritative: the Task Manager **never writes attendance back**. Actual hours are **not** used as productivity capacity.
+
+## Leave — `/webhooks/crm-leave`
+
+```json
+{ "crm_leave_request_id": "uuid", "crm_user_id": "uuid", "start_date": "2026-10-14", "end_date": "2026-10-14",
+  "days_count": 1, "is_half_day": false, "half_day_period": "morning", "status": "approved" }
+```
+
+* **Required:** `crm_leave_request_id`, `crm_user_id` (or unique `email`), `start_date`; `status` ∈ `pending | approved | rejected | cancelled`.
+  A half day must be a single date (`half_day_period`: morning/AM or afternoon/PM).
+* **Only `approved` reduces capacity:** a full day removes **7 h**, a half day **3.5 h** (base ÷ 2). `pending` and `rejected`
+  reduce nothing; an approved leave that becomes `cancelled` restores the capacity. **Task allocated hours are never touched.**
+* **Idempotent** on `crm_leave_request_id` (`crmLeaveRequestId`): repeats update the same record. Leave that ET-CRM owns cannot
+  be approved, cancelled or edited inside the Task Manager.
+
+### Productivity (unchanged)
+
+`Productivity % = allocated hours of qualifying delivered tasks ÷ available capacity hours × 100`, where capacity is
+working days × 7 h minus approved ET-CRM leave, weekly off and Workshop Saturdays. No partial WIP credit. **Workshop
+Saturdays stay local** — the Task Manager owns them; ET-CRM does not send them.
+
+## HR policy compliance — `/webhooks/crm-policy-compliance`
+
+```json
+{ "version": 1, "event": "policy.compliance.updated",
+  "employee": { "crm_user_id": "uuid", "email": "ann@elitetaxation.co.nz" },
+  "compliance": { "pending_count": 1, "compliant": false },
+  "policy": { "version_id": "v3", "name": "Code of conduct" } }
+```
+
+Only the compliance **state** is stored (never policy documents). A normal employee with a pending required policy is
+blocked from Task Manager work (`423 policy_acknowledgement_required`); admins/superadmins keep emergency access. The webhook is
+the real-time path; as a fallback the Task Manager can call ET-CRM `get-policy-compliance` (`{ crm_user_id }` →
+`{ compliant, pending_count, checked_at }`) to recover from a missed or stale event (a stale state is re-checked on next sign-in).
+An unknown CRM user is `202 unlinked`.
+
+## Unknown / unlinked users
+
+Attendance, leave and policy events for a CRM user the Task Manager cannot match are **never guessed by name**. Only a
+unique work email, if the payload carries one, is tried. Otherwise the event is skipped safely and the person appears under
+**Waiting to be linked** in Admin → ET-CRM connection. An admin picks the employee and presses **Link**; the waiting
+attendance and leave are then applied. (Manage Access → CRM user id does the same for one person.)
+
+## ET-CRM API actions the Task Manager calls (API key scopes)
+
+| Action | Used for | Needed |
+|---|---|---|
+| `link-task-manager-client` | link-back after a client is created/linked | **yes** |
+| `get-policy-compliance` | policy fallback / reconciliation | **yes** |
+| `list-pipeline` | Reconcile customers (repair only) | only if customer reconciliation is used |
+| `list-users`, `list-attendance`, `list-leave` | *optional* remote halves of Reconcile employees / attendance / leave | only if ET-CRM offers them |
+
+The broad `update-contact` permission is **not** used any more. Everything else flows by webhook.
+
+## Reconciliation (Admin → ET-CRM connection)
+
+The webhooks are real-time; reconciliation repairs drift. Each button is idempotent, safe to repeat, and **Preview** changes
+nothing. *Employees / Attendance / Leave:* a local audit (duplicate CRM ids, unlinked people, what is waiting) plus replay of
+what became resolvable, and — only if ET-CRM offers the list action — the same apply rules over ET-CRM's list (otherwise the
+panel says "ET-CRM does not offer … yet — local checks only"). *Customers:* reads `list-pipeline` and runs every contact through
+the same rule as the webhook. *Policy:* re-checks every linked employee with `get-policy-compliance`.
+
+## Railway environment variables
+
+| Variable | Needed for |
+|---|---|
+| `CRM_WEBHOOK_SECRET` | every ET-CRM webhook (shared secret) |
+| `CRM_API_KEY` | link-back, policy fallback, customer reconciliation (an ET-CRM key with the scopes above) |
+| `CRM_API_URL` | optional — defaults to the ET-CRM `crm-api` function |
+
+## Setting it up on the ET-CRM side
+
+1. Create the five webhooks above (Insert/Update/Delete), each with the `X-CRM-Webhook-Secret` header.
+2. Add the action `link-task-manager-client` (conflict-protected: refuse to overwrite a different id) and make sure
+   `get-policy-compliance` exists; give the Task Manager's API key exactly those scopes (plus `list-pipeline` for reconciliation).
+3. Make sure each `crm_users` row carries the work email the Task Manager already knows, or link people from Admin.
+4. Send one test event per webhook; Admin → ET-CRM connection shows each area's last successful sync, last failure and counts.
+
+The panel stores **safe metadata only**: time, entity, event type, CRM id, outcome, a reason and the payload's field *names* —
+never payload values, passwords or the secret.

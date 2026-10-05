@@ -1373,7 +1373,6 @@
             <button class="src-subtab on" data-src="all" onclick="setAdminSrc('all', this)">All <span class="ct" id="adminCtAll">0</span></button>
             <button class="src-subtab" data-src="call" onclick="setAdminSrc('call', this)">☎ Call tasks <span class="ct" id="adminCtCall">0</span></button>
             <button class="src-subtab" data-src="slack_message" onclick="setAdminSrc('slack_message', this)">⌗ Slack tasks <span class="ct" id="adminCtSlack">0</span></button>
-            <button class="src-subtab" data-src="crm" onclick="setAdminSrc('crm', this)">⇄ CRM tasks <span class="ct" id="adminCtCrm">0</span></button>
             <button class="src-subtab" data-src="manual" onclick="setAdminSrc('manual', this)">✎ Manual <span class="ct" id="adminCtManual">0</span></button>
           </div>
           <div class="filter-row">
@@ -1404,7 +1403,7 @@
 
         <div class="panel" id="crmConnPanel" style="display:none;">
           <div class="panel-head">
-            <h2>CRM connection</h2>
+            <h2>ET-CRM connection</h2>
             <div class="panel-head-actions"><button class="btn small" onclick="loadCrmConnection()">Refresh</button></div>
           </div>
           <div id="crmConnBody" style="padding:4px 2px;"></div>
@@ -4403,56 +4402,133 @@ function srcTag(source){
   if(source === 'crm') return '<span class="src-tag crm">⇄ crm</span>';
   return '<span class="src-tag manual">✎ manual</span>';
 }
-/* ---- CRM connection (superadmin): what the CRM has sent and what became of it ---- */
-let _crmPullLast = null;
+/* ---- ET-CRM connection (superadmin) ----
+   ET-CRM owns employees, customers, attendance, leave and policy compliance;
+   the Task Manager owns tasks. This panel shows the health of each live link,
+   the client rule, who is waiting to be linked, and the reconcile actions. */
+let _crmPullLast = null, _crmReconcileLast = null;
+const CRM_KIND_LABEL = { user:'Employees', customer:'Customers', attendance:'Attendance', leave:'Leave', policy:'Policy compliance', linkback:'Link-back to ET-CRM', pull:'Customer reconcile', task:'Legacy tasks (disabled)' };
+function crmAgo(iso){
+  if(!iso) return 'never';
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
+}
+function crmStat(label, n, color){
+  return '<span style="color:' + (n ? color : 'var(--text-faint)') + ';">' + n + ' ' + label + '</span>';
+}
+function crmSectionCard(title, s, extraHtml, reconcileKind){
+  const yes = s.configured ? '<b style="color:var(--teal);">YES</b>' : '<b style="color:var(--coral);">NO</b>';
+  const fail = s.lastFailure ? crmAgo(s.lastFailure.at) + ' &mdash; ' + esc(s.lastFailure.note || s.lastFailure.outcome) : 'none';
+  const stats = [crmStat('created', s.created, 'var(--teal)'), crmStat('updated', s.updated, 'var(--teal)'), crmStat('skipped', s.skipped, 'var(--text-dim)'),
+    crmStat('errors', s.errors, 'var(--coral)'), crmStat('conflicts', s.conflicts, 'var(--coral)'), crmStat('ambiguous', s.ambiguous, 'var(--amber)')];
+  const buttons = reconcileKind ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'
+    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', false)">Preview reconcile</button>'
+    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', true)">Reconcile now</button></div>' : '';
+  return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;min-width:0;">'
+    + '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:12.5px;">' + esc(title) + '</div><div style="font-size:12.5px;">Configured: ' + yes + '</div></div>'
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin:6px 0;">Last successful sync: <b>' + crmAgo(s.lastSuccess) + '</b><br>Last failed sync: ' + fail + '</div>'
+    + '<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;">' + stats.join('') + crmStat('unlinked', s.unlinked || 0, 'var(--amber)') + '</div>'
+    + (extraHtml || '') + buttons + '</div>';
+}
 function crmPullHtml(d){
   const p = _crmPullLast || d.pull;
-  let out = '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">'
-    + '<div style="font-weight:700;">Clients from the CRM</div>'
-    + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 10px;">A CRM contact counts as a <b>client</b> when authority is signed <b>and</b> the PBQ is done (we have everything needed to start work). Existing clients are linked to their CRM contact by email, phone or exact name; contacts that meet the rule and are not here yet are added. Everyone else is left alone. Run a preview first &mdash; it changes nothing.</div>'
+  let out = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--panel-border);">'
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:6px;">Reconcile reads ET-CRM\'s contact list and applies the <b>same rule as the live webhook</b>. Preview changes nothing.</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
-    + '<button class="btn small" id="crmPreviewBtn" onclick="crmPull(false)">Preview</button>'
-    + '<button class="btn small primary" onclick="crmPull(true)">Apply now</button>'
-    + '<label style="font-size:12.5px;display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="crmAuto" ' + (d.autoPull ? 'checked' : '') + ' onchange="crmSaveAuto(this.checked)"> Keep in sync automatically (every 15 min)</label></div>';
+    + '<button class="btn small" id="crmPreviewBtn" onclick="crmPull(false)">Preview reconcile</button>'
+    + '<button class="btn small primary" onclick="crmPull(true)">Reconcile now</button>'
+    + '<label style="font-size:12.5px;display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="crmAuto" ' + (d.autoPull ? 'checked' : '') + ' onchange="crmSaveAuto(this.checked)"> repeat every 15 min</label></div>';
   if(p){
     if(!p.ok){
-      out += '<div style="margin-top:10px;color:var(--coral);font-size:13px;">' + esc(p.mode === 'apply' ? 'Last run' : 'Last preview') + ' failed: ' + esc(p.error || 'unknown error') + (p.fieldNames && p.fieldNames.length ? '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);">reply had: ' + esc(p.fieldNames.join(', ')) + '</div>' : '') + '</div>';
+      out += '<div style="margin-top:8px;color:var(--coral);font-size:13px;">' + esc(p.mode === 'apply' ? 'Last run' : 'Last preview') + ' failed: ' + esc(p.error || 'unknown error') + (p.fieldNames && p.fieldNames.length ? '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);">reply had: ' + esc(p.fieldNames.join(', ')) + '</div>' : '') + '</div>';
     } else {
-      const sm = p.samples || {};
-      const ev = p.evidence || {};
+      const sm = p.samples || {}, ev = p.evidence || {};
       const tallyOf = o => Object.entries(o || {}).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => esc(k) + ' ' + v).join(' &middot; ');
       const list = (t, a) => a && a.length ? '<div style="font-size:12.5px;margin-top:4px;"><b>' + t + '</b> ' + a.map(esc).join('; ') + '</div>' : '';
-      const pg = p.paging || {};
-      out += '<div style="margin-top:12px;font-size:13px;">'
-        + '<div style="color:var(--text-dim);">' + (p.mode === 'apply' ? 'Last run' : 'Last preview') + ' &middot; ' + esc(new Date(p.at).toLocaleString()) + ' &middot; ' + p.received + ' contacts received' + (pg.how ? ' (got more than one page by ' + esc(pg.how) + ')' : '') + '</div>'
-        + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0;">'
-        + '<span>' + p.alreadyLinked + ' already linked</span>'
-        + '<span>' + p.linkable + ' ' + (p.mode === 'apply' ? 'linked just now' : 'to link') + '</span>'
-        + '<span>' + p.toCreate + ' ' + (p.mode === 'apply' ? 'added as new clients' : 'to add as new clients') + '</span>'
-        + '<span style="color:var(--amber);">' + p.ambiguous + ' unclear (more than one match)</span>'
-        + '<span style="color:var(--text-faint);">' + p.notClients + ' not clients (left alone)</span></div>'
-        + '<div style="font-size:12.5px;color:var(--text-dim);">Evidence: ' + (ev.authoritySigned || 0) + ' have authority signed &middot; ' + (ev.onboardingDone || 0) + ' have PBQ done &middot; <b>' + (ev.both || 0) + ' have both (= clients)</b></div>'
-        + (p.values ? '<div style="font-size:12px;color:var(--text-faint);margin-top:2px;">Onboarding stage: ' + tallyOf(p.values.onboarding) + '<br>Lead stage: ' + tallyOf(p.values.lead) + '<br>Status: ' + tallyOf(p.values.status) + '</div>' : '')
-        + (p.maybeTruncated ? '<div style="font-size:12.5px;color:var(--amber);margin-top:4px;">The CRM may be returning only part of its list (' + p.received + ' contacts) and I could not find a way to get the rest. Send me the list-pipeline docs.</div>' : '')
-        + list('Would link:', sm.link) + list('Would add:', sm.create) + list('Unclear:', sm.ambiguous)
-        + (p.fieldNames && p.fieldNames.length ? '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);margin-top:6px;word-break:break-word;">contact fields: ' + esc(p.fieldNames.join(', ')) + '</div>' : '')
+      out += '<div style="margin-top:10px;font-size:13px;">'
+        + '<div style="color:var(--text-dim);">' + (p.mode === 'apply' ? 'Last run' : 'Last preview') + ' &middot; ' + esc(new Date(p.at).toLocaleString()) + ' &middot; ' + p.received + ' contacts' + (p.paging && p.paging.how ? ' (paged by ' + esc(p.paging.how) + ')' : '') + '</div>'
+        + '<div style="display:flex;gap:12px;flex-wrap:wrap;margin:6px 0;">'
+        + '<span>' + p.alreadyLinked + ' already linked</span><span>' + p.linkable + ' ' + (p.mode === 'apply' ? 'linked just now' : 'to link') + '</span>'
+        + '<span>' + p.toCreate + ' ' + (p.mode === 'apply' ? 'added' : 'to add') + '</span>'
+        + '<span style="color:var(--amber);">' + p.ambiguous + ' unclear</span>'
+        + (p.conflicts ? '<span style="color:var(--coral);">' + p.conflicts + ' conflicts</span>' : '')
+        + '<span style="color:var(--text-faint);">' + p.notClients + ' not clients yet</span></div>'
+        + '<div style="font-size:12.5px;color:var(--text-dim);">Evidence: ' + (ev.authoritySigned || 0) + ' authority signed &middot; ' + (ev.pbqDone || 0) + ' PBQ done &middot; <b>' + (ev.both || 0) + ' both</b></div>'
+        + (p.values ? '<div style="font-size:12px;color:var(--text-faint);margin-top:2px;">Onboarding stage: ' + tallyOf(p.values.onboarding) + '</div>' : '')
+        + (p.maybeTruncated ? '<div style="font-size:12.5px;color:var(--amber);margin-top:4px;">ET-CRM may be returning only part of its list (' + p.received + ').</div>' : '')
+        + list('Would link:', sm.link) + list('Would add:', sm.create) + list('Unclear:', sm.ambiguous) + list('Conflicts:', sm.conflict)
         + '</div>';
     }
   }
   return out + '</div>';
 }
+function crmEligibilityHtml(d){
+  const r = d.eligibility.rule;
+  return '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--panel-border);font-size:12.5px;">'
+    + '<div><b>Who counts as a client:</b> ' + esc(d.eligibility.description) + '. A contact that does not meet this is <i>skipped</i> and the reason is shown below; an existing linked client keeps updating.</div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-top:6px;">'
+    + '<label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="crmRuleAuth" ' + (r.requireAuthoritySigned ? 'checked' : '') + '> authority signed</label>'
+    + '<label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="crmRulePbq" ' + (r.requirePbqDone ? 'checked' : '') + '> PBQ done</label>'
+    + '<button class="btn small" onclick="crmSaveRule()">Save rule</button></div></div>';
+}
+function crmUnlinkedHtml(d){
+  const people = d.employeesToLink || [];
+  if(!d.unlinkedUsers.length) return '<div style="font-size:12.5px;color:var(--text-faint);margin-bottom:14px;">No ET-CRM users are waiting to be linked.</div>';
+  const opts = '<option value="">Choose employee…</option>' + people.map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>').join('');
+  const rows = d.unlinkedUsers.map(u => '<tr>'
+    + '<td style="font-family:var(--font-mono);font-size:11.5px;word-break:break-all;">' + esc(u.crmUserId || u.email || u.key) + (u.email && u.crmUserId ? '<div style="color:var(--text-faint);">' + esc(u.email) + '</div>' : '') + '</td>'
+    + '<td style="font-size:12.5px;">' + Object.entries(u.kinds || {}).map(([k, v]) => v + ' ' + esc(k)).join(', ') + ' &middot; ' + u.waiting + ' waiting<div style="color:var(--text-faint);">last ' + crmAgo(u.lastAt) + '</div></td>'
+    + '<td>' + (u.crmUserId ? '<select id="crmLink_' + esc(u.key) + '" style="max-width:170px;">' + opts + '</select> <button class="btn small" onclick="crmLinkUser(\'' + esc(u.key) + '\', \'' + esc(u.crmUserId) + '\')">Link</button>' : '<span style="color:var(--text-faint);font-size:12px;">no CRM user id sent</span>') + '</td></tr>').join('');
+  return '<div style="font-weight:700;margin:6px 0;">Waiting to be linked <span style="font-weight:400;color:var(--text-faint);font-size:12.5px;">(attendance/leave/policy for ET-CRM users we cannot match &mdash; never guessed by name)</span></div>'
+    + '<div style="overflow-x:auto;margin-bottom:14px;"><table><thead><tr><th>ET-CRM user</th><th>Waiting</th><th>Link to</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+function crmReconcileResultHtml(r){
+  if(!r) return '';
+  const kv = o => Object.entries(o || {}).map(([k, v]) => '<span>' + esc(k) + ': <b>' + esc(Array.isArray(v) ? (v.length ? v.join(', ') : 'none') : String(v)) + '</b></span>').join(' &middot; ');
+  return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;">'
+    + '<div style="font-weight:700;">Reconcile ' + esc(r.kind) + ' &middot; ' + esc(r.mode) + '</div>'
+    + (r.local && Object.keys(r.local).length ? '<div style="margin-top:4px;"><b>This side:</b> ' + kv(r.local) + '</div>' : '')
+    + (r.remote ? '<div style="margin-top:4px;"><b>ET-CRM:</b> ' + (r.remote.available === false ? esc(r.remote.note || 'not available') : kv(r.remote)) + '</div>' : '')
+    + '</div>';
+}
+async function crmReconcile(kind, apply){
+  if(apply && !confirm('Reconcile ' + kind + ' now? It is safe to repeat and never deletes anything.')) return;
+  try {
+    const r = await api('/api/admin/crm-sync/reconcile', { method:'POST', body: JSON.stringify({ kind, apply }) });
+    _crmReconcileLast = r.result;
+    showToast('success', apply ? 'Reconciled' : 'Preview ready', kind);
+  } catch(e){ showToast('error', 'Could not reconcile', e.message); }
+  loadCrmConnection();
+}
+async function crmSaveRule(){
+  try {
+    await api('/api/admin/crm-sync/settings', { method:'POST', body: JSON.stringify({ eligibility: { requireAuthoritySigned: document.getElementById('crmRuleAuth').checked, requirePbqDone: document.getElementById('crmRulePbq').checked } }) });
+    showToast('success', 'Client rule saved', 'It applies to the next ET-CRM customer event.');
+  } catch(e){ showToast('error', 'Could not save', e.message); }
+  loadCrmConnection();
+}
+async function crmLinkUser(key, crmUserId){
+  const sel = document.getElementById('crmLink_' + key);
+  if(!sel || !sel.value){ showToast('error', 'Choose an employee', 'Pick who this ET-CRM user is.'); return; }
+  try {
+    const r = await api('/api/admin/crm-sync/link-user', { method:'POST', body: JSON.stringify({ crmUserId, employeeId: sel.value }) });
+    showToast('success', 'Linked', r.replayed.attendance + ' attendance and ' + r.replayed.leave + ' leave records applied.');
+    if(typeof refreshEmployees === 'function') refreshEmployees();
+  } catch(e){ showToast('error', 'Could not link', e.message); }
+  loadCrmConnection();
+}
 async function crmPull(apply){
-  if(apply && !confirm('Apply now? This links existing clients to their CRM contacts and adds new clients for the stages you listed. Run a preview first if you have not.')) return;
+  if(apply && !confirm('Reconcile customers now? This links existing clients to their ET-CRM contact and adds clients that meet the rule. Run a preview first if you have not.')) return;
   try {
     const r = await api('/api/admin/crm-sync/pull-clients', { method:'POST', body: JSON.stringify({ apply }) });
     _crmPullLast = r.result;
-    showToast(r.result.ok ? 'success' : 'error', apply ? 'Client sync finished' : 'Preview ready', r.result.ok ? (r.result.received + ' contacts read.') : (r.result.error || 'Could not read the CRM.'));
+    showToast(r.result.ok ? 'success' : 'error', apply ? 'Customers reconciled' : 'Preview ready', r.result.ok ? (r.result.received + ' contacts read.') : (r.result.error || 'Could not read ET-CRM.'));
     if(apply && typeof refreshClients === 'function') refreshClients();
-  } catch(e){ showToast('error', 'Could not reach the CRM', e.message); }
+  } catch(e){ showToast('error', 'Could not reach ET-CRM', e.message); }
   loadCrmConnection();
 }
 async function crmSaveAuto(on){
-  try { await api('/api/admin/crm-sync/settings', { method:'POST', body: JSON.stringify({ autoPull: !!on }) }); showToast('success', on ? 'Automatic sync on' : 'Automatic sync off', on ? 'Clients are refreshed every 15 minutes.' : 'Clients are only synced when you press Apply.'); } catch(e){ showToast('error', 'Could not save', e.message); }
+  try { await api('/api/admin/crm-sync/settings', { method:'POST', body: JSON.stringify({ autoPull: !!on }) }); showToast('success', on ? 'Repeat on' : 'Repeat off', on ? 'Customers are reconciled every 15 minutes.' : 'Only when you press Reconcile.'); } catch(e){ showToast('error', 'Could not save', e.message); }
 }
 async function loadCrmConnection(){
   const panel = document.getElementById('crmConnPanel');
@@ -4462,46 +4538,39 @@ async function loadCrmConnection(){
   const body = document.getElementById('crmConnBody');
   let d;
   try { d = await api('/api/admin/crm-sync'); }
-  catch(e){ body.innerHTML = '<div style="color:var(--coral);">Could not load the CRM connection: ' + esc(e.message) + '</div>'; return; }
-  const labels = { customer:'Clients', user:'People', task:'Tasks', attendance:'Attendance', clientpull:'Client pull' };
-  const ago = iso => {
-    if(!iso) return 'nothing received yet';
-    const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-    return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' d ago';
-  };
-  const tone = o => o === 'ok' ? 'var(--teal)' : o === 'skipped' ? 'var(--amber)' : 'var(--coral)';
-  const cards = d.endpoints.map(ep => {
-    const c = d.counts[ep.kind] || {};
-    const last = c.last;
-    return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;min-width:0;">'
-      + '<div style="font-weight:700;">' + labels[ep.kind] + '</div>'
-      + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 8px;">' + (last ? 'Last: ' + ago(last.at) : 'Nothing received yet') + '</div>'
-      + '<div style="font-size:12.5px;display:flex;gap:10px;flex-wrap:wrap;">'
-      + '<span style="color:var(--teal);">' + (c.ok || 0) + ' worked</span>'
-      + '<span style="color:var(--amber);">' + (c.skipped || 0) + ' skipped</span>'
-      + '<span style="color:var(--coral);">' + (c.error || 0) + ' failed</span></div></div>';
-  }).join('');
-  const urls = d.endpoints.map(ep => '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;"><span style="width:84px;color:var(--text-dim);">' + labels[ep.kind] + '</span><code style="word-break:break-all;">' + esc(ep.url) + '</code></div>').join('');
-  const rows = d.events.slice(0, 25).map(e => '<tr>'
-    + '<td style="white-space:nowrap;color:var(--text-faint);">' + esc(ago(e.at)) + '</td>'
-    + '<td>' + esc(labels[e.kind] || e.kind) + ' <span style="color:var(--text-faint);">' + esc(e.type || '') + '</span></td>'
+  catch(e){ body.innerHTML = '<div style="color:var(--coral);">Could not load the ET-CRM connection: ' + esc(e.message) + '</div>'; return; }
+  const S = d.sections;
+  const tone = o => (o === 'created' || o === 'updated' || o === 'ok') ? 'var(--teal)' : (o === 'skipped' || o === 'unlinked') ? 'var(--amber)' : 'var(--coral)';
+  const emp = S.employees, cus = S.customers, pol = S.policy;
+  const cards = [
+    crmSectionCard('Employees', emp, '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">' + emp.linked + ' of ' + emp.total + ' linked to an ET-CRM user' + (emp.disabledByCrm ? ' &middot; ' + emp.disabledByCrm + ' disabled by ET-CRM' : '') + '</div>', 'employees'),
+    crmSectionCard('Customers', cus, '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">' + cus.linked + ' of ' + cus.total + ' clients linked to an ET-CRM contact &middot; link-back: ' + cus.linkBack.updated + ' ok, ' + cus.linkBack.conflicts + ' conflicts, ' + cus.linkBack.errors + ' failed' + (cus.linkBackConfigured ? '' : ' <b style="color:var(--coral);">(ET-CRM API key not set)</b>') + '</div>' + crmEligibilityHtml(d) + crmPullHtml(d), null),
+    crmSectionCard('Attendance', S.attendance, '', 'attendance'),
+    crmSectionCard('Leave', S.leave, '', 'leave'),
+    crmSectionCard('Policy compliance', pol, '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">' + pol.blockedNow + ' employee(s) blocked right now &middot; fallback check ' + (pol.reconcileConfigured ? 'ready' : '<b style="color:var(--coral);">needs the ET-CRM API key</b>') + '</div>', 'policy'),
+  ].join('');
+  const rows = d.events.slice(0, 30).map(e => '<tr>'
+    + '<td style="white-space:nowrap;color:var(--text-faint);">' + esc(crmAgo(e.at)) + '</td>'
+    + '<td>' + esc(CRM_KIND_LABEL[e.kind] || e.kind) + ' <span style="color:var(--text-faint);">' + esc(e.type || '') + '</span></td>'
     + '<td style="color:' + tone(e.outcome) + ';font-weight:600;">' + esc(e.outcome) + '</td>'
     + '<td>' + esc(e.note || '') + (e.keys ? '<div style="font-size:11px;color:var(--text-faint);font-family:var(--font-mono);word-break:break-word;">fields: ' + esc(e.keys.join(', ')) + '</div>' : '') + '</td></tr>').join('');
+  const urls = d.endpoints.map(ep => '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;"><span style="width:110px;color:var(--text-dim);">' + esc(CRM_KIND_LABEL[ep.kind] || ep.kind.replace('policy-compliance', 'Policy compliance')) + '</span><code style="word-break:break-all;">' + esc(ep.url) + '</code></div>').join('');
   body.innerHTML =
-    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;font-size:13px;">'
-    + '<span>' + (d.configured.webhookSecret ? '✓' : '✗') + ' Shared secret ' + (d.configured.webhookSecret ? 'set' : '<b style="color:var(--coral);">not set — the CRM cannot send anything</b>') + '</span>'
-    + '<span>' + (d.configured.apiKey ? '✓' : '–') + ' CRM API key ' + (d.configured.apiKey ? 'set' : 'not set (links back to the CRM are skipped)') + '</span>'
-    + '<span>' + d.linked.people + ' of ' + d.linked.peopleTotal + ' people linked to a CRM user</span>'
-    + '<span>' + d.linked.clients + ' of ' + d.linked.clientsTotal + ' clients linked to a CRM contact</span></div>'
-    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;">' + cards + '</div>'
-    + (d.linked.unlinkedPeople.length ? '<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:12px;">Not linked yet (CRM tasks and attendance for them are skipped): ' + esc(d.linked.unlinkedPeople.join(', ')) + '</div>' : '')
-    + crmPullHtml(d)
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:13px;">'
+    + '<span>' + (d.configured.webhookSecret ? '✓' : '✗') + ' Shared secret ' + (d.configured.webhookSecret ? 'set' : '<b style="color:var(--coral);">not set &mdash; ET-CRM cannot send anything</b>') + '</span>'
+    + '<span>' + (d.configured.apiKey ? '✓' : '–') + ' ET-CRM API key ' + (d.configured.apiKey ? 'set' : 'not set (link-back and policy fallback are skipped)') + '</span></div>'
+    + '<div style="font-size:13px;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:var(--panel-2);">'
+    + '<b>Legacy CRM Task Sync: Disabled.</b> Tasks live only in the Task Manager &mdash; nothing is imported from ET-CRM.'
+    + (d.legacyTask.refused ? ' <span style="color:var(--amber);">' + d.legacyTask.refused + ' call(s) to the old task webhook were refused &mdash; remove that webhook in ET-CRM.</span>' : '') + '</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:14px;">' + cards + '</div>'
+    + crmReconcileResultHtml(_crmReconcileLast)
+    + crmUnlinkedHtml(d)
     + '<div style="font-weight:700;margin:6px 0;">Recent events</div>'
     + (rows ? '<div style="overflow-x:auto;"><table><thead><tr><th>When</th><th>What</th><th>Result</th><th>Detail</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
-             : '<div style="color:var(--text-faint);font-size:13px;">Nothing has arrived from the CRM yet. Give the web addresses below, and the shared secret, to whoever manages the CRM.</div>')
-    + '<details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:600;">Web addresses for the CRM team</summary>'
+             : '<div style="color:var(--text-faint);font-size:13px;">Nothing has arrived from ET-CRM yet. Give the web addresses below, and the shared secret, to whoever manages ET-CRM.</div>')
+    + '<details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:600;">Web addresses for the ET-CRM team</summary>'
     + '<div style="display:grid;gap:6px;margin-top:8px;font-size:13px;">' + urls + '</div>'
-    + '<div style="font-size:12.5px;color:var(--text-dim);margin-top:8px;">Each is a Database Webhook (POST) that sends the header <code>X-CRM-Webhook-Secret</code>. The secret is the CRM_WEBHOOK_SECRET value on Railway — share it with the CRM team directly, not in chat.</div></details>';
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin-top:8px;">Each is a Database Webhook (POST) that sends the header <code>X-CRM-Webhook-Secret</code>. The secret is the CRM_WEBHOOK_SECRET value on Railway &mdash; share it directly, not in chat. <b>Do not</b> create a webhook for ET-CRM tasks.</div></details>';
 }
 function setAdminSrc(src, el){
   adminSrcFilter = src;
@@ -4525,7 +4594,6 @@ function renderAdminView(){
   setTxt('adminCtCall', bySrc('call'));
   setTxt('adminCtSlack', bySrc('slack_message'));
   setTxt('adminCtManual', bySrc('manual'));
-  setTxt('adminCtCrm', bySrc('crm'));
 
   const openish = all.filter(t => t.status !== 'completed');
   setTxt('adminStatOpen', openish.length);
