@@ -2191,7 +2191,15 @@
    whatever it returns. No more per-browser copies of the data.
    ========================================================================= */
 const API_BASE = ''; // same-origin: this page is served BY the server it talks to
-let authToken = localStorage.getItem('governanceOsToken') || null;
+// The login lives in sessionStorage, not localStorage: it survives a refresh of
+// this tab but is gone the moment the tab (or window) is closed, so reopening
+// the Task Manager always asks for a login again. Any token an older version
+// left in localStorage is deleted rather than reused.
+function _tokGet(){ try { return sessionStorage.getItem('governanceOsToken'); } catch(e){ return null; } }
+function _tokSet(t){ try { sessionStorage.setItem('governanceOsToken', t); } catch(e){} }
+function _tokClear(){ try { sessionStorage.removeItem('governanceOsToken'); } catch(e){} try { localStorage.removeItem('governanceOsToken'); } catch(e){} }
+try { localStorage.removeItem('governanceOsToken'); } catch(e){}
+let authToken = _tokGet() || null;
 
 async function api(path, opts) {
   opts = opts || {};
@@ -11503,7 +11511,7 @@ async function submitLogin(){
       method: 'POST', body: JSON.stringify({ email, password, expectedTab: loginTab })
     });
     authToken = token;
-    localStorage.setItem('governanceOsToken', token);
+    _tokSet(token);
     session = employee;
     isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
     isSuperAdmin = session.accessRole === 'superadmin';
@@ -11631,7 +11639,7 @@ function openAdminLogin(){
 function logoutSession(){
   const wasAdmin = isAdmin;
   authToken = null;
-  localStorage.removeItem('governanceOsToken');
+  _tokClear();
   session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null; _dashMirror = null;
   _notifs = []; _notifUnread = 0; _notifPrevIds = null; renderNotifBadge();
   seenAwaitingIds = null;
@@ -11743,7 +11751,7 @@ function toggleTheme(){
       return;
     } catch(e){
       authToken = null;
-      localStorage.removeItem('governanceOsToken');
+      _tokClear();
     }
   }
   showLoginGate();
