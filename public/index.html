@@ -2344,6 +2344,14 @@ function _tokClear(){ try { sessionStorage.removeItem('governanceOsToken'); } ca
 try { localStorage.removeItem('governanceOsToken'); } catch(e){}
 let authToken = _tokGet() || null;
 
+function applyTaskNow(task){
+  if(typeof tasks === 'undefined' || !Array.isArray(tasks)) return;
+  const i = tasks.findIndex(t => t.id === task.id);
+  if(i < 0) return;
+  tasks[i] = task;
+  clearTimeout(window.__instantT);
+  window.__instantT = setTimeout(() => { try { renderTaskTable(); } catch(e){} }, 0);
+}
 async function api(path, opts) {
   opts = opts || {};
   const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
@@ -2351,6 +2359,9 @@ async function api(path, opts) {
   const res = await fetch(API_BASE + path, Object.assign({}, opts, { headers }));
   let data = null;
   try { data = await res.json(); } catch (e) { /* no body */ }
+  // Any action that answers with the task (send for review, start, done, accept…)
+  // is applied to every screen at once, without waiting for the next refresh.
+  if (res.ok && data && data.task && data.task.id) applyTaskNow(data.task);
   if (!res.ok) {
     const err = new Error((data && data.error) || ('Request failed: ' + res.status));
     err.status = res.status;
@@ -3472,10 +3483,15 @@ function renderWorkshopsPanel(){
   const faint = 'color:var(--text-faint);';
   const link = (fn, label) => `<a href="#" onclick="event.preventDefault();${fn}" style="font-weight:600;text-decoration:underline;">${label}</a>`;
   body.innerHTML = _workshopsData.map(w => {
+    const wid = esc(w.id);
+    const change = (label, fn) => w.locked ? '' : ` <a href="#" onclick="event.preventDefault();${fn}('${wid}')" style="font-size:12px;color:var(--text-faint);text-decoration:underline;">${label}</a>`;
     const mine = w.myPenalised
       ? `<span style="color:var(--coral);font-weight:700;">−${w.penalty} applied</span>`
-      : w.myReadAt ? `<span style="color:var(--teal);font-weight:700;">✓ Read</span>`
-      : `<button class="btn small primary" onclick="markWorkshopRead('${esc(w.id)}')">I've read it</button>`;
+      : w.myReadAt ? `<span style="color:var(--teal);font-weight:700;">✓ Read</span>${change("I haven't", 'markWorkshopNotRead')}`
+      : w.myNotReadAt ? `<span style="color:var(--text-dim);font-weight:700;">Not read</span>${change("I've read it now", 'markWorkshopRead')}`
+      : w.locked ? '<span style="color:var(--text-faint);">no answer</span>'
+      : `<span style="display:inline-flex;gap:6px;flex-wrap:wrap;"><button class="btn small primary" onclick="markWorkshopRead('${wid}')">I've read it</button><button class="btn small" onclick="markWorkshopNotRead('${wid}')">I haven't read it</button></span>`;
+    const dayNote = w.myReadAt ? 'Workshop day: not counted as a working day for you.' : 'Workshop day: counts as a full working day for you.';
     const extras = [
       w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);font-weight:600;">📖 Open pre-reading</a>` : '',
       isSuperAdmin ? `${w.readCount} of ${w.total} read` : '',
@@ -3488,13 +3504,20 @@ function renderWorkshopsPanel(){
         ${w.notes ? `<div style="font-size:13px;color:var(--text-dim);margin-top:2px;">${esc(w.notes)}</div>` : ''}
         ${extras ? `<div style="font-size:12.5px;color:var(--text-dim);margin-top:3px;">${extras}</div>` : ''}
       </div>
-      <div>${mine}</div></div>`;
+      <div style="text-align:right;">${mine}<div style="font-size:11.5px;color:var(--text-faint);margin-top:4px;">${dayNote}</div></div></div>`;
   }).join('');
 }
 async function markWorkshopRead(id){
   try {
     await api(`/api/workshops/${encodeURIComponent(id)}/read`, { method:'POST', body: '{}' });
-    showToast('success', "Thanks — noted", "You've confirmed the pre-reading.");
+    showToast('success', "Thanks — noted", "You've read it, so the workshop day isn't counted as a working day for you.");
+    await refreshWorkshops();
+  } catch(e){ showToast('error', 'Could not save', e.message); }
+}
+async function markWorkshopNotRead(id){
+  try {
+    await api(`/api/workshops/${encodeURIComponent(id)}/not-read`, { method:'POST', body: '{}' });
+    showToast('info', 'Noted — not read', 'The workshop day will count as a full working day for you.');
     await refreshWorkshops();
   } catch(e){ showToast('error', 'Could not save', e.message); }
 }
@@ -3502,7 +3525,7 @@ function openWorkshopModal(id){
   const w = id ? _workshopsData.find(x => x.id === id) : null;
   document.getElementById('modalBox').innerHTML = `
     <h3>${w ? 'Edit' : 'New'} workshop</h3>
-    <div class="modal-sub">${w ? '' : 'Everyone is notified to read the pre-reading before the date. '}Marks are only applied when you choose to — nothing is automatic.</div>
+    <div class="modal-sub">${w ? '' : 'Everyone is notified to read the pre-reading before the date. '}On the workshop day, people who confirm they've read it aren't counted as working; everyone else works a full day. Marks are only applied when you choose to — nothing is automatic.</div>
     <div class="field"><label>Name</label><input type="text" id="wsName" maxlength="80" placeholder="e.g. Workshop 1" value="${esc(w ? w.name : '')}"></div>
     <div class="field"><label>Workshop date</label><input type="date" id="wsDate" value="${esc(w ? w.date : '')}"></div>
     <div class="field"><label>Pre-reading link <span style="color:var(--text-faint);font-weight:400;text-transform:none;letter-spacing:0;">(optional)</span></label><input type="text" id="wsUrl" placeholder="https://docs.google.com/…" value="${esc(w && w.url ? w.url : '')}"></div>
@@ -3529,11 +3552,12 @@ async function openWorkshopReviewModal(id){
   await refreshWorkshops();
   const w = _workshopsData.find(x => x.id === id); if(!w) return;
   const people = employees.filter(e => e.id !== currentViewerId).sort((a, b) => a.name.localeCompare(b.name));
-  const read = w.reads || {}, pen = w.penalised || {};
+  const read = w.reads || {}, pen = w.penalised || {}, nread = w.notReads || {};
   const unread = people.filter(e => !read[e.id] && !pen[e.id]);
   const row = e => {
     const st = pen[e.id] ? `<span style="color:var(--coral);">Marked −${w.penalty}</span>`
       : read[e.id] ? `<span style="color:var(--teal);">✓ Read ${fmtDate(dayOf(read[e.id]))}</span>`
+      : nread[e.id] ? `<span style="color:var(--coral);">Said they haven't read it</span> <button class="btn small" onclick="markWorkshopReadFor('${esc(w.id)}','${esc(e.id)}')">Mark as read</button>`
       : `<button class="btn small" onclick="markWorkshopReadFor('${esc(w.id)}','${esc(e.id)}')">Mark as read</button>`;
     return `<tr><td style="padding:6px 4px;width:28px;">${!read[e.id] && !pen[e.id] ? `<input type="checkbox" class="wsPick" value="${esc(e.id)}" checked onchange="updateWorkshopReviewCount()">` : ''}</td>
       <td style="padding:6px 4px;"><b>${esc(e.name)}</b> <span style="color:var(--text-faint);font-size:12px;">${esc(e.team || '')}</span></td><td style="padding:6px 4px;text-align:right;">${st}</td></tr>`;
@@ -5185,9 +5209,9 @@ function renderDeadlineBanner(){
     }
   }
   // Workshop pre-reading not yet confirmed (and not already marked down).
-  (_workshopsData || []).filter(w => !w.myReadAt && !w.myPenalised).forEach(w => {
+  (_workshopsData || []).filter(w => !w.myReadAt && !w.myNotReadAt && !w.myPenalised && !w.locked).forEach(w => {
     const urgent = w.date <= addDaysISO(1);
-    banners.push(`<div class="banner${urgent ? ' warn' : ''}"><span>📖</span><span><b>Pre-reading for ${esc(w.name)}</b> — read it before ${fmtDate(w.date)}; anyone who hasn't gets −${w.penalty} mark${w.penalty === 1 ? '' : 's'}. ${w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline;font-weight:600;">Open material</a> · ` : ''}<a href="#" onclick="event.preventDefault(); markWorkshopRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I've read it</a></span></div>`);
+    banners.push(`<div class="banner${urgent ? ' warn' : ''}"><span>📖</span><span><b>Pre-reading for ${esc(w.name)}</b> — read it before ${fmtDate(w.date)}; anyone who hasn't gets −${w.penalty} mark${w.penalty === 1 ? '' : 's'}. ${w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline;font-weight:600;">Open material</a> · ` : ''}<a href="#" onclick="event.preventDefault(); markWorkshopRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I've read it</a> · <a href="#" onclick="event.preventDefault(); markWorkshopNotRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I haven't</a></span></div>`);
   });
   // Each banner can be dismissed with ✕. The dismissal is keyed to the banner's
   // exact text, so it comes back if the number or the tasks in it change.
@@ -5792,6 +5816,8 @@ function renderTaskTable(){
   renderEmployeeStats();
   renderDashTabs();
   renderGuide();
+  if(document.getElementById('view-tasks')?.classList.contains('active')) renderTasksPage();
+  updateReviewsNavBadge();
   if(document.getElementById('view-reviews')?.classList.contains('active')) renderReviewsView();
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
   if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();

@@ -574,12 +574,26 @@ function approvedLeaveOn(state, empId, dateISO) {
 function isFirmWorkshopDay(state, dateISO) {
   return (state.capacityCalendarAdjustments || []).some(a => a.active && a.type === 'WORKSHOP' && a.date === dateISO);
 }
+// A dated pre-reading workshop (see /api/workshops) decides its own day person
+// by person: someone who confirmed the reading attends the workshop, so that
+// day isn't a working day for them (zero capacity, nothing counted against
+// them); everyone else — including anyone who said they haven't read it —
+// has a normal, full working day.
+function workshopOnDate(state, dateISO) {
+  return (state.workshops || []).find(w => w.date === dateISO) || null;
+}
+// Is this a workshop day FOR THIS PERSON? With a dated pre-reading workshop it
+// depends on whether they confirmed the reading; otherwise it's the firm calendar.
+function isWorkshopDayFor(state, empId, dateISO) {
+  const ws = workshopOnDate(state, dateISO);
+  return ws ? !!(ws.reads || {})[empId] : isFirmWorkshopDay(state, dateISO);
+}
 // PRESENT · HALF · CUSTOM · LEAVE · WORKSHOP · HOLIDAY
 function attendanceStatus(state, emp, dateISO) {
   if (!cal.isWorkingDay(dateISO)) return 'HOLIDAY';
   // Firm-wide workshop takes precedence over personal leave so a day is
   // only ever deducted once, however the two happen to overlap.
-  if (isFirmWorkshopDay(state, dateISO)) return 'WORKSHOP';
+  if (isWorkshopDayFor(state, emp.id, dateISO)) return 'WORKSHOP';
   const leave = approvedLeaveOn(state, emp.id, dateISO);
   if (leave) {
     if (leave.type === 'WORKSHOP') return 'WORKSHOP';
@@ -614,6 +628,19 @@ function capacityHoursBetween(state, emp, fromISO, toISO) {
   }
   return Math.round(total * 100) / 100;
 }
+// Working days in [from, to] that are a workshop day for this person.
+function workshopDaysBetween(state, empId, fromISO, toISO) {
+  if (!fromISO || !toISO || toISO < fromISO) return 0;
+  let n = 0;
+  let cur = new Date(fromISO + 'T00:00:00Z');
+  const end = new Date(toISO + 'T00:00:00Z').getTime();
+  while (cur.getTime() <= end) {
+    const iso = cur.toISOString().slice(0, 10);
+    if (cal.isWorkingDay(iso) && isWorkshopDayFor(state, empId, iso)) n += 1;
+    cur = new Date(cur.getTime() + 86400000);
+  }
+  return n;
+}
 // Capacity over the next `n` working days, counting from today.
 function capacityNextWorkingDays(state, emp, n) {
   let total = 0, got = 0, guard = 0;
@@ -640,7 +667,7 @@ function leaveDaysBetween(state, empId, fromISO, toISO) {
       // counted against both leaveDays and workshopDays at once, and the
       // capacity card's "N leave − M workshop" breakdown stops summing to
       // the actual capacityHours figure.
-      if (cal.isWorkingDay(iso) && !isFirmWorkshopDay(state, iso)) { if (l.halfDay) half += 1; else full += 1; }
+      if (cal.isWorkingDay(iso) && !isWorkshopDayFor(state, empId, iso)) { if (l.halfDay) half += 1; else full += 1; }
       cur = new Date(cur.getTime() + 86400000);
     }
   });
@@ -2891,10 +2918,12 @@ function workshopForClient(state, w, me) {
   const penalties = workshopPenalties(state, w.id);
   const out = {
     id: w.id, name: w.name, date: w.date, url: w.url || null, notes: w.notes || '', penalty: w.penalty,
-    createdAt: w.createdAt, myReadAt: reads[me.id] || null, myPenalised: !!penalties[me.id],
+    createdAt: w.createdAt, myReadAt: reads[me.id] || null, myNotReadAt: (w.notReads || {})[me.id] || null, myPenalised: !!penalties[me.id],
+    // after the workshop day the answer is locked (it decides that day's capacity)
+    locked: todayISO() > w.date,
     readCount: Object.keys(reads).length, total: state.employees.length,
   };
-  if (me.accessRole === 'superadmin') { out.reads = reads; out.penalised = penalties; }
+  if (me.accessRole === 'superadmin') { out.reads = reads; out.notReads = w.notReads || {}; out.penalised = penalties; }
   return out;
 }
 function cleanWorkshopFields(body, out) {
@@ -2966,8 +2995,42 @@ app.post('/api/workshops/:id/read', requireAuth, (req, res) => {
     if (!findEmployee(state, target)) return res.status(404).json({ error: 'Employee not found.' });
     empId = target;
   }
+  if (empId === me.id && me.accessRole !== 'superadmin' && todayISO() > w.date) {
+    return res.status(409).json({ error: 'The workshop has already happened, so this can no longer be changed. Ask the founder if it is wrong.' });
+  }
   w.reads = w.reads || {};
-  if (!w.reads[empId]) { w.reads[empId] = new Date().toISOString(); db.save(); }
+  w.notReads = w.notReads || {};
+  const changed = !w.reads[empId] || !!w.notReads[empId];
+  if (!w.reads[empId]) w.reads[empId] = new Date().toISOString();
+  delete w.notReads[empId];
+  if (changed) db.save();
+  res.json({ workshop: workshopForClient(state, w, me) });
+});
+// "I haven't read it" — an honest answer. It changes nothing about that day's
+// capacity (the workshop day is a full working day for anyone who hasn't
+// confirmed the reading), but the founder can see who said so. Same rules as
+// "I've read it": your own answer until the workshop day, a superadmin for anyone.
+app.post('/api/workshops/:id/not-read', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const w = workshopById(state, req.params.id);
+  if (!w) return res.status(404).json({ error: 'Workshop not found.' });
+  let empId = me.id;
+  const target = (req.body || {}).empId;
+  if (target && target !== me.id) {
+    if (me.accessRole !== 'superadmin') return res.status(403).json({ error: 'You can only answer for yourself.' });
+    if (!findEmployee(state, target)) return res.status(404).json({ error: 'Employee not found.' });
+    empId = target;
+  }
+  if (empId === me.id && me.accessRole !== 'superadmin' && todayISO() > w.date) {
+    return res.status(409).json({ error: 'The workshop has already happened, so this can no longer be changed. Ask the founder if it is wrong.' });
+  }
+  w.reads = w.reads || {};
+  w.notReads = w.notReads || {};
+  const changed = !!w.reads[empId] || !w.notReads[empId];
+  delete w.reads[empId];
+  if (!w.notReads[empId]) w.notReads[empId] = new Date().toISOString();
+  if (changed) db.save();
   res.json({ workshop: workshopForClient(state, w, me) });
 });
 // Apply the pre-reading penalty to everyone who hasn't read it (or just the
@@ -3482,8 +3545,6 @@ function productivityFor(state, empIds, fromISO, toISO) {
   // Surfaced separately from leaveDays so the capacity card can explain
   // BOTH kinds of deduction; without this, a workshop-only gap between
   // "N working days" and the displayed hours had no visible explanation.
-  const workshopDays = (state.capacityCalendarAdjustments || [])
-    .filter(a => a.active && a.type === 'WORKSHOP' && a.date >= from && a.date <= to).length;
   const r2 = n => Math.round(n * 100) / 100;
   const v2At = state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT;
 
@@ -3491,6 +3552,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     const emp = findEmployee(state, id) || { id, name: '—' };
     const capacityHours = capacityHoursBetween(state, emp, from, to);
     const leave = leaveDaysBetween(state, id, from, to);
+    const workshopDays = workshopDaysBetween(state, id, from, to);
 
     // Compute qualification ONCE per completed task (reused for period
     // bucketing, the qualified/excluded split, and the commitment stat) —
@@ -3636,7 +3698,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   // the team-summary card's "undefined working days" display bug.
   const totalWorkingDays = people.length ? people[0].workingDays : Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to));
   // same firm-wide fact as workingDays above — not a per-person sum.
-  const totalWorkshopDays = people.length ? people[0].workshopDays : (state.capacityCalendarAdjustments || [])
+  const totalWorkshopDays = people.length ? Math.max(...people.map(p => p.workshopDays)) : (state.capacityCalendarAdjustments || [])
     .filter(a => a.active && a.type === 'WORKSHOP' && a.date >= from && a.date <= to).length;
 
   res.json({
