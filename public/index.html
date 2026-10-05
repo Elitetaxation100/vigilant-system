@@ -4360,6 +4360,63 @@ function srcTag(source){
   return '<span class="src-tag manual">✎ manual</span>';
 }
 /* ---- CRM connection (superadmin): what the CRM has sent and what became of it ---- */
+let _crmPullLast = null;
+function crmPullHtml(d){
+  const p = _crmPullLast || d.pull;
+  const stages = (d.clientStages || []).join(', ');
+  let out = '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">'
+    + '<div style="font-weight:700;">Clients from the CRM</div>'
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 10px;">Reads the CRM contact list. Existing clients are linked to their CRM contact by email, phone or exact name; contacts in the stages you list below are added as new clients. Everyone else is left alone. Run a preview first &mdash; it changes nothing.</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'
+    + '<label for="crmStages" style="font-size:12.5px;">Stages that count as a client</label>'
+    + '<input id="crmStages" type="text" value="' + esc(stages) + '" placeholder="e.g. client, active" style="min-width:200px;flex:1;">'
+    + '<button class="btn small" onclick="crmSaveStages()">Save</button></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+    + '<button class="btn small" id="crmPreviewBtn" onclick="crmPull(false)">Preview</button>'
+    + '<button class="btn small primary" onclick="crmPull(true)">Apply now</button>'
+    + '<label style="font-size:12.5px;display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="crmAuto" ' + (d.autoPull ? 'checked' : '') + ' onchange="crmSaveAuto(this.checked)"> Keep in sync automatically (every 15 min)</label></div>';
+  if(p){
+    if(!p.ok){
+      out += '<div style="margin-top:10px;color:var(--coral);font-size:13px;">' + esc(p.mode === 'apply' ? 'Last run' : 'Last preview') + ' failed: ' + esc(p.error || 'unknown error') + (p.fieldNames && p.fieldNames.length ? '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);">reply had: ' + esc(p.fieldNames.join(', ')) + '</div>' : '') + '</div>';
+    } else {
+      const sc = Object.entries(p.stageCounts || {}).map(([k, v]) => esc(k) + ' ' + v).join(' · ');
+      const sm = p.samples || {};
+      const list = (t, a) => a && a.length ? '<div style="font-size:12.5px;margin-top:4px;"><b>' + t + '</b> ' + a.map(esc).join('; ') + '</div>' : '';
+      out += '<div style="margin-top:12px;font-size:13px;">'
+        + '<div style="color:var(--text-dim);">' + (p.mode === 'apply' ? 'Last run' : 'Last preview') + ' &middot; ' + esc(new Date(p.at).toLocaleString()) + ' &middot; ' + p.received + ' contacts received</div>'
+        + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin:6px 0;">'
+        + '<span>' + p.alreadyLinked + ' already linked</span>'
+        + '<span>' + p.linkable + ' ' + (p.mode === 'apply' ? 'linked just now' : 'to link') + '</span>'
+        + '<span>' + p.toCreate + ' ' + (p.mode === 'apply' ? 'added as new clients' : 'to add as new clients') + '</span>'
+        + '<span style="color:var(--amber);">' + p.ambiguous + ' unclear (more than one match)</span>'
+        + '<span style="color:var(--text-faint);">' + p.notClients + ' not clients (left alone)</span></div>'
+        + (sc ? '<div style="font-size:12.5px;color:var(--text-dim);">Stages in the CRM: ' + sc + '</div>' : '')
+        + (p.maybeTruncated ? '<div style="font-size:12.5px;color:var(--amber);margin-top:4px;">' + p.received + ' is a round number &mdash; the CRM may be returning only the first page. Tell me and I will look at how it pages.</div>' : '')
+        + (!(p.stagesUsed || []).length ? '<div style="font-size:12.5px;color:var(--amber);margin-top:4px;">No client stages saved yet, so no new clients will be added &mdash; only existing ones linked.</div>' : '')
+        + list('Would link:', sm.link) + list('Would add:', sm.create) + list('Unclear:', sm.ambiguous)
+        + (p.fieldNames && p.fieldNames.length ? '<div style="font-family:var(--font-mono);font-size:11px;color:var(--text-faint);margin-top:6px;word-break:break-word;">contact fields: ' + esc(p.fieldNames.join(', ')) + '</div>' : '')
+        + '</div>';
+    }
+  }
+  return out + '</div>';
+}
+async function crmPull(apply){
+  if(apply && !confirm('Apply now? This links existing clients to their CRM contacts and adds new clients for the stages you listed. Run a preview first if you have not.')) return;
+  try {
+    const r = await api('/api/admin/crm-sync/pull-clients', { method:'POST', body: JSON.stringify({ apply }) });
+    _crmPullLast = r.result;
+    showToast(r.result.ok ? 'success' : 'error', apply ? 'Client sync finished' : 'Preview ready', r.result.ok ? (r.result.received + ' contacts read.') : (r.result.error || 'Could not read the CRM.'));
+    if(apply && typeof refreshClients === 'function') refreshClients();
+  } catch(e){ showToast('error', 'Could not reach the CRM', e.message); }
+  loadCrmConnection();
+}
+async function crmSaveStages(){
+  try { await api('/api/admin/crm-sync/settings', { method:'POST', body: JSON.stringify({ clientStages: document.getElementById('crmStages').value }) }); showToast('success', 'Saved', 'Client stages updated.'); } catch(e){ showToast('error', 'Could not save', e.message); }
+  loadCrmConnection();
+}
+async function crmSaveAuto(on){
+  try { await api('/api/admin/crm-sync/settings', { method:'POST', body: JSON.stringify({ autoPull: !!on }) }); showToast('success', on ? 'Automatic sync on' : 'Automatic sync off', on ? 'Clients are refreshed every 15 minutes.' : 'Clients are only synced when you press Apply.'); } catch(e){ showToast('error', 'Could not save', e.message); }
+}
 async function loadCrmConnection(){
   const panel = document.getElementById('crmConnPanel');
   if(!panel) return;
@@ -4369,7 +4426,7 @@ async function loadCrmConnection(){
   let d;
   try { d = await api('/api/admin/crm-sync'); }
   catch(e){ body.innerHTML = '<div style="color:var(--coral);">Could not load the CRM connection: ' + esc(e.message) + '</div>'; return; }
-  const labels = { customer:'Clients', user:'People', task:'Tasks', attendance:'Attendance' };
+  const labels = { customer:'Clients', user:'People', task:'Tasks', attendance:'Attendance', clientpull:'Client pull' };
   const ago = iso => {
     if(!iso) return 'nothing received yet';
     const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
@@ -4401,6 +4458,7 @@ async function loadCrmConnection(){
     + '<span>' + d.linked.clients + ' of ' + d.linked.clientsTotal + ' clients linked to a CRM contact</span></div>'
     + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px;">' + cards + '</div>'
     + (d.linked.unlinkedPeople.length ? '<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:12px;">Not linked yet (CRM tasks and attendance for them are skipped): ' + esc(d.linked.unlinkedPeople.join(', ')) + '</div>' : '')
+    + crmPullHtml(d)
     + '<div style="font-weight:700;margin:6px 0;">Recent events</div>'
     + (rows ? '<div style="overflow-x:auto;"><table><thead><tr><th>When</th><th>What</th><th>Result</th><th>Detail</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
              : '<div style="color:var(--text-faint);font-size:13px;">Nothing has arrived from the CRM yet. Give the web addresses below, and the shared secret, to whoever manages the CRM.</div>')

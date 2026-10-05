@@ -111,6 +111,63 @@ function mapAttendance(row) {
   };
 }
 
+// ---- pulling contacts from the CRM's list-pipeline action ----
+// The response shape isn't documented to us, so accept a bare array or the
+// first array found under a likely key (or any key).
+function extractList(json) {
+  if (Array.isArray(json)) return json;
+  if (!json || typeof json !== 'object') return null;
+  for (const k of ['contacts', 'data', 'results', 'items', 'pipeline', 'rows', 'records']) {
+    if (Array.isArray(json[k])) return json[k];
+    if (json[k] && typeof json[k] === 'object') { const inner = extractList(json[k]); if (inner) return inner; }
+  }
+  for (const k of Object.keys(json)) if (Array.isArray(json[k])) return json[k];
+  return null;
+}
+// digits only; compare on the last 8 so "+64 21 123 456" and "021 123 456" meet
+function normPhone(v) {
+  const d = blank(v) ? '' : String(v).replace(/\D/g, '');
+  return d.length >= 7 ? d.slice(-8) : null;
+}
+function mapContact(row) {
+  const first = str(pick(row, ['first_name', 'firstname', 'given_name']));
+  const last = str(pick(row, ['last_name', 'lastname', 'surname', 'family_name']));
+  return {
+    id: blank(row && row.id) ? null : String(row.id),
+    name: str(pick(row, ['name', 'full_name', 'display_name', 'company_name'])) || [first, last].filter(Boolean).join(' ') || null,
+    email: lower(pick(row, ['email', 'email_address'])),
+    phone: str(pick(row, ['phone', 'mobile', 'phone_number'])),
+    category: str(pick(row, ['category', 'type'])),
+    stage: lower(pick(row, ['stage', 'pipeline_stage', 'onboarding_stage', 'status'])),
+    linkedTmId: str(pick(row, ['task_manager_client_id'])),
+    owner: {
+      crmUserId: str(pick(row, ['owner_id', 'assigned_to', 'agent_id', 'account_manager_id', 'assigned_user_id'])),
+      email: lower(pick(row, ['owner_email', 'assigned_to_email', 'agent_email'])),
+    },
+  };
+}
+// Which existing client is this contact? Linked id first, then the id the CRM
+// stored back, then email, phone, and finally an exact name — each only when
+// it points at exactly ONE client that isn't already tied to another contact.
+function matchClient(clients, c) {
+  const free = x => !x.crmContactId || x.crmContactId === c.id;
+  let hit = clients.find(x => c.id && x.crmContactId === c.id);
+  if (hit) return { client: hit, by: 'linked' };
+  if (c.linkedTmId) { hit = clients.find(x => x.id === c.linkedTmId && free(x)); if (hit) return { client: hit, by: 'stored id' }; }
+  const tries = [
+    ['email', c.email, x => lower(x.email) === c.email],
+    ['phone', normPhone(c.phone), x => normPhone(x.phone) === normPhone(c.phone)],
+    ['name', c.name && c.name.toLowerCase(), x => x.name && x.name.trim().toLowerCase() === c.name.toLowerCase()],
+  ];
+  for (const [by, key, test] of tries) {
+    if (!key) continue;
+    const found = clients.filter(x => free(x) && test(x));
+    if (found.length === 1) return { client: found[0], by };
+    if (found.length > 1) return { ambiguous: true, by };
+  }
+  return null;
+}
+
 // What has been received and what happened to it — kept in state.crmSync so
 // the Admin screen can show it. Only field names are stored, never values.
 function record(state, kind, type, outcome, note, crmId, keys) {
@@ -127,4 +184,4 @@ function record(state, kind, type, outcome, note, crmId, keys) {
   if (s.events.length > 60) s.events.length = 60;
 }
 
-module.exports = { pick, normalizeEvent, toDay, toStamp, nzLocalToISO, mapTask, mapAttendance, record };
+module.exports = { pick, normalizeEvent, toDay, toStamp, nzLocalToISO, extractList, normPhone, mapContact, matchClient, mapTask, mapAttendance, record };

@@ -2576,6 +2576,13 @@ function startSchedulers() {
   if (_schedTimer.unref) _schedTimer.unref();
   setTimeout(tick, 15000);
 
+  // CRM client pull — every 15 min, but only once a superadmin has switched it
+  // on (after reading a preview). Off by default.
+  const crmPullTimer = setInterval(() => {
+    try { if (db.get().crmSync && db.get().crmSync.autoPull && cfg().crmApiKey) pullCrmClients({ apply: true }).catch(e => clog('error', 'crm client pull threw: ' + (e && e.stack || e))); } catch (e) {}
+  }, 15 * 60 * 1000);
+  if (crmPullTimer.unref) crmPullTimer.unref();
+
   // Gmail poll — a separate timer, deliberately NOT nested inside the tick
   // above (which early-returns without a Slack bot token; Gmail has nothing
   // to do with Slack and shouldn't be gated on it).
@@ -2713,6 +2720,104 @@ async function handleCrmUser(payload) {
   } else {
     clog('warn', 'new crm-synced employee has no linked Slack — temp password could not be delivered, needs manual handoff', { employeeId: id, email });
   }
+}
+
+// Pull contacts from the CRM's list-pipeline action and bring them in as
+// clients. Two jobs: (1) tie existing clients to their CRM contact (by email,
+// phone, then exact name — only when it is unambiguous) and (2) add contacts
+// whose CRM stage the superadmin has said means "a client". Everything else is
+// left alone, so leads never become clients by accident. A preview (apply =
+// false) changes nothing and reports exactly what would happen.
+async function pullCrmClients(opts) {
+  const apply = !!(opts && opts.apply);
+  const state = db.get();
+  const sync = state.crmSync = state.crmSync || { events: [], counts: {} };
+  const res = { at: new Date().toISOString(), mode: apply ? 'apply' : 'preview', ok: false };
+  const finish = (note, outcome) => {
+    const { samples, ...stored } = res; // names are shown once, never kept
+    sync.pull = stored;
+    crmSync.record(state, 'clientpull', res.mode, outcome, note, null, res.fieldNames || null);
+    db.save();
+    return res;
+  };
+  const r = await crmApi('list-pipeline', {});
+  if (!r.ok) { res.error = r.error; return finish('could not fetch: ' + r.error, 'error'); }
+  const rows = crmSync.extractList(r.result);
+  if (!rows) {
+    res.error = 'The CRM answered, but no list of contacts was found in the reply.';
+    res.fieldNames = Object.keys(r.result || {});
+    return finish(res.error, 'error');
+  }
+  res.received = rows.length;
+  res.maybeTruncated = [20, 25, 50, 100, 200, 250, 500, 1000].includes(rows.length);
+  const names = new Set();
+  rows.slice(0, 25).forEach(x => Object.keys(x || {}).forEach(k => names.add(k)));
+  res.fieldNames = [...names].slice(0, 40);
+
+  state.clients = state.clients || [];
+  const stages = (sync.clientStages || []).map(s => String(s).trim().toLowerCase()).filter(Boolean);
+  const stageCounts = {};
+  const tally = { alreadyLinked: 0, linkable: 0, ambiguous: 0, toCreate: 0, notClients: 0, noId: 0, created: 0, linked: 0, updated: 0 };
+  res.samples = { link: [], create: [], ambiguous: [] };
+  const created = [];
+  for (const row of rows) {
+    const c = crmSync.mapContact(row);
+    if (!c.id) { tally.noId++; continue; }
+    const st = c.stage || '(no stage)';
+    stageCounts[st] = (stageCounts[st] || 0) + 1;
+    const m = crmSync.matchClient(state.clients, c);
+    if (m && m.ambiguous) { tally.ambiguous++; if (res.samples.ambiguous.length < 10) res.samples.ambiguous.push(c.name || c.id); continue; }
+    if (m && m.by === 'linked') {
+      tally.alreadyLinked++;
+      if (apply) {
+        const cl = m.client;
+        if (c.name) cl.name = c.name;
+        if (c.email) cl.email = c.email;
+        if (c.phone) cl.phone = c.phone;
+        if (c.category) cl.type = c.category;
+        tally.updated++;
+      }
+      continue;
+    }
+    if (m) {
+      tally.linkable++;
+      if (res.samples.link.length < 10) res.samples.link.push((c.name || c.id) + ' → ' + m.client.name + ' (matched by ' + m.by + ')');
+      if (apply) { m.client.crmContactId = c.id; tally.linked++; }
+      continue;
+    }
+    if (stages.length && c.stage && stages.includes(c.stage)) {
+      tally.toCreate++;
+      if (res.samples.create.length < 10) res.samples.create.push(c.name || c.id);
+      if (apply) {
+        const owner = crmEmployee(state, c.owner);
+        const client = {
+          id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 100000),
+          name: c.name || 'Unnamed', email: c.email, phone: c.phone, type: c.category,
+          ownerId: owner ? owner.id : null, addedBy: null, crmContactId: c.id,
+        };
+        state.clients.push(client);
+        created.push({ crmId: c.id, clientId: client.id });
+        tally.created++;
+      }
+      continue;
+    }
+    tally.notClients++;
+  }
+  res.stageCounts = stageCounts;
+  res.stagesUsed = stages;
+  Object.assign(res, tally);
+  res.ok = true;
+  const note = apply
+    ? `linked ${tally.linked}, added ${tally.created}, refreshed ${tally.updated} of ${rows.length} contacts`
+    : `preview of ${rows.length} contacts: ${tally.linkable} to link, ${tally.toCreate} to add, ${tally.ambiguous} unclear`;
+  finish(note, 'ok');
+  // Tell the CRM which Task Manager client each NEW contact became. Best-effort,
+  // and only for new clients — we don't rewrite 100s of existing CRM contacts.
+  for (const x of created) {
+    const link = await crmApi('update-contact', { id: x.crmId, task_manager_client_id: x.clientId });
+    if (!link.ok) clog('warn', 'crm client link-back failed', { crmId: x.crmId, why: link.error });
+  }
+  return res;
 }
 
 // A task someone creates in the CRM lands here as a task for the assignee to
@@ -3120,6 +3225,6 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
+  pullCrmClients, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
   callsEmailsDigestData, callsEmailsStats, callsEmailsDetail, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };

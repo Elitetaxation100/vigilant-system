@@ -1466,12 +1466,34 @@ app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
     endpoints: ['customer', 'user', 'task', 'attendance'].map(k => ({ kind: k, url: base + '/webhooks/crm-' + k })),
     counts: sync.counts || {},
     events: sync.events || [],
+    pull: sync.pull || null, autoPull: !!sync.autoPull, clientStages: sync.clientStages || [],
     linked: {
       people: emps.filter(e => e.crmUserId).length, peopleTotal: emps.length,
       unlinkedPeople: emps.filter(e => !e.crmUserId).map(e => e.name),
       clients: clients.filter(c => c.crmContactId).length, clientsTotal: clients.length,
     },
   });
+});
+// Client pull: preview (changes nothing) or apply; and its settings.
+app.post('/api/admin/crm-sync/pull-clients', requireAuth, async (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  try {
+    const { pullCrmClients } = require('./connector');
+    res.json({ result: await pullCrmClients({ apply: !!(req.body && req.body.apply) }) });
+  } catch (e) { res.status(500).json({ error: String(e && e.message || e) }); }
+});
+app.post('/api/admin/crm-sync/settings', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const sync = state.crmSync = state.crmSync || { events: [], counts: {} };
+  const b = req.body || {};
+  if (b.clientStages !== undefined) {
+    sync.clientStages = String(Array.isArray(b.clientStages) ? b.clientStages.join(',') : b.clientStages)
+      .split(',').map(s => s.trim().toLowerCase()).filter(Boolean).slice(0, 30);
+  }
+  if (b.autoPull !== undefined) sync.autoPull = !!b.autoPull;
+  db.save();
+  res.json({ autoPull: !!sync.autoPull, clientStages: sync.clientStages || [] });
 });
 // Anyone can add a client — an employee adding their own contact defaults to
 // owning it. Only an admin can hand ownership to someone else.
