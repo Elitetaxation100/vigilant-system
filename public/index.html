@@ -182,7 +182,23 @@
   .notif-row .nr-tm{ flex:none; font-size:11px; color:var(--text-faint); white-space:nowrap; }
   .notif-seen-line{ font-size:11.5px; color:var(--text-faint); margin-top:3px; }
   .notif-seen-line.unseen{ color:var(--coral); font-weight:600; }
-  .user-pill{ display:flex; align-items:center; gap:9px; }
+  .user-pill{ display:flex; align-items:center; gap:9px; position:relative; cursor:pointer; padding:3px 10px 3px 3px; border-radius:999px; outline:none; }
+  .user-pill:hover, .user-pill[aria-expanded="true"], .user-pill:focus-visible{ background:var(--panel-2); }
+  .user-pill .avatar{ position:relative; }
+  .user-pill.has-alert .avatar::after{ content:''; position:absolute; top:-1px; right:-1px; width:9px; height:9px; border-radius:50%; background:var(--coral); box-shadow:0 0 0 2px var(--panel); }
+  .up-chev{ font-size:11px; color:var(--text-faint); }
+  .user-menu{ position:absolute; top:calc(100% + 10px); right:0; min-width:236px; background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; box-shadow:0 14px 34px rgba(0,0,0,.16); padding:6px; z-index:300; display:flex; flex-direction:column; cursor:default; }
+  .user-menu[hidden]{ display:none; }
+  .um-row{ display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:none; border:none; padding:9px 10px; border-radius:8px; font:inherit; font-size:13.5px; color:var(--text); cursor:pointer; }
+  .um-row:hover{ background:var(--panel-2); }
+  .um-ic{ width:20px; text-align:center; flex:none; }
+  .um-badge{ position:static !important; margin-left:auto; box-shadow:none !important; }
+  .um-sep{ height:1px; background:var(--panel-border); margin:5px 4px; }
+  .dash-showing{ font-size:12.5px; color:var(--text-faint); }
+  .banner-more{ display:block; margin:-4px 0 14px; background:none; border:none; color:var(--text-dim); font-size:13px; font-weight:600; cursor:pointer; padding:2px 4px; text-decoration:underline; }
+  .tm-tag{ color:var(--text-dim); }
+  .tm-tag.bad{ color:var(--coral); }
+  .info-i{ font-size:13px; color:var(--text-faint); cursor:help; padding:0 2px; }
   .avatar{ width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,var(--mint-deep),var(--purple)); color:#fff; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; font-size:14.5px; }
   .user-pill .name{ font-size:14.5px; font-weight:600; }
   .user-pill .role{ font-size:12.5px; color:var(--text-faint); }
@@ -217,8 +233,8 @@
   .tm-chip.good b{ color:var(--teal); }
   .tm-chip.total{ background:none; padding-left:0; color:var(--text); font-weight:600; }
   .tm-chip[class*="c-"]::before{ content:''; display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:1px; background:var(--dot, var(--text-faint)); }
-  .c-progress{ --dot:var(--teal); } .c-yet{ --dot:var(--purple); } .c-paused{ --dot:var(--amber); } .c-rework{ --dot:var(--coral); } .c-awaiting{ --dot:var(--amber); }
-  .c-window{ --dot:var(--purple); } .c-hold{ --dot:var(--text-faint); } .c-review{ --dot:var(--amber); } .c-done{ --dot:var(--teal); }
+  .c-todo{ --dot:var(--purple); } .c-progress{ --dot:var(--teal); } .c-waiting{ --dot:var(--amber); }
+  .c-review{ --dot:color-mix(in srgb, var(--purple) 45%, var(--amber) 55%); } .c-done{ --dot:var(--mint-deep); }
   .tm-group{ display:flex; align-items:center; gap:8px; padding:12px 0 2px; font-size:11.5px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:var(--text-dim); }
   .tm-group::before{ content:''; width:7px; height:7px; border-radius:50%; background:var(--dot, var(--text-faint)); }
   .tm-group b{ font-weight:600; color:var(--text-faint); }
@@ -257,7 +273,11 @@
   .circle-btn.wk-more{ background:var(--panel-2); color:var(--text-dim); border:1px solid var(--panel-border); }
   .dash-range input[type=text]{ height:34px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); border-radius:9px; padding:0 11px; font-size:13px; font-family:var(--font-body); width:170px; }
   .dash-range input[type=text]:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
-  @media (max-width:720px){ .wk-task{ grid-template-columns:1fr auto; } .wk-task .tm-task-meta{ grid-column:1; } .wk-act{ grid-row:1 / span 2; grid-column:2; } }
+  .wk-act .verify-btn{ white-space:nowrap; }
+  @media (max-width:720px){
+    .wk-task{ grid-template-columns:1fr; gap:6px; }
+    .wk-act{ justify-content:flex-start; flex-wrap:wrap; }
+  }
   .tm-open{ padding:8px 0 0; }
   .tm-empty{ font-size:13px; color:var(--text-faint); padding:12px 16px; }
   .dash-range select, .dash-range input[type=date]{ height:34px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); border-radius:9px; padding:0 10px; font-size:13px; font-family:var(--font-body); }
@@ -711,7 +731,7 @@
     .topbar h1{ font-size:16.5px; }
     .topbar .sub{ display:none; }
     .topbar-right{ gap:8px; }
-    .user-pill > div{ display:none; }
+    .user-pill .up-text, .user-pill .up-chev{ display:none; }
     .content{ padding:18px 14px 60px; }
     .stat-grid{ grid-template-columns:repeat(2,1fr) !important; }
     table{ font-size:13px; }
@@ -1077,16 +1097,21 @@
         <div class="sub" id="pageSub">Verification matrix & live task tracking</div>
       </div>
       <div class="topbar-right">
-        <div class="bell" id="kudosReplayIcon" onclick="replayLastKudos()" title="Replay your last Kudos">🎉</div>
-        <div class="bell" id="pointsIcon" onclick="openPointsPanel()" title="Your points">🪙<span class="notif-badge" id="pointsBadge" style="display:none;">0</span></div>
-        <div class="bell" id="whatsappNavSection" data-view="whatsapp" onclick="showView('whatsapp', document.getElementById('whatsappNavSection'))" title="WhatsApp (Interakt)" style="display:none;">💬<span class="notif-badge" id="waNavBadge" style="display:none;">0</span></div>
-        <button class="bell" id="themeToggle" title="Switch light / dark" onclick="toggleTheme()" style="border:none;background:transparent;">🌙</button>
-        <div class="bell" id="bellIcon" onclick="openNotifications()">🔔<span class="notif-badge" id="notifBadge" hidden>0</span></div>
-        <div class="user-pill">
+        <div class="bell" id="bellIcon" onclick="openNotifications()" title="Notifications">🔔<span class="notif-badge" id="notifBadge" hidden>0</span></div>
+        <div class="user-pill" id="userPill" tabindex="0" role="button" aria-haspopup="menu" aria-expanded="false" onclick="toggleUserMenu(event)" onkeydown="if(event.key==='Enter'||event.key===' '){toggleUserMenu(event)}">
           <div class="avatar" id="topAvatar">HR</div>
-          <div>
+          <div class="up-text">
             <div class="name" id="topName">hr@elitetaxation.co.nz</div>
             <div class="role" id="topRole">HR Administrator</div>
+          </div>
+          <span class="up-chev" aria-hidden="true">▾</span>
+          <div class="user-menu" id="userMenu" role="menu" hidden onclick="event.stopPropagation()">
+            <button class="um-row" id="pointsIcon" role="menuitem" onclick="closeUserMenu();openPointsPanel()"><span class="um-ic">🪙</span>My points<span class="notif-badge um-badge" id="pointsBadge" style="display:none;">0</span></button>
+            <button class="um-row" id="kudosReplayIcon" role="menuitem" onclick="closeUserMenu();replayLastKudos()"><span class="um-ic">🎉</span>Replay my last Kudos</button>
+            <button class="um-row" id="whatsappNavSection" data-view="whatsapp" role="menuitem" style="display:none;" onclick="closeUserMenu();showView('whatsapp', document.getElementById('whatsappNavSection'))"><span class="um-ic">💬</span>WhatsApp<span class="notif-badge um-badge" id="waNavBadge" style="display:none;">0</span></button>
+            <button class="um-row" id="themeToggle" role="menuitem" onclick="toggleTheme()"><span class="um-ic">🌙</span>Dark mode</button>
+            <div class="um-sep"></div>
+            <button class="um-row" role="menuitem" onclick="closeUserMenu();openAdminLogin()"><span class="um-ic">👤</span>Account &amp; log out</button>
           </div>
         </div>
       </div>
@@ -1103,6 +1128,7 @@
         <!-- Role tabs: shown only to managers/reviewers (see renderDashTabs). Everyone else just gets #dashTab-work. -->
         <div class="src-subtabs" id="dashTabs" style="display:none;margin-bottom:16px;"></div>
         <div class="dash-range" id="dashRange" style="display:none;margin-bottom:16px;">
+          <span class="dash-showing">Showing</span>
           <select id="dashRangeSel" onchange="onDashRange()">
             <option value="today">Today</option><option value="yesterday">Yesterday</option>
             <option value="this-week">This week</option><option value="last-week">Last week</option>
@@ -1113,18 +1139,18 @@
           <span class="dash-range-note" id="dashRangeNote"></span>
           <span class="dash-sep" id="dashWorkFilters" style="display:none;">
             <select id="dashWorkStatus" onchange="onWorkFilter()" aria-label="Work status">
-              <option value="_all">All work</option><option value="_done">Done (reviewed)</option><option value="_inreview">In review</option>
-              <option value="_inprogress">In progress</option><option value="_yettostart">Yet to start</option>
-              <option value="on_hold">On hold</option><option value="rework">Needs rework</option><option value="overdue">Overdue</option>
+              <option value="_all">All work</option><option value="todo">To do</option><option value="progress">In progress</option>
+              <option value="waiting">Waiting</option><option value="review">In review</option><option value="done">Done</option>
+              <option value="overdue">Overdue</option>
             </select>
             <input type="text" id="dashWorkSearch" placeholder="Search tasks…" oninput="onWorkFilter()" aria-label="Search tasks">
           </span>
           <span class="dash-sep" id="dashTeamFilters" style="display:none;">
             <select id="dashTeamPerson" onchange="onTeamFilter()" aria-label="Person"></select>
             <select id="dashTeamStatus" onchange="onTeamFilter()" aria-label="Work status">
-              <option value="_all">All work</option><option value="_done">Done (reviewed)</option><option value="_inreview">In review</option>
-              <option value="_inprogress">In progress</option><option value="_yettostart">Yet to start</option>
-              <option value="on_hold">On hold</option><option value="rework">Needs rework</option><option value="overdue">Overdue</option>
+              <option value="_all">All work</option><option value="todo">To do</option><option value="progress">In progress</option>
+              <option value="waiting">Waiting</option><option value="review">In review</option><option value="done">Done</option>
+              <option value="overdue">Overdue</option>
             </select>
           </span>
         </div>
@@ -1237,14 +1263,14 @@
             <input type="text" id="taskSearch" placeholder="Search by task, client, ID…" oninput="renderTaskTable()">
             <select id="statusFilter" onchange="renderTaskTable()">
               <option value="">Open work</option>
-              <option value="awaiting_acceptance">Awaiting Acceptance</option>
-              <option value="_yettostart">Yet to Start</option>
-              <option value="_inprogress">In Progress</option>
-              <option value="_paused">Paused</option>
-              <option value="on_hold">On Hold</option>
-              <option value="rework">Needs Rework</option>
-              <option value="window_proposed">Window Proposed</option>
-              <option value="_inreview">In Review</option>
+              <option value="awaiting_acceptance">To do (new)</option>
+              <option value="_yettostart">To do (not started)</option>
+              <option value="_inprogress">In progress</option>
+              <option value="_paused">To do (paused)</option>
+              <option value="on_hold">Waiting (on hold)</option>
+              <option value="rework">Fix needed</option>
+              <option value="window_proposed">Waiting (new date)</option>
+              <option value="_inreview">In review</option>
               <option value="_done">Done</option>
               <option value="_all">Everything</option>
             </select>
@@ -4341,6 +4367,8 @@ async function refreshWaAwaitingBadge(){
     const r = await api('/api/whatsapp/contacts');
     if(r.awaitingCount > 0){ badge.textContent = r.awaitingCount; badge.style.display = ''; }
     else badge.style.display = 'none';
+    const pill = document.getElementById('userPill'); // the pill shows a dot when WhatsApp has something waiting
+    if(pill) pill.classList.toggle('has-alert', r.awaitingCount > 0);
   } catch(e){ /* not authorized or not set up yet */ }
 }
 let _waFilter = 'all'; // 'all' | 'awaiting' — set by clicking a summary tile
@@ -5105,9 +5133,17 @@ function renderDeadlineBanner(){
   const dismissed = getDismissedBanners();
   banners = banners.map(h => ({ h, k: bannerKey(h) })).filter(x => !dismissed.includes(x.k))
     .map(x => x.h.replace(/<\/div>\s*$/, `<button class="banner-x" onclick="dismissBanner('${x.k}')" title="Dismiss" aria-label="Dismiss">✕</button></div>`));
-  wrap.innerHTML = banners.join('');
+  // Urgent (red) alerts first, then at most two shown; the rest sit behind one click.
+  banners = banners.map((h, i) => ({ h, i })).sort((a, b) => ((b.h.includes('class="banner warn"') ? 1 : 0) - (a.h.includes('class="banner warn"') ? 1 : 0)) || (a.i - b.i)).map(x => x.h);
+  const BANNER_MAX = 2;
+  const shownBanners = _bannersAll ? banners : banners.slice(0, BANNER_MAX);
+  const hiddenN = banners.length - shownBanners.length;
+  wrap.innerHTML = shownBanners.join('') + (banners.length > BANNER_MAX
+    ? `<button class="banner-more" onclick="toggleBannerMore()">${_bannersAll ? 'Show fewer alerts' : '+' + hiddenN + ' more alert' + (hiddenN > 1 ? 's' : '')}</button>` : '');
   bell.classList.toggle('has-alert', banners.length > 0);
 }
+let _bannersAll = false;
+function toggleBannerMore(){ _bannersAll = !_bannersAll; renderDeadlineBanner(); }
 function bannerKey(html){
   const text = String(html).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
   let h = 5381; for(let i = 0; i < text.length; i++) h = ((h * 33) ^ text.charCodeAt(i)) >>> 0;
@@ -5440,15 +5476,15 @@ function statusBadge(t){
   const flagged = isReworkFlagged(t);
   switch(t.status){
     case 'awaiting_acceptance': return flagged
-      ? `<span class="badge overdue dot">⚠ Rework — Awaiting Acceptance${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`
-      : `<span class="badge awaiting dot">Awaiting Acceptance</span>`;
+      ? `<span class="badge overdue dot">⚠ To do · fix needed${t.reworkCount > 1 ? ' (round ' + t.reworkCount + ')' : ''}</span>`
+      : `<span class="badge awaiting dot">To do · new</span>`;
     case 'window_proposed': return flagged
-      ? `<span class="badge overdue dot">⚠ Rework — Window Proposed</span>`
-      : `<span class="badge awaiting dot">Window Proposed</span>`;
+      ? `<span class="badge overdue dot">⚠ Waiting · new date (fix needed)</span>`
+      : `<span class="badge awaiting dot">Waiting · new date</span>`;
     case 'accepted':
       if(t.timerStartedAt) return `<span class="badge pending dot">● In Progress</span>`;
-      if(t.startedAt) return `<span class="badge paused dot">⏸ Paused</span>`;
-      return `<span class="badge awaiting dot">Yet to Start</span>`;
+      if(t.startedAt) return `<span class="badge paused dot">To do · paused</span>`;
+      return `<span class="badge awaiting dot">To do</span>`;
     case 'on_hold': {
       const m = HOLD_REASONS[t.holdReasonCode] || {};
       const ex = m.exempting ? ' · clock paused' : '';
@@ -5459,21 +5495,21 @@ function statusBadge(t){
       const heldDays = t.heldAt ? Math.floor((Date.now() - new Date(t.heldAt).getTime()) / 86400000) : 0;
       const waitBadge = waitingOnClient
         ? ` <span class="badge ${heldDays >= 3 ? 'overdue' : 'awaiting'} dot" title="Days since put on hold, waiting on the client">${heldDays}d waiting on client</span>` : '';
-      return `<span class="badge awaiting dot">⏸ On Hold</span>${waitBadge}` +
+      return `<span class="badge awaiting dot">Waiting · on hold</span>${waitBadge}` +
         `<details class="hold-reason"><summary>reason</summary>` +
         `<div>${esc(holdReasonLabel(t))}${ex}${extra} · ` +
         `<a href="#" onclick="openHoldDetailModal('${t.id}');return false;">full detail ›</a></div></details>`;
     }
-    case 'pending_approval': return `<span class="badge awaiting dot">Awaiting Manager Approval</span>`;
-    case 'pending': return `<span class="badge pending dot">Pending</span>`;
+    case 'pending_approval': return `<span class="badge awaiting dot">Waiting · manager OK</span>`;
+    case 'pending': return `<span class="badge pending dot">To do</span>`;
     case 'rework':
-      if(!t.timerStartedAt && !t.startedAt) return `<span class="badge awaiting dot">⚠ Rework — Not Started${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
-      return `<span class="badge overdue dot">⚠ In Rework${t.reworkCount > 1 ? ' (Round ' + t.reworkCount + ')' : ''}</span>`;
+      if(!t.timerStartedAt && !t.startedAt) return `<span class="badge awaiting dot">⚠ To do · fix needed${t.reworkCount > 1 ? ' (round ' + t.reworkCount + ')' : ''}</span>`;
+      return `<span class="badge overdue dot">⚠ In progress · fix needed${t.reworkCount > 1 ? ' (round ' + t.reworkCount + ')' : ''}</span>`;
         case 'completed':
       if(t.reviewStatus === 'clean') return `<span class="badge completed dot" title="Reviewed clean">✓ Done</span>`;
       if(t.reviewStatus === 'done') return `<span class="badge completed dot" title="Closed — no review needed">✓ Done</span>`;
       if(t.reviewStatus === 'error') return `<span class="badge overdue dot">⚠ Error Found</span>`;
-      return `<span class="badge pending dot">Sent for Review</span>`;
+      return `<span class="badge pending dot">In review</span>`;
 
     default: return '';
   }
@@ -5728,7 +5764,7 @@ function timerAction(t){
 
 function actionButtonHtml(t){
   if(isMirroring()){
-    if(canDelegateMarkDone(t)) return `<button class="circle-btn" style="background:var(--teal);" title="Mark done for ${esc(dashSubject().name)}" aria-label="Mark done" onclick="markDoneNoReview('${t.id}')">&#10003;</button>`;
+    if(canDelegateMarkDone(t)) return `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" title="Mark done for ${esc(dashSubject().name)}" onclick="markDoneNoReview('${t.id}')">✓ Done</button>`;
     return statusBadge(t);
   }
   // A held task has no clock running, so the usual buttons don't apply — but
@@ -5741,16 +5777,17 @@ function actionButtonHtml(t){
   const ta = timerAction(t);
   const isMine = t.assignedTo === currentViewerId;
   let out = '';
-  if(ta) out += `<button class="circle-btn" style="background:${t.timerStartedAt ? 'var(--amber)' : 'var(--teal)'};" title="${esc(ta.label)}" aria-label="${esc(ta.label)}" onclick="${ta.fn}">${ta.icon}</button>`;
+  const lab = (text, fn, tip, color) => `<button class="verify-btn" style="${color ? 'border-color:' + color + ';color:' + color + ';' : ''}" title="${esc(tip)}" onclick="${fn}">${text}</button>`;
+  if(ta) out += lab(t.timerStartedAt ? '⏸ Pause' : (t.startedAt ? '▶ Resume' : '▶ Start'), ta.fn, ta.label + ' — the clock is optional, it just tracks your real time', t.timerStartedAt ? 'var(--amber)' : 'var(--teal)');
   // Every accepted manual task on your plate gets the two closers — "done,
   // no review" and the review path — whether or not you ran the clock. The
   // Start button above stays optional (it's only for tracking actual time).
   if(isMine && t.status === 'accepted' && (t.source || 'manual') === 'manual'){
-    out += `<button class="circle-btn" style="background:var(--teal);" title="Mark done — no review" aria-label="Mark done, no review" onclick="markDoneNoReview('${t.id}')">&#10003;</button>`;
-    out += `<button class="circle-btn" title="Mark complete &amp; send for review" aria-label="Mark complete and send for review" onclick="openCompleteModal('${t.id}')">&#128221;</button>`;
+    out += lab('✓ Done', `markDoneNoReview('${t.id}')`, 'Mark it done — no review needed', 'var(--teal)');
+    out += lab('Send for review', `openCompleteModal('${t.id}')`, 'Finish it and send it to someone to check');
     return out;
   }
-  if(a && !(ta && a.fn === ta.fn)) out += `<button class="circle-btn" title="${esc(a.label)}" aria-label="${esc(a.label)}" onclick="${a.fn}">${a.icon}</button>`;
+  if(a && !(ta && a.fn === ta.fn)) out += lab(`${a.icon} ${esc(a.label)}`, a.fn, a.label);
   if(out) return out;
   return statusBadge(t);
 }
@@ -5915,9 +5952,9 @@ function myCallsDayLabel(dayISO){
    page. Everything reads the same already-scoped data — no new server calls.
    ========================================================================= */
 let _dashTab = 'today';
-try { const s = localStorage.getItem('govOsDashTab'); if(['today','work','team'].includes(s)) _dashTab = s; } catch(e){}
+try { const s = sessionStorage.getItem('govOsDashTab'); if(['today','work','team'].includes(s)) _dashTab = s; } catch(e){}
 let _dashRange = { preset: 'today', from: '', to: '' };
-try { const r = JSON.parse(localStorage.getItem('govOsDashRange') || 'null'); if(r && r.preset) _dashRange = r; } catch(e){}
+try { const r = JSON.parse(sessionStorage.getItem('govOsDashRange') || 'null'); if(r && r.preset) _dashRange = r; } catch(e){}
 let _teamStatus = '_all', _teamPerson = '';
 const _teamOpen = new Set(); // people whose section the user expanded
 // Anyone who runs a team (managers, and superadmins who aren't the founder —
@@ -5929,7 +5966,7 @@ function dashTabsOn(){
 }
 function setDashTab(id){
   _dashTab = id;
-  try { localStorage.setItem('govOsDashTab', id); } catch(e){}
+  try { sessionStorage.setItem('govOsDashTab', id); } catch(e){}
   renderDashTabs();
 }
 function openReviewsPage(){ showView('reviews', document.querySelector('.nav-item[data-view="reviews"]')); }
@@ -5968,7 +6005,7 @@ function onDashRange(){
     _dashRange.from = document.getElementById('dashRangeFrom').value || _dashRange.from || todayISO();
     _dashRange.to = document.getElementById('dashRangeTo').value || _dashRange.to || _dashRange.from;
   }
-  try { localStorage.setItem('govOsDashRange', JSON.stringify(_dashRange)); } catch(e){}
+  try { sessionStorage.setItem('govOsDashRange', JSON.stringify(_dashRange)); } catch(e){}
   renderDashTabs();
 }
 // "My work" has its own period engine; feed it the shared range so all the
@@ -6068,6 +6105,16 @@ function renderDashTabs(){
   const sc = document.getElementById('empScope'); // the old "Viewing" bar — person-by-person viewing now lives on My team
   if(sc) sc.style.display = on ? 'none' : '';
   renderDashRangeBar(on);
+  ['dashWorkStatus', 'dashTeamStatus'].forEach(id => {
+    const sel = document.getElementById(id);
+    if(!sel) return;
+    sel.title = STATUS_HELP;
+    if(!sel.nextElementSibling || !sel.nextElementSibling.classList.contains('info-i')){
+      const i = document.createElement('span');
+      i.className = 'info-i'; i.textContent = 'ⓘ'; i.title = STATUS_HELP; i.setAttribute('aria-label', 'What the statuses mean');
+      sel.insertAdjacentElement('afterend', i);
+    }
+  });
   if(!on) return;
   syncEmpRange();
   const nRev = myReviewTasks().length;
@@ -6157,16 +6204,29 @@ function onTeamFilter(){
 function _initials(name){ return String(name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
 // One breakdown, used everywhere a person's work is summarised, so the numbers
 // on the row always add up to the tasks listed under it.
-const DASH_CATS = [['progress', 'In progress'], ['yet', 'Yet to start'], ['paused', 'Paused'], ['rework', 'Needs rework'], ['awaiting', 'Awaiting acceptance'],
-  ['window', 'Window proposed'], ['hold', 'On hold'], ['review', 'Sent for review'], ['done', 'Done']];
+// Five plain statuses. The detail they used to spread over nine (paused, new,
+// fix needed, on hold…) shows as a small note on the task instead.
+const DASH_CATS = [['todo', 'To do'], ['progress', 'In progress'], ['waiting', 'Waiting'], ['review', 'In review'], ['done', 'Done']];
+const STATUS_HELP = 'To do — not started yet (or paused, or sent back to fix). In progress — being worked on now. Waiting — on hold, a new date proposed, or waiting for a manager. In review — finished, being checked. Done — finished and signed off.';
+function dashNote(t){
+  const bits = [];
+  if(t.status === 'awaiting_acceptance') bits.push('new — needs accepting');
+  if(t.status === 'rework' || isReworkFlagged(t)) bits.push('fix needed');
+  if(t.status === 'accepted' && !t.timerStartedAt && t.startedAt) bits.push('paused');
+  if(t.status === 'on_hold') bits.push('on hold');
+  if(t.status === 'window_proposed') bits.push('new date proposed');
+  if(t.status === 'pending_approval') bits.push('waiting for manager OK');
+  return bits.join(' · ');
+}
+function dashNoteHtml(t){
+  const n = dashNote(t);
+  return n ? ` · <span class="tm-tag${/fix needed/.test(n) ? ' bad' : ''}">${esc(n)}</span>` : '';
+}
 function dashCat(t){
   if(t.status === 'completed') return t.reviewStatus ? 'done' : 'review';
-  if(t.status === 'on_hold') return 'hold';
-  if(t.status === 'rework') return 'rework';
-  if(t.status === 'awaiting_acceptance') return 'awaiting';
-  if(t.status === 'window_proposed') return 'window';
-  if(t.status === 'accepted') return t.timerStartedAt ? 'progress' : (t.startedAt ? 'paused' : 'yet');
-  return 'yet';
+  if(t.status === 'on_hold' || t.status === 'window_proposed' || t.status === 'pending_approval') return 'waiting';
+  if(t.timerStartedAt) return 'progress';
+  return 'todo';
 }
 function dashPersonRows(personId, from, to, status){
   const mine = tasks.filter(t => t.assignedTo === personId && t.status !== 'pending_approval');
@@ -6174,7 +6234,7 @@ function dashPersonRows(personId, from, to, status){
   // narrow that list (Overdue included), never widen it — so "All work" always
   // contains whatever any other status shows.
   const inRange = mine.filter(t => taskInRange(t, from, to));
-  const rows = inRange.filter(t => status === 'overdue' ? isOverdueNow(t) : matchesStatusFilter(t, status))
+  const rows = inRange.filter(t => status === 'overdue' ? isOverdueNow(t) : (status === '_all' || dashCat(t) === status))
     .sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
   const groups = {};
   rows.forEach(t => { (groups[dashCat(t)] = groups[dashCat(t)] || []).push(t); });
@@ -6224,7 +6284,7 @@ function renderDashTeam(){
     const open = _teamOpen.has(p.id) || !!_teamPerson;
     const groupsHtml = DASH_CATS.filter(([k]) => b.groups[k]).map(([k, label]) => `<div class="tm-group c-${k}"><span>${label}</span><b>${b.groups[k].length}</b></div>
       ${b.groups[k].map(t => `<div class="tm-task" onclick="openTaskTrailModal('${t.id}')">
-        <span class="tm-task-main"><b>${esc(t.name)}</b>${t.clientName ? `<small>${esc(t.clientName)}</small>` : ''}</span>
+        <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(t.clientName || 'Internal')}${dashNoteHtml(t)}</small></span>
         <span class="tm-task-meta">${isOverdueNow(t) ? '<span class="dash-bad">overdue · </span>' : ''}${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
       </div>`).join('')}`).join('');
     return `<details class="tm-person" ${open ? 'open' : ''} ontoggle="this.open ? _teamOpen.add('${p.id}') : _teamOpen.delete('${p.id}')">
@@ -6296,9 +6356,9 @@ function renderDashWork(){
   const groups = {};
   rows.forEach(t => { (groups[dashCat(t)] = groups[dashCat(t)] || []).push(t); });
   const row = t => `<div class="wk-task" onclick="openTaskTrailModal('${t.id}')">
-      <span class="tm-task-main"><b>${esc(t.name)}</b>${t.clientName ? `<small>${esc(t.clientName)}</small>` : ''}</span>
+      <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(t.clientName || 'Internal')}${dashNoteHtml(t)}</small></span>
       <span class="tm-task-meta">${isOverdueNow(t) ? '<span class="dash-bad">overdue · </span>' : ''}${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
-      <span class="wk-act" onclick="event.stopPropagation()">${actionButtonHtml(t)}<button class="circle-btn wk-more" title="More actions" aria-label="More actions" onclick="openTaskActions('${t.id}')">⋯</button></span>
+      <span class="wk-act" onclick="event.stopPropagation()">${actionButtonHtml(t)}<button class="verify-btn" title="More actions — hold, reassign, edit dates, remove" onclick="openTaskActions('${t.id}')">⋯ More</button></span>
     </div>`;
   const body = DASH_CATS.filter(([k]) => groups[k]).map(([k, l]) => `<div class="tm-group c-${k}"><span>${l}</span><b>${groups[k].length}</b></div>${groups[k].map(row).join('')}`).join('');
   const rl = dashRangeLabel();
@@ -6385,12 +6445,12 @@ function isTodaysWork(t){
 /* miniState / dueBucket — shared by the To-do view and the modals. */
 function miniState(t){
   if(t.timerStartedAt) return `<b style="color:var(--teal);">● In progress</b>`;
-  if(t.status === 'accepted' && t.startedAt) return `<b style="color:#C2410C;">⏸ Paused</b>`;
-  if(t.status === 'accepted') return `<b style="color:var(--purple);">Yet to start</b>`;
-  if(t.status === 'awaiting_acceptance') return `<b style="color:#B45309;">Awaiting acceptance</b>`;
-  if(t.status === 'rework') return `<b style="color:#C2410C;">⚠ In rework</b>`;
-  if(t.status === 'window_proposed') return `<b style="color:#B45309;">Window proposed</b>`;
-  if(t.status === 'on_hold') return `<b style="color:#B45309;">⏸ On hold${t.holdReason ? ' — ' + esc(t.holdReason) : ''}</b>`;
+  if(t.status === 'accepted' && t.startedAt) return `<b style="color:#C2410C;">To do · paused</b>`;
+  if(t.status === 'accepted') return `<b style="color:var(--purple);">To do</b>`;
+  if(t.status === 'awaiting_acceptance') return `<b style="color:#B45309;">To do · new, accept it</b>`;
+  if(t.status === 'rework') return `<b style="color:#C2410C;">⚠ Fix needed</b>`;
+  if(t.status === 'window_proposed') return `<b style="color:#B45309;">Waiting · new date</b>`;
+  if(t.status === 'on_hold') return `<b style="color:#B45309;">Waiting · on hold${t.holdReason ? ' — ' + esc(t.holdReason) : ''}</b>`;
   return '';
 }
 function dueBucket(t){
@@ -8536,16 +8596,16 @@ function downloadExcelReport(){
    ========================================================================= */
 function statusLabel(status){
   switch(status){
-    case 'awaiting_acceptance': return 'Awaiting Acceptance';
-    case 'window_proposed': return 'Window Proposed';
+    case 'awaiting_acceptance': return 'To do (new)';
+    case 'window_proposed': return 'Waiting (new date)';
     case 'accepted': return 'Active';
-    case 'on_hold': return 'On Hold';
-    case 'pending_approval': return 'Awaiting Manager Approval';
-    case 'pending': return 'Pending';
-    case 'paused': return 'Paused';
-    case 'rework': return 'In Rework';
-    case 'completed': return 'Sent for Review';
-    case 'inreview': return 'Sent for Review';
+    case 'on_hold': return 'Waiting (on hold)';
+    case 'pending_approval': return 'Waiting (manager OK)';
+    case 'pending': return 'To do';
+    case 'paused': return 'To do (paused)';
+    case 'rework': return 'Fix needed';
+    case 'completed': return 'In review';
+    case 'inreview': return 'In review';
     case 'done': return 'Done';
     default: return status || 'Unknown';
   }
@@ -9261,9 +9321,9 @@ function taskListCategories(t, subjectId){
   return cats.join(' ');
 }
 const TASK_LIST_FILTER_OPTIONS = [
-  ['_all', 'All statuses'], ['', 'Open work'], ['_yettostart', 'Yet to Start'], ['_inprogress', 'In Progress'],
-  ['_paused', 'Paused'], ['on_hold', 'On Hold'], ['rework', 'Needs Rework'], ['awaiting_acceptance', 'Awaiting Acceptance'],
-  ['window_proposed', 'Window Proposed'], ['_sentforreview', 'Sent for review'], ['_toreview', 'To review'], ['_done', 'Done'],
+  ['_all', 'All statuses'], ['', 'Open work'], ['_yettostart', 'To do (not started)'], ['_inprogress', 'In progress'],
+  ['_paused', 'To do (paused)'], ['on_hold', 'Waiting (on hold)'], ['rework', 'Fix needed'], ['awaiting_acceptance', 'To do (new)'],
+  ['window_proposed', 'Waiting (new date)'], ['_sentforreview', 'In review'], ['_toreview', 'To review'], ['_done', 'Done'],
 ];
 function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner = true, statusFilter = false, subjectId = null } = {}){
   const today = todayISO();
@@ -11773,6 +11833,8 @@ async function submitLogin(){
     });
     authToken = token;
     _tokSet(token);
+    _dashRange = { preset: 'today', from: '', to: '' }; _dashTab = 'today'; // every login starts on Today
+    try { sessionStorage.removeItem('govOsDashRange'); sessionStorage.removeItem('govOsDashTab'); } catch(e){}
     session = employee;
     isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
     isSuperAdmin = session.accessRole === 'superadmin';
@@ -11900,6 +11962,8 @@ function logoutSession(){
   authToken = null;
   _tokClear();
   session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null; _dashMirror = null;
+  _dashRange = { preset: 'today', from: '', to: '' }; _dashTab = 'today'; // a new login starts on Today
+  try { sessionStorage.removeItem('govOsDashRange'); sessionStorage.removeItem('govOsDashTab'); } catch(e){}
   _notifs = []; _notifUnread = 0; _notifPrevIds = null; renderNotifBadge();
   seenAwaitingIds = null;
   stopPolling();
@@ -11980,10 +12044,25 @@ function tickCcClock(){
 setInterval(tickCcClock, 1000);
 
 /* ---- theme ---- default is light; 'dark' is stored + applied pre-paint (see <head>) ---- */
+function toggleUserMenu(e){
+  if(e) e.stopPropagation();
+  const m = document.getElementById('userMenu'), p = document.getElementById('userPill');
+  if(!m || !p) return;
+  const open = m.hidden;
+  m.hidden = !open;
+  p.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function closeUserMenu(){
+  const m = document.getElementById('userMenu'), p = document.getElementById('userPill');
+  if(m) m.hidden = true;
+  if(p) p.setAttribute('aria-expanded', 'false');
+}
+document.addEventListener('click', e => { if(!e.target.closest('#userPill')) closeUserMenu(); });
+document.addEventListener('keydown', e => { if(e.key === 'Escape') closeUserMenu(); });
 function _syncThemeIcon(){
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
   const b = document.getElementById('themeToggle');
-  if(b){ b.textContent = dark ? '☀️' : '🌙'; b.title = dark ? 'Switch to light' : 'Switch to dark'; }
+  if(b){ b.innerHTML = dark ? '<span class="um-ic">☀️</span>Light mode' : '<span class="um-ic">🌙</span>Dark mode'; }
 }
 function toggleTheme(){
   const dark = document.documentElement.getAttribute('data-theme') === 'dark';
