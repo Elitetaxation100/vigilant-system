@@ -4464,18 +4464,25 @@ app.post('/api/leave', requireAuth, (req, res) => {
   if (clash) return res.status(409).json({ error: `That overlaps an existing ${clash.status} request (${clash.from}${clash.to !== clash.from ? '–' + clash.to : ''}).` });
   const selfApprove = employeeId !== me.id && canManageEmployee(state, me, employeeId);
   const now = new Date().toISOString();
+  // Leave that already happened (a missed entry being added after the fact) is
+  // allowed on the same rules as any other leave — a manager adding it for
+  // their report books it approved; someone adding their own goes to their
+  // manager. It's flagged so the list can say so.
+  const backdated = from < todayISO();
   const l = {
     id: 'lv-' + (++state.leaveSeq),
-    employeeId, from, to, type, halfDay, hours,
+    employeeId, from, to, type, halfDay, hours, backdated,
     reason: (b.reason == null ? '' : String(b.reason)).slice(0, 400),
     status: selfApprove ? 'approved' : 'pending',
     createdBy: me.id, createdAt: now,
     decidedBy: selfApprove ? me.id : null, decidedAt: selfApprove ? now : null, decisionNote: null,
   };
   state.leaveRequests.push(l);
-  logEvent(state, employeeId, `Time off ${selfApprove ? 'booked' : 'requested'} — ${from}${to !== from ? ' to ' + to : ''}${halfDay ? ' (half day)' : ''}${hours ? ` (${hours}h)` : ''}${employeeId !== me.id ? ` by <b>${escHtml(me.name)}</b>` : ''}.`);
+  logEvent(state, employeeId, `Time off ${backdated ? (selfApprove ? 'added after the fact' : 'requested after the fact') : (selfApprove ? 'booked' : 'requested')} — ${from}${to !== from ? ' to ' + to : ''}${halfDay ? ' (half day)' : ''}${hours ? ` (${hours}h)` : ''}${employeeId !== me.id ? ` by <b>${escHtml(me.name)}</b>` : ''}.`);
   db.save();
-  res.status(201).json({ leave: publicLeave(state, l) });
+  // A month whose cards are already finalized won't pick this up by itself.
+  const closedMonths = Object.values(state.monthlyCards || {}).filter(c => c && c.from && c.to && !(to < c.from || from > c.to)).map(c => c.period);
+  res.status(201).json({ leave: publicLeave(state, l), closedMonths });
 });
 app.post('/api/leave/:id/decision', requireAuth, (req, res) => {
   const state = db.get();

@@ -1479,14 +1479,15 @@
           <div class="panel-head"><h2>Book time off</h2></div>
           <p style="font-size:13.5px; color:var(--text-dim); margin-bottom:12px;">Approved leave and half-days lower capacity for those days — the planner, workload and Productivity view all adjust automatically. A future week already reflects it, so assigning work stays realistic.</p>
           <div class="to-form">
-            <div class="to-field" id="toWhoWrap" style="display:none;"><label>Who</label><select id="toWho"></select></div>
-            <div class="to-field"><label>From</label><input type="date" id="toFrom"></div>
-            <div class="to-field"><label>To</label><input type="date" id="toTo"></div>
+            <div class="to-field" id="toWhoWrap" style="display:none;"><label>Who</label><select id="toWho" onchange="updateLeaveNote()"></select></div>
+            <div class="to-field"><label>From</label><input type="date" id="toFrom" onchange="updateLeaveNote()"></div>
+            <div class="to-field"><label>To</label><input type="date" id="toTo" onchange="updateLeaveNote()"></div>
             <div class="to-field"><label>Type</label><select id="toType"><option value="ANNUAL">Annual</option><option value="SICK">Sick</option><option value="UNPAID">Unpaid</option><option value="OTHER">Other</option></select></div>
             <div class="to-field"><label>Half day</label><select id="toHalf"><option value="">Full day(s)</option><option value="AM">Morning only</option><option value="PM">Afternoon only</option></select></div>
             <div class="to-field to-grow"><label>Reason (optional)</label><input type="text" id="toReason" maxlength="400" placeholder="e.g. family commitment"></div>
-            <button class="btn primary" onclick="submitLeave()">Request</button>
+            <button class="btn primary" id="toSubmitBtn" onclick="submitLeave()">Request</button>
           </div>
+          <div id="toPastNote" style="display:none; margin-top:10px; font-size:13px; color:var(--text-dim);"></div>
           <div id="toFormErr" style="display:none; margin-top:10px; color:#C2410C; font-size:13px;"></div>
         </div>
         <div class="panel" id="toApprovalsPanel" style="display:none; margin-bottom:16px;">
@@ -4641,11 +4642,14 @@ async function renderTimeOff(){
   if(!list) return;
   const whoWrap = document.getElementById('toWhoWrap');
   if(isAdmin && whoWrap){
-    const people = [currentViewer(), ...myScopedPeople().filter(e => e.id !== currentViewerId)].filter(Boolean);
+    // The founder can book (and add missed leave) for anyone, not just their own team.
+    const pool = isSuperAdmin ? employees.slice().sort((a, b) => a.name.localeCompare(b.name)) : myScopedPeople();
+    const people = [currentViewer(), ...pool.filter(e => e.id !== currentViewerId)].filter(Boolean);
     document.getElementById('toWho').innerHTML = people
       .map(e => `<option value="${e.id}">${esc(e.id === currentViewerId ? 'Me' : e.name)}</option>`).join('');
     whoWrap.style.display = people.length > 1 ? '' : 'none';
   } else if(whoWrap){ whoWrap.style.display = 'none'; }
+  updateLeaveNote();
 
   let data;
   try { data = await api('/api/leave'); }
@@ -4680,18 +4684,33 @@ async function renderTimeOff(){
   list.innerHTML = _leaveRows.length ? _leaveRows.map(l => {
     const mineOrManaged = l.employeeId === currentViewerId || l.createdBy === currentViewerId
       || (isAdmin && l.team === myTeamName());
-    const cancel = (mineOrManaged && ['pending','approved'].includes(l.status) && l.to >= todayISO())
+    const cancel = (mineOrManaged && ['pending','approved'].includes(l.status) && (l.to >= todayISO() || isSuperAdmin))
       ? `<button class="btn-ghost btn-sm" onclick="cancelLeave('${l.id}')">Cancel</button>` : '';
     const decided = (l.decidedAt && l.status !== 'pending') ? ` · ${l.status} ${fmtDate(l.decidedAt.slice(0,10))}` : '';
     return `<div class="to-row">
       <div class="to-main">
         <b>${esc(l.employeeName)}</b> · ${fmtRange(l)}
-        <div style="font-size:12px; color:var(--text-faint);">${esc(l.type.toLowerCase())}${l.halfDay ? ' · half day' : ''}${l.reason ? ' · ' + esc(l.reason) : ''}${decided}</div>
+        <div style="font-size:12px; color:var(--text-faint);">${esc(l.type.toLowerCase())}${l.halfDay ? ' · half day' : ''}${l.reason ? ' · ' + esc(l.reason) : ''}${l.backdated ? ' · added after the fact' : ''}${decided}</div>
       </div>
       ${badge(l.status)}
       ${cancel}
     </div>`;
   }).join('') : `<div style="font-size:13.5px; color:var(--text-faint); padding:12px 2px;">No time off booked yet.</div>`;
+}
+// Dates already in the past are allowed — that's how a missed leave gets added.
+// Say plainly what will happen so nobody is surprised by "pending".
+function updateLeaveNote(){
+  const note = document.getElementById('toPastNote'), btn = document.getElementById('toSubmitBtn');
+  if(!note || !btn) return;
+  const from = document.getElementById('toFrom').value;
+  const past = !!from && from < todayISO();
+  const who = document.getElementById('toWho');
+  const forOther = isAdmin && who && who.value && who.value !== currentViewerId;
+  note.style.display = past ? '' : 'none';
+  note.innerHTML = past ? (forOther
+    ? '🕘 These dates have already passed. This will be added as <b>missed leave</b> and approved straight away.'
+    : '🕘 These dates have already passed. This will be sent to your manager for approval as <b>missed leave</b>.') : '';
+  btn.textContent = past ? 'Add missed leave' : 'Request';
 }
 async function submitLeave(){
   const err = document.getElementById('toFormErr');
@@ -4708,6 +4727,7 @@ async function submitLeave(){
   if(isAdmin && who && who.value && who.value !== currentViewerId) body.employeeId = who.value;
   if(!from){ err.textContent = 'Pick a start date.'; err.style.display = 'block'; return; }
   const employeeId = body.employeeId || currentViewerId;
+  if(body.to < todayISO()){ await doSubmitLeave(body); return; } // wholly in the past — nothing left to hand off
   try {
     const c = await api(`/api/leave/conflicts?employeeId=${encodeURIComponent(employeeId)}&from=${encodeURIComponent(body.from)}&to=${encodeURIComponent(body.to)}`);
     if((c.conflicts||[]).length){ openLeaveConflictModal(body, c.conflicts); return; }
@@ -4717,10 +4737,13 @@ async function submitLeave(){
 async function doSubmitLeave(body){
   const err = document.getElementById('toFormErr');
   try {
-    await api('/api/leave', { method:'POST', body: JSON.stringify(body) });
+    const res = await api('/api/leave', { method:'POST', body: JSON.stringify(body) });
     const reasonEl = document.getElementById('toReason');
     if(reasonEl) reasonEl.value = '';
-    showToast('success', 'Time off submitted', 'It shows below with its status.');
+    const past = body.from < todayISO(), approved = res && res.leave && res.leave.status === 'approved';
+    showToast('success', past ? (approved ? 'Missed leave added' : 'Sent for approval') : 'Time off submitted',
+      past && approved ? 'It now counts toward that period.' : 'It shows below with its status.');
+    if(res && res.closedMonths && res.closedMonths.length) showToast('info', 'That month is already closed', 'Reopen and re-close ' + res.closedMonths.join(', ') + ' for its monthly card to include this leave.');
     renderTimeOff();
     refreshWorkload();
   } catch(e){ if(err){ err.textContent = e.message; err.style.display = 'block'; } else showToast('error', 'Could not submit', e.message); }
