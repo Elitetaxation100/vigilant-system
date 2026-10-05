@@ -187,11 +187,28 @@ function isAdminRole(role) { return role === 'admin' || role === 'superadmin'; }
  * admins on it are its managers. This is the single source of truth for
  * "whose team is this" — managesIds is legacy and no longer consulted for
  * scoping.
+ *
+ * A person can be on MORE THAN ONE team: their primary `.team` plus any
+ * `.extraTeams`. Two people "share a team" when ANY of their teams match, so a
+ * manager sees, assigns to and reviews everyone on any of their teams, and a
+ * person with two teams is managed by the admins of both.
  */
+function teamsOf(emp) {
+  if (!emp) return [];
+  const out = [];
+  const primary = typeof emp.team === 'string' ? emp.team.trim() : '';
+  if (primary) out.push(primary); // 'Unassigned' counts as a primary team, exactly as before
+  (Array.isArray(emp.extraTeams) ? emp.extraTeams : []).forEach(t => {
+    const x = typeof t === 'string' ? t.trim() : '';
+    if (x && x !== 'Unassigned' && !out.includes(x)) out.push(x);
+  });
+  return out;
+}
+const sharesTeam = (a, b) => { const mine = teamsOf(a); return mine.length > 0 && teamsOf(b).some(t => mine.includes(t)); };
 function teamRoster(state, emp) {
-  const team = emp && typeof emp.team === 'string' ? emp.team.trim() : '';
-  if (!team) return [];
-  return state.employees.filter(e => typeof e.team === 'string' && e.team.trim() === team);
+  const mine = teamsOf(emp);
+  if (!mine.length) return [];
+  return state.employees.filter(e => teamsOf(e).some(t => mine.includes(t)));
 }
 // The admins on an employee's team — used to fan out notifications to
 // "the manager(s)".
@@ -226,9 +243,7 @@ function canManageEmployee(state, actor, employeeId) {
   if (actor.accessRole === 'superadmin') return true;
   if (actor.accessRole !== 'admin') return false;
   const target = state.employees.find(e => e.id === employeeId);
-  const myTeam = typeof actor.team === 'string' ? actor.team.trim() : '';
-  return !!target && !!myTeam && typeof target.team === 'string' &&
-    target.team.trim() === myTeam && target.id !== actor.id;
+  return !!target && target.id !== actor.id && sharesTeam(actor, target);
 }
 // Time-boxed self-edit grant: while it's live, `emp` may change the estimate,
 // internal due date AND the client commitment date on any task assigned to
@@ -1214,6 +1229,14 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   }
   if (jobTitle) emp.jobTitle = jobTitle;
   if (team) emp.team = team;
+  // Extra teams — a person can be on more than one team at a time. Cleaned: no
+  // blanks, duplicates, the primary team or 'Unassigned'; at most 6.
+  if (req.body.extraTeams !== undefined) {
+    const raw = Array.isArray(req.body.extraTeams) ? req.body.extraTeams : String(req.body.extraTeams || '').split(',');
+    emp.extraTeams = cleanExtraTeams(raw, emp.team);
+  } else if (Array.isArray(emp.extraTeams)) {
+    emp.extraTeams = cleanExtraTeams(emp.extraTeams, emp.team); // the primary team may have changed
+  }
 
   // calls-into-tasks (Phase 1) — additive access fields, all optional. The
   // existing accessRole / managesIds above are untouched; these sit
@@ -1293,6 +1316,15 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
 // two teams (they report to both). An admin can only touch their own list;
 // a superadmin can do it for anyone via /api/employees/:id.
 // ---------------------------------------------------------------------------
+function cleanExtraTeams(list, primary) {
+  const p = typeof primary === 'string' ? primary.trim() : '';
+  const out = [];
+  (list || []).forEach(t => {
+    const x = typeof t === 'string' ? t.trim().slice(0, 60) : '';
+    if (x && x !== 'Unassigned' && x !== p && !out.includes(x)) out.push(x);
+  });
+  return out.slice(0, 6);
+}
 function teamMemberChange(req, res, op) {
   const state = db.get();
   const me = state.employees.find(e => e.id === req.employee.id);
@@ -1305,17 +1337,36 @@ function teamMemberChange(req, res, op) {
   const target = findEmployee(state, targetId);
   if (!target) return res.status(404).json({ error: 'Employee not found.' });
   if (targetId === me.id) return res.status(400).json({ error: "You can't move yourself." });
+  let mode = null;
+  const cur = typeof target.team === 'string' ? target.team.trim() : '';
   if (op === 'add') {
-    target.team = myTeam;
-    logEvent(state, targetId, `Moved to the <b>${escHtml(myTeam)}</b> team by <b>${escHtml(me.name)}</b>.`);
+    if (teamsOf(target).includes(myTeam)) {
+      mode = 'already';
+    } else if (!cur || cur === 'Unassigned') {
+      target.team = myTeam; mode = 'moved'; // nobody else has them: they simply join
+      logEvent(state, targetId, `Moved to the <b>${escHtml(myTeam)}</b> team by <b>${escHtml(me.name)}</b>.`);
+    } else {
+      // They already belong to another team — they STAY there and are on this one too.
+      target.extraTeams = cleanExtraTeams([...(target.extraTeams || []), myTeam], target.team);
+      mode = 'also';
+      logEvent(state, targetId, `Also added to the <b>${escHtml(myTeam)}</b> team by <b>${escHtml(me.name)}</b> (they stay on <b>${escHtml(cur)}</b>).`);
+    }
   } else {
-    if (target.team && target.team.trim() === myTeam) target.team = 'Unassigned';
-    logEvent(state, targetId, `Removed from the <b>${escHtml(myTeam)}</b> team by <b>${escHtml(me.name)}</b>.`);
+    const extras = Array.isArray(target.extraTeams) ? target.extraTeams : [];
+    if (cur === myTeam) {
+      // leaving their primary team: another team they are on becomes primary, else Unassigned
+      if (extras.length) { target.team = extras[0]; target.extraTeams = cleanExtraTeams(extras.slice(1), extras[0]); }
+      else target.team = 'Unassigned';
+      mode = 'removed';
+    } else if (extras.includes(myTeam)) {
+      target.extraTeams = extras.filter(t => t !== myTeam); mode = 'removed';
+    } else mode = 'not-on-team';
+    if (mode === 'removed') logEvent(state, targetId, `Removed from the <b>${escHtml(myTeam)}</b> team by <b>${escHtml(me.name)}</b>.`);
   }
   // Keep the legacy managesIds field roughly in step for anything still reading it.
   me.managesIds = teamRoster(state, me).filter(e => e.id !== me.id).map(e => e.id);
   db.save();
-  res.json({ team: teamRoster(state, me).filter(e => e.id !== me.id).map(publicEmployee) });
+  res.json({ mode, alsoOn: teamsOf(target).filter(t => t !== myTeam), team: teamRoster(state, me).filter(e => e.id !== me.id).map(publicEmployee) });
 }
 app.post('/api/team/add', requireAuth, (req, res) => teamMemberChange(req, res, 'add'));
 app.post('/api/team/remove', requireAuth, (req, res) => teamMemberChange(req, res, 'remove'));
@@ -4199,7 +4250,7 @@ app.get('/api/today', requireAuth, (req, res) => {
     },
   };
 
-  if (!mirroring && isAdminRole(me.accessRole) && emp.team && String(emp.team).trim() && emp.team !== 'Unassigned') {
+  if (!mirroring && isAdminRole(me.accessRole) && teamsOf(emp).some(t => t !== 'Unassigned')) {
     out.team = teamRoster(state, emp).filter(e => e.id !== me.id).map(e => {
       const p = pendingFor(e.id);
       const cap = dayCapacity(state, e, today);
@@ -4706,7 +4757,7 @@ function leaveVisibleTo(state, me) {
 }
 function publicLeave(state, l) {
   const emp = findEmployee(state, l.employeeId);
-  return { ...l, employeeName: emp ? emp.name : '—', team: emp ? (emp.team || null) : null };
+  return { ...l, employeeName: emp ? emp.name : '—', team: emp ? (emp.team || null) : null, teams: emp ? teamsOf(emp) : [] };
 }
 app.get('/api/leave', requireAuth, (req, res) => {
   const state = db.get();
