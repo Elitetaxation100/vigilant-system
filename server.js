@@ -939,7 +939,7 @@ function notify(state, empId, type, text, taskId, opts) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'Window decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -2605,6 +2605,31 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
     logEvent(state, sendTo, `<b>${escHtml(req.employee.name)}</b> confirmed profit on "${escHtml(t.name)}" — go ahead and send the report.`);
     notify(state, sendTo, 'profit_confirm', `${req.employee.name} confirmed profit on "${t.name}" — send the report.`, t.id);
   }
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
+// The reviewer is happy and this client doesn't need a profit confirmation —
+// the finished report goes straight back to the processor to send. It lands on
+// the processor's dashboard (Reviews → reports to send, a notification and the
+// Reviews badge) and is off the reviewer's lists: reportSendOwner is the one
+// field those lists key on. Safe to repeat.
+app.post('/api/tasks/:id/return-to-processor', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const allowed = canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.accessRole === 'superadmin';
+  if (!allowed) return res.status(403).json({ error: "You can't make this decision on someone else's review." });
+  if (t.reviewStatus !== 'clean' || !t.awaitingClientDecision) {
+    return res.status(400).json({ error: 'This task has no pending client-send decision.' });
+  }
+  const processor = findEmployee(state, t.assignedTo);
+  if (!processor) return res.status(400).json({ error: 'The processor for this task no longer exists.' });
+  t.reportSendOwner = processor.id;
+  t.reportReturnedAt = new Date().toISOString();
+  t.reportReturnedBy = req.employee.id;
+  logEvent(state, processor.id, `<b>${escHtml(req.employee.name)}</b> reviewed "${escHtml(t.name)}" — it's clean and needs no profit confirmation. Please send the report to the client.`);
+  notify(state, processor.id, 'send_report', `${req.employee.name} reviewed "${t.name}" — send the report to the client.`, t.id);
   db.save();
   res.json({ task: taskForClient(t) });
 });

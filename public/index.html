@@ -308,6 +308,8 @@
   .menu-pop-list{ position:absolute; right:0; top:calc(100% + 6px); min-width:210px; background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; box-shadow:0 14px 34px rgba(0,0,0,.16); padding:6px; z-index:50; display:flex; flex-direction:column; }
   .menu-pop-list button{ text-align:left; background:none; border:none; padding:9px 10px; border-radius:8px; font:inherit; font-size:13.5px; color:var(--text); cursor:pointer; }
   .menu-pop-list button:hover{ background:var(--panel-2); }
+  .rv-choices{ display:flex; flex-direction:column; gap:8px; margin:6px 0 14px; }
+  .rv-choices .btn{ justify-content:center; padding:11px 14px; }
   .tm-empty{ font-size:13px; color:var(--text-faint); padding:12px 16px; }
   .dash-range select, .dash-range input[type=date]{ height:34px; background:var(--panel); border:1px solid var(--panel-border); color:var(--text); border-radius:9px; padding:0 10px; font-size:13px; font-family:var(--font-body); }
   .dash-range select:focus, .dash-range input:focus{ outline:none; border-color:var(--purple); box-shadow:var(--glow-soft); }
@@ -1240,6 +1242,12 @@
             <div class="mt-label">Calls remaining</div>
             <div class="mt-value" style="color:var(--amber);" id="myCallsRemaining">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myCallsSub"></div>
+          </div>
+          <div class="metric-tile mg-tile" id="reportsSendTile" style="display:none;" onclick="showView('reviews', document.querySelector('.nav-item[data-view=&quot;reviews&quot;]'))" title="Reviewed clean — send these reports to your clients">
+            <div class="mt-ic">📨</div>
+            <div class="mt-label">Reports to send</div>
+            <div class="mt-value" style="color:var(--purple);" id="reportsSendCount">0</div>
+            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;">ready for the client</div>
           </div>
           <div class="metric-tile mg-tile" id="profitConfirmTile" style="display:none;" onclick="openProfitConfirmsModal()" title="Clean client tasks routed to you for profit confirmation before the report goes out">
             <div class="mt-ic">💰</div>
@@ -5156,7 +5164,7 @@ function dismissBanner(key){
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
 let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
-const NOTIF_ICON = { assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋', workshop:'📖' };
+const NOTIF_ICON = { send_report:'📨', assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋', workshop:'📖' };
 async function refreshNotifications(opts){
   opts = opts || {};
   if(!session) return;
@@ -5181,7 +5189,7 @@ async function refreshNotifications(opts){
     });
     if(opts.notify && _notifPrevIds){
       const fresh = _notifs.filter(n => !n.seenAt && !_notifPrevIds.has(n.id) && n.type !== 'kudos' && n.type !== 'points').slice(0, 3);
-      const toastTitle = { mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading' };
+      const toastTitle = { mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send' };
       fresh.forEach(n => showToast('info', toastTitle[n.type] || 'New task alert', n.text));
     }
     _notifPrevIds = new Set(_notifs.map(n => n.id));
@@ -5900,6 +5908,14 @@ function renderEmployeeStats(){
   renderDeliveryStrip('deliveryStrip', mine, isMirroring() ? (me.name || '') : null);
   refreshMyCallStats();
   refreshProfitConfirmTile();
+  refreshReportsToSendTile();
+}
+function refreshReportsToSendTile(){
+  const tile = document.getElementById('reportsSendTile');
+  if(!tile) return;
+  const n = isMirroring() ? 0 : reportsToSendFor(currentViewerId).length;
+  tile.style.display = n ? '' : 'none';
+  const c = document.getElementById('reportsSendCount'); if(c) c.textContent = n;
 }
 // Shubam's (or superadmin's) queue of clean client tasks waiting on his
 // profit confirmation — a real dashboard tile, not just the banner, so it
@@ -6338,6 +6354,8 @@ function renderDashWork(){
   if(_myCalls && _myCalls.total) cells.push(cell(_myCalls.remaining, 'Calls remaining', `${_myCalls.listened} of ${_myCalls.total} listened`, "showView('calls', document.querySelector('.nav-item[data-view=&quot;calls&quot;]'))", 'var(--amber)'));
   const pc = iAmProfitConfirmOwner() ? profitConfirmsPendingFor().length : 0;
   if(pc) cells.push(cell(pc, 'Profit confirmations', 'waiting on you', 'openProfitConfirmsModal()', 'var(--purple)'));
+  const rs = reportsToSendFor(currentViewerId).length;
+  if(rs) cells.push(cell(rs, 'Reports to send', 'ready to go to clients', 'openReviewsPage()', 'var(--purple)'));
   const m = _todayData && _todayData.me;
   let cap = '';
   if(m){
@@ -9841,7 +9859,7 @@ function renderReviewsView(){
 
   const toSend = reportsToSendFor(currentViewerId).slice().sort((a,b) => (a.clientDate||'9999').localeCompare(b.clientDate||'9999'));
   sec('rvSend', 'reports ready to send to the client', toSend.length, toSend.map(t => row(t,
-    `${esc(t.clientName || '—')} · ${taskNo(t.id)}`,
+    `${esc(t.clientName || '—')} · ${taskNo(t.id)}${t.reportReturnedBy ? ' · reviewed clean by ' + esc((empById(t.reportReturnedBy) || {}).name || 'the reviewer') + ' — no profit confirmation needed' : ''}`,
     `${t.reportOverdue ? '<span class="dash-bad">overdue · </span>' : ''}reviewed ${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'} · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}`,
     `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openSendToClientModal('${t.id}')">Send to client</button>`)).join(''), '', true);
 
@@ -9850,7 +9868,7 @@ function renderReviewsView(){
 function updateReviewsNavBadge(){
   const badge = document.getElementById('reviewsNavBadge');
   if(!badge) return;
-  const n = myReviewTasks().length + (iAmProfitConfirmOwner() ? profitConfirmsPendingFor().length : 0);
+  const n = myReviewTasks().length + (iAmProfitConfirmOwner() ? profitConfirmsPendingFor().length : 0) + reportsToSendFor(currentViewerId).length;
   if(n > 0){ badge.textContent = n; badge.style.display = ''; } else badge.style.display = 'none';
 }
 function openMyReviewQueue(){
@@ -10615,6 +10633,8 @@ function openReviewScoreModal(){
   if(!t) return;
   const isClean = !_revState.faultType;
   const isInternal = t.kind === 'internal';
+  const proc = empById(t.assignedTo);
+  const procFirst = proc ? esc((proc.name || '').split(' ')[0]) : 'the processor';
   // Score + (for a clean review) the send decision are one screen now, not
   // two in a row — scoring used to lead into a separate "Send to client?"
   // popup immediately after, which read as the same decision twice.
@@ -10638,17 +10658,21 @@ function openReviewScoreModal(){
     </div>` : '';
   document.getElementById('modalBox').innerHTML = `
     <h3>Score this work — ${esc(t.name)}</h3>
-    <div class="modal-sub">${isClean ? (isInternal ? 'Reviewed clean — no client to send to.' : 'Reviewed clean — decide how to send it below.') : 'Going back for rework'}</div>
+    <div class="modal-sub">${isClean ? (isInternal ? 'Reviewed clean — no client to send to.' : 'Looks good. What happens next?') : 'Going back for rework'}</div>
     <div class="field"><label>Score <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(0–100, optional)</span></label>
       <input type="number" id="reviewScoreInput" min="0" max="100" step="1" placeholder="e.g. 90" value="${_revState.score != null ? _revState.score : ''}">
     </div>
     ${linksBlock}
     <div class="modal-error" id="reviewScoreErr"></div>
-    <div class="modal-actions" style="flex-wrap:wrap;">
+    ${isClean && !isInternal ? `<div class="rv-choices">
+      <button class="btn primary" onclick="submitReviewFinal('return')" title="No profit confirmation needed — the processor sends the report and it leaves your list">↩ Send back to ${procFirst} to send the report</button>
+      <button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitReviewFinal('profit')" title="Needs the sheet or cashbook link; goes to Shubam, then back to ${procFirst} to send">💰 Send for profit confirmation</button>
+      <button class="btn" style="border-color:var(--coral);color:var(--coral);" onclick="reviewReworkInstead()" title="Record whose fault it was and send it back to fix">⚠ Rework needed</button>
+    </div>` : ''}
+    <div class="modal-actions" style="flex-wrap:wrap;align-items:center;">
       <button class="btn" onclick="reviewScoreGoBack(${isClean})">← Back</button>
-      ${isClean && !isInternal ? `<button class="btn" onclick="submitReviewFinal('later')">Remind me later</button>` : ''}
-      ${isClean && !isInternal ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitReviewFinal('profit')" title="Score it, then send to Shubam with the sheet/cashbook links">💰 Profit Confirm</button>` : ''}
-      <button class="btn primary" onclick="submitReviewFinal(${isClean && !isInternal ? "'send'" : 'undefined'})">${isClean && !isInternal ? '✓ Sent to client' : '✓ Done'}</button>
+      <span style="flex:1;"></span>
+      ${isClean && !isInternal ? `<a href="#" onclick="event.preventDefault();submitReviewFinal('send')" style="font-size:12.5px;color:var(--text-faint);text-decoration:underline;">I've already sent it to the client myself</a>` : `<button class="btn primary" onclick="submitReviewFinal(undefined)">✓ Done</button>`}
     </div>
     ${waiveBlock}
   `;
@@ -10657,6 +10681,13 @@ function openReviewScoreModal(){
 // Whatever was typed into the score field would otherwise be silently
 // dropped on Back, since the modal it returns to is a full innerHTML replace
 // — stash it on _revState first so re-opening the score step restores it.
+// "Rework needed" from the score screen: keep whatever score was typed and go
+// straight to "whose fault was it?" — the same path the first screen's switch takes.
+function reviewReworkInstead(){
+  const scoreEl = document.getElementById('reviewScoreInput');
+  _revState.score = scoreEl && scoreEl.value !== '' ? scoreEl.value : undefined;
+  openReviewFaultModal();
+}
 function reviewScoreGoBack(isClean){
   const scoreEl = document.getElementById('reviewScoreInput');
   _revState.score = scoreEl && scoreEl.value !== '' ? scoreEl.value : undefined;
@@ -10710,6 +10741,14 @@ async function submitReviewFinal(action){
       await api(`/api/tasks/${encodeURIComponent(id)}/links`, { method:'PATCH', body: JSON.stringify({ sheetLink, cashbookLink }) });
     }
     _reviewShotData = null; _revState = null;
+    if(decision === 'clean' && action === 'return'){
+      const procName = (empById((findTask(id) || {}).assignedTo) || {}).name || 'the processor';
+      await api(`/api/tasks/${encodeURIComponent(id)}/return-to-processor`, { method:'POST' });
+      await refreshTasks(); await refreshActivity({ silent:true });
+      closeModal();
+      showToast('success', `Sent back to ${procName.split(' ')[0]}`, 'They will send the report to the client. It is off your list now.');
+      return;
+    }
     if(decision === 'clean' && action === 'profit'){
       await api(`/api/tasks/${encodeURIComponent(id)}/profit-confirm`, { method:'POST' });
       await refreshTasks(); await refreshActivity({ silent:true });
