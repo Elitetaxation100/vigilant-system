@@ -176,7 +176,8 @@ function matchClient(clients, c) {
   const tries = [
     ['email', c.email, x => lower(x.email) === c.email],
     ['phone', normPhone(c.phone), x => normPhone(x.phone) === normPhone(c.phone)],
-    ['name', c.name && c.name.toLowerCase(), x => x.name && x.name.trim().toLowerCase() === c.name.toLowerCase()],
+    // a bare first name ("Varun") is not enough to say two records are the same person
+    ['name', c.name && /\S\s+\S/.test(c.name.trim()) && c.name.trim().toLowerCase(), x => x.name && x.name.trim().toLowerCase() === c.name.toLowerCase()],
   ];
   for (const [by, key, test] of tries) {
     if (!key) continue;

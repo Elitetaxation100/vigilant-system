@@ -2741,46 +2741,47 @@ async function fetchCrmContacts() {
   const firstRows = crmSync.extractList(first.result);
   if (!firstRows) return { ok: true, rows: null, raw: first.result };
   const idOf = r => (r && r.id != null ? String(r.id) : null);
-  const info = { pages: 1, how: null, mayBeIncomplete: false };
-  let rows = firstRows.slice();
-  const size = firstRows.length;
-  if (size >= 20 && [20, 25, 30, 50, 100, 200, 250, 500, 1000].includes(size)) {
-    const seen = new Set(rows.map(idOf));
-    const tryParams = async (params) => {
-      const r = await crmApi('list-pipeline', params);
-      const got = r.ok ? crmSync.extractList(r.result) : null;
-      return got ? got.filter(x => idOf(x) && !seen.has(idOf(x))) : [];
-    };
-    // one big request?
-    const big = await tryParams({ limit: 1000 });
-    if (big.length) {
-      big.forEach(x => { seen.add(idOf(x)); rows.push(x); });
-      info.how = 'limit'; info.pages = 2;
-      if (rows.length >= 1000) info.mayBeIncomplete = true;
-    } else {
-      // page by offset, else by page number
+  const info = { pages: 1, how: [], mayBeIncomplete: false };
+  const rows = firstRows.slice();
+  const seen = new Set(rows.map(idOf));
+  const ROUND = [20, 25, 30, 50, 100, 200, 250, 500, 1000];
+  const fresh = async (params) => {
+    const r = await crmApi('list-pipeline', params);
+    const got = r.ok ? crmSync.extractList(r.result) : null;
+    return got ? got.filter(x => idOf(x) && !seen.has(idOf(x))) : [];
+  };
+  const take = more => more.forEach(x => { seen.add(idOf(x)); rows.push(x); });
+  if (rows.length >= 20 && ROUND.includes(rows.length)) {
+    // 1. a bigger page size (a CRM often caps it — 200 here — so this is only a first step)
+    const big = await fresh({ limit: 1000 });
+    if (big.length) { take(big); info.how.push('limit'); info.pages++; }
+    // 2. still a round number? keep going by offset, else by page number
+    if (ROUND.includes(rows.length)) {
+      const size = rows.length;
       const modes = [
+        { how: 'offset', params: n => ({ offset: n * size, limit: size }) },
         { how: 'offset', params: n => ({ offset: n * size }) },
+        { how: 'page', params: n => ({ page: n + 1, limit: size }) },
         { how: 'page', params: n => ({ page: n + 1 }) },
       ];
+      let worked = false;
       for (const m of modes) {
-        const more = await tryParams(m.params(1));
+        const more = await fresh(m.params(1));
         if (!more.length) continue;
-        info.how = m.how;
-        more.forEach(x => { seen.add(idOf(x)); rows.push(x); });
-        info.pages = 2;
-        for (let n = 2; n < 40; n++) {
-          const next = await tryParams(m.params(n));
+        worked = true; info.how.push(m.how);
+        take(more); info.pages++;
+        for (let n = 2; n < 60; n++) {
+          const next = await fresh(m.params(n));
           if (!next.length) break;
-          next.forEach(x => { seen.add(idOf(x)); rows.push(x); });
-          info.pages++;
+          take(next); info.pages++;
         }
-        if (info.pages >= 40) info.mayBeIncomplete = true;
+        if (info.pages >= 60) info.mayBeIncomplete = true;
         break;
       }
-      if (!info.how) info.mayBeIncomplete = true; // could not get past the first page
+      if (!worked) info.mayBeIncomplete = true; // a round number and no way past it
     }
   }
+  info.how = [...new Set(info.how)].join(' + ') || null;
   return { ok: true, rows, info };
 }
 
