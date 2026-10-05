@@ -49,7 +49,6 @@ const ROSTER = [
   { name: 'Suneha', email: 'suneha@elitetaxation.co.nz', password: 'Suneha@2026', jobTitle: 'Tax Associate', team: 'GST Team', accessRole: 'employee' },
   { name: 'Disha Chaudhary', email: 'disha@elitetaxation.co.nz', password: 'Disha@2026', jobTitle: 'Junior Accountant', team: 'GST Team', accessRole: 'admin' },
   { name: 'Anjana Pandey', email: 'anjana@elitetaxation.co.nz', password: 'Anjana@2026', jobTitle: 'Junior Accountant', team: 'Rental Team', accessRole: 'employee' },
-  { name: 'Mukul', email: 'mukul@elitetaxation.co.nz', password: 'Mukul@2026', jobTitle: 'Tax Associate', team: 'Rideshare Team', accessRole: 'employee' },
   { name: 'HR Administrator', email: 'hr@elitetaxation.co.nz', password: 'kajal11A@', jobTitle: 'HR Administrator', team: 'Management', accessRole: 'superadmin' },
   { name: 'Khushi', email: 'khushi@elitetaxation.co.nz', password: 'Khushi@2026', jobTitle: 'Tax Associate', team: 'GST Team', accessRole: 'employee' },
   { name: 'Diksha', email: 'diksha@elitetaxation.co.nz', password: 'Diksha@2026', jobTitle: 'Tax Associate', team: 'GST Team', accessRole: 'employee' },
@@ -65,6 +64,7 @@ const ROSTER = [
 const RETIRED_EMAILS = new Set([
   'natasha@elitetaxation.co.nz',
   'krishna@elitetaxation.co.nz',
+  'mukul@elitetaxation.co.nz', // left the org, Oct 2026
 ]);
 
 // IA Phase 6 — canonical Department -> Service taxonomy. This is additive:
@@ -177,11 +177,10 @@ function ensureOrgChart(state) {
   const smita = ensureEmployee('smita@elitetaxation.co.nz');
   const hunny = ensureEmployee('hunny@elitetaxation.co.nz');
   const ranjit = byEmail('ranjit@elitetaxation.co.nz');
-  const mukul = byEmail('mukul@elitetaxation.co.nz');
 
   if (disha) ensureManages(disha, [khushi.id, diksha.id, nitish.id]);
   ensureManages(vishal, [smita.id, hunny.id]);
-  if (parvinder) ensureManages(parvinder, [...(ranjit ? [ranjit.id] : []), ...(mukul ? [mukul.id] : [])]);
+  if (parvinder) ensureManages(parvinder, [...(ranjit ? [ranjit.id] : [])]);
   // Disha, Vishal and Parvinder report to Shubham. Shubham is superadmin,
   // which already grants him assign-access to every employee — managesIds
   // only matters for the 'admin' role — so recording it here isn't
