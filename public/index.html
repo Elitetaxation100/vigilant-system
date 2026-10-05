@@ -6006,9 +6006,24 @@ function renderDashRangeBar(show){
 
 /* ---- what counts as "the team's work in the range" ---- */
 // finished, started or due inside the range
+// "On the plate today": running now, waiting on a decision, or open and due today / overdue.
+function onPlateToday(t){
+  if(t.status === 'completed' || t.status === 'pending_approval') return false;
+  if(t.timerStartedAt || ['awaiting_acceptance', 'rework', 'window_proposed'].includes(t.status)) return true;
+  return t.status !== 'on_hold' && !!t.internalDeadline && t.internalDeadline <= todayISO();
+}
+// A range that includes today also takes everything on today's plate — so the
+// "to do today" number and the list under it are always the same tasks.
 function taskInRange(t, from, to){
   const inR = iso => !!iso && iso >= from && iso <= to;
-  return inR(t.completedAt ? dayOf(t.completedAt) : '') || inR(t.internalDeadline) || inR(t.startedAt ? dayOf(t.startedAt) : '');
+  if(inR(t.completedAt ? dayOf(t.completedAt) : '') || inR(t.internalDeadline) || inR(t.startedAt ? dayOf(t.startedAt) : '')) return true;
+  const today = todayISO();
+  return from <= today && to >= today && onPlateToday(t);
+}
+function dashHintText(){
+  const rl = dashRangeLabel(), { from, to } = dashRangeBounds(), today = todayISO();
+  return 'finished, started or due ' + (rl === 'today' || rl === 'yesterday' ? rl : 'between ' + rl)
+    + (from <= today && to >= today ? ', plus anything still open that is overdue' : '');
 }
 function isOverdueNow(t){
   return t.status !== 'completed' && t.status !== 'on_hold' && t.status !== 'pending_approval' && !!t.internalDeadline && t.internalDeadline < todayISO();
@@ -6092,8 +6107,7 @@ function renderDashToday(){
   // "My to-do": today's actionable work when the range is today, otherwise
   // my own work finished, started or due in the range.
   const mineList = isToday
-    ? tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval' && (t.timerStartedAt
-        || ['awaiting_acceptance', 'rework', 'window_proposed'].includes(t.status) || (t.status !== 'on_hold' && t.internalDeadline && t.internalDeadline <= today)))
+    ? tasks.filter(t => t.assignedTo === currentViewerId && onPlateToday(t))
     : tasks.filter(t => t.assignedTo === currentViewerId && taskInRange(t, from, to));
   window._dashLists.overdue = teamOverdue;
   window._dashLists.done = teamDone;
@@ -6186,7 +6200,7 @@ function renderDashTeam(){
   const rl = dashRangeLabel();
   document.getElementById('dashTeamHint').textContent = _teamStatus === 'overdue'
     ? 'Overdue is as of right now, so the date range does not apply.'
-    : `Work finished, started or due ${rl === 'today' || rl === 'yesterday' ? rl : 'between ' + rl}.`;
+    : 'Work ' + dashHintText() + '.';
   const shown = people.filter(p => !_teamPerson || p.id === _teamPerson);
   const todayTeam = (_todayData && _todayData.team) || [];
   list.innerHTML = shown.length ? `<div class="tm-list">${shown.map(p => {
@@ -6243,7 +6257,7 @@ function renderDashWork(){
   const { from, to } = dashRangeBounds();
   const label = dashRangeLabel();
   const mine = tasks.filter(t => t.assignedTo === currentViewerId && t.status !== 'pending_approval');
-  const toDo = tasks.filter(isTodaysWork).length;
+  const toDo = mine.filter(onPlateToday).length;
   const toReview = myReviewTasks().length;
   const sent = mine.filter(t => t.status === 'completed' && !t.reviewStatus).length;
   const bnd = empPeriodBounds();
@@ -6285,7 +6299,7 @@ function renderDashWork(){
   el.innerHTML = `<div class="wk-strip">${cells.join('')}</div>${cap}
     <div class="tm-list">
       <div class="wk-list-head">
-        <span class="wk-count"><b>${rows.length}</b> ${rows.length === 1 ? 'task' : 'tasks'} <small>${_workStatus === 'overdue' ? 'overdue right now' : 'finished, started or due ' + (rl === 'today' || rl === 'yesterday' ? rl : 'between ' + rl)}</small>${b.overdueNow && _workStatus !== 'overdue' ? ` <button class="tm-chip bad" style="border:none;cursor:pointer;margin-left:8px;" title="Open and past their due date right now — whatever the date range" onclick="showWorkOverdue()"><b>${b.overdueNow}</b> overdue now</button>` : ''}</span>
+        <span class="wk-count"><b>${rows.length}</b> ${rows.length === 1 ? 'task' : 'tasks'} <small>${_workStatus === 'overdue' ? 'overdue right now' : dashHintText()}</small>${b.overdueNow && _workStatus !== 'overdue' ? ` <button class="tm-chip bad" style="border:none;cursor:pointer;margin-left:8px;" title="Open and past their due date right now — whatever the date range" onclick="showWorkOverdue()"><b>${b.overdueNow}</b> overdue now</button>` : ''}</span>
         <span class="wk-btns">
           <button class="btn small primary" onclick="openAssignModal('me')">+ Add a task</button>
           <button class="btn small" onclick="openRecurringModal()">🔁 Daily tasks</button>
