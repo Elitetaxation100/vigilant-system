@@ -2719,6 +2719,14 @@ function _localDay(d){ return _NZ_FMT.format(d instanceof Date ? d : new Date(d)
 function todayISO(){ return _localDay(new Date()); }
 // The NZ calendar day a stored UTC timestamp falls on — use instead of
 // `.slice(0,10)` whenever comparing a timestamp against "today".
+// Task ids are stored as #100000000339 (a fixed 12-digit base + the running number).
+// Show people just the running number — #339 — everywhere an id is displayed.
+function taskNo(id){
+  const m = /^#?(\d{12,})$/.exec(String(id == null ? '' : id));
+  if(!m) return String(id == null ? '' : id);
+  const n = Number(m[1]) - 100000000000;
+  return n > 0 ? '#' + n : String(id);
+}
 function dayOf(ts){ return ts ? _localDay(new Date(ts)) : ''; }
 // `days` calendar days from the NZ "today" — pure date-only arithmetic
 // anchored on todayISO(), so it isn't subject to the device's own timezone
@@ -4299,7 +4307,7 @@ function renderAdminView(){
       }
     }
     return `<tr>
-      <td><div class="task-name">${esc(t.name)}</div>${t.scope && t.scope !== '—' ? `<div class="task-scope">${esc(t.scope)}</div>` : ''}<div class="task-scope">${t.id}</div></td>
+      <td><div class="task-name">${esc(t.name)}</div>${t.scope && t.scope !== '—' ? `<div class="task-scope">${esc(t.scope)}</div>` : ''}<div class="task-scope">${taskNo(t.id)}</div></td>
       <td class="clientcell">${esc(t.clientName) || '—'}</td>
       <td>${srcTag(t.source || 'manual')}</td>
       <td><div class="assignee">${a ? `<span class="mini-avatar">${esc(a.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span> ${esc(a.name)}` : '<span style="color:var(--amber);">Unassigned</span>'}</div></td>
@@ -5668,7 +5676,7 @@ function renderTaskTable(){
       const assignee = empById(t.assignedTo);
       const isToday = t.internalDeadline === todayISO() && t.status !== 'completed';
       return `<tr>
-        <td class="task-id">${t.id}</td>
+        <td class="task-id">${taskNo(t.id)}</td>
         <td><div class="task-name">${esc(t.name)}</div>${(t.source && t.source !== 'manual') ? `<div class="admin-src-cell">${srcTag(t.source)}</div>` : ''}</td>
         <td class="clientcell">${esc(t.clientName) || '—'}<div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Manager due: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${(t.dateHistory||[]).length ? ' · <span title="edited by a manager">edited ' + (t.dateHistory.length) + '×</span>' : ''}</div><div class="cdate ${isToday?'deadline-today':''}">Client: ${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}${t.clientDateOverride ? ' <span class="pill neutral" style="font-size:9px;">PROMISED</span>' : ''}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
         <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
@@ -8311,7 +8319,7 @@ async function renderCommandCenter(){
   };
   document.getElementById('ccAssignBody').innerHTML = rows.length ? rows.map(r => `
       <tr style="cursor:pointer;" onclick="openTaskTrailModal('${r.id}')" title="Click for the full history — who did what, when">
-        <td class="task-id">${r.id}</td>
+        <td class="task-id">${taskNo(r.id)}</td>
         <td>${esc(r.name)}${r.clientName ? `<div style="font-size:12px;color:var(--text-faint);">${esc(r.clientName)}</div>` : ''}</td>
         <td>${esc(r.assignedBy)}</td>
         <td>${esc(r.assignedTo)}</td>
@@ -9226,7 +9234,7 @@ function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner =
     const overdue = (t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today) || t.reviewOverdue || t.reportOverdue;
     const overdueReason = t.reportOverdue ? 'report not sent' : t.reviewOverdue ? 'not yet reviewed' : 'overdue';
     const hay = (t.name + ' ' + (t.clientName||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase();
-    const sub = (t.clientName || '—') + (t.id ? ' · ' + t.id : '');
+    const sub = (t.clientName || '—') + (t.id ? ' · ' + taskNo(t.id) : '');
     return `<tr data-hay="${esc(hay)}" data-cat="${esc(taskListCategories(t, subjectId))}">
       <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub" title="${esc(sub)}">${esc(sub)}</div></td>
       <td style="font-family:var(--font-mono);white-space:nowrap;">⏱ ${t.tat}h</td>
@@ -9480,7 +9488,7 @@ function renderReviewsView(){
     const o = empById(t.assignedTo);
     return `<tr>
       <td><div class="tl-name">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</td>
+      <td class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + taskNo(t.id) : ''}</td>
       <td>${o ? esc(o.name) : '—'}</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
       <td style="${t.reviewOverdue?'color:#C2410C;font-weight:600;':''}">${daysWaiting(t)}d</td>
@@ -9498,7 +9506,7 @@ function renderReviewsView(){
     const r = empById(t.reviewedBy);
     return `<tr>
       <td><div class="tl-name">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</td>
+      <td class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + taskNo(t.id) : ''}</td>
       <td>${r ? esc(r.name) : '—'}</td>
       <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
       <td class="tl-sub" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.reviewNote||'')}">${esc(t.reviewNote || '—')}</td>
@@ -9513,7 +9521,7 @@ function renderReviewsView(){
     const o = empById(t.assignedTo);
     return `<tr>
       <td><div class="tl-name">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</td>
+      <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + taskNo(t.id) : ''}</td>
       <td>${o ? esc(o.name) : '—'}</td>
       <td>${linkTag(t.sheetLink, 'Sheet')}</td>
       <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
@@ -9525,7 +9533,7 @@ function renderReviewsView(){
   document.getElementById('revSendPanel').style.display = toSend.length ? '' : 'none';
   document.getElementById('revSendBody').innerHTML = toSend.map(t => `<tr>
       <td><div class="tl-name">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</td>
+      <td class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + taskNo(t.id) : ''}</td>
       <td class="tl-sub">${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</td>
       <td style="${t.reportOverdue?'color:#C2410C;font-weight:600;':''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}</td>
       <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openSendToClientModal('${t.id}')">Send?</button></td>
@@ -9546,7 +9554,7 @@ function openMyReviewQueue(){
     const hay = (t.name + ' ' + (t.clientName||'') + ' ' + (o?o.name:'') + ' ' + t.id).toLowerCase();
     const overdue = t.reviewOverdue;
     return `<tr data-hay="${esc(hay)}">
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + t.id : ''}</div></td>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + taskNo(t.id) : ''}</div></td>
       <td style="font-family:var(--font-mono);">⏱ ${t.tat}h</td>
       <td>${o ? esc(o.name) : '—'}</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
@@ -9597,7 +9605,7 @@ function openWorkLog(empId, startISO, endISO){
     const hrs = items.reduce((n,t) => n + taskHrs(t), 0);
     return `<tr class="wl-datehdr"><td colspan="4">${fmtDate(d)} &middot; ${items.length} task${items.length === 1 ? '' : 's'} &middot; ${hrs.toFixed(1)}h</td></tr>` +
       items.map(t => `<tr>
-        <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${t.id}</div></td>
+        <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${taskNo(t.id)}</div></td>
         <td>${esc(t.clientName || (t.kind === 'internal' ? 'Internal' : '—'))}</td>
         <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
         <td>${resultLabel(t)}</td>
@@ -9628,7 +9636,7 @@ function openMyInReview(q){
   const rows = list.map(t => {
     const r = empById(t.reviewerId);
     return `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')} · ${t.id}</div></td>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')} · ${taskNo(t.id)}</div></td>
       <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
       <td class="tl-sub">${r ? esc(r.name) : 'unassigned'}</td>
@@ -9657,7 +9665,7 @@ function openMyDoneList(startISO, endISO, q){
     .sort((a,b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
   const list = q ? all.filter(t => (t.name + ' ' + (t.clientName||'') + ' ' + t.id).toLowerCase().includes(q)) : all;
   const rows = list.map(t => `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')} · ${t.id}</div></td>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')} · ${taskNo(t.id)}</div></td>
       <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
       <td class="tl-sub">${fmtDate(dayOf(t.completedAt))}</td>
       <td>${t.reviewStatus === 'clean' ? '<span class="badge completed dot">✓ Clean</span>' : '<span class="badge completed dot">✓ Done</span>'}</td>
@@ -10546,7 +10554,7 @@ async function submitReviewFinal(action){
     const rows = list.map(t => {
       const a = empById(t.assignedTo);
       return `<tr>
-        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
+        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + taskNo(t.id) : ''}</div></td>
         <td class="tl-sub">${a ? esc(a.name) : '—'}</td>
         <td style="${t.reportOverdue ? 'color:#C2410C;font-weight:600;' : ''}">${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' · overdue' : ''}</td>
         <td><button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;white-space:nowrap;" onclick="closeModal();openSendToClientModal('${t.id}')">Send?</button></td>
@@ -10573,7 +10581,7 @@ async function submitReviewFinal(action){
     const rows = list.map(t => {
       const a = empById(t.assignedTo);
       return `<tr>
-        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + t.id : ''}</div></td>
+        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + taskNo(t.id) : ''}</div></td>
         <td class="tl-sub">${a ? esc(a.name) : '—'}</td>
         <td>${linkTag(t.sheetLink, 'Sheet')}</td>
         <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
@@ -10724,7 +10732,7 @@ function openTaskTrailModal(id){
     : t.reviewStatus === 'error' ? 'In rework' : statusLabel(t.status);
   document.getElementById('modalBox').innerHTML = `
     <h3>Task history — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${t.id} · now: <b>${esc(stateNow)}</b></div>
+    <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${taskNo(t.id)} · now: <b>${esc(stateNow)}</b></div>
     <div id="ttNotifyStatus"></div>
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions">
@@ -10782,7 +10790,7 @@ function openCorrectNameModal(id){
   if(!t) return;
   document.getElementById('modalBox').innerHTML = `
     <h3>Rename task</h3>
-    <div class="modal-sub">${t.id}</div>
+    <div class="modal-sub">${taskNo(t.id)}</div>
     <div class="field"><label>Task name</label>
       <input type="text" id="cnNewValue" value="${esc(t.name)}"></div>
     <div class="modal-error" id="cnErr"></div>
