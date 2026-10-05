@@ -1011,10 +1011,8 @@
       <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> My Dashboard</div>
       <details class="nav-drop" id="mgmtNavGroup">
         <summary class="nav-item nav-sub" id="mgmtNavToggle" style="display:none;"><span class="nav-icon">▾</span> Management dashboards</summary>
-        <div class="nav-item nav-sub" id="managerNavSection" data-view="manager" style="display:none;" onclick="showView('manager', this)"><span class="nav-icon">◱</span> Manager Dashboard</div>
         <div class="nav-item nav-sub" id="teamBoardNavSection" data-view="teamboard" style="display:none;" onclick="showView('teamboard', this)"><span class="nav-icon">◲</span> Team Board</div>
         <div class="nav-item nav-sub" id="founderNavSection" data-view="founder" style="display:none;" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div>
-        <div class="nav-item nav-sub" id="commandCenterNavSection" data-view="command" style="display:none;" onclick="showView('command', this)"><span class="nav-icon">🛡</span> Command Center</div>
       </details>
     </div>
     <div class="nav-section">
@@ -3175,10 +3173,8 @@ const SUPERADMIN_ONLY_VIEWS = ['admin','command','attendance','employees','taxon
 // place — onLoginComplete/logoutSession — deciding who sees what.
 function renderMgmtTabs(activeId){
   const defs = [
-    ['manager', '◱ Manager Dashboard', 'managerNavSection'],
     ['teamboard', '◲ Team Board', 'teamBoardNavSection'],
     ['founder', '◉ Founder View', 'founderNavSection'],
-    ['command', '🛡 Command Center', 'commandCenterNavSection'],
   ];
   const visible = defs.filter(([,,navId]) => {
     const navEl = document.getElementById(navId);
@@ -4188,6 +4184,8 @@ function showView(id, el){
   // hard gate — these screens are superadmin-only (nav is hidden too, this
   // catches a stale link or a programmatic call)
   if(SUPERADMIN_ONLY_VIEWS.includes(id) && !isSuperAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
+  // Manager Dashboard and Command Center were retired — the pages stay in the file but nothing opens them.
+  if(id === 'manager' || id === 'command'){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
   if(id === 'manager' && !isAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
   // Founder View — the actual founder(s) only, not every superadmin. A
   // superadmin who isn't flagged as founder (Manage Access → Founder) gets
@@ -5094,7 +5092,7 @@ function renderDeadlineBanner(){
   if(isAdmin){
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
     if(proposedOrg.length > 0){
-      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed</b> — <a href="#" onclick="showView('manager', document.querySelector('.nav-item[data-view=&quot;manager&quot;]')); return false;" style="color:#6D28D9; text-decoration:underline;">review on Manager Dashboard</a></span></div>`);
+      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} window${proposedOrg.length>1?'s':''} proposed</b> — <a href="#" onclick="openProposedWindows(); return false;" style="color:#6D28D9; text-decoration:underline;">review and decide</a></span></div>`);
     }
   }
   // Workshop pre-reading not yet confirmed (and not already marked down).
@@ -6121,7 +6119,7 @@ function renderDashToday(){
   const windows = tasks.filter(t => t.status === 'window_proposed' && t.assignedTo !== currentViewerId).length;
   const toSend = reportsToSendFor(currentViewerId).length;
   const notices = [
-    windows ? `<div class="banner"><span>🗓</span><span><b>${windows} new window${windows === 1 ? '' : 's'} proposed</b> by your team — <a href="#" onclick="event.preventDefault();showView('manager', document.querySelector('.nav-item[data-view=&quot;manager&quot;]'));" style="text-decoration:underline;font-weight:600;">decide on the Manager Dashboard</a></span></div>` : '',
+    windows ? `<div class="banner"><span>🗓</span><span><b>${windows} new window${windows === 1 ? '' : 's'} proposed</b> by your team — <a href="#" onclick="event.preventDefault();openProposedWindows();" style="text-decoration:underline;font-weight:600;">review and decide</a></span></div>` : '',
     toSend ? `<div class="banner"><span>📨</span><span><b>${toSend} report${toSend === 1 ? '' : 's'} to send</b> to clients — <a href="#" onclick="event.preventDefault();openReviewsPage();" style="text-decoration:underline;font-weight:600;">open Reviews</a></span></div>` : '',
   ].join('');
   const mineRows = mineList.slice().sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999')).slice(0, 6).map(t => `<div class="to-row" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
@@ -7305,6 +7303,31 @@ async function submitPropose(id){
     await api(`/api/tasks/${encodeURIComponent(id)}/propose-window`, { method:'POST', body: JSON.stringify({date, reason}) });
     closeModal(); await refreshTasks(); await refreshActivity();
   } catch(e){ showToast('error', 'Could not propose window', e.message); }
+}
+// Every proposed window waiting on a manager, with Approve / Reject right there.
+function openProposedWindows(){
+  const list = tasks.filter(t => t.status === 'window_proposed' && t.assignedTo !== currentViewerId)
+    .sort((a, b) => (a.proposedDate || '').localeCompare(b.proposedDate || ''));
+  const row = t => {
+    const emp = empById(t.assignedTo);
+    return `<div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
+      <div><div style="font-weight:600;">${esc(t.name)}${t.clientName ? ' — ' + esc(t.clientName) : ''}</div>
+        <div style="font-size:12.5px;color:var(--text-faint);">${emp ? esc(emp.name) : '—'} · was due ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'} · proposes <b>${t.proposedDate ? fmtDate(t.proposedDate) : '—'}</b>${t.proposedReason ? ' · “' + esc(t.proposedReason) + '”' : ''}</div></div>
+      <div style="display:flex;gap:6px;">
+        <button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="decideWindow('${t.id}', true)">Approve</button>
+        <button class="verify-btn" style="border-color:var(--coral);color:var(--coral);" onclick="decideWindow('${t.id}', false)">Reject</button>
+      </div></div>`;
+  };
+  document.getElementById('modalBox').innerHTML = `<div class="tasklist-modal">
+    <h3>New windows proposed <span style="font-weight:500;color:var(--text-faint);font-size:14px;">· ${list.length}</span></h3>
+    <div class="modal-sub">Your team asked for a new due date on these. Approve to accept it, or reject to keep the old date.</div>
+    ${list.length ? `<div style="max-height:55vh;overflow-y:auto;">${list.map(row).join('')}</div>` : '<p style="font-size:13.5px;color:var(--text-faint);padding:14px 4px;">Nothing waiting on you.</p>'}
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div></div>`;
+  openModal();
+}
+async function decideWindow(id, approve){
+  await (approve ? approveProposal(id) : rejectProposal(id));
+  openProposedWindows();
 }
 async function approveProposal(id){
   try { await api(`/api/tasks/${encodeURIComponent(id)}/approve-window`, { method:'POST' }); await refreshTasks(); await refreshActivity(); }
@@ -11807,7 +11830,6 @@ async function onLoginComplete(){
   // the firm analytics engines.
   document.getElementById('adminNavItem').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('employeesNavSection').style.display = isSuperAdmin ? '' : 'none';
-  document.getElementById('commandCenterNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
   // Founder View — actual founder(s) only (Manage Access → Founder), not
   // every superadmin.
@@ -11815,7 +11837,6 @@ async function onLoginComplete(){
   document.getElementById('whatsappNavSection').style.display = (isSuperAdmin || session.whatsappAccess) ? '' : 'none';
   // Manager Dashboard stays with the Admin role — team oversight & the
   // review / approve / reassign actions live there.
-  document.getElementById('managerNavSection').style.display = isAdmin ? '' : 'none';
   // The "Management dashboards" dropdown toggle — visible under the exact
   // same condition as the least-restrictive item inside it (isAdmin), so
   // nobody sees an empty, un-openable dropdown.
@@ -11886,7 +11907,6 @@ function logoutSession(){
   if(clockInterval){ clearInterval(clockInterval); clockInterval = null; }
   document.getElementById('adminNavItem').style.display = 'none';
   document.getElementById('employeesNavSection').style.display = 'none';
-  document.getElementById('commandCenterNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
   document.getElementById('mgmtNavToggle').style.display = 'none';
