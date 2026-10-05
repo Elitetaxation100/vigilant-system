@@ -5299,6 +5299,59 @@ app.post('/api/emails/:id/no-reply-needed', requireAuth, (req, res) => {
   db.save();
   res.json({ ok: true, replyNotNeeded: e.replyNotNeeded });
 });
+// Who may act on a logged email (👍 it, reassign it): a superadmin, whoever is
+// currently responsible for it, or their manager.
+function canActOnEmail(state, me, e) {
+  const owner = e.reassignedTo || e.mailboxOwner;
+  return me.accessRole === 'superadmin' || owner === me.id || (!!owner && canManageEmployee(state, me, owner));
+}
+// 👍 acknowledges an email without counting as a reply. A toggle, so a mistaken
+// click is easy to undo.
+app.post('/api/emails/:id/thumbs-up', requireAuth, (req, res) => {
+  const state = db.get();
+  const e = (state.emails || []).find(x => x.id === req.params.id);
+  if (!e) return res.status(404).json({ error: 'Email not found.' });
+  if (!canActOnEmail(state, req.employee, e)) return res.status(403).json({ error: "You can only acknowledge mail that is yours (or your team's)." });
+  e.thumbsUp = !e.thumbsUp;
+  e.thumbsUpBy = e.thumbsUp ? req.employee.id : null;
+  e.thumbsUpAt = e.thumbsUp ? new Date().toISOString() : null;
+  db.save();
+  res.json({ ok: true, thumbsUp: e.thumbsUp });
+});
+// Hand one email to someone else — they become the responsible person for it
+// (it moves to their Email page and their numbers). The mailbox itself stays
+// where it is; send it back to the mailbox owner by choosing them again.
+app.post('/api/emails/:id/reassign', requireAuth, (req, res) => {
+  const state = db.get();
+  const me = req.employee;
+  const e = (state.emails || []).find(x => x.id === req.params.id);
+  if (!e) return res.status(404).json({ error: 'Email not found.' });
+  if (e.direction !== 'inbound') return res.status(400).json({ error: 'Only incoming mail can be reassigned.' });
+  if (!canActOnEmail(state, me, e)) return res.status(403).json({ error: "You can only reassign mail that is yours (or your team's)." });
+  const to = findEmployee(state, req.body && req.body.employeeId);
+  if (!to) return res.status(400).json({ error: 'Choose who this email should go to.' });
+  const from = e.reassignedTo || e.mailboxOwner;
+  if (to.id === from) return res.status(400).json({ error: 'It is already with ' + to.name + '.' });
+  e.reassignHistory = e.reassignHistory || [];
+  e.reassignHistory.push({ at: new Date().toISOString(), by: me.id, from, to: to.id });
+  e.reassignedTo = to.id === e.mailboxOwner ? null : to.id; // back to the mailbox owner clears it
+  const fromEmp = findEmployee(state, from);
+  const subject = e.subject || '(no subject)';
+  logEvent(state, to.id, `<b>${escHtml(me.name)}</b> reassigned an email to you — "${escHtml(subject)}" from ${escHtml(e.fromAddress || '—')}.`);
+  if (to.id !== me.id) notify(state, to.id, 'email', `${me.name} reassigned an email to you — "${subject}" from ${e.fromAddress || '—'}. Find it on the Email page.`, null);
+  if (fromEmp && fromEmp.id !== me.id && fromEmp.id !== to.id) logEvent(state, fromEmp.id, `<b>${escHtml(me.name)}</b> reassigned "${escHtml(subject)}" from you to <b>${escHtml(to.name)}</b>.`);
+  db.save();
+  res.json({ ok: true, responsibleId: to.id, responsibleName: to.name });
+});
+// Look back at recent calls and take voicemails out of the totals (and their
+// Slack cards down). Superadmin; safe to run again.
+app.post('/api/admin/calls/voicemail-cleanup', requireAuth, async (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  try {
+    const { cleanVoicemails } = require('./connector');
+    res.json(await cleanVoicemails({ days: Number(req.body && req.body.days) || 30, max: 150 }));
+  } catch (e) { res.status(500).json({ error: String((e && e.message) || e) }); }
+});
 // Firm-wide "never show mail from this address" list — superadmin-only to
 // change, but readable by anyone so the Email view can show the current
 // list. Excludes from the report only (allEmailsReport); nothing in

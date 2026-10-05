@@ -1948,7 +1948,7 @@
             </div>
           </div>
           <div id="prodAdminWrap" style="display:none;">
-            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Admin staff aren't measured by hours — every call and every email should be acknowledged. A call is acknowledged once it's listened to, sorted, outcome-logged or marked no-action; an email once it's replied to or marked no-reply-needed. This is the data-collection view: click anyone for every call and email behind their numbers.</p>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Admin staff aren't measured by hours — every call and every email should be acknowledged. A call is acknowledged once it's listened to, sorted, outcome-logged or marked no-action; an email once it's opened, replied to, given a 👍 or marked no-reply-needed (only an unread email is not acknowledged). This is the data-collection view: click anyone for every call and email behind their numbers.</p>
             <div id="prodAdminSuggest"></div>
             <div id="prodAdminTotals"></div>
             <div style="max-height:60vh;overflow-y:auto;margin-top:16px;">
@@ -3751,20 +3751,23 @@ function renderCallsRows(list){
 /* =========================================================================
    EMAIL — Gmail activity log for the 4 connected mailboxes. Mirrors Calls
    above: period range, superadmin-only owner + mailbox filters, a two-tier
-   primary/detail tile split (All / Replied / Not Replied / Sent, with
-   Unread vs Read-not-replied as detail tiles once "Not Replied" is picked
-   — same interaction as Calls' acknowledged/not_acknowledged), day-grouped
+   primary/detail tile split (All / Acknowledged / Not acknowledged, with
+   Replied / Not replied / No reply needed under Acknowledged — the same
+   interaction as Calls' acknowledged/not_acknowledged), day-grouped
    rows, and a WhatsApp-style "+ Task" action per inbound message.
    ========================================================================= */
+// Same two-tier split as Calls: Acknowledged / Not acknowledged, and under
+// Acknowledged the three ways it was dealt with. A 👍 or "no reply needed"
+// counts as acknowledged; only a still-unread email is not.
 const EMAIL_PRIMARY_TILES = [
   ['all', 'All', null],
-  ['replied', 'Replied', 'var(--teal)'],
-  ['not_replied', 'Not Replied', 'var(--flag)'],
-  ['no_action', 'No reply needed', 'var(--text-faint)'],
+  ['acknowledged', 'Acknowledged', 'var(--teal)'],
+  ['not_acknowledged', 'Not acknowledged', 'var(--flag)'],
 ];
 const EMAIL_DETAIL_TILES = [
-  ['unread', 'Unread', 'var(--flag)'],
-  ['read', 'Read, not replied', 'var(--text-faint)'],
+  ['replied', 'Replied', 'var(--teal)'],
+  ['read', 'Not replied', 'var(--text-faint)'],
+  ['no_action', 'No reply needed', 'var(--text-faint)'],
 ];
 let _emailsOwnerFilter = '';
 let _emailsMailboxFilter = '';
@@ -3857,17 +3860,16 @@ async function renderEmailsView(){
       <div class="mt-label">${esc(label)}</div>
       <div class="mt-value"${color?` style="color:${color};"`:''}>${key==='all'?c.total:c[key]}</div>
     </div>`).join('');
-  const detailHtml = _emailsPrimaryFilter === 'not_replied' ? EMAIL_DETAIL_TILES.map(([key,label,color]) => `
+  const detailHtml = _emailsPrimaryFilter === 'acknowledged' ? EMAIL_DETAIL_TILES.map(([key,label,color]) => `
     <div class="metric-tile" style="cursor:pointer;${key===_emailsDetailFilter?'outline:2px solid var(--purple);':''}" onclick="setEmailsDetailFilter('${key}')" title="Click to filter further">
       <div class="mt-label">${esc(label)}</div>
       <div class="mt-value" style="color:${color};">${c[key]}</div>
     </div>`).join('') : '';
   document.getElementById('emailsTiles').innerHTML = primaryHtml + detailHtml;
   let shown = data.emails;
-  if(_emailsPrimaryFilter === 'replied') shown = shown.filter(x => x.outcomeStatus === 'replied');
-  else if(_emailsPrimaryFilter === 'no_action') shown = shown.filter(x => x.outcomeStatus === 'no_action');
-  else if(_emailsPrimaryFilter === 'not_replied'){
-    shown = shown.filter(x => x.outcomeStatus === 'unread' || x.outcomeStatus === 'read');
+  if(_emailsPrimaryFilter === 'not_acknowledged') shown = shown.filter(x => x.outcomeStatus === 'unread');
+  else if(_emailsPrimaryFilter === 'acknowledged'){
+    shown = shown.filter(x => x.outcomeStatus !== 'unread');
     if(_emailsDetailFilter) shown = shown.filter(x => x.outcomeStatus === _emailsDetailFilter);
   }
   renderEmailsRows(shown);
@@ -3882,21 +3884,63 @@ function renderEmailsRows(list){
   order.sort((a,b) => b.localeCompare(a));
   const statusColor = e => ({unread:'var(--flag)', read:'var(--text-faint)', replied:'var(--teal)', no_action:'var(--text-faint)'})[e.outcomeStatus];
   const rowActions = e => {
-    if(e.taskId) return `<span class="tl-sub">✓ Task created</span>`;
-    if(e.replyNotNeeded) return `<span class="tl-sub">✓ No reply needed</span> <button class="btn small" onclick="toggleEmailNoReply('${esc(e.id)}')">Undo</button>`;
-    const ignoreBtn = _emailsIsSuperAdmin ? ` <button class="btn small" onclick="ignoreEmailSender('${esc(e.fromAddress)}')" title="Hide all mail from this sender">Ignore sender</button>` : '';
-    return `<button class="btn small" onclick="openEmailTaskModal('${esc(e.id)}')">+ Task</button> <button class="btn small" onclick="toggleEmailNoReply('${esc(e.id)}')">No reply needed</button>${ignoreBtn}`;
+    const id = esc(e.id);
+    const thumb = e.thumbsUp
+      ? `<button class="btn small" onclick="toggleEmailThumbs('${id}')" title="Remove the 👍">👍 ✓</button>`
+      : `<button class="btn small" onclick="toggleEmailThumbs('${id}')" title="Acknowledge without replying">👍</button>`;
+    const reassign = `<button class="btn small" onclick="openEmailReassignModal('${id}')">Reassign</button>`;
+    let main;
+    if(e.taskId) main = `<span class="tl-sub">✓ Task created</span>`;
+    else if(e.replyNotNeeded) main = `<span class="tl-sub">✓ No reply needed</span> <button class="btn small" onclick="toggleEmailNoReply('${id}')">Undo</button>`;
+    else {
+      const ignoreBtn = _emailsIsSuperAdmin ? ` <button class="btn small" onclick="ignoreEmailSender('${esc(e.fromAddress)}')" title="Hide all mail from this sender">Ignore sender</button>` : '';
+      main = `<button class="btn small" onclick="openEmailTaskModal('${id}')">+ Task</button> <button class="btn small" onclick="toggleEmailNoReply('${id}')">No reply needed</button>${ignoreBtn}`;
+    }
+    return main + ' ' + thumb + ' ' + reassign;
   };
   const rows = order.map(d => {
     const dayRows = groups[d].map(e => `
     <tr>
-      <td><div class="tl-name">${esc(e.subject || '(no subject)')}</div><div class="tl-sub">${esc(e.fromAddress)}</div></td>
-      <td><div class="tl-sub" style="color:${statusColor(e)};">${esc(e.outcomeLabel)}</div></td>
+      <td><div class="tl-name">${esc(e.subject || '(no subject)')}</div><div class="tl-sub">${esc(e.fromAddress)}${e.reassigned ? ` · reassigned to <b>${esc(e.responsibleName)}</b>` : ''}</div></td>
+      <td><div class="tl-sub" style="color:${statusColor(e)};">${esc(e.outcomeLabel)}${e.thumbsUp && e.outcomeStatus !== 'replied' ? ' 👍' : ''}</div></td>
       <td>${rowActions(e)}</td>
     </tr>`).join('');
     return `<tr><td colspan="3" style="padding:10px 4px 4px;font-weight:600;font-size:12px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.4px;border-bottom:none;">${esc(d === 'unknown' ? 'Unknown date' : myCallsDayLabel(d))} <span style="font-weight:400;text-transform:none;letter-spacing:0;">· ${groups[d].length}</span></td></tr>${dayRows}`;
   }).join('');
   document.getElementById('emailsBody').innerHTML = rows || `<tr><td colspan="3" style="padding:14px 0;color:var(--text-faint);">No emails in this range.</td></tr>`;
+}
+async function toggleEmailThumbs(emailId){
+  try { await api(`/api/emails/${encodeURIComponent(emailId)}/thumbs-up`, { method:'POST' }); await renderEmailsView(); }
+  catch(e){ showToast('error', 'Could not update', e.message); }
+}
+function openEmailReassignModal(emailId){
+  const e = _emailsData.find(x => x.id === emailId);
+  if(!e) return;
+  const pool = (anyEmployeeInFirm().length ? anyEmployeeInFirm() : employees).filter(p => p.id !== e.responsibleId);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Reassign this email</h3>
+    <div class="modal-sub">${esc(e.subject || '(no subject)')} · ${esc(e.fromAddress)}<br>Now with <b>${esc(e.responsibleName || '—')}</b>.</div>
+    <div class="field"><label for="emailReassignTo">Reassign to</label>
+      <select id="emailReassignTo"><option value="">Choose a person…</option>${pool.slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.id === e.mailboxOwner ? ' (mailbox owner)' : ''}</option>`).join('')}</select>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">The email moves to their Email page and counts in their numbers. They are notified.</div>
+    </div>
+    <div class="modal-error" id="emailReassignErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="submitEmailReassign('${esc(e.id)}')">Reassign</button>
+    </div>`;
+  openModal();
+}
+async function submitEmailReassign(emailId){
+  const err = document.getElementById('emailReassignErr');
+  const employeeId = document.getElementById('emailReassignTo').value;
+  if(!employeeId){ err.textContent = 'Choose who this email should go to.'; err.style.display = 'block'; return; }
+  try {
+    const r = await api(`/api/emails/${encodeURIComponent(emailId)}/reassign`, { method:'POST', body: JSON.stringify({ employeeId }) });
+    closeModal();
+    showToast('success', 'Email reassigned', 'It is now with ' + r.responsibleName + '.');
+    await renderEmailsView();
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
 }
 async function toggleEmailNoReply(emailId){
   try { await api(`/api/emails/${encodeURIComponent(emailId)}/no-reply-needed`, { method:'POST' }); await renderEmailsView(); }
@@ -3937,7 +3981,7 @@ function openEmailTaskModal(emailId){
   const e = _emailsData.find(x => x.id === emailId);
   if(!e) return;
   const pool = anyEmployeeInFirm().length ? anyEmployeeInFirm() : employees;
-  const defaultAssignee = pool.find(p => p.id === e.mailboxOwner) || pool[0];
+  const defaultAssignee = pool.find(p => p.id === (e.responsibleId || e.mailboxOwner)) || pool[0];
   document.getElementById('modalBox').innerHTML = `
     <h3>Create task from email</h3>
     <div class="modal-sub">${esc(e.fromAddress)} · ${esc(e.subject || '(no subject)')}</div>

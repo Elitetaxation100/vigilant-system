@@ -18,6 +18,7 @@ const jwt = require('jsonwebtoken');
 const db = require('./db');
 const cal = require('./calendar');
 const crmSync = require('./crm-sync');
+const emailStatus = require('./email-status');
 
 const cfg = () => ({
   slackBotToken: process.env.SLACK_BOT_TOKEN || '',
@@ -280,7 +281,11 @@ function clog(level, msg, meta) {
 // ---------------------------------------------------------------------------
 function normalizeNumber(raw) { return raw ? String(raw).replace(/\D/g, '').slice(-9) : ''; }
 function isUnanswered(call) { return !!call.missed_call_reason || !call.answered_at; }
-function isVoicemail(call) { return !!call.voicemail || call.missed_call_reason === 'voicemail'; }
+function isVoicemail(call) {
+  if (!call) return false;
+  if (call.voicemail || call.missed_call_reason === 'voicemail') return true;
+  return String((call.asset && call.asset.type) || call.type || '').toLowerCase() === 'voicemail';
+}
 function findCall(state, aircallId) { return (state.calls || []).find(c => String(c.aircallId) === String(aircallId)); }
 function findCallByRowId(state, rowId) { return (state.calls || []).find(c => c.id === rowId); }
 function esc(s, max) {
@@ -333,13 +338,28 @@ async function resolveCaller(state, call) {
 }
 
 // A fresh, currently-valid recording URL (Aircall's are ~50-60 min presigned).
-async function freshRecordingUrl(aircallId) {
+async function fetchAircallCall(aircallId) {
   const r = await httpsRequest('https://api.aircall.io/v1/calls/' + encodeURIComponent(aircallId), {
     headers: { Authorization: aircallAuthHeader() },
   });
-  const call = r.json && r.json.call;
-  if (!call) return null;
-  return call.recording || (call.asset && call.asset.url) || call.voicemail || null;
+  return (r.json && r.json.call) || null;
+}
+async function freshRecordingUrl(aircallId) {
+  const call = await fetchAircallCall(aircallId);
+  if (!call || isVoicemail(call)) return null; // voicemails have no recording to listen to
+  return call.recording || (call.asset && call.asset.url) || null;
+}
+
+// A call where the caller left a voicemail is not a call to listen to: no
+// Slack card, no recording kept, and never counted in the call totals.
+const countsAsCall = c => (c.status === 'ended' || c.status === 'no_action') && !c.voicemail;
+async function markVoicemail(state, row) {
+  row.voicemail = true; row.status = 'voicemail'; row.recordingUrl = null; row.recordingFetchedAt = null;
+  if (row.slackTs) { // a card was already posted — take it down
+    const del = await slack('chat.delete', { channel: row.slackChannel || cfg().slackChannel, ts: row.slackTs });
+    if (del && del.ok) { row.slackTs = null; row.slackChannel = null; }
+  }
+  db.save();
 }
 
 // ---------------------------------------------------------------------------
@@ -690,7 +710,7 @@ async function relayWaToSlack(c, text) {
 function recordingUrlOf(call) {
   return call.recording || (call.asset && call.asset.url) ||
     (Array.isArray(call.recordings) && call.recordings[0] && (call.recordings[0].url || call.recordings[0])) ||
-    call.voicemail || null;
+    null; // a voicemail's audio is never treated as a call recording
 }
 
 // Post the card, or update it in place if we've posted before. Stage is
@@ -722,7 +742,7 @@ async function handleCallEnded(call) {
   const callerPhone = normalizeNumber(call.raw_digits || '');
   const unanswered = isUnanswered(call);
   const vm = isVoicemail(call);
-  const status = unanswered ? 'not_picked_up' : (vm ? 'voicemail' : 'ended');
+  const status = vm ? 'voicemail' : (unanswered ? 'not_picked_up' : 'ended');
 
   // Transfer-leg merge: an earlier leg of the SAME call routed to another
   // agent. Only merge when it really looks like a transfer — the prior leg
@@ -741,6 +761,7 @@ async function handleCallEnded(call) {
       priorLeg.agentAircallId = agentId || priorLeg.agentAircallId;
       if (routing) { priorLeg.team = routing.team; priorLeg.mandatory = !!routing.mandatory; }
       priorLeg.status = status;
+      if (vm) { priorLeg.voicemail = true; priorLeg.recordingUrl = null; }
       db.save();
       clog('info', 'call.ended merged into transfer leg', { id: call.id, into: priorLeg.id });
       return;
@@ -753,13 +774,14 @@ async function handleCallEnded(call) {
     contactName: caller.name, clientId: caller.clientId, clientName: caller.name,
     agentName: routing ? routing.name : (call.user ? call.user.name : 'Unknown agent'),
     agentAircallId: agentId, team: routing ? routing.team : 'Unmapped',
-    mandatory: routing ? !!routing.mandatory : false, status,
+    mandatory: routing ? !!routing.mandatory : false, status, voicemail: vm,
   };
 
   let row;
   if (existing && existing.stub) {
     Object.assign(existing, base, { stub: false });
     if (existing.recordingUrl && status === 'ended') existing.status = 'ended';
+    if (vm) { existing.recordingUrl = null; existing.recordingFetchedAt = null; }
     row = existing;
     clog('info', 'call.ended adopted early-recording stub', { id: call.id, row: row.id, hadRecording: !!row.recordingUrl });
   } else {
@@ -794,7 +816,9 @@ async function backfillRecording(rowId, aircallId) {
     const state = db.get();
     const row = findCallByRowId(state, rowId);
     if (!row || row.recordingUrl) return;
-    const url = await freshRecordingUrl(aircallId);
+    const call = await fetchAircallCall(aircallId);
+    if (call && isVoicemail(call)) { await markVoicemail(state, row); clog('info', 'recording backstop — it was a voicemail, no recording kept', { row: rowId }); return; }
+    const url = call ? (call.recording || (call.asset && call.asset.url) || null) : null;
     if (!url) { clog('info', 'recording backstop — none on API either', { row: rowId }); return; }
     row.recordingUrl = url;
     row.recordingFetchedAt = new Date().toISOString();
@@ -826,7 +850,7 @@ async function handleRecordingReady(call) {
       id: 'call' + state.callSeq, aircallId: String(call.id), stub: true,
       occurredAt: new Date().toISOString(), callerPhone: normalizeNumber(call.raw_digits || ''),
       direction: call.direction || null, durationSec: call.duration || null,
-      recordingUrl: url, recordingFetchedAt: new Date().toISOString(),
+      recordingUrl: vm ? null : url, recordingFetchedAt: vm ? null : new Date().toISOString(), voicemail: vm,
       status: vm ? 'voicemail' : 'ended', team: 'Unmapped', mandatory: false,
       contactName: null, clientName: null, clientId: null, agentName: null, agentAircallId: null,
       listenedBy: null, listenedAt: null, slackChannel: null, slackTs: null,
@@ -839,9 +863,9 @@ async function handleRecordingReady(call) {
     return;
   }
 
+  if (vm) { await markVoicemail(state, row); clog('info', 'voicemail — no recording kept, no card', { id: call.id }); return; }
   row.recordingUrl = url;
   row.recordingFetchedAt = new Date().toISOString();
-  if (vm) row.status = 'voicemail';
   db.save();
 
   if (!vm && url && cfg().geminiApiKey && !row.aiOutcome) {
@@ -923,7 +947,7 @@ function callStatsForSlackId(state, slackUserId) {
   // used to be excluded from this tile entirely, which is why there was no
   // way to see them here at all.
   const calls = (state.calls || []).filter(c => agentIds.includes(c.agentAircallId)
-    && (c.status === 'ended' || c.status === 'no_action')
+    && countsAsCall(c)
     && c.occurredAt && nzToday(new Date(c.occurredAt)) >= cutoff);
   const shape = c => ({
     id: c.id, agentName: c.agentName, clientName: c.clientName || 'Unknown / not saved',
@@ -982,7 +1006,7 @@ const CALL_STATUS_LABELS = {
 // for them, same "list endpoints scope by role" rule as everywhere else.
 function allCallsReport(state, { from, to, personId, agentId, actor } = {}) {
   let calls = (state.calls || []).filter(c => {
-    if (c.status !== 'ended' && c.status !== 'no_action') return false;
+    if (!countsAsCall(c)) return false;
     if (!c.occurredAt) return false;
     const day = nzToday(new Date(c.occurredAt));
     if (from && day < from) return false;
@@ -1229,9 +1253,12 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
     // Cheap approximation from what's already in state.emails for this
     // thread — avoids a second live thread-fetch per message.
     const threadSiblings = (state.emails || []).filter(e => e.threadId === m.threadId);
-    const replied = direction === 'inbound'
-      ? threadSiblings.some(e => e.direction === 'outbound' && e.occurredAt > new Date(Number(m.internalDate)).toISOString())
-      : false;
+    // A reply that is only a 👍 (or Gmail's own reaction) acknowledges the mail
+    // without counting as a reply — see email-status.js.
+    const thread = direction === 'inbound'
+      ? emailStatus.classifyThread({ occurredAt: new Date(Number(m.internalDate)).toISOString() }, threadSiblings.filter(e => e.direction === 'outbound'))
+      : { replied: false, thumbsUp: false };
+    const replied = thread.replied;
     state.emailSeq = (state.emailSeq || 0) + 1;
     state.emails.push({
       id: 'email' + state.emailSeq, gmailMessageId, threadId: m.threadId,
@@ -1239,7 +1266,7 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
       direction, fromAddress, toAddresses, subject: gmailHeader(headers, 'Subject'),
       mailbox: mailboxAddress, mailboxOwner: employeeId, agentName: ownerName,
       status: (m.labelIds || []).includes('UNREAD') ? 'unread' : 'read',
-      replied, labelIds: m.labelIds || [], snippet: m.snippet || '',
+      replied, thumbsUp: thread.thumbsUp, labelIds: m.labelIds || [], snippet: m.snippet || '',
       listenedBy: null, listenedAt: null, finalOutcome: null, taskId: null,
       replyNotNeeded: false, replyNotNeededBy: null, replyNotNeededAt: null,
       createdVia: 'gmail-poller',
@@ -1252,7 +1279,7 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
     if (direction === 'outbound') {
       const occurredAt = new Date(Number(m.internalDate)).toISOString();
       state.emails.filter(e => e.threadId === m.threadId && e.direction === 'inbound' && !e.replied && e.occurredAt < occurredAt)
-        .forEach(e => { e.replied = true; });
+        .forEach(e => { if (emailStatus.isThumbsSnippet(m.snippet)) e.thumbsUp = true; else { e.replied = true; e.thumbsUp = false; } });
     }
   }
   // Refresh read/unread on already-logged unread rows for this mailbox —
@@ -1267,19 +1294,32 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
     }
   }
   if (newCursor) state.emailPollCursor[mailboxAddress] = newCursor;
+  reclassifyThumbs(state);
   db.save();
   clog('info', 'gmail poll', { mailboxAddress, added, refreshed: stillUnread.length });
   return { mailboxAddress, ok: true, added };
 }
 
-function emailOutcomeStatus(e) {
-  if (e.direction === 'outbound') return 'no_action';
-  if (e.replyNotNeeded) return 'no_action';
-  if (e.replied) return 'replied';
-  if (e.status === 'unread') return 'unread';
-  return 'read';
+// Acknowledged = replied, opened-but-not-replied ("Not replied", also a 👍),
+// or marked "no reply needed". Not acknowledged = still unread. See email-status.js.
+function emailOutcomeStatus(e) { return emailStatus.outcomeStatus(e); }
+const EMAIL_STATUS_LABELS = emailStatus.LABELS;
+const emailResponsibleId = emailStatus.responsibleId;
+// Replies that were only a 👍 used to be stored as "replied" — move them over.
+// Idempotent: it only ever turns a "replied" whose every later outbound message
+// is thumbs-only into a 👍; anything with no sibling left in the log is untouched.
+function reclassifyThumbs(state) {
+  const all = state.emails || [];
+  const outByThread = {};
+  all.forEach(e => { if (e.direction === 'outbound' && e.threadId) (outByThread[e.threadId] = outByThread[e.threadId] || []).push(e); });
+  let changed = 0;
+  all.forEach(e => {
+    if (e.direction !== 'inbound' || !e.replied || !e.threadId) return;
+    const outs = (outByThread[e.threadId] || []).filter(o => (o.occurredAt || '') > (e.occurredAt || ''));
+    if (outs.length && outs.every(o => emailStatus.isThumbsSnippet(o.snippet))) { e.replied = false; e.thumbsUp = true; changed++; }
+  });
+  return changed;
 }
-const EMAIL_STATUS_LABELS = { no_action: 'No reply needed', replied: 'Replied', unread: 'Unread', read: 'Read, not replied' };
 // Gmail's own tab categorization (the labelIds already captured at ingest
 // on every message) — Promotions/Social/Updates are never real client
 // correspondence, so they're excluded from the report the same way
@@ -1290,14 +1330,15 @@ const EMAIL_EXCLUDED_LABELS = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGO
 
 function emailStatsForEmployee(state, employeeId) {
   const cutoff = nzToday(new Date(Date.now() - 86400000));
-  const mine = (state.emails || []).filter(e => e.mailboxOwner === employeeId && e.direction === 'inbound'
+  const mine = (state.emails || []).filter(e => emailResponsibleId(e) === employeeId && e.direction === 'inbound'
     && e.occurredAt && nzToday(new Date(e.occurredAt)) >= cutoff);
   const shape = e => ({ id: e.id, fromAddress: e.fromAddress, subject: e.subject, occurredAt: e.occurredAt });
   const byRecent = (a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || '');
-  const remaining = mine.filter(e => !e.replied);
+  // "Remaining" = not acknowledged yet (still unread); everything else is acknowledged.
+  const remaining = mine.filter(e => !emailStatus.isAcknowledged(emailOutcomeStatus(e)));
   const repliedRows = mine.filter(e => e.replied);
   return {
-    total: mine.length, replied: repliedRows.length, remaining: remaining.length,
+    total: mine.length, replied: repliedRows.length, acknowledged: mine.length - remaining.length, remaining: remaining.length,
     remainingEmails: remaining.sort(byRecent).map(shape), repliedEmails: repliedRows.sort(byRecent).map(shape),
   };
 }
@@ -1337,12 +1378,15 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
     return true;
   });
   const isSuperAdmin = actor && actor.accessRole === 'superadmin';
-  if (!isSuperAdmin) emails = emails.filter(e => e.mailboxOwner === (actor && actor.id));
+  if (!isSuperAdmin) emails = emails.filter(e => emailResponsibleId(e) === (actor && actor.id));
+  const nameOfEmp = id => { const x = (state.employees || []).find(p => p.id === id); return x ? x.name : null; };
   const shaped = emails.map(e => {
     const outcomeStatus = emailOutcomeStatus(e);
     return {
       id: e.id, occurredAt: e.occurredAt, day: nzToday(new Date(e.occurredAt)),
       agentName: e.agentName, mailboxOwner: e.mailboxOwner, mailbox: mailboxOf(e), direction: e.direction,
+      responsibleId: emailResponsibleId(e), responsibleName: nameOfEmp(emailResponsibleId(e)) || e.agentName,
+      reassigned: !!e.reassignedTo && e.reassignedTo !== e.mailboxOwner, thumbsUp: !!e.thumbsUp,
       fromAddress: e.fromAddress, toAddresses: e.toAddresses, subject: e.subject, snippet: e.snippet,
       status: e.status, replied: e.replied, finalOutcome: e.finalOutcome || null, taskId: e.taskId || null,
       replyNotNeeded: !!e.replyNotNeeded,
@@ -1352,8 +1396,8 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   const byPerson = {};
   const byMailbox = {};
   shaped.forEach(e => {
-    if (!byPerson[e.mailboxOwner]) byPerson[e.mailboxOwner] = { key: e.mailboxOwner, name: e.agentName, total: 0, unread: 0, replied: 0 };
-    const b = byPerson[e.mailboxOwner];
+    if (!byPerson[e.responsibleId]) byPerson[e.responsibleId] = { key: e.responsibleId, name: e.responsibleName, total: 0, unread: 0, replied: 0 };
+    const b = byPerson[e.responsibleId];
     b.total++;
     if (e.outcomeStatus === 'replied') b.replied++;
     else if (e.outcomeStatus === 'unread') b.unread++;
@@ -1363,7 +1407,7 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
     }
   });
   let scoped = shaped;
-  if (isSuperAdmin && personId) scoped = scoped.filter(e => e.mailboxOwner === personId);
+  if (isSuperAdmin && personId) scoped = scoped.filter(e => e.responsibleId === personId);
   // Mailbox filtering is safe for anyone, not just superadmins — `emails`
   // was already hard-scoped to the actor's own mailbox(es) above for a
   // non-superadmin, so filtering further by mailbox can't leak anyone
@@ -1373,6 +1417,9 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
   const counts = { total: scoped.length, unread: 0, read: 0, replied: 0, no_action: 0 };
   scoped.forEach(e => { counts[e.outcomeStatus]++; });
   counts.not_replied = counts.unread + counts.read;
+  // The two top-level groups: acknowledged (replied + not replied + no reply needed) vs not.
+  counts.acknowledged = counts.total - counts.unread;
+  counts.not_acknowledged = counts.unread;
   return {
     emails: scoped, counts,
     byPerson: isSuperAdmin ? Object.values(byPerson).sort((a, b) => b.total - a.total) : [],
@@ -1402,7 +1449,8 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
 //           responsible people (responsiblePeopleForCall) counts for both.
 //   email = inbound only, minus ignored senders and Gmail's Promotions/
 //           Social/Updates tabs (same filters as allEmailsReport);
-//           ACKNOWLEDGED = replied, or marked reply-not-needed.
+//           ACKNOWLEDGED = anything but unread: replied, opened/👍 but not
+//           replied, or marked no-reply-needed (see email-status.js).
 function callsEmailsStats(state, from, to) {
   const byPerson = {};
   const row = (id, name) => {
@@ -1410,7 +1458,7 @@ function callsEmailsStats(state, from, to) {
     return byPerson[id];
   };
   const inRange = ts => { const d = nzToday(new Date(ts)); return d >= from && d <= to; };
-  (state.calls || []).filter(c => (c.status === 'ended' || c.status === 'no_action') && c.occurredAt && inRange(c.occurredAt))
+  (state.calls || []).filter(c => countsAsCall(c) && c.occurredAt && inRange(c.occurredAt))
     .forEach(c => {
       responsiblePeopleForCall(state, c).forEach(p => {
         const r = row(p.id, p.name);
@@ -1423,11 +1471,11 @@ function callsEmailsStats(state, from, to) {
     && !ignored.has(String(e.fromAddress || '').toLowerCase())
     && !(e.labelIds || []).some(l => EMAIL_EXCLUDED_LABELS.includes(l)))
     .forEach(e => {
-      const emp = (state.employees || []).find(x => x.id === e.mailboxOwner);
-      const r = row(e.mailboxOwner || e.mailbox, emp ? emp.name : e.agentName || 'Unknown');
+      const emp = (state.employees || []).find(x => x.id === emailResponsibleId(e));
+      const r = row(emailResponsibleId(e) || e.mailbox, emp ? emp.name : e.agentName || 'Unknown');
       r.emails.total++;
       const status = emailOutcomeStatus(e);
-      if (status === 'replied' || status === 'no_action') r.emails.ack++; else r.emails.notAck++;
+      if (emailStatus.isAcknowledged(status)) r.emails.ack++; else r.emails.notAck++;
     });
   // Only people with actual activity — no point listing everyone at 0/0/0/0.
   const people = Object.values(byPerson)
@@ -1442,7 +1490,7 @@ function callsEmailsStats(state, from, to) {
 function callsEmailsDetail(state, personId, from, to) {
   const inRange = ts => { const d = nzToday(new Date(ts)); return d >= from && d <= to; };
   const calls = (state.calls || [])
-    .filter(c => (c.status === 'ended' || c.status === 'no_action') && c.occurredAt && inRange(c.occurredAt)
+    .filter(c => countsAsCall(c) && c.occurredAt && inRange(c.occurredAt)
       && responsiblePeopleForCall(state, c).some(p => p.id === personId))
     .map(c => { const st = callOutcomeStatus(c); return {
       id: c.id, occurredAt: c.occurredAt, clientName: c.clientName || 'Unknown / not saved', callerPhone: c.callerPhone || null,
@@ -1451,12 +1499,12 @@ function callsEmailsDetail(state, personId, from, to) {
     .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
   const ignored = new Set((state.emailIgnoredSenders || []).map(s => String(s || '').toLowerCase()));
   const emails = (state.emails || [])
-    .filter(e => e.direction === 'inbound' && e.mailboxOwner === personId && e.occurredAt && inRange(e.occurredAt)
+    .filter(e => e.direction === 'inbound' && emailResponsibleId(e) === personId && e.occurredAt && inRange(e.occurredAt)
       && !ignored.has(String(e.fromAddress || '').toLowerCase())
       && !(e.labelIds || []).some(l => EMAIL_EXCLUDED_LABELS.includes(l)))
     .map(e => { const st = emailOutcomeStatus(e); return {
       id: e.id, occurredAt: e.occurredAt, fromAddress: e.fromAddress, subject: e.subject || '',
-      outcomeLabel: EMAIL_STATUS_LABELS[st], acknowledged: st === 'replied' || st === 'no_action',
+      outcomeLabel: EMAIL_STATUS_LABELS[st], acknowledged: emailStatus.isAcknowledged(st),
     }; })
     .sort((a, b) => (b.occurredAt || '').localeCompare(a.occurredAt || ''));
   return { calls, emails };
@@ -2576,6 +2624,13 @@ function startSchedulers() {
   if (_schedTimer.unref) _schedTimer.unref();
   setTimeout(tick, 15000);
 
+  // One look back at recent voicemails shortly after boot (no-op without Aircall),
+  // and move old 👍-only replies over to the new "acknowledged, not replied" state.
+  setTimeout(() => {
+    try { if (reclassifyThumbs(db.get())) db.save(); } catch (e) {}
+    cleanVoicemails({ days: 30, max: 150 }).catch(e => clog('error', 'voicemail cleanup threw: ' + (e && e.stack || e)));
+  }, 90 * 1000).unref();
+
   // CRM client pull — every 15 min, but only once a superadmin has switched it
   // on (after reading a preview). Off by default.
   const crmPullTimer = setInterval(() => {
@@ -2879,6 +2934,31 @@ async function pullCrmClients(opts) {
     if (!link.ok) clog('warn', 'crm client link-back failed', { crmId: x.crmId, why: link.error });
   }
   return res;
+}
+
+// Look back over recent "ended" calls and flag any that Aircall says were
+// voicemails — takes their Slack card down and removes them from the totals.
+// Safe to repeat: a call that has been checked is never checked again, and a
+// call Aircall could not be asked about is simply tried next time.
+async function cleanVoicemails(opts) {
+  if (!cfg().aircallApiToken) return { ok: false, error: 'Aircall is not configured.' };
+  const state = db.get();
+  const days = (opts && opts.days) || 30, max = (opts && opts.max) || 150;
+  const cutoff = Date.now() - days * 86400000;
+  const todo = (state.calls || []).filter(c => c.status === 'ended' && !c.voicemail && !c.vmChecked && !c.stub && c.aircallId
+    && c.occurredAt && new Date(c.occurredAt).getTime() >= cutoff);
+  const batch = todo.slice(-max);
+  let checked = 0, flagged = 0, failed = 0;
+  for (const row of batch) {
+    let call = null;
+    try { call = await fetchAircallCall(row.aircallId); } catch (e) { call = null; }
+    if (!call) { failed++; continue; }
+    checked++; row.vmChecked = true;
+    if (isVoicemail(call)) { await markVoicemail(state, row); flagged++; }
+  }
+  db.save();
+  clog('info', 'voicemail cleanup', { checked, flagged, failed, left: todo.length - batch.length });
+  return { ok: true, checked, flagged, failed, left: todo.length - batch.length };
 }
 
 // A task someone creates in the CRM lands here as a task for the assignee to
@@ -3286,6 +3366,6 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  pullCrmClients, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
+  pullCrmClients, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
   callsEmailsDigestData, callsEmailsStats, callsEmailsDetail, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };
