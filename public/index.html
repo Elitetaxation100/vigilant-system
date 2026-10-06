@@ -4612,8 +4612,8 @@ function crmSectionCard(title, s, extraHtml, reconcileKind){
   const stats = [crmStat('created', s.created, 'var(--teal)'), crmStat('updated', s.updated, 'var(--teal)'), crmStat('skipped', s.skipped, 'var(--text-dim)'),
     crmStat('errors', s.errors, 'var(--coral)'), crmStat('conflicts', s.conflicts, 'var(--coral)'), crmStat('ambiguous', s.ambiguous, 'var(--amber)')];
   const buttons = reconcileKind ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'
-    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', false)">Preview reconcile</button>'
-    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', true)">Reconcile now</button></div>' : '';
+    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', false)">Preview Reconciliation</button>'
+    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', true)">Apply Reconciliation</button></div>' : '';
   return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;min-width:0;">'
     + '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:12.5px;">' + esc(title) + '</div><div style="font-size:12.5px;">Configured: ' + yes + '</div></div>'
     + '<div style="font-size:12.5px;color:var(--text-dim);margin:6px 0;">Last successful sync: <b>' + crmAgo(s.lastSuccess) + '</b><br>Last failed sync: ' + fail + '</div>'
@@ -4625,8 +4625,8 @@ function crmPullHtml(d){
   let out = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--panel-border);">'
     + '<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:6px;">Reconcile reads ET-CRM\'s contact list and applies the <b>same rule as the live webhook</b>. Preview changes nothing.</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
-    + '<button class="btn small" id="crmPreviewBtn" onclick="crmPull(false)">Preview reconcile</button>'
-    + '<button class="btn small primary" onclick="crmPull(true)">Reconcile now</button>'
+    + '<button class="btn small" id="crmPreviewBtn" onclick="crmPull(false)">Preview Reconciliation</button>'
+    + '<button class="btn small primary" onclick="crmPull(true)">Apply Reconciliation</button>'
     + '<label style="font-size:12.5px;display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="crmAuto" ' + (d.autoPull ? 'checked' : '') + ' onchange="crmSaveAuto(this.checked)"> repeat every 15 min</label></div>';
   if(p){
     if(!p.ok){
@@ -4720,6 +4720,18 @@ async function crmPull(apply){
 async function crmSaveAuto(on){
   try { await api('/api/admin/crm-sync/settings', { method:'POST', body: JSON.stringify({ autoPull: !!on }) }); showToast('success', on ? 'Repeat on' : 'Repeat off', on ? 'Customers are reconciled every 15 minutes.' : 'Only when you press Reconcile.'); } catch(e){ showToast('error', 'Could not save', e.message); }
 }
+async function crmRunDiagnostic(){
+  const box = document.getElementById('crmDiagnosticResult');
+  if(box) box.innerHTML = '<div style="color:var(--text-faint);font-size:12.5px;">Running read-only checks…</div>';
+  try {
+    const d = await api('/api/admin/crm-sync/diagnostic', { method:'POST', body:'{}' });
+    const icon = s => s === 'Healthy' ? '✓' : s === 'Not Configured' ? '–' : '!';
+    const tone = s => s === 'Healthy' ? 'var(--teal)' : s === 'Not Configured' ? 'var(--text-faint)' : 'var(--coral)';
+    const labels = { webhookSecret:'Webhook secret', crmApi:'CRM API', employees:'Employee links', customers:'Customer links', attendance:'Attendance', leave:'Leave', policyFallback:'Policy fallback', legacyTaskSync:'CRM task sync' };
+    const rows = Object.entries(d.checks || {}).map(([k,v]) => '<tr><td><b>' + esc(labels[k] || k) + '</b></td><td style="color:' + tone(v.status) + ';font-weight:700;">' + icon(v.status) + ' ' + esc(v.status) + '</td><td>' + esc(v.detail || '') + '</td></tr>').join('');
+    if(box) box.innerHTML = '<div style="overflow-x:auto;"><table><thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead><tbody>' + rows + '</tbody></table></div><div style="font-size:11.5px;color:var(--text-faint);margin-top:6px;">Read-only: no reconciliation, linking, cut-over change or CRM write was performed.</div>';
+  } catch(e){ if(box) box.innerHTML = '<div style="color:var(--coral);">Connection check failed: ' + esc(e.message) + '</div>'; }
+}
 async function loadCrmConnection(){
   const panel = document.getElementById('crmConnPanel');
   if(!panel) return;
@@ -4733,8 +4745,8 @@ async function loadCrmConnection(){
   const tone = o => (o === 'created' || o === 'updated' || o === 'ok') ? 'var(--teal)' : (o === 'skipped' || o === 'unlinked') ? 'var(--amber)' : 'var(--coral)';
   const emp = S.employees, cus = S.customers, pol = S.policy;
   const cards = [
-    crmSectionCard('Employees', emp, '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">' + emp.linked + ' of ' + emp.total + ' linked to an ET-CRM user' + (emp.disabledByCrm ? ' &middot; ' + emp.disabledByCrm + ' disabled by ET-CRM' : '') + '</div>', 'employees'),
-    crmSectionCard('Customers', cus, '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">' + cus.linked + ' of ' + cus.total + ' clients linked to an ET-CRM contact &middot; link-back: ' + cus.linkBack.updated + ' ok, ' + cus.linkBack.conflicts + ' conflicts, ' + cus.linkBack.errors + ' failed' + (cus.linkBackConfigured ? '' : ' <b style="color:var(--coral);">(ET-CRM API key not set)</b>') + '</div>' + crmEligibilityHtml(d) + crmPullHtml(d), null),
+    crmSectionCard('Employees', emp, '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">Linked Employees: <b>' + emp.linked + '</b> &middot; Unlinked Employees: <b>' + emp.unlinked + '</b> &middot; Inactive Linked Employees: <b>' + (emp.inactiveLinked || 0) + '</b> &middot; Duplicate email conflicts: <b>' + (emp.duplicateEmailConflicts || 0) + '</b>' + (emp.disabledByCrm ? ' &middot; ' + emp.disabledByCrm + ' disabled by ET-CRM' : '') + '</div>', 'employees'),
+    crmSectionCard('Customers', cus, '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">Linked clients: <b>' + cus.linked + '</b> &middot; Local unlinked: <b>' + cus.unlinked + '</b> &middot; Unlinked eligible CRM clients (last reconciliation): <b>' + (cus.unlinkedEligible || 0) + '</b> &middot; Ambiguous matches: <b>' + (cus.ambiguousMatches || 0) + '</b><br>Link-back: ' + cus.linkBack.updated + ' ok, ' + cus.linkBack.conflicts + ' conflicts, ' + cus.linkBack.errors + ' failed' + (cus.linkBackConfigured ? '' : ' <b style="color:var(--coral);">(ET-CRM API key not set)</b>') + '</div>' + crmEligibilityHtml(d) + crmPullHtml(d), null),
     crmSectionCard('Attendance', S.attendance, '', 'attendance'),
     crmSectionCard('Leave', S.leave, '', 'leave'),
     crmSectionCard('Policy compliance', pol, '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">' + pol.blockedNow + ' employee(s) blocked right now &middot; fallback check ' + (pol.reconcileConfigured ? 'ready' : '<b style="color:var(--coral);">needs the ET-CRM API key</b>') + '</div>', 'policy'),
@@ -4746,9 +4758,12 @@ async function loadCrmConnection(){
     + '<td>' + esc(e.note || '') + (e.keys ? '<div style="font-size:11px;color:var(--text-faint);font-family:var(--font-mono);word-break:break-word;">fields: ' + esc(e.keys.join(', ')) + '</div>' : '') + '</td></tr>').join('');
   const urls = d.endpoints.map(ep => '<div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;"><span style="width:110px;color:var(--text-dim);">' + esc(CRM_KIND_LABEL[ep.kind] || ep.kind.replace('policy-compliance', 'Policy compliance')) + '</span><code style="word-break:break-all;">' + esc(ep.url) + '</code></div>').join('');
   body.innerHTML =
-    '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:13px;">'
+    '<div style="padding:10px 12px;border:1px solid var(--panel-border);border-radius:10px;margin-bottom:12px;background:var(--panel-2);font-size:12.5px;line-height:1.7;"><b>Data ownership</b><br>Employees: <b>Source: ET-CRM</b> &middot; Customers: <b>Source: ET-CRM</b> &middot; Attendance: <b>Source: ET-CRM</b> &middot; Leave: <b>Source: ET-CRM</b> &middot; Policy Compliance: <b>Source: ET-CRM</b> &middot; Tasks: <b>Source: Task Manager</b></div>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:13px;">'
     + '<span>' + (d.configured.webhookSecret ? '✓' : '✗') + ' Shared secret ' + (d.configured.webhookSecret ? 'set' : '<b style="color:var(--coral);">not set &mdash; ET-CRM cannot send anything</b>') + '</span>'
-    + '<span>' + (d.configured.apiKey ? '✓' : '–') + ' ET-CRM API key ' + (d.configured.apiKey ? 'set' : 'not set (link-back and policy fallback are skipped)') + '</span></div>'
+    + '<span>' + (d.configured.apiKey ? '✓' : '–') + ' ET-CRM API key ' + (d.configured.apiKey ? 'set' : 'not set (link-back and policy fallback are skipped)') + '</span>'
+    + '<span>' + (d.configured.apiUrl ? '✓' : '–') + ' CRM API URL ' + (d.configured.apiUrl ? 'configured' : 'default URL in use') + '</span></div>'
+    + '<div style="margin:0 0 12px;"><button class="btn small primary" onclick="crmRunDiagnostic()">Run CRM Connection Check</button><div id="crmDiagnosticResult" style="margin-top:8px;"></div></div>'
     + '<div style="font-size:13px;margin-bottom:12px;padding:8px 12px;border-radius:8px;background:var(--panel-2);">'
     + '<b>Legacy CRM Task Sync: Disabled.</b> Tasks live only in the Task Manager &mdash; nothing is imported from ET-CRM.'
     + (d.legacyTask.refused ? ' <span style="color:var(--amber);">' + d.legacyTask.refused + ' call(s) to the old task webhook were refused &mdash; remove that webhook in ET-CRM.</span>' : '') + '</div>'
