@@ -330,10 +330,14 @@ const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
 // (comma-separated) without a code change.
 const DIRECT_PROFIT_CONFIRM_EMAILS = (process.env.DIRECT_PROFIT_CONFIRM_EMAILS ||
   'parvinder@elitetaxation.co.nz,simran@elitetaxation.co.nz').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
-// A task stored as "internal" that nevertheless has a client attached is
+// A task stored as "internal" that nevertheless names a client (or has a Sheet/Cashbook link) is
 // really client work (it was set up with the wrong type) — it can be profit-
 // confirmed, and is converted to a client task when it is.
-function hasClient(t) { return !!(t && t.clientId); }
+function hasClient(t) {
+  if (!t) return false;
+  const name = String(t.clientName || '').trim();
+  return !!(t.clientId || (name && name.toLowerCase() !== 'internal') || t.sheetLink || t.cashbookLink);
+}
 function canDirectProfitConfirm(emp) {
   return !!(emp && emp.email && DIRECT_PROFIT_CONFIRM_EMAILS.includes(String(emp.email).toLowerCase()));
 }

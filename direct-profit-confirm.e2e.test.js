@@ -94,3 +94,14 @@ test('an internal task with no client cannot be profit-confirmed', async () => {
   const r = await http('POST', `/api/tasks/${encodeURIComponent(id)}/complete`, { token: PA, body: { directProfitConfirm: true, sheetLink: 'https://docs.google.com/spreadsheets/d/x' } });
   assert.equal(r.status, 400);
 });
+
+test('an internal task that names a client and has a link can be profit-confirmed (becomes client work)', async () => {
+  const t = await http('POST', '/api/tasks', { token: SA, body: { mode: 'team', kind: 'internal', internalRef: 'Some Person', name: 'Review', assignedTo: emp('parvinder').id, tat: 1, internalDeadline: due() } });
+  assert.equal(t.status, 201, JSON.stringify(t.j));
+  const id = t.j.task.id;
+  assert.equal((await http('POST', `/api/tasks/${encodeURIComponent(id)}/accept`, { token: PA })).status, 200);
+  const r = await http('POST', `/api/tasks/${encodeURIComponent(id)}/complete`, { token: PA, body: { directProfitConfirm: true, cashbookLink: 'https://cashbook.example.com/customer/1' } });
+  assert.equal(r.status, 200, JSON.stringify(r.j));
+  assert.equal(r.j.task.kind, 'client');
+  assert.equal(r.j.task.profitConfirmStatus, 'pending');
+});
