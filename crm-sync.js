@@ -215,7 +215,7 @@ function mapAttendance(row) {
   return {
     crmAttendanceId: str(pick(row, ['crm_attendance_id', 'id'])),
     user: {
-      crmUserId: str(pick(row, ['crm_user_id', 'user_id', 'employee_id'])),
+      crmUserId: str(pick(row, ['crm_user_id', 'user_id', 'employee_id', 'team_member_id'])),
       email: lower(pick(row, ['email', 'user_email', 'employee_email'])),
     },
     date: toDay(pick(row, ['date', 'work_date', 'attendance_date'])),
@@ -240,7 +240,7 @@ function mapLeave(row) {
   return {
     crmLeaveRequestId: str(pick(row, ['crm_leave_request_id', 'id'])),
     user: {
-      crmUserId: str(pick(row, ['crm_user_id', 'user_id', 'employee_id'])),
+      crmUserId: str(pick(row, ['crm_user_id', 'user_id', 'employee_id', 'team_member_id'])),
       email: lower(pick(row, ['email', 'user_email', 'employee_email'])),
     },
     start,

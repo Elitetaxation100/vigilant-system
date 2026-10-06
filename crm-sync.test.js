@@ -128,3 +128,21 @@ test('NZ wall-clock times convert across daylight saving', () => {
   assert.equal(sync.nzLocalToISO('2026-10-05', '09:00'), '2026-10-04T20:00:00.000Z');
   assert.equal(sync.nzLocalToISO('2026-06-15', '09:00'), '2026-06-14T21:00:00.000Z');
 });
+
+test("ET-CRM's real daily attendance row (team_member_id, check_in_at, net_minutes) maps to the right person and day", () => {
+  const m = sync.mapAttendance({ id: 'att-1', team_member_id: 'user-9', date: '2026-10-05', check_in_at: '2026-10-04T20:00:00Z',
+    check_out_at: '2026-10-05T04:30:00Z', gross_minutes: 540, break_minutes: 30, net_minutes: 510, status: 'present', notes: null });
+  assert.equal(m.crmAttendanceId, 'att-1');
+  assert.equal(m.user.crmUserId, 'user-9', 'team_member_id identifies the person');
+  assert.equal(m.date, '2026-10-05');
+  assert.equal(m.seconds, 510 * 60);
+});
+test('a leave row can identify the person by team_member_id too', () => {
+  const m = sync.mapLeave({ id: 'lv-1', team_member_id: 'user-9', start_date: '2026-10-14', end_date: '2026-10-14', status: 'approved' });
+  assert.equal(m.user.crmUserId, 'user-9');
+});
+test("ET-CRM's real user row (id, full_name, email, role, is_active) maps; role is ignored", () => {
+  const m = sync.mapUser({ id: 'user-9', full_name: 'Ann Lee', email: 'ANN@elitetaxation.co.nz', role: 'admin', is_active: true });
+  assert.equal(m.crmUserId, 'user-9'); assert.equal(m.name, 'Ann Lee'); assert.equal(m.email, 'ann@elitetaxation.co.nz');
+  assert.ok(!('role' in m) || m.role === undefined, 'a CRM role never becomes a Task Manager role');
+});
