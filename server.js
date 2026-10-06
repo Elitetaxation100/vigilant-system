@@ -5334,6 +5334,7 @@ app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, (req, res) 
   res.json({
     mode: db._mode(),
     rev: db._rev(),
+    postgresWrites: db._pgStats(), // writes done / skipped-unchanged / failures — see db.js
     employees: (state.employees || []).length,
     tasks: (state.tasks || []).length,
     clients: (state.clients || []).length,
@@ -5376,7 +5377,7 @@ app.get('/api/admin/state-export', requireAuth, requireSuperAdmin, (req, res) =>
 // only, and it logs itself. Used once when Postgres comes online if the
 // local db.json didn't survive the deploy — export from the old instance,
 // import here.
-app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, (req, res) => {
+app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, async (req, res) => {
   const incoming = req.body;
   if (!incoming || typeof incoming !== 'object' || !Array.isArray(incoming.employees) || !Array.isArray(incoming.tasks)) {
     return res.status(400).json({ error: 'That does not look like a valid state export — it needs employees[] and tasks[] at least.' });
@@ -5389,6 +5390,7 @@ app.post('/api/admin/state-import', requireAuth, requireSuperAdmin, (req, res) =
   const state = db.get();
   logEvent(state, req.employee.id, `Imported a full state snapshot — ${(state.tasks || []).length} tasks, ${(state.employees || []).length} employees.`);
   db.save();
+  await db.flush(); // an import must be in Postgres before we say it worked
   res.json({ ok: true, mode: db._mode(), employees: state.employees.length, tasks: state.tasks.length });
 });
 

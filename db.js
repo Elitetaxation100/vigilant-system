@@ -755,6 +755,13 @@ async function pgInit() {
       CONSTRAINT app_state_singleton CHECK (id = 1)
     )
   `);
+  // One row rewritten constantly: have autovacuum reclaim the old copies (and their
+  // TOAST chunks) almost immediately instead of waiting for the default thresholds.
+  try {
+    await pool.query(`ALTER TABLE app_state SET (
+      autovacuum_vacuum_scale_factor = 0, autovacuum_vacuum_threshold = 5,
+      toast.autovacuum_vacuum_scale_factor = 0, toast.autovacuum_vacuum_threshold = 200)`);
+  } catch (e) { console.error('[db] could not tune autovacuum on app_state (harmless):', e.message); }
   const { rows } = await pool.query('SELECT data, rev FROM app_state WHERE id = 1');
   if (rows.length) {
     rev = Number(rows[0].rev) || 0;
@@ -789,17 +796,70 @@ async function pgInit() {
   return initial;
 }
 
+// Every save() used to write the WHOLE state to Postgres as one row — a few MB each
+// time, ~2,800 times a day — and Postgres keeps a full copy of every one of those
+// writes (row history + write-ahead log). That is what filled the volume. So the
+// write to Postgres is now:
+//   - coalesced: any number of save() calls inside PG_SAVE_DELAY_MS become ONE write
+//     of the newest state (the local file mirror is still written on every save);
+//   - skipped when nothing actually changed since the last write (most saves are
+//     handlers that touched nothing, or log-only lines);
+//   - flushed immediately on shutdown (SIGTERM/SIGINT) so a redeploy loses nothing.
+const PG_SAVE_DELAY_MS = Number(process.env.PG_SAVE_DELAY_MS) >= 0 && process.env.PG_SAVE_DELAY_MS !== undefined && process.env.PG_SAVE_DELAY_MS !== ''
+  ? Number(process.env.PG_SAVE_DELAY_MS) : 15000;
+let pgPending = null;       // newest serialised state waiting to be written
+let pgTimer = null;
+let pgLastJson = null;      // what Postgres is known to hold
+let pgInFlight = Promise.resolve();
+const pgStats = { writes: 0, skipped: 0, failures: 0, lastError: null, lastErrorAt: null, lastWriteAt: null, consecutiveFailures: 0 };
+
 function pgSave(json) {
+  pgPending = json;
+  if (pgTimer) return;
+  pgTimer = setTimeout(() => { pgTimer = null; pgFlush(); }, PG_SAVE_DELAY_MS);
+}
+
+// Write whatever is pending now. Resolves when Postgres has it (or the attempt failed).
+function pgFlush() {
+  if (pgTimer) { clearTimeout(pgTimer); pgTimer = null; }
+  const json = pgPending;
+  pgPending = null;
+  if (json === null) return pgInFlight;
+  if (json === pgLastJson) { pgStats.skipped++; return pgInFlight; }
   const r = ++rev;
-  // Fire-and-forget so callers stay synchronous. only-newer-wins is enforced
-  // in the WHERE clause, so an out-of-order landing can't clobber a newer
-  // write. Failures are logged, not thrown.
-  pool.query(
+  // Writes are chained so they land in order; only-newer-wins is also enforced in
+  // the WHERE clause. Failures are logged and RETRIED (the state stays pending).
+  pgInFlight = pgInFlight.then(() => pool.query(
     `INSERT INTO app_state (id, data, rev, updated_at) VALUES (1, $1::jsonb, $2, now())
      ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, rev = EXCLUDED.rev, updated_at = now()
      WHERE app_state.rev < EXCLUDED.rev`,
     [json, r]
-  ).catch(err => console.error('[db] Postgres save FAILED (rev ' + r + '):', err.message));
+  )).then(() => {
+    pgLastJson = json; pgStats.writes++; pgStats.consecutiveFailures = 0; pgStats.lastWriteAt = new Date().toISOString();
+  }).catch(err => {
+    pgStats.failures++; pgStats.consecutiveFailures++; pgStats.lastError = err.message; pgStats.lastErrorAt = new Date().toISOString();
+    console.error('[db] Postgres save FAILED (rev ' + r + ', ' + pgStats.consecutiveFailures + ' in a row):', err.message);
+    if (pgPending === null) pgPending = json;          // keep the newest state for the retry
+    if (!pgTimer) pgTimer = setTimeout(() => { pgTimer = null; pgFlush(); }, Math.min(60000, 5000 * pgStats.consecutiveFailures));
+  });
+  return pgInFlight;
+}
+
+// Public: wait until everything saved so far has reached Postgres (no-op in file mode).
+async function flush() {
+  if (!pgActive) return;
+  await pgFlush();
+}
+let _shutdownHooked = false;
+function hookShutdown() {
+  if (_shutdownHooked) return; _shutdownHooked = true;
+  const bye = sig => {
+    // Give the write a few seconds, then leave whatever happens — never hang a redeploy.
+    const t = setTimeout(() => process.exit(0), 8000); if (t.unref) t.unref();
+    flush().catch(() => {}).then(() => process.exit(0));
+  };
+  process.once('SIGTERM', bye);
+  process.once('SIGINT', bye);
 }
 
 // ---------------------------------------------------------------------------
@@ -816,7 +876,8 @@ async function init() {
     try {
       state = await pgInit();
       pgActive = true;
-      console.log('[db] storage mode: POSTGRES (store of record) + file mirror');
+      hookShutdown();
+      console.log('[db] storage mode: POSTGRES (store of record) + file mirror — writes coalesced every ' + PG_SAVE_DELAY_MS + ' ms');
     } catch (err) {
       console.error('[db] Postgres init FAILED — running on the file store instead. Fix the DB and redeploy. Error:', err.message);
       pgActive = false;
@@ -876,6 +937,7 @@ function replace(newState) {
   save();
   return state;
 }
+async function replaceNow(newState) { replace(newState); await flush(); return state; }
 
 // P2 — append-only task-event ledger. Today it only carries 'reminded' (a
 // manual manager nudge or a system auto-reminder); the productivity score
@@ -910,6 +972,9 @@ module.exports = {
   RETIRED_EMAILS,
   PII_EMAIL_RE,
   PII_PHONE_RE,
+  flush,
+  replaceNow,
+  _pgStats: () => ({ ...pgStats, delayMs: PG_SAVE_DELAY_MS, pending: pgPending !== null }),
   _mode: () => (pgActive ? 'postgres' : 'file'),
   _rev: () => rev,
 };
