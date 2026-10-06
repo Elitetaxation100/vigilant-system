@@ -1161,7 +1161,6 @@
       <section class="view active" id="view-dashboard">
         <div id="myGreetingWrap"></div>
         <div id="guideWrap"></div>
-        <div id="sentBackByMeWrap"></div>
         <div id="reassignedMailWrap"></div>
 
         <!-- Role tabs: shown only to managers/reviewers (see renderDashTabs). Everyone else just gets #dashTab-work. -->
@@ -1455,6 +1454,7 @@
         </div>
         <div id="rvAwaiting"></div>
         <div id="rvRework" style="margin-top:16px;"></div>
+        <div id="rvSentBack" style="margin-top:16px;"></div>
         <div id="rvProfit" style="margin-top:16px;"></div>
         <div id="rvSend" style="margin-top:16px;"></div>
       </section>
@@ -5594,33 +5594,7 @@ function bannerRef(list, max=1){
   if(list.length > max) s += ` +${list.length - max} more`;
   return s;
 }
-// Work I sent back for rework and that is still being fixed. Once a task leaves my review queue there
-// was nowhere to find it again — this keeps it in reach so I can still add a file or check progress.
-function renderSentBackByMe(){
-  const wrap = document.getElementById('sentBackByMeWrap');
-  if(!wrap) return;
-  const mine = tasks.filter(t => isReworkFlagged(t) && t.assignedTo !== currentViewerId
-    && (t.reviewedBy === currentViewerId || t.reviewerId === currentViewerId));
-  if(!mine.length || (typeof isMirroring === 'function' && isMirroring())){ wrap.innerHTML = ''; return; }
-  const rows = mine.map(t => {
-    const emp = empById(t.assignedTo);
-    const n = (t.reviewAttachments || []).length + (t.hasReviewScreenshot ? 1 : 0);
-    const stage = t.status === 'rework' ? 'being fixed' : 'not started yet';
-    return '<div class="to-row" style="align-items:flex-start;">'
-      + '<div class="to-main"><b>' + esc(t.name) + '</b>' + (t.clientName ? ' — ' + esc(t.clientName) : '')
-      + '<div style="font-size:12px;color:var(--text-faint);">with ' + esc(emp ? emp.name : '—') + ' · ' + stage + (t.reworkCount > 1 ? ' · round ' + t.reworkCount : '')
-      + ' · ' + (n ? '📎 ' + n + ' file' + (n > 1 ? 's' : '') + ' attached' : 'no file attached') + '</div></div>'
-      + '<span style="display:flex;gap:6px;flex-wrap:wrap;">'
-      + '<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="openAddReviewFilesModal(\'' + t.id + '\')">📎 Add files</button>'
-      + '<button class="verify-btn" onclick="openTaskTrailModal(\'' + t.id + '\')">History</button></span></div>';
-  }).join('');
-  wrap.innerHTML = '<div class="panel" style="margin-bottom:14px;border-left:4px solid var(--coral);">'
-    + '<div class="panel-head"><h2>↩ Sent back by you <span class="badge pending dot">' + mine.length + '</span></h2></div>'
-    + '<div style="font-size:12.5px;color:var(--text-dim);margin:-4px 0 8px;">Work you sent back for rework that is still being fixed. Add a screenshot or file any time — the employee is told.</div>'
-    + rows + '</div>';
-}
 function renderDeadlineBanner(){
-  renderSentBackByMe();
   const wrap = document.getElementById('deadlineBannerWrap');
   const bell = document.getElementById('bellIcon');
   const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed'].includes(t.status));
@@ -10504,6 +10478,19 @@ function renderReviewsView(){
     return row(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)} · flagged by ${r ? esc(r.name) : '—'}${t.reviewNote ? ' — ' + esc(t.reviewNote) : ''}`,
       `${t.reviewedAt ? 'flagged ' + fmtDate(dayOf(t.reviewedAt)) : ''}`,
       `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Start fixing</button>`);
+  }).join(''), '', true);
+
+  // Work I sent back for rework that is still being fixed. Once a task leaves my review queue there was
+  // nowhere to find it again — here I can still add a screenshot or file, or open its history.
+  const sentBackAll = tasks.filter(t => isReworkFlagged(t) && t.assignedTo !== currentViewerId
+    && (t.reviewedBy === currentViewerId || t.reviewerId === currentViewerId));
+  const sentBack = sentBackAll.filter(t => match(t, t.reviewedAt));
+  sec('rvSentBack', 'sent back by you — still being fixed', sentBack.length, sentBackAll.length, sentBack.map(t => {
+    const e = empById(t.assignedTo);
+    const n = (t.reviewAttachments || []).length + (t.hasReviewScreenshot ? 1 : 0);
+    return row(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)} · with ${e ? esc(e.name) : '—'} · ${t.status === 'rework' ? 'being fixed' : 'not started yet'}${t.reworkCount > 1 ? ' · round ' + t.reworkCount : ''}`,
+      `${t.reviewedAt ? 'sent back ' + fmtDate(dayOf(t.reviewedAt)) : ''} · ${n ? '📎 ' + n + ' file' + (n > 1 ? 's' : '') : 'no file'}`,
+      `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="openAddReviewFilesModal('${t.id}')">📎 Add files</button> <button class="verify-btn" onclick="openTaskTrailModal('${t.id}')">History</button>`);
   }).join(''), '', true);
 
   const profit = profitAll.filter(t => match(t, t.profitConfirmRequestedAt || t.completedAt));
