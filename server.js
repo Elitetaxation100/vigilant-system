@@ -3118,8 +3118,47 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
     logEvent(state, sendTo, `<b>${escHtml(req.employee.name)}</b> confirmed profit on "${escHtml(t.name)}" — go ahead and send the report.`);
     notify(state, sendTo, 'profit_confirm', `${req.employee.name} confirmed profit on "${t.name}" — send the report.`, t.id);
   }
+  // Whoever asked for the confirmation (the reviewer) is told too — before this they heard nothing.
+  const sender = sendTo ? findEmployee(state, sendTo) : null;
+  [t.profitConfirmRequestedBy, t.reviewedBy].filter((id, i, a) => id && a.indexOf(id) === i && id !== req.employee.id && id !== sendTo).forEach(id => {
+    logEvent(state, id, `<b>${escHtml(req.employee.name)}</b> confirmed profit on "${escHtml(t.name)}"${sender ? ' — <b>' + escHtml(sender.name) + '</b> will send the report' : ''}.`);
+    notify(state, id, 'profit_confirm', `${req.employee.name} confirmed profit on "${t.name}"${sender ? ' — ' + sender.name + ' will send the report' : ''}.`, t.id, { noDedupe: true });
+  });
   db.save();
   res.json({ task: taskForClient(t) });
+});
+
+// How many profit confirmations Shubam (the named owner) has done, how long they take, what is waiting.
+// Superadmins and Shubam himself only.
+app.get('/api/profit-confirmations/stats', requireAuth, (req, res) => {
+  const state = db.get();
+  const owner = profitConfirmOwner(state);
+  const isOwner = !!owner && req.employee.id === owner.id;
+  if (req.employee.accessRole !== 'superadmin' && !isOwner) return res.status(403).json({ error: 'Only a founder, or Shubam, can see this.' });
+  const today = todayISO();
+  const d0 = new Date(today + 'T00:00:00Z');
+  const weekStart = new Date(d0.getTime() - ((d0.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10); // Monday
+  const monthStart = today.slice(0, 8) + '01';
+  const done = (state.tasks || []).filter(t => t.profitConfirmStatus === 'confirmed' && t.profitConfirmAt);
+  const byOwner = done.filter(t => owner && t.profitConfirmBy === owner.id);
+  const byBackup = done.filter(t => !owner || t.profitConfirmBy !== owner.id);
+  const since = (list, from) => list.filter(t => nzDay(t.profitConfirmAt) >= from).length;
+  const hours = t => t.profitConfirmRequestedAt ? Math.max(0, (new Date(t.profitConfirmAt) - new Date(t.profitConfirmRequestedAt)) / 3600000) : null;
+  const hs = byOwner.map(hours).filter(h => h != null);
+  const nameOf = id => (findEmployee(state, id) || {}).name || '—';
+  const pending = (state.tasks || []).filter(t => t.profitConfirmStatus === 'pending')
+    .sort((a, b) => (a.profitConfirmRequestedAt || '').localeCompare(b.profitConfirmRequestedAt || ''));
+  res.json({
+    owner: owner ? { id: owner.id, name: owner.name } : null,
+    confirmedByOwner: { today: since(byOwner, today), week: since(byOwner, weekStart), month: since(byOwner, monthStart), total: byOwner.length },
+    confirmedByBackup: { total: byBackup.length },
+    avgTurnaroundHours: hs.length ? Math.round(hs.reduce((a, b) => a + b, 0) / hs.length * 10) / 10 : null,
+    pending: { count: pending.length, oldestDays: pending.length && pending[0].profitConfirmRequestedAt ? Math.floor((Date.now() - new Date(pending[0].profitConfirmRequestedAt).getTime()) / 86400000) : 0 },
+    recent: done.slice().sort((a, b) => b.profitConfirmAt.localeCompare(a.profitConfirmAt)).slice(0, 25).map(t => ({
+      id: t.id, name: t.name, clientName: t.clientName || null, requestedBy: nameOf(t.profitConfirmRequestedBy), requestedAt: t.profitConfirmRequestedAt || null,
+      confirmedBy: nameOf(t.profitConfirmBy), confirmedAt: t.profitConfirmAt, hours: hours(t) != null ? Math.round(hours(t) * 10) / 10 : null,
+    })),
+  });
 });
 
 // The reviewer is happy and this client doesn't need a profit confirmation —

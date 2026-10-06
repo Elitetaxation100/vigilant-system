@@ -1456,6 +1456,8 @@
         <div id="rvRework" style="margin-top:16px;"></div>
         <div id="rvSentBack" style="margin-top:16px;"></div>
         <div id="rvProfit" style="margin-top:16px;"></div>
+        <div id="rvProfitSent" style="margin-top:16px;"></div>
+        <div id="rvProfitStats" style="margin-top:16px;"></div>
         <div id="rvSend" style="margin-top:16px;"></div>
       </section>
 
@@ -10527,6 +10529,21 @@ function renderReviewsView(){
       `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="submitProfitConfirmDone('${t.id}')">✓ Profit confirmed</button>`);
   }).join(''), '', true, ['Task', 'Owner', 'Status', 'Sheet', 'Cashbook', '']);
 
+  // Work I asked Shubam to confirm profit on: still waiting, or confirmed and now with the sender.
+  const profitSentAll = tasks.filter(t => (t.profitConfirmStatus === 'pending' || (t.profitConfirmStatus === 'confirmed' && t.awaitingClientDecision))
+    && (t.reviewedBy === currentViewerId || t.reviewerId === currentViewerId || t.profitConfirmRequestedBy === currentViewerId) && t.assignedTo !== currentViewerId);
+  const profitSent = profitSentAll.filter(t => match(t, t.profitConfirmRequestedAt || t.reviewedAt));
+  sec('rvProfitSent', 'sent for profit confirmation', profitSent.length, profitSentAll.length, profitSent.map(t => {
+    const waitedD = t.profitConfirmRequestedAt ? Math.floor((Date.now() - new Date(t.profitConfirmRequestedAt).getTime()) / 86400000) : 0;
+    const state = t.profitConfirmStatus === 'pending'
+      ? `<b style="color:#B45309;">waiting on Shubam</b> · sent ${t.profitConfirmRequestedAt ? fmtDate(dayOf(t.profitConfirmRequestedAt)) : '—'}${waitedD >= 1 ? ' (' + waitedD + 'd)' : ''}`
+      : `<b style="color:var(--teal);">✓ confirmed</b> by ${esc((empById(t.profitConfirmBy) || {}).name || 'Shubam')} · ${fmtDate(dayOf(t.profitConfirmAt))}`;
+    const o = empById(t.assignedTo);
+    return row(t, `${esc(t.clientName || '—')} · ${taskNo(t.id)} · ${o ? esc(o.name) : '—'}${t.profitConfirmStatus === 'confirmed' ? ' · ' + esc((empById(t.reportSendOwner || t.assignedTo) || {}).name || 'the sender') + ' to send the report' : ''}`,
+      state, `<button class="verify-btn" onclick="openTaskTrailModal('${t.id}')">History</button>`);
+  }).join(''), '', true);
+  renderProfitStats();
+
   const toSend = toSendAll.filter(t => match(t, t.reviewedAt)).sort((a,b) => (a.clientDate||'9999').localeCompare(b.clientDate||'9999'));
   sec('rvSend', 'reports ready to send to the client', toSend.length, toSendAll.length, toSend.map(t => row(t,
     `${esc(t.clientName || '—')} · ${taskNo(t.id)}${t.reportReturnedBy ? ' · reviewed clean by ' + esc((empById(t.reportReturnedBy) || {}).name || 'the reviewer') + ' — no profit confirmation needed' : ''}`,
@@ -10534,6 +10551,29 @@ function renderReviewsView(){
     `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openSendToClientModal('${t.id}')">Send to client</button>`)).join(''), '', true);
 
   updateReviewsNavBadge();
+}
+// The founder's (and Shubam's) count of profit confirmations — fetched on demand, at most once a minute.
+let _profitStats = null, _profitStatsAt = 0, _profitStatsBusy = false;
+function renderProfitStats(force){
+  const box = document.getElementById('rvProfitStats');
+  if(!box) return;
+  if(!(isSuperAdmin || iAmProfitConfirmOwner())){ box.innerHTML = ''; return; }
+  const draw = s => {
+    if(!s){ box.innerHTML = ''; return; }
+    const c = s.confirmedByOwner, who = esc(s.owner ? s.owner.name : 'Shubam Sharma');
+    const tile = (n, l) => `<div style="flex:1;min-width:92px;padding:10px 12px;border:1px solid var(--panel-border);border-radius:10px;"><div style="font-size:22px;font-weight:700;">${n}</div><div style="font-size:12px;color:var(--text-faint);">${l}</div></div>`;
+    const rows = (s.recent || []).slice(0, 10).map(r => `<tr><td><b>${esc(r.name)}</b><div style="font-size:12px;color:var(--text-faint);">${esc(r.clientName || '—')} · ${taskNo(r.id)}</div></td><td>${esc(r.requestedBy)}</td><td>${esc(r.confirmedBy)}</td><td style="font-family:var(--font-mono);font-size:12px;">${fmtDate(dayOf(r.confirmedAt))}</td><td>${r.hours != null ? (r.hours < 1 ? '< 1 h' : r.hours < 48 ? r.hours + ' h' : Math.round(r.hours / 24) + ' d') : '—'}</td></tr>`).join('');
+    box.innerHTML = `<div class="tm-list"><div class="wk-list-head"><span class="wk-count">💰 Profit confirmations by <b>${who}</b></span></div>
+      <div class="wk-body" style="padding:12px 14px;">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${tile(c.today, 'today')}${tile(c.week, 'this week')}${tile(c.month, 'this month')}${tile(c.total, 'all time')}${tile(s.pending.count, 'waiting now' + (s.pending.count && s.pending.oldestDays >= 1 ? ' · oldest ' + s.pending.oldestDays + 'd' : ''))}${tile(s.avgTurnaroundHours != null ? (s.avgTurnaroundHours < 1 ? '< 1 h' : s.avgTurnaroundHours + ' h') : '—', 'average time to confirm')}</div>
+        ${s.confirmedByBackup.total ? `<div style="font-size:12.5px;color:var(--text-faint);margin-bottom:8px;">${s.confirmedByBackup.total} more confirmed by a founder as backup.</div>` : ''}
+        ${rows ? `<div style="overflow-x:auto;"><table><thead><tr><th>Task</th><th>Asked by</th><th>Confirmed by</th><th>On</th><th>Took</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div style="font-size:13.5px;color:var(--text-faint);">No profit confirmations yet.</div>'}
+      </div></div>`;
+  };
+  if(_profitStats) draw(_profitStats);
+  if(_profitStatsBusy || (!force && _profitStats && Date.now() - _profitStatsAt < 60000)) return;
+  _profitStatsBusy = true;
+  api('/api/profit-confirmations/stats').then(s => { _profitStats = s; _profitStatsAt = Date.now(); draw(s); }).catch(() => {}).finally(() => { _profitStatsBusy = false; });
 }
 function updateReviewsNavBadge(){
   const badge = document.getElementById('reviewsNavBadge');
@@ -11850,7 +11890,9 @@ function openReviewViewModal(id){
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
       ${linksLine(t)}
       <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.profitConfirmStatus === 'pending'
-        ? '<span style="color:#B45309;">💰 Awaiting profit confirmation from Shubam Sharma</span>'
+        ? `<span style="color:#B45309;">💰 Awaiting profit confirmation from Shubam Sharma${t.profitConfirmRequestedAt ? ' — sent ' + fmtDate(dayOf(t.profitConfirmRequestedAt)) : ''}</span>`
+        : (t.profitConfirmStatus === 'confirmed' && t.awaitingClientDecision)
+        ? `<span style="color:var(--teal);">💰 Profit confirmed by ${esc((empById(t.profitConfirmBy)||{}).name || 'Shubam Sharma')} on ${fmtDate(dayOf(t.profitConfirmAt))}</span> — ${esc((empById(t.reportSendOwner)||{}).name || 'unassigned')} to send`
         : t.awaitingClientDecision
         ? `<span style="color:#B45309;">Awaiting decision on sending to client</span> — ${esc((empById(t.reportSendOwner)||{}).name || 'unassigned')} to send${t.clientDate ? ', by ' + fmtDate(t.clientDate) : ''}${t.reportOverdue ? ' <b style="color:#C2410C;">· overdue</b>' : ''}`
         : t.sentToClient === true ? '<span style="color:var(--teal);">✓ Sent directly to client</span>'
@@ -11939,6 +11981,15 @@ function openTaskTrailModal(id){
     push(t.reviewedAt, t.reviewStatus === 'clean' ? '🔎' : '🛑',
       `<b>${esc(nm(t.reviewedBy)||'—')}</b> reviewed it — ${t.reviewStatus === 'clean' ? 'error-free' : 'error found'}${t.reviewNote ? ': “'+esc(t.reviewNote)+'”' : ''}.`,
       t.reviewStatus === 'error' ? `<div class="trail-files">${downloadListHtml(t.reviewAttachments)}${t.hasReviewScreenshot ? '<div id="trailReviewShot" style="margin-top:8px;"><span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span></div>' : ''}</div>` : '');
+  }
+
+  if(t.profitConfirmRequestedAt){
+    const po = employees.find(e => String(e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+    push(t.profitConfirmRequestedAt, '💰', `<b>${esc(nm(t.profitConfirmRequestedBy)||'—')}</b> sent it for profit confirmation to <b>${esc(po ? po.name : 'Shubam Sharma')}</b>.`);
+  }
+  if(t.profitConfirmAt){
+    const waited = t.profitConfirmRequestedAt ? Math.max(0, (new Date(t.profitConfirmAt) - new Date(t.profitConfirmRequestedAt)) / 3600000) : null;
+    push(t.profitConfirmAt, '✅', `<b>${esc(nm(t.profitConfirmBy)||'—')}</b> confirmed the profit${waited != null ? ' (' + (waited < 1 ? 'within the hour' : waited < 48 ? 'after ' + waited.toFixed(1) + ' h' : 'after ' + Math.round(waited / 24) + ' days') + ')' : ''} — ready to send.`);
   }
 
   if(t.sentToClientAt){
