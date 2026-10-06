@@ -2612,11 +2612,17 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, (req, res) => {
   if (t.status !== 'completed' || !['done', 'clean'].includes(t.reviewStatus)) {
     return res.status(400).json({ error: 'Only a closed task (marked done, or reviewed clean) can be re-sent for review.' });
   }
-  const { reviewerId } = req.body || {};
+  const { reviewerId, sheetLink, cashbookLink } = req.body || {};
   if (!reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
   const reviewer = findEmployee(state, reviewerId);
   if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send a task to its own owner for review — pick someone else." });
+  const sheetLinkN = normalizeLink(sheetLink);
+  const cashbookLinkN = normalizeLink(cashbookLink);
+  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
+  if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
   t.reviewStatus = null;
   t.reviewerId = reviewerId;
   t.reviewedBy = null; t.reviewedAt = null; t.reviewNote = null;

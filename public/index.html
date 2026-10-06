@@ -7905,6 +7905,10 @@ function openSendForReviewModal(id){
     <h3>Reopen for re-review — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''} · currently <b>${wasClean ? 'reviewed clean' : 'marked done, no review'}</b></div>
     <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:10px 0 4px;">This re-opens the task and puts it in front of a reviewer${wasClean ? ' for another look' : ''}. Any earlier profit-confirmation / report-send decision is cleared, so it can be reviewed and sent for profit confirmation again. It stays counted as delivered.</p>
+    <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="sfrSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+    ${t.kind !== 'internal' ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="sfrCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}
     ${reviewers.length
       ? `<div class="field"><label>Send for review to</label><select id="sfrReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
       : `<div class="modal-error" style="display:block;">There's no one else to review this.</div>`}
@@ -7920,7 +7924,7 @@ async function submitSendForReview(id){
   const err = document.getElementById('sfrError');
   if(!reviewerId){ if(err){ err.textContent = 'Choose who should review this task first.'; err.style.display = 'block'; } return; }
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/send-for-review`, { method:'POST', body: JSON.stringify({ reviewerId }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/send-for-review`, { method:'POST', body: JSON.stringify({ reviewerId, sheetLink: (document.getElementById('sfrSheetLink')||{}).value || undefined, cashbookLink: (document.getElementById('sfrCashbookLink')||{}).value || undefined }) });
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
     showToast('info', 'Sent for review', 'The task is back in front of a reviewer.');
   } catch(e){ if(err){ err.textContent = e.message; err.style.display = 'block'; } }
