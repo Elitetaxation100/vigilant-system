@@ -3211,7 +3211,8 @@ function myReviewTasks(){
 function iCanSendForReview(t){
   if(!t || t.status !== 'completed') return false;
   if(t.reviewStatus !== 'done' && t.reviewStatus !== 'clean') return false;
-  return isAdmin || t.assignedTo === currentViewerId || t.assignedBy === currentViewerId;
+  return isAdmin || t.assignedTo === currentViewerId || t.assignedBy === currentViewerId ||
+    (t.reviewStatus === 'clean' && t.reviewedBy === currentViewerId);
 }
 // Approving a self-assigned task stays manager-only.
 function iCanApproveAssignment(t){ return t && empManagesWork(currentViewer(), t.assignedTo); }
@@ -6102,7 +6103,7 @@ function actionCell(t){
       // things you can actually do.
       if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
       else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
-      if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open and send it to someone to check">Send for Review</button>`;
+      if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open this job for re-review (e.g. marked done by mistake)">Reopen for Re-review</button>`;
     }
     if(iCanRemoveTask(t)) html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="removeTask('${t.id}')">Remove</button>`;
     html += '</div>';
@@ -6160,7 +6161,7 @@ function actionCell(t){
     if(!t.reviewStatus && iCanReview(t)) html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
     else if(t.reviewStatus === 'clean' || t.reviewStatus === 'error') html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewViewModal('${t.id}')">View review</button>`;
-    if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open and send it to someone to check">Send for Review</button>`;
+    if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open this job for re-review (e.g. marked done by mistake)">Reopen for Re-review</button>`;
   }
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
     html += `<button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>`;
@@ -7845,6 +7846,15 @@ async function submitStartWork(id){
   await doResume(id, backdatedHours);
 }
 
+// "Profit confirm" toggle — only for the few people allowed to send their own
+// job straight to Shubam for profit confirmation, skipping the review step.
+function directProfitToggleHtml(t, prefix){
+  const v = currentViewer();
+  if(!v || !v.canDirectProfitConfirm || (t.kind === 'internal' && !t.clientId)) return '';
+  return `<label style="display:flex;gap:8px;align-items:flex-start;margin:10px 0;font-size:13px;cursor:pointer;">
+    <input type="checkbox" id="${prefix}Direct" onchange="document.getElementById('${prefix}ReviewerField')&&(document.getElementById('${prefix}ReviewerField').style.display=this.checked?'none':'')" style="margin-top:3px;">
+    <span><b>💰 Profit confirm</b> — send straight to Shubam for profit confirmation, no separate review. Needs a Sheet or Cashbook link.</span></label>`;
+}
 function openCompleteModal(id){
   const t = findTask(id);
   if(!t) return;
@@ -7865,20 +7875,22 @@ function openCompleteModal(id){
   document.getElementById('modalBox').innerHTML = `
   <h3>Mark Complete — ${esc(t.name)}</h3>
   <div class="modal-sub">${esc(t.clientName)||'—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
-  ${picker}
+  ${directProfitToggleHtml(t, 'cmp')}
+  <div id="cmpReviewerField">${picker}</div>
   ${linkFields}
   <div class="modal-error" id="cmpError"></div>
   <div class="modal-actions" style="flex-wrap:wrap;">
   <button class="btn" onclick="closeModal()">Cancel</button>
   <button class="btn" style="border-color:var(--teal,var(--teal));color:var(--teal);" onclick="doMarkDoneNoReview('${id}')" title="Close it now without a reviewer">Done — no review</button>
-  ${reviewers.length ? `<button class="btn primary" onclick="submitComplete('${id}')">Send for Review</button>` : ''}
+  ${(reviewers.length || (currentViewer()||{}).canDirectProfitConfirm) ? `<button class="btn primary" onclick="submitComplete('${id}')">Send for Review</button>` : ''}
   </div>
   `;
   openModal();
 }
   async function submitComplete(id){
-    const reviewerId = document.getElementById('cmpReviewer').value;
-    if(!reviewerId){
+    const directProfitConfirm = !!(document.getElementById('cmpDirect')||{}).checked;
+    const reviewerId = (document.getElementById('cmpReviewer')||{}).value || '';
+    if(!reviewerId && !directProfitConfirm){
       document.getElementById('cmpError').textContent = 'Choose who should review this task first.';
       document.getElementById('cmpError').style.display = 'block';
       return;
@@ -7886,7 +7898,7 @@ function openCompleteModal(id){
     const sheetLink = (document.getElementById('cmpSheetLink')||{}).value || undefined;
     const cashbookLink = (document.getElementById('cmpCashbookLink')||{}).value || undefined;
     try {
-      await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST', body: JSON.stringify({ reviewerId, sheetLink, cashbookLink }) });
+      await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST', body: JSON.stringify({ reviewerId, sheetLink, cashbookLink, directProfitConfirm }) });
       closeModal(); await refreshTasks(); await refreshActivity();
     } catch(e){
       document.getElementById('cmpError').textContent = e.message;
@@ -7901,25 +7913,31 @@ function openSendForReviewModal(id){
   const options = reviewers.map(e => `<option value="${e.id}">${esc(e.name)} — ${esc(e.jobTitle||'')}</option>`).join('');
   const wasClean = t.reviewStatus === 'clean';
   document.getElementById('modalBox').innerHTML = `
-    <h3>Send for review — ${esc(t.name)}</h3>
+    <h3>Reopen for re-review — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''} · currently <b>${wasClean ? 'reviewed clean' : 'marked done, no review'}</b></div>
-    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:10px 0 4px;">This re-opens the task and puts it in front of a reviewer${wasClean ? ' for another look' : ''}. It stays counted as delivered; the review outcome just gets recorded on top.</p>
-    ${reviewers.length
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:10px 0 4px;">This re-opens the task and puts it in front of a reviewer${wasClean ? ' for another look' : ''}. Any earlier profit-confirmation / report-send decision is cleared, so it can be reviewed and sent for profit confirmation again. It stays counted as delivered.</p>
+    <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="sfrSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+    <div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="sfrCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>
+    ${directProfitToggleHtml(t, 'sfr')}
+    <div id="sfrReviewerField">${reviewers.length
       ? `<div class="field"><label>Send for review to</label><select id="sfrReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
-      : `<div class="modal-error" style="display:block;">There's no one else to review this.</div>`}
+      : `<div class="modal-error" style="display:block;">There's no one else to review this.</div>`}</div>
     <div class="modal-error" id="sfrError"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      ${reviewers.length ? `<button class="btn primary" onclick="submitSendForReview('${id}')">Send for Review</button>` : ''}
+      ${(reviewers.length || (currentViewer()||{}).canDirectProfitConfirm) ? `<button class="btn primary" onclick="submitSendForReview('${id}')">Send for Review</button>` : ''}
     </div>`;
   openModal();
 }
 async function submitSendForReview(id){
   const reviewerId = (document.getElementById('sfrReviewer')||{}).value || '';
+  const directProfitConfirm = !!(document.getElementById('sfrDirect')||{}).checked;
   const err = document.getElementById('sfrError');
-  if(!reviewerId){ if(err){ err.textContent = 'Choose who should review this task first.'; err.style.display = 'block'; } return; }
+  if(!reviewerId && !directProfitConfirm){ if(err){ err.textContent = 'Choose who should review this task first.'; err.style.display = 'block'; } return; }
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/send-for-review`, { method:'POST', body: JSON.stringify({ reviewerId }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/send-for-review`, { method:'POST', body: JSON.stringify({ reviewerId, directProfitConfirm, sheetLink: (document.getElementById('sfrSheetLink')||{}).value || undefined, cashbookLink: (document.getElementById('sfrCashbookLink')||{}).value || undefined }) });
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
     showToast('info', 'Sent for review', 'The task is back in front of a reviewer.');
   } catch(e){ if(err){ err.textContent = e.message; err.style.display = 'block'; } }
