@@ -116,6 +116,64 @@
   .brand-text .t2{ font-size:11px; color:var(--text-faint); letter-spacing:.6px; text-transform:uppercase; margin-top:1px;}
 
   .clock-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 14px; margin-bottom:16px; }
+/* ---- v2 navigation + manager views ---- */
+.sr-only{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+body.v2-dash .sidebar .nav-section:not(#navV2){ display:none !important; }
+body.v2-dash #navV2{ display:block !important; }
+.nv2-new{ width:100%; min-height:44px; margin:0 0 10px; padding:10px 14px; border-radius:10px; border:0; background:var(--purple); color:#fff; font:inherit; font-weight:700; cursor:pointer; }
+.nv2-new:hover{ filter:brightness(1.08); }
+.nv2-label{ margin:14px 10px 4px; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint); }
+#navV2 .nav-item{ min-height:44px; }
+.tm-head{ margin-bottom:12px; }
+.tm-panel{ border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); padding:14px 16px; margin-bottom:14px; }
+.tm-panel h3{ margin:0 0 10px; font-size:15px; }
+.tm-chips{ display:flex; flex-wrap:wrap; gap:8px; }
+.tm-chip{ min-height:44px; padding:8px 14px; border-radius:999px; border:1px solid var(--panel-border); background:var(--panel-2); color:var(--text); font:inherit; cursor:pointer; }
+.tm-chip b{ color:var(--coral); } .tm-chip.on{ outline:2px solid var(--purple); }
+.tm-attn-list{ margin-top:12px; border-top:1px solid var(--panel-border); }
+.tm-attn-row{ display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--panel-border); }
+.tm-sub{ font-size:12px; color:var(--text-faint); margin-top:2px; }
+.tm-scroll{ overflow-x:auto; }
+.tm-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+.tm-table th, .tm-table td{ text-align:left; padding:10px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
+.tm-table thead th{ font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); white-space:nowrap; }
+.tm-table td.hot .tm-num{ color:var(--coral); }
+.tm-num, .tm-link{ background:none; border:0; padding:0; font:inherit; color:var(--purple); cursor:pointer; text-align:left; text-decoration:underline; min-height:24px; }
+.tm-old{ text-align:inherit; } .tm-num{ font-weight:700; font-size:15px; min-width:28px; } .tm-zero{ color:var(--text-faint); }
+.mt-filters{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; align-items:end; margin:12px 0; }
+.mt-f{ display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--text-dim); } .mt-f.mt-q{ grid-column:span 2; }
+.mt-f select, .mt-f input{ min-height:40px; padding:6px 8px; border-radius:8px; border:1px solid var(--panel-border); background:var(--panel); color:var(--text); font:inherit; }
+.mt-banner{ margin:0 0 10px; padding:8px 12px; border-radius:8px; background:var(--panel-2); font-size:13px; }
+.mt-pager{ display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 0; font-size:13px; }
+.mt-table td.tm-act{ width:1%; }
+.mt-menu{ position:fixed; z-index:200; min-width:200px; padding:6px; border-radius:10px; border:1px solid var(--panel-border); background:var(--panel); box-shadow:0 12px 30px rgba(0,0,0,.25); display:flex; flex-direction:column; }
+.mt-menu button{ text-align:left; min-height:40px; padding:8px 12px; border:0; background:transparent; color:var(--text); font:inherit; border-radius:6px; cursor:pointer; }
+.mt-menu button:hover, .mt-menu button:focus{ background:var(--panel-2); outline:none; }
+.cal-bar{ display:flex; gap:10px; align-items:center; margin:12px 0; }
+.cal-grid{ display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); border-top:1px solid var(--panel-border); border-left:1px solid var(--panel-border); }
+.cal-h{ padding:6px; font-size:12px; font-weight:700; color:var(--text-dim); border-right:1px solid var(--panel-border); border-bottom:1px solid var(--panel-border); background:var(--panel-2); }
+.cal-cell{ min-height:96px; padding:4px; border-right:1px solid var(--panel-border); border-bottom:1px solid var(--panel-border); background:var(--panel); }
+.cal-cell.empty{ background:var(--panel-2); } .cal-cell.today{ outline:2px solid var(--purple); outline-offset:-2px; }
+.cal-d{ font-size:12px; color:var(--text-dim); margin-bottom:2px; }
+.cal-ev{ display:block; width:100%; text-align:left; margin:1px 0; padding:2px 6px; border-radius:5px; border:0; font:inherit; font-size:11.5px; color:#fff; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+i.cal-ev{ display:inline-block; width:12px; height:12px; padding:0; vertical-align:-2px; margin-right:4px; }
+.cal-ev.red{ background:var(--coral); } .cal-ev.amber{ background:#B45309; } .cal-ev.blue{ background:#2563EB; } .cal-ev.purple{ background:var(--purple); } .cal-ev.green{ background:var(--teal); } .cal-ev.grey{ background:#6B7280; }
+.cal-more{ background:none; border:0; color:var(--purple); font:inherit; font-size:11.5px; cursor:pointer; padding:2px 4px; }
+.cal-legend{ display:flex; flex-wrap:wrap; gap:14px; margin:12px 0; font-size:12.5px; color:var(--text-dim); } .cal-key{ display:inline-flex; align-items:center; }
+.tl{ position:relative; min-width:720px; } .tl-today{ position:absolute; top:0; bottom:0; left:calc(260px + (100% - 260px) * var(--today) / 100); width:2px; background:var(--coral); opacity:.7; pointer-events:none; }
+.tl-row{ display:grid; grid-template-columns:260px 1fr; gap:10px; align-items:center; border-bottom:1px solid var(--panel-border); }
+.tl-name{ text-align:left; background:none; border:0; padding:8px 4px; font:inherit; color:var(--text); cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-height:44px; }
+.tl-name .tm-sub{ display:block; }
+.tl-track{ position:relative; height:24px; } .tl-bar{ position:absolute; top:6px; height:12px !important; padding:0 !important; border-radius:6px; margin:0 !important; width:auto; }
+.tl-mark{ position:absolute; top:2px; width:3px; height:20px; background:var(--text); border-radius:2px; }
+@media (max-width: 760px){
+  .tm-table thead{ display:none; } .tm-table, .tm-table tbody, .tm-table tr, .tm-table th, .tm-table td{ display:block; width:100%; }
+  .tm-table tr{ border:1px solid var(--panel-border); border-radius:10px; margin-bottom:10px; padding:6px 10px; background:var(--panel); }
+  .tm-table th[scope=row], .tm-table td{ border:0; padding:5px 0; }
+  .tm-table td::before{ content:attr(data-l); display:block; color:var(--text-dim); font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; } .tm-table th[scope=row]{ font-size:15px; }
+  .mt-table td.tm-act{ width:100%; text-align:right; } .mt-f.mt-q{ grid-column:span 1; }
+  .cal-cell{ min-height:70px; } .cal-ev{ font-size:10.5px; }
+}
 /* ---- Today (v2): the personal command centre ---- */
 body.v2-dash .clock-card{ display:none !important; }
 .td-head{ display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
@@ -1129,6 +1187,31 @@ body.v2-dash .clock-card{ display:none !important; }
       </div>
     </div>
 
+    <div class="nav-section" id="navV2" style="display:none;" aria-label="Main menu">
+      <button type="button" class="nv2-new" onclick="openNewTask()">＋ New Task</button>
+      <div class="nv2-label">Work</div>
+      <div class="nav-item" data-view="today" onclick="showView('today', this)"><span class="nav-icon">◉</span> Today</div>
+      <div class="nav-item v2-mgr" data-view="mtasks" onclick="showView('mtasks', this)"><span class="nav-icon">✓</span> Tasks</div>
+      <div class="nav-item" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadgeV2" style="display:none;"></span></div>
+      <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
+      <div class="v2-mgr"><div class="nv2-label">Team</div>
+        <div class="nav-item" data-view="team" onclick="showView('team', this)"><span class="nav-icon">👥</span> My Team</div></div>
+      <div class="nv2-label">Communication</div>
+      <div class="nav-item" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
+      <div class="nav-item" data-view="emails" onclick="showView('emails', this)"><span class="nav-icon">✉</span> Email</div>
+      <div class="nv2-label">Me</div>
+      <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
+      <div class="nav-item" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
+      <details class="nav-drop" id="v2AdminGroup" style="display:none;margin-top:10px;">
+        <summary class="nav-item nav-sub"><span class="nav-icon">▾</span> Admin</summary>
+        <div class="nav-item nav-sub" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
+        <div class="nav-item nav-sub" data-view="attendance" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
+        <div class="nav-item nav-sub" data-view="assignments" onclick="showView('assignments', this)"><span class="nav-icon">🔀</span> Team Assignments</div>
+        <div class="nav-item nav-sub" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Types</div>
+        <div class="nav-item nav-sub" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Inbound Admin</div>
+      </details>
+    </div>
+
     <div class="nav-section">
       <div class="nav-item" id="todayNavItem" data-view="today" style="display:none;" onclick="showView('today', this)"><span class="nav-icon">◉</span> Today</div>
       <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> My Dashboard</div>
@@ -1211,7 +1294,9 @@ body.v2-dash .clock-card{ display:none !important; }
       <div id="deadlineBannerWrap"></div>
 
       <!-- ===================== TODAY (v2) ===================== -->
-      <section class="view" id="view-today"><div id="tdRoot" aria-live="polite"></div></section>
+      <section class="view" id="view-team"><div id="tmRoot"></div></section>
+  <section class="view" id="view-mtasks"><div id="mtRoot"></div></section>
+  <section class="view" id="view-today"><div id="tdRoot" aria-live="polite"></div></section>
 
       <!-- ===================== DASHBOARD VIEW ===================== -->
       <section class="view active" id="view-dashboard">
@@ -3321,6 +3406,8 @@ function dashboardScopeLabelShort(){ return ''; }
    ========================================================================= */
 const titles = {
   today: ['Today', 'What needs you now, what is waiting on others, and what you finished'],
+  team: ['My Team', 'Who has what, who is stuck, and what needs a manager'],
+  mtasks: ['Tasks', 'Every task in your team — filter, page, calendar and timeline'],
   dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
   tasks: ['Tasks', 'My Tasks, Team Tasks and All Tasks — with saved filters, recurring tasks, and Recently Removed'],
   reviews: ['Reviews', 'Everything waiting on you — the ones most at risk of missing the client date come first'],
@@ -4508,8 +4595,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if(sb) sb.addEventListener('click', e => { if(e.target.closest('.nav-item, .admin-btn, .btn-punch')) closeMobileNav(); });
   document.addEventListener('keydown', e => { if(e.key === 'Escape') closeMobileNav(); });
 });
-function showView(id, el){
+function showView(id, el, classic){
   closeMobileNav();
+  mtMenuClose();
+  // v2 managers: Tasks means the new list; the classic list stays one click away. Manager-only views fall back to Today.
+  if(id === 'tasks' && v2Manager() && !classic){ id = 'mtasks'; el = document.querySelector('#navV2 .nav-item[data-view="mtasks"]'); }
+  if((id === 'team' || id === 'mtasks') && !v2Manager()){ id = (session && session.dashboardV2) ? 'today' : 'dashboard'; el = document.querySelector('.nav-item[data-view="' + id + '"]'); }
   // hard gate — these screens are superadmin-only (nav is hidden too, this
   // catches a stale link or a programmatic call)
   if(SUPERADMIN_ONLY_VIEWS.includes(id) && !isSuperAdmin){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
@@ -4532,6 +4623,8 @@ function showView(id, el){
   if(id !== 'dashboard' && _dashMirror){ _dashMirror = null; renderMirrorBanner(); }  // mirror only lives on the Commitment Dashboard
   if(id === 'timeoff') renderTimeOff();
   if(id === 'today') renderToday();
+  if(id === 'team') renderTeamView();
+  if(id === 'mtasks') renderMTasks();
   if(id === 'dashboard'){ renderTaskTable(); refreshToday(); }
   if(id === 'tasks') renderTasksPage(true);
   if(id === 'reviews') renderReviewsView();
@@ -7495,6 +7588,8 @@ function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
   document.body.classList.toggle('v2-dash', on);
   const n = document.getElementById('todayNavItem'); if(n) n.style.display = on ? '' : 'none';
+  document.querySelectorAll('#navV2 .v2-mgr').forEach(x => x.style.display = (on && isAdmin) ? '' : 'none');
+  const ag = document.getElementById('v2AdminGroup'); if(ag) ag.style.display = (on && isSuperAdmin) ? '' : 'none';
 }
 function todayViewActive(){ const v = document.getElementById('view-today'); return !!(v && v.classList.contains('active')); }
 async function renderToday(quiet){
@@ -7600,9 +7695,9 @@ function tdPrimary(id){
   if(c.waitingOn.kind === 'employee' && c.waitingOn.ownerId && c.waitingOn.ownerId !== currentViewerId) return btn('Nudge ' + esc((c.waitingOn.ownerName || '').split(' ')[0]), "nudgeTask('" + esc(id) + "')");
   return '';
 }
-function tdDetailHtml(id){
-  if(!id || !_today.cards[id]) return '<div class="td-empty" style="padding:30px 10px;">Select a task on the left to see everything about it here — no new page needed.</div>';
-  const c = _today.cards[id], t = findTask(id);
+function tdDetailHtml(id, given){
+  if(!id || !(given || (_today && _today.cards[id]))) return '<div class="td-empty" style="padding:30px 10px;">Select a task on the left to see everything about it here — no new page needed.</div>';
+  const c = given || _today.cards[id], t = findTask(id);
   const dt = iso => { const d = new Date(iso); return d.toLocaleDateString('en-NZ', { day:'2-digit', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }); };
   const fact = (label, val) => '<div><b>' + label + '</b>' + (val || '<span style="color:var(--text-faint);">—</span>') + '</div>';
   const track = c.tracker.applicable ? '<div class="td-track" role="list" aria-label="Delivery progress">' + c.tracker.steps.map(st => '<span class="td-step ' + st.state + '" role="listitem">' + (st.state === 'done' ? '✓ ' : st.state === 'attention' ? '⚠ ' : '') + esc(st.label) + '</span>').join('') + '</div>'
@@ -7625,13 +7720,269 @@ function tdDetailHtml(id){
     + '</div>'
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
     + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '');
-  const prim = tdPrimary(id);
+  const prim = given ? '' : tdPrimary(id);
   body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px;">' + prim + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>';
   const { ev } = taskTimelineEvents(t);
   body += '<div style="font-weight:700;margin:6px 0 4px;">Timeline <span style="font-weight:400;color:var(--text-faint);font-size:12px;">(New Zealand time)</span></div>'
     + (ev.length ? ev.map(e => '<div style="display:grid;grid-template-columns:26px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--panel-border);"><div>' + e.icon + '</div><div><div style="font-size:13.5px;color:var(--text-dim);line-height:1.5;">' + e.text + '</div>' + (e.extra || '') + '<div style="font-size:11.5px;color:var(--text-faint);font-family:var(--font-mono);">' + (e.at ? esc(dt(e.at)) : '—') + '</div></div></div>').join('')
       : '<div class="td-empty">No recorded events yet.</div>');
   return body;
+}
+
+/* =========================================================================
+   MANAGER VIEWS (v2) — My Team, Needs Manager Attention, the Tasks list (server-side filtered + paginated), Calendar and Timeline.
+   Everything shown is derived by the server (manager-views.js); the only write is a manager action, which needs a reason.
+   ========================================================================= */
+const MT_ATTN = {
+  unassigned: 'Unassigned', no_client: 'Client work with no client', no_due_date: 'No internal due date', zero_hours: 'No allocated hours',
+  repeated_return: 'Returned repeatedly', blocked_long: 'Blocked too long', report_unsent: 'Client report not sent', profit_overdue: 'Profit confirmation overdue',
+  no_review_attempt: 'No-review override attempted', missing_links: 'Missing Sheet / Cashbook', date_changed: 'Commitment date changed', bad_link: 'Link is invalid',
+};
+function v2Manager(){ return !!(session && session.dashboardV2 && isAdmin); }
+function viewActive(id){ const v = document.getElementById('view-' + id); return !!(v && v.classList.contains('active')); }
+function mtOpenTasks(preset){
+  _mt = Object.assign(mtDefaults(), preset || {});
+  showView('mtasks', document.querySelector('#navV2 .nav-item[data-view="mtasks"]'));
+}
+/* ---------------- My Team ---------------- */
+let _team = null, _tmType = null, _tmIds = {};
+async function renderTeamView(){
+  const box = document.getElementById('tmRoot'); if(!box) return;
+  if(!_team) box.innerHTML = '<div class="td-empty">Loading your team…</div>';
+  try { _team = await api('/api/workflow/team'); }
+  catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not load My Team: ' + esc(e.message) + ' <button class="btn small td-act" onclick="renderTeamView()">Retry</button></div>'; return; }
+  drawTeamView();
+}
+function drawTeamView(){
+  const box = document.getElementById('tmRoot'); if(!box || !_team) return;
+  const T = _team, types = Object.keys(T.attentionCounts || {});
+  const chips = types.length ? types.map(k => '<button type="button" class="tm-chip' + (_tmType === k ? ' on' : '') + '" onclick="tmPickType(\'' + k + '\')" aria-pressed="' + (_tmType === k) + '"><b>' + T.attentionCounts[k] + '</b> ' + esc(MT_ATTN[k] || k) + '</button>').join('')
+    : '<div class="td-empty" style="padding:0;">Nothing needs your attention right now.</div>';
+  const items = _tmType ? T.attention.filter(a => a.type === _tmType) : [];
+  const list = _tmType ? '<div class="tm-attn-list">' + items.map(a => '<div class="tm-attn-row"><div><b>' + esc(a.clientName || 'Admin task') + ' — ' + esc(a.name) + '</b><div class="tm-sub">' + esc(a.label) + (a.detail ? ' · ' + esc(a.detail) : '') + ' · ' + esc(a.assigneeName || 'Unassigned') + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(a.id) + '\')">Open</button></div>').join('') + '</div>' : '';
+  _tmIds = {}; let _k = 0;
+  const num = (n, ids, what) => { if(!n) return '<span class="tm-zero">0</span>'; const k = 'k' + (++_k); _tmIds[k] = ids.join('|'); return '<button type="button" class="tm-num" data-k="' + k + '" onclick="mtOpenTasks({ids:_tmIds[this.dataset.k]})" title="Show the ' + esc(what) + '">' + n + '</button>'; };
+  const rows = T.team.map(p => '<tr><th scope="row" data-l="Employee">' + esc(p.name) + '</th>'
+    + '<td data-l="Open work">' + num(p.openActionable, p.ids.open, 'tasks waiting on them') + '</td>'
+    + '<td data-l="Overdue"' + (p.overdueByEmployee ? ' class="hot"' : '') + '>' + num(p.overdueByEmployee, p.ids.overdue, 'overdue tasks') + '</td>'
+    + '<td data-l="Waiting on client">' + num(p.waitingOnClient, p.ids.client, 'tasks waiting on a client') + '</td>'
+    + '<td data-l="Waiting on reviewer">' + num(p.waitingOnReviewer, p.ids.reviewer, 'tasks waiting on a reviewer') + '</td>'
+    + '<td data-l="Corrections">' + num(p.corrections, p.ids.corrections, 'tasks needing correction') + '</td>'
+    + '<td data-l="Allocated hours">' + p.allocatedOpenHours + ' h</td>'
+    + '<td data-l="Free capacity (5 days)">' + (p.availableCapacityHours != null ? Math.round(p.availableCapacityHours * 10) / 10 + ' h' : '—') + '</td>'
+    + '<td data-l="Oldest open task">' + (p.oldest ? '<div class="tm-old"><button type="button" class="tm-link" onclick="mtOpenDetail(\'' + esc(p.oldest.id) + '\')">' + esc(p.oldest.name) + '</button><div class="tm-sub">' + p.oldest.ageDays + ' day' + (p.oldest.ageDays === 1 ? '' : 's') + ' old</div></div>' : '—') + '</td></tr>').join('');
+  box.innerHTML = '<div class="tm-head"><h2 class="td-greet">My Team</h2><div class="td-date">Counts are today\'s, in New Zealand time. Select a number to see exactly those tasks.</div></div>'
+    + '<section class="tm-panel" aria-labelledby="tmAttnH"><h3 id="tmAttnH">Needs Manager Attention</h3><div class="tm-chips">' + chips + '</div>' + list + '</section>'
+    + '<section class="tm-panel" aria-labelledby="tmPeopleH"><h3 id="tmPeopleH">People</h3>' + (T.team.length ? '<div class="tm-scroll"><table class="tm-table"><thead><tr><th>Employee</th><th>Open work</th><th>Overdue</th><th>Waiting on client</th><th>Waiting on reviewer</th><th>Corrections</th><th>Allocated hours</th><th>Free capacity</th><th>Oldest open task</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="td-empty">No team members yet.</div>') + '</section>';
+}
+function tmPickType(k){ _tmType = (_tmType === k) ? null : k; drawTeamView(); }
+/* ---------------- Tasks list ---------------- */
+function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', ids:'', sort:'risk', page:1, pageSize:25 }; }
+let _mt = mtDefaults(), _mtData = null, _mtTimer = null, _mtCal = null, _mtMonth = null, _mtTl = null, _mtSeq = 0;
+const MT_STATUSES = ['Assigned','In Progress','On Hold','In Review','Correction Required','Approved','Completed'];
+const MT_WAIT = [['employee','Employee'],['reviewer','Reviewer'],['manager','Manager'],['founder','Founder'],['client','Client'],['external','External authority'],['profit','Profit confirmation'],['ready_to_send','Ready to send']];
+function mtQuery(){
+  const p = new URLSearchParams();
+  ['q','employee','client','type','status','waitingOn','due','commitment','reportSent','rework','reviewer','ids','sort'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
+  p.set('page', _mt.page); p.set('pageSize', _mt.pageSize);
+  return p.toString();
+}
+async function renderMTasks(){
+  const box = document.getElementById('mtRoot'); if(!box) return;
+  if(!box.dataset.built){ mtBuildShell(); }
+  mtDrawTabs();
+  if(_mt.tab === 'list') await mtLoad(); else if(_mt.tab === 'calendar') await mtLoadCalendar(); else await mtLoadTimeline();
+}
+function mtBuildShell(){
+  const box = document.getElementById('mtRoot'); box.dataset.built = '1';
+  box.innerHTML = '<div class="tm-head"><h2 class="td-greet">Tasks</h2><div class="td-date">Everything in your team, filtered and paged on the server. <a href="#" class="tm-link" onclick="event.preventDefault();showView(\'tasks\', document.querySelector(\'#navV2 .nav-item[data-view=&quot;mtasks&quot;]\'), true)">Open the classic task list</a></div></div>'
+    + '<div class="td-seg" id="mtTabs" role="group" aria-label="Task views"></div>'
+    + '<div id="mtBody"></div>';
+}
+function mtDrawTabs(){
+  document.getElementById('mtTabs').innerHTML = [['list','List'],['calendar','Calendar'],['timeline','Timeline']].map(([k,l]) => '<button type="button" class="' + (_mt.tab === k ? 'on' : '') + '" onclick="mtTab(\'' + k + '\')" aria-pressed="' + (_mt.tab === k) + '">' + l + '</button>').join('');
+}
+function mtTab(k){ _mt.tab = k; renderMTasks(); }
+function mtSel(id, label, opts, val){ return '<label class="mt-f"><span>' + label + '</span><select id="' + id + '" onchange="mtSet(\'' + id.replace('mtf_', '') + '\', this.value)"><option value="">All</option>' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>'; }
+async function mtLoad(){
+  const body = document.getElementById('mtBody'); if(!body) return;
+  const seq = ++_mtSeq;
+  if(!_mtData) body.innerHTML = '<div class="td-empty">Loading tasks…</div>';
+  else { const r = document.getElementById('mtResults'); if(r) r.style.opacity = '.55'; }
+  let data;
+  try { data = await api('/api/workflow/tasks?' + mtQuery()); }
+  catch(e){ if(seq === _mtSeq) body.innerHTML = '<div class="td-empty" role="alert">Could not load tasks: ' + esc(e.message) + ' <button class="btn small td-act" onclick="mtLoad()">Retry</button></div>'; return; }
+  if(seq !== _mtSeq) return;                 // a newer filter already replaced this answer
+  const first = !_mtData; _mtData = data;
+  if(first || !document.getElementById('mtResults')) mtDrawList(); else mtDrawResults();
+}
+function mtDrawList(){
+  const body = document.getElementById('mtBody'), D = _mtData, F = D.facets;
+  const f = '<div class="mt-filters" role="search">'
+    + '<label class="mt-f mt-q"><span>Search</span><input type="search" id="mtf_q" value="' + esc(_mt.q) + '" placeholder="Task, client, number or employee" oninput="mtSearch(this.value)"></label>'
+    + mtSel('mtf_employee', 'Employee', F.employees.map(e => [e.id, e.name]), _mt.employee)
+    + mtSel('mtf_client', 'Client', F.clients.map(c => [c, c]), _mt.client)
+    + mtSel('mtf_type', 'Task type', [['client','Client Task'],['admin','Admin Task']].concat(F.types.map(t => [t, t])), _mt.type)
+    + mtSel('mtf_status', 'Status', MT_STATUSES.map(s => [s, s]), _mt.status)
+    + mtSel('mtf_waitingOn', 'Waiting on', MT_WAIT, _mt.waitingOn)
+    + mtSel('mtf_reviewer', 'Reviewer', F.reviewers.map(r => [r.id, r.name]), _mt.reviewer)
+    + mtSel('mtf_due', 'Internal due', [['overdue','Overdue'],['today','Today'],['week','Next 7 days'],['none','No date']], _mt.due)
+    + mtSel('mtf_commitment', 'Commitment', [['met','Met'],['breached','Breached'],['due_today','Due today'],['at_risk','At risk'],['on_track','On track'],['waiting_client','Waiting on client']], _mt.commitment)
+    + mtSel('mtf_reportSent', 'Report sent', [['sent_on_time','Sent on time'],['sent_late','Sent late'],['not_sent','Not sent'],['pending','Not yet due']], _mt.reportSent)
+    + mtSel('mtf_rework', 'Correction rounds', [['0','None'],['1','1'],['2+','2 or more']], _mt.rework)
+    + mtSel('mtf_sort', 'Sort by', [['risk','Most at risk'],['internal','Internal due date'],['client','Client date'],['employee','Employee'],['hours','Hours']], _mt.sort).replace('<option value="">All</option>', '')
+    + '<button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>'
+    + (_mt.ids ? '<div class="mt-banner">Showing the exact tasks behind a count. <button type="button" class="btn small td-act" onclick="mtSet(\'ids\',\'\')">Show everything</button></div>' : '');
+  body.innerHTML = f + '<div id="mtResults"></div>';
+  mtDrawResults();
+}
+function mtTag(c){
+  const t = tdRiskTag(c); return t;
+}
+function mtDrawResults(){
+  const D = _mtData, box = document.getElementById('mtResults'); if(!box) return;
+  const reportLabel = { sent_on_time:'Sent on time', sent_late:'Sent late', not_sent:'Not sent', pending:'Not yet due', na:'—' };
+  const rows = D.rows.map(r => '<tr oncontextmenu="mtMenu(event,\'' + esc(r.id) + '\');return false;">'
+    + '<td data-l="Task"><button type="button" class="tm-link" onclick="mtOpenDetail(\'' + esc(r.id) + '\')"><b>' + esc(r.clientName || 'Admin task') + '</b> — ' + esc(r.name) + '</button><div class="tm-sub">' + esc(r.kindLabel) + ' · ' + esc(taskNo(r.id)) + '</div></td>'
+    + '<td data-l="Employee">' + esc(r.assigneeName || 'Unassigned') + '<div class="tm-sub">Reviewer: ' + esc(r.reviewerName || '—') + '</div></td>'
+    + '<td data-l="Status"><b>' + esc(r.status) + '</b><div class="tm-sub">' + esc(r.waitingOn.label) + (r.waitingOn.ownerName ? ' · ' + esc(r.waitingOn.ownerName) : '') + '</div></td>'
+    + '<td data-l="Internal due">' + (r.internalDeadline ? esc(fmtDate(r.internalDeadline)) : '—') + '<div class="tm-sub">' + esc(r.commitment.label) + '</div></td>'
+    + '<td data-l="Client date">' + (r.clientDate ? esc(fmtDate(r.clientDate)) : '—') + '<div>' + mtTag(r) + '</div></td>'
+    + '<td data-l="Hours">' + (r.allocatedHours != null ? esc(String(r.allocatedHours)) + ' h' : '—') + '</td>'
+    + '<td data-l="Report">' + esc(reportLabel[r.reportSent] || '—') + '</td>'
+    + '<td class="tm-act"><button type="button" class="btn small td-act" aria-haspopup="menu" aria-label="Actions for ' + esc(r.name) + '" onclick="mtMenu(event,\'' + esc(r.id) + '\')">⋯</button></td></tr>').join('');
+  const pager = '<div class="mt-pager"><span>' + (D.total ? ((D.page - 1) * D.pageSize + 1) + '–' + Math.min(D.total, D.page * D.pageSize) + ' of ' + D.total : '0 tasks') + '</span>'
+    + '<span><button type="button" class="btn small td-act" ' + (D.page <= 1 ? 'disabled' : '') + ' onclick="mtPage(' + (D.page - 1) + ')">← Previous</button> Page ' + D.page + ' of ' + D.pages + ' <button type="button" class="btn small td-act" ' + (D.page >= D.pages ? 'disabled' : '') + ' onclick="mtPage(' + (D.page + 1) + ')">Next →</button></span>'
+    + '<label class="mt-f"><span>Per page</span><select onchange="mtSetSize(this.value)">' + [25,50,100].map(n => '<option' + (D.pageSize === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label></div>';
+  box.style.opacity = '';
+  box.innerHTML = (D.rows.length ? '<div class="tm-scroll"><table class="tm-table mt-table"><thead><tr><th>Task</th><th>Employee</th><th>Status</th><th>Internal due</th><th>Client date</th><th>Hours</th><th>Report</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+    : '<div class="td-empty">No tasks match these filters. <button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>') + pager;
+}
+function mtSet(k, v){ _mt[k] = v; _mt.page = 1; mtLoad(); }
+function mtSearch(v){ clearTimeout(_mtTimer); _mtTimer = setTimeout(() => { _mt.q = v.trim(); _mt.page = 1; mtLoad(); }, 300); }
+function mtPage(p){ _mt.page = p; mtLoad(); }
+function mtSetSize(n){ _mt.pageSize = Number(n); _mt.page = 1; mtLoad(); }
+function mtClear(){ const tab = _mt.tab, size = _mt.pageSize; _mt = Object.assign(mtDefaults(), { tab, pageSize: size }); _mtData = null; mtLoad(); }
+/* the detail panel — the same one Today uses, opened over the list */
+async function mtOpenDetail(id){
+  let c = ((_mtData || {}).rows || []).find(r => r.id === id) || ((_today || {}).cards || {})[id];
+  if(!c){ try { const r = await api('/api/workflow/tasks?ids=' + encodeURIComponent(id) + '&pageSize=25'); c = r.rows[0]; } catch(e){} }
+  if(!c){ showToast('error', 'Could not open the task', 'It may have been removed.'); return; }
+  document.getElementById('modalBox').innerHTML = '<div class="td-detail" style="border:0;padding:0;max-height:78vh;overflow:auto;">' + tdDetailHtml(id, c) + '</div><div class="modal-actions"><button class="btn primary" onclick="closeModal()">Close</button></div>';
+  openModal();
+}
+/* ---- the ⋯ menu: manager actions. Every one needs a reason and is written to the task's history. */
+function mtMenuClose(){ const m = document.getElementById('mtMenu'); if(m) m.remove(); }
+function mtMenu(ev, id){
+  ev.preventDefault && ev.preventDefault(); ev.stopPropagation && ev.stopPropagation();
+  mtMenuClose();
+  const c = ((_mtData || {}).rows || []).find(r => r.id === id); if(!c) return;
+  const open = c.status !== 'Completed';
+  const items = [['Open details', "mtOpenDetail('" + id + "')", true], ['Full history', "openTaskTrailModal('" + id + "')", true],
+    ['Reassign…', "mtAction('reassign','" + id + "')", open], ['Change due date…', "mtAction('change_due','" + id + "')", open],
+    ['Change reviewer…', "mtAction('change_reviewer','" + id + "')", open],
+    ['Nudge employee…', "nudgeTask('" + id + "')", open && !!c.assigneeId], ['Put on hold…', "openHoldModal('" + id + "')", ['Assigned','In Progress'].includes(c.status)],
+    ['Resume from hold', "mtResume('" + id + "')", c.status === 'On Hold']].filter(x => x[2]);
+  const m = document.createElement('div'); m.id = 'mtMenu'; m.className = 'mt-menu'; m.setAttribute('role', 'menu');
+  m.innerHTML = items.map(x => '<button type="button" role="menuitem" onclick="mtMenuClose();' + x[1] + '">' + esc(x[0]) + '</button>').join('');
+  document.body.appendChild(m);
+  const pt = ev.clientX != null && ev.type === 'contextmenu' ? { x: ev.clientX, y: ev.clientY } : (() => { const r = ev.currentTarget.getBoundingClientRect(); return { x: r.right, y: r.bottom }; })();
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(pt.x - (ev.type === 'contextmenu' ? 0 : w), window.innerWidth - w - 8)) + 'px';
+  m.style.top = Math.max(8, Math.min(pt.y, window.innerHeight - h - 8)) + 'px';
+  const first = m.querySelector('button'); if(first) first.focus();
+  m.addEventListener('keydown', e => {
+    const b = [...m.querySelectorAll('button')], i = b.indexOf(document.activeElement);
+    if(e.key === 'ArrowDown'){ e.preventDefault(); b[(i + 1) % b.length].focus(); }
+    if(e.key === 'ArrowUp'){ e.preventDefault(); b[(i - 1 + b.length) % b.length].focus(); }
+    if(e.key === 'Escape'){ mtMenuClose(); }
+  });
+}
+document.addEventListener('click', e => { if(!e.target.closest('#mtMenu')) mtMenuClose(); });
+async function mtResume(id){
+  try { await api('/api/tasks/' + encodeURIComponent(id) + '/unhold', { method:'POST', body: JSON.stringify({}) }); showToast('success', 'Resumed', 'The task is back on the list.'); await refreshTasks(); mtLoad(); }
+  catch(e){ showToast('error', 'Could not resume', e.message); }
+}
+function mtAction(kind, id){
+  const t = findTask(id), c = ((_mtData || {}).rows || []).find(r => r.id === id); if(!t || !c) return;
+  const title = { reassign:'Reassign task', change_due:'Change due date', change_reviewer:'Change reviewer' }[kind];
+  let field = '';
+  if(kind === 'reassign'){
+    const opts = assignableEmployees().filter(e => e.id !== t.assignedTo);
+    field = '<div class="field"><label for="mtaTo">Reassign to</label><select id="mtaTo">' + opts.map(e => '<option value="' + esc(e.id) + '">' + esc(e.name) + '</option>').join('') + '</select></div>';
+  } else if(kind === 'change_due'){
+    field = '<div class="field"><label for="mtaDue">New internal due date</label><input type="date" id="mtaDue" min="' + todayISO() + '" value="' + esc(t.internalDeadline || '') + '"></div>'
+      + (t.clientDate ? '<div class="field"><label for="mtaClient">Client commitment date <span class="at-hint">leave as is unless the client agreed a new date</span></label><input type="date" id="mtaClient" value="' + esc(t.clientDate) + '"></div>' : '');
+  } else {
+    const opts = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && e.id !== t.assignedTo && !e.accessDisabled);
+    field = '<div class="field"><label for="mtaRev">New reviewer</label><select id="mtaRev">' + opts.map(e => '<option value="' + esc(e.id) + '"' + (e.id === t.reviewerId ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('') + '</select></div>';
+  }
+  document.getElementById('modalBox').innerHTML = '<h3>' + title + '</h3><div class="modal-sub">' + esc(c.clientName || 'Admin task') + ' — ' + esc(c.name) + (c.assigneeName ? ' · ' + esc(c.assigneeName) : '') + '</div>' + field
+    + '<div class="field"><label for="mtaReason">Reason <span class="at-hint">required — kept in the task history</span></label><textarea id="mtaReason" placeholder="Why is this changing?"></textarea></div>'
+    + '<div class="modal-error" id="mtaErr"></div><div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="mtaGo" onclick="mtSubmitAction(\'' + kind + '\',\'' + esc(id) + '\')">Save change</button></div>';
+  openModal(); setTimeout(() => { const f = document.getElementById('mtaReason'); if(f) f.focus(); }, 50);
+}
+async function mtSubmitAction(kind, id){
+  const v = x => ((document.getElementById(x) || {}).value || '').trim();
+  const reason = v('mtaReason'), err = document.getElementById('mtaErr'), go = document.getElementById('mtaGo');
+  const bad = m => { err.textContent = m; err.style.display = 'block'; };
+  if(reason.length < 3) return bad('Give a short reason — it is kept in the task history.');
+  const body = { action: kind, reason, requestId: 'mc-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) };
+  if(kind === 'reassign') body.newAssigneeId = v('mtaTo');
+  if(kind === 'change_due'){ body.internalDeadline = v('mtaDue'); if(!body.internalDeadline) return bad('Pick the new due date.'); const cd = v('mtaClient'), t = findTask(id); if(cd && t && cd !== t.clientDate) body.clientDate = cd; }
+  if(kind === 'change_reviewer') body.reviewerId = v('mtaRev');
+  go.disabled = true;
+  try { await api('/api/tasks/' + encodeURIComponent(id) + '/manager-change', { method:'POST', body: JSON.stringify(body) }); closeModal(); showToast('success', 'Saved', 'The change is in the task history.'); await refreshTasks(); if(viewActive('mtasks')) mtLoad(); }
+  catch(e){ go.disabled = false; bad(e.message); }
+}
+/* ---------------- Calendar ---------------- */
+async function mtLoadCalendar(){
+  const body = document.getElementById('mtBody'); body.innerHTML = '<div class="td-empty">Loading the calendar…</div>';
+  try { _mtCal = await api('/api/workflow/calendar' + (_mt.employee ? '?employee=' + encodeURIComponent(_mt.employee) : '')); }
+  catch(e){ body.innerHTML = '<div class="td-empty" role="alert">Could not load the calendar: ' + esc(e.message) + ' <button class="btn small td-act" onclick="mtLoadCalendar()">Retry</button></div>'; return; }
+  if(!_mtMonth) _mtMonth = _mtCal.today.slice(0, 7);
+  mtDrawCalendar();
+}
+function mtShiftMonth(n){ const [y, m] = _mtMonth.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); _mtMonth = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); mtDrawCalendar(); }
+function mtDrawCalendar(){
+  const body = document.getElementById('mtBody'), C = _mtCal, [y, m] = _mtMonth.split('-').map(Number);
+  const first = new Date(Date.UTC(y, m - 1, 1)), startDow = (first.getUTCDay() + 6) % 7, days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const byDay = {}; C.events.forEach(e => { if(e.date.slice(0, 7) === _mtMonth) (byDay[e.date] = byDay[e.date] || []).push(e); });
+  let cells = ''; for(let i = 0; i < startDow; i++) cells += '<div class="cal-cell empty"></div>';
+  for(let d = 1; d <= days; d++){
+    const iso = _mtMonth + '-' + String(d).padStart(2, '0'), ev = byDay[iso] || [];
+    cells += '<div class="cal-cell' + (iso === C.today ? ' today' : '') + '"><div class="cal-d">' + d + '</div>'
+      + ev.slice(0, 3).map(e => '<button type="button" class="cal-ev ' + e.tone + '" onclick="mtOpenDetail(\'' + esc(e.id) + '\')" title="' + esc(e.label + ' — ' + (e.clientName || 'Admin') + ' — ' + e.name + ' — ' + (e.assigneeName || 'Unassigned')) + '">' + esc((e.kind === 'client' ? '◆ ' : '') + (e.clientName || e.name)) + '</button>').join('')
+      + (ev.length > 3 ? '<button type="button" class="cal-more" onclick="mtDay(\'' + iso + '\')">+' + (ev.length - 3) + ' more</button>' : '') + '</div>';
+  }
+  const legend = Object.entries(C.legend).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + esc(l) + '</span>').join('');
+  const label = first.toLocaleDateString('en-NZ', { month:'long', year:'numeric', timeZone:'UTC' });
+  body.innerHTML = '<div class="cal-bar"><button type="button" class="btn small td-act" onclick="mtShiftMonth(-1)" aria-label="Previous month">←</button><b>' + esc(label) + '</b><button type="button" class="btn small td-act" onclick="mtShiftMonth(1)" aria-label="Next month">→</button>'
+    + '<button type="button" class="btn small td-act" onclick="_mtMonth=null;mtLoadCalendar()">This month</button></div>'
+    + '<div class="cal-grid" role="grid">' + ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => '<div class="cal-h" role="columnheader">' + d + '</div>').join('') + cells + '</div>'
+    + '<div class="cal-legend"><span class="cal-key">◆ client commitment</span>' + legend + '</div><div id="calDay"></div>';
+}
+function mtDay(iso){
+  const ev = (_mtCal.events || []).filter(e => e.date === iso);
+  document.getElementById('calDay').innerHTML = '<div class="tm-panel"><h3>' + esc(fmtDate(iso)) + '</h3>' + ev.map(e => '<div class="tm-attn-row"><div><b>' + esc(e.clientName || 'Admin task') + ' — ' + esc(e.name) + '</b><div class="tm-sub">' + esc(e.label) + ' · ' + esc(e.assigneeName || 'Unassigned') + ' · ' + esc(e.status) + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(e.id) + '\')">Open</button></div>').join('') + '</div>';
+}
+/* ---------------- Timeline ---------------- */
+async function mtLoadTimeline(){
+  const body = document.getElementById('mtBody'); body.innerHTML = '<div class="td-empty">Loading the timeline…</div>';
+  try { _mtTl = await api('/api/workflow/timeline' + (_mt.employee ? '?employee=' + encodeURIComponent(_mt.employee) : '')); }
+  catch(e){ body.innerHTML = '<div class="td-empty" role="alert">Could not load the timeline: ' + esc(e.message) + ' <button class="btn small td-act" onclick="mtLoadTimeline()">Retry</button></div>'; return; }
+  mtDrawTimeline();
+}
+function mtDrawTimeline(){
+  const body = document.getElementById('mtBody'), R = _mtTl.rows, today = _mtTl.today;
+  if(!R.length){ body.innerHTML = '<div class="td-empty">No open tasks to show.</div>'; return; }
+  const ms = s => Date.parse(s + 'T00:00:00Z'), DAY = 86400000;
+  const lo = Math.min(ms(today) - 7 * DAY, ...R.map(r => ms(r.start))), hi = Math.max(ms(today) + 21 * DAY, ...R.map(r => ms(r.end))), span = Math.max(DAY, hi - lo);
+  const pct = s => ((ms(s) - lo) / span * 100);
+  const rows = R.map(r => { const l = Math.max(0, pct(r.start)), w = Math.max(1.2, pct(r.end) - pct(r.start));
+    return '<div class="tl-row"><button type="button" class="tl-name" onclick="mtOpenDetail(\'' + esc(r.id) + '\')" title="' + esc(r.name) + '">' + esc(r.clientName || 'Admin') + ' — ' + esc(r.name) + '<span class="tm-sub">' + esc(r.assigneeName || 'Unassigned') + ' · ' + esc(r.status) + '</span></button>'
+      + '<div class="tl-track"><i class="tl-bar cal-ev ' + r.tone + '" style="left:' + l + '%;width:' + w + '%;"></i>' + (r.internalDeadline ? '<b class="tl-mark" style="left:' + pct(r.internalDeadline) + '%;" title="Internal due ' + esc(r.internalDeadline) + '"></b>' : '') + '</div></div>'; }).join('');
+  body.innerHTML = '<div class="tm-scroll"><div class="tl" style="--today:' + pct(today) + '%;"><div class="tl-today" aria-hidden="true"></div>' + rows + '</div></div><div class="cal-legend"><span class="cal-key">▮ internal due</span>' + Object.entries({red:'Overdue',amber:'At risk',blue:'In progress',purple:'In review',green:'Approved / completed',grey:'Waiting on an external dependency'}).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + l + '</span>').join('') + '</div>';
 }
 
 async function refreshTasks(){
@@ -7643,7 +7994,7 @@ async function refreshTasks(){
     const unchanged = sig === _tasksSig && (now - _lastFullRender) < 60000;
     tasks = fresh; _tasksSig = sig;
     checkForNewAssignments();
-    if(!unchanged){ renderTaskTable(); _lastFullRender = now; if(todayViewActive()) renderToday(true); }
+    if(!unchanged){ renderTaskTable(); _lastFullRender = now; if(todayViewActive()) renderToday(true); if(viewActive('team')) renderTeamView(); if(viewActive('mtasks') && _mt.tab === 'list') mtLoad(); }
     updateReviewsNavBadge();
   } catch(e){ console.error('Failed to refresh tasks', e); }
   await refreshWorkload();
@@ -10835,6 +11186,7 @@ function updateReviewsNavBadge(){
   if(!badge) return;
   const n = myReviewTasks().length + profitConfirmsPendingFor().length + reportsToSendFor(currentViewerId).length;
   if(n > 0){ badge.textContent = n; badge.style.display = ''; } else badge.style.display = 'none';
+  const b2 = document.getElementById('reviewsNavBadgeV2'); if(b2){ b2.textContent = n; b2.style.display = n > 0 ? '' : 'none'; }
 }
 function openMyReviewQueue(){
   const list = myReviewTasks().slice().sort((a,b) => (a.clientDate || a.completedAt || '').localeCompare(b.clientDate || b.completedAt || ''));

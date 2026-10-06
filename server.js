@@ -18,6 +18,7 @@ fileStore.init(db);
 const archive = require('./archive');
 const spaceWatch = require('./space-watch');
 const workflow = require('./workflow');
+const mgr = require('./manager-views');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
 const crmSync = require('./crm-sync');
@@ -3939,6 +3940,22 @@ app.post('/api/tasks/:id/reject-window', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
+// Record a commitment-date change. The FIRST dates a task ever had are kept forever (originalInternalDeadline / originalClientDate)
+// and every change adds a dateHistory row with who, when, why, old and new — nothing is overwritten silently. The assignee and
+// the reviewer are told. Returns true if anything actually changed.
+function recordDateChange(state, t, actor, before, note, category) {
+  const after = { internal: t.internalDeadline, client: t.clientDate };
+  if (before.internal === after.internal && before.client === after.client) return false;
+  if (t.originalInternalDeadline === undefined) t.originalInternalDeadline = before.internal || null;
+  if (t.originalClientDate === undefined) t.originalClientDate = before.client || null;
+  t.dateHistory = t.dateHistory || [];
+  t.dateHistory.push({ at: new Date().toISOString(), by: actor.name, byId: actor.id, from: before, to: after, note: note || null, category: category || null });
+  const what = 'internal ' + (after.internal || '—') + (after.client ? ', client ' + after.client : '');
+  [t.assignedTo, t.reviewerId].filter((id, i, a) => id && id !== actor.id && a.indexOf(id) === i).forEach(id =>
+    notify(state, id, 'dates', actor.name + ' changed the dates on "' + t.name + '" — ' + what + (note ? ' (' + note + ')' : ''), t.id));
+  return true;
+}
+
 // Manager edits the dates directly — no propose/approve round trip (Phase 1).
 // Sets the internal due date; the client commitment date recalculates as
 // internal + 3 working days unless the manager passes an explicit clientDate
@@ -3997,13 +4014,8 @@ app.post('/api/tasks/:id/set-dates', requireAuth, (req, res) => {
     t.clientDateOverride = false;
   }
 
-  const dateChanged = before.internal !== t.internalDeadline || before.client !== t.clientDate;
+  const dateChanged = recordDateChange(state, t, req.employee, before, note, asSelf ? 'self_edit' : 'manager_edit');
   if (dateChanged) {
-    t.dateHistory = t.dateHistory || [];
-    t.dateHistory.push({
-      at: new Date().toISOString(), by: req.employee.name,
-      from: before, to: { internal: t.internalDeadline, client: t.clientDate }, note: note || null,
-    });
     logEvent(state, t.assignedTo, `Dates on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b>${asSelf ? ' (self-edit)' : ''} — internal ${escHtml(t.internalDeadline)}${t.clientDate ? ', client ' + escHtml(t.clientDate) : ''}${note ? ' (' + escHtml(note) + ')' : ''}.`);
   }
   if (tatChanged) {
@@ -4085,22 +4097,26 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (t.status === 'completed') return res.status(400).json({ error: 'Completed tasks cannot be reassigned.' });
+  const r = applyReassign(state, t, req.employee, (req.body || {}).newAssigneeId, (req.body || {}).reason);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.json({ task: taskForClient(t) });
+});
+function applyReassign(state, t, actor, newAssigneeId, reason) {
+  const req = { employee: actor };
+  const fail = (status, error) => ({ status, error });
+  if (t.status === 'completed') return fail(400, 'Completed tasks cannot be reassigned.');
   // Both ends of a reassignment go through the same managesIds boundary
   // assignableEmployees() already enforces for brand-new assignments: the
   // acting admin must manage the CURRENT assignee (or be superadmin) as
   // well as the new one — otherwise any admin could pull a task out of a
   // team they have no authority over just because the destination is on
   // their own team.
-  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: "You're not authorized to reassign this employee's task." });
-  }
-  const { newAssigneeId, reason } = req.body || {};
+  if (!canManageEmployee(state, req.employee, t.assignedTo)) return fail(403, "You're not authorized to reassign this employee's task.");
   const newEmp = findEmployee(state, newAssigneeId);
-  if (!newEmp) return res.status(400).json({ error: 'Employee not found.' });
-  if (newAssigneeId === t.assignedTo) return res.status(400).json({ error: 'Task is already assigned to this person.' });
+  if (!newEmp) return fail(400, 'Employee not found.');
+  if (newAssigneeId === t.assignedTo) return fail(400, 'Task is already assigned to this person.');
   const allowed = assignableEmployees(state, req.employee).some(e => e.id === newAssigneeId);
-  if (!allowed) return res.status(403).json({ error: "You're not authorized to reassign to this person." });
+  if (!allowed) return fail(403, "You're not authorized to reassign to this person.");
   const fromEmp = findEmployee(state, t.assignedTo);
   // Any actual delivery time already run up under the PREVIOUS assignee
   // is flushed into t.logged before handing the task off, same idea as
@@ -4130,8 +4146,8 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
     client: t.clientName, clientDate: t.clientDate, internalDeadline: t.internalDeadline, reassignReason: reason || null
   });
   db.save();
-  res.json({ task: taskForClient(t) });
-});
+  return { ok: true };
+}
 
 // ---------------------------------------------------------------------------
 // REPORTS — superadmin-only oversight: who assigned what to whom, delivered
@@ -5856,6 +5872,126 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
   });
   const hour = Math.floor(nzMinutesOfDay(nowMs) / 60);
   res.json({ ...payload, today, timezone: BUSINESS_TZ, hour, greeting: workflow.greetingFor(hour), name: me.name });
+});
+
+// ---------------------------------------------------------------------------
+// MANAGER VIEWS (Phase 5) — My Team, Needs Manager Attention, the paginated Tasks list, Calendar and Timeline. All derived from the
+// same cards as Today (see manager-views.js); the only write is POST /api/tasks/:id/manager-change, which needs a reason and is audited.
+// ---------------------------------------------------------------------------
+function workflowDeps(state, me, extra) {
+  const po = profitConfirmOwner(state);
+  return {
+    today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
+    canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
+    roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
+    reportInfo: reportSentFor, ...(extra || {}),
+  };
+}
+// Every task in the manager's world, as enriched cards. Only managers/founders reach this (requireAdmin).
+function managerRows(state, me) {
+  const deps = workflowDeps(state, me);
+  const roster = new Set(teamRoster(state, me).map(e => e.id)); roster.add(me.id);
+  const tasks = visibleTasks(state, me).filter(t => me.accessRole === 'superadmin' || me.dashObserver || !t.assignedTo || roster.has(t.assignedTo) || t.reviewerId === me.id || t.reportSendOwner === me.id || t.assignedBy === me.id);
+  const byId = {}, rows = [];
+  for (const t of tasks) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, deps), t, deps)); }
+  return { rows, byId, deps };
+}
+function teamPeople(state, me) {
+  const list = me.accessRole === 'superadmin' ? state.employees.filter(canReceiveNewWork) : teamRoster(state, me).filter(canReceiveNewWork);
+  return list.filter(e => e.id !== me.id).map(e => ({ id: e.id, name: e.name }));
+}
+app.get('/api/workflow/team', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const { rows, byId, deps } = managerRows(state, me);
+  const people = teamPeople(state, me);
+  const team = mgr.teamSummary(rows, people, { today: deps.today, workloadOf: id => availabilityOf(state, findEmployee(state, id)) });
+  const attention = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs, enforceDomains: !!(state.settings && state.settings.linkDomainsEnforced), allowedDomains: state.settings && state.settings.linkDomains });
+  const byType = {};
+  attention.forEach(a => { (byType[a.type] = byType[a.type] || []).push(a); });
+  res.json({ today: deps.today, team, attention, attentionCounts: Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, v.length])) });
+});
+app.get('/api/workflow/tasks', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), q = req.query || {};
+  const { rows, deps } = managerRows(state, req.employee);
+  const filtered = mgr.applyFilters(rows, { ...q, today: deps.today });
+  const page = mgr.paginate(mgr.sortRows(filtered, q.sort), q.page, q.pageSize);
+  // facets so the filter bar offers only real options
+  const facet = f => [...new Set(rows.map(f).filter(Boolean))].sort();
+  res.json({
+    ...page, today: deps.today,
+    facets: { employees: teamPeople(state, req.employee), clients: facet(r => r.clientName), types: facet(r => r.taskType), reviewers: [...new Map(rows.filter(r => r.reviewerId).map(r => [r.reviewerId, r.reviewerName])).entries()].map(([id, name]) => ({ id, name })) },
+  });
+});
+app.get('/api/workflow/calendar', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), q = req.query || {};
+  const { rows, byId, deps } = managerRows(state, req.employee);
+  const open = rows.filter(r => r.status !== 'Completed');
+  let ev = mgr.calendarEvents(open, deps);
+  if (q.employee) ev = ev.filter(e => (rows.find(r => r.id === e.id) || {}).assigneeId === q.employee);
+  if (q.from) ev = ev.filter(e => e.date >= String(q.from).slice(0, 10));
+  if (q.to) ev = ev.filter(e => e.date <= String(q.to).slice(0, 10));
+  res.json({ today: deps.today, events: ev, legend: mgr.TONE_LABEL });
+});
+app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), q = req.query || {};
+  const { rows, byId, deps } = managerRows(state, req.employee);
+  const open = rows.filter(r => r.status !== 'Completed' && (!q.employee || r.assigneeId === q.employee));
+  res.json({ today: deps.today, rows: mgr.timelineRows(open, byId, deps).slice(0, 300) });
+});
+
+// A manager's one-off change to someone's task. Always needs a reason; every change is written to t.managerActions (who, when, why,
+// before → after) and the people affected are told.
+app.post('/api/tasks/:id/manager-change', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const b = req.body || {};
+  const reason = String(b.reason || '').trim();
+  if (reason.length < 3) return res.status(400).json({ error: 'Give a short reason — it is kept in the task history.' });
+  if (b.requestId) { const dup = (t.managerActions || []).find(a => a.requestId === b.requestId); if (dup) return res.json({ task: taskForClient(t), duplicate: true }); }
+  if (t.assignedTo ? !canManageEmployee(state, me, t.assignedTo) : false) return res.status(403).json({ error: "You're not authorized to change this employee's task." });
+  const log = (action, from, to) => {
+    t.managerActions = t.managerActions || [];
+    t.managerActions.push({ id: crypto.randomUUID(), requestId: b.requestId || null, at: new Date().toISOString(), by: me.id, byName: me.name, action, reason, from, to });
+  };
+  switch (b.action) {
+    case 'reassign': {
+      const from = t.assignedTo || null;
+      const r = applyReassign(state, t, me, b.newAssigneeId, reason);
+      if (r.error) return res.status(r.status).json({ error: r.error });
+      log('reassign', from, b.newAssigneeId);
+      break;
+    }
+    case 'change_due': {
+      const iso = x => (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}/.test(x)) ? x.slice(0, 10) : null;
+      const internal = iso(b.internalDeadline);
+      if (!internal) return res.status(400).json({ error: 'Give a valid internal due date.' });
+      if (t.status === 'completed') return res.status(400).json({ error: 'A finished task has no due date to change.' });
+      if (internal < todayISO() && internal !== t.internalDeadline) return res.status(400).json({ error: "You can't set the due date in the past." });
+      const before = { internal: t.internalDeadline, client: t.clientDate };
+      t.internalDeadline = internal;
+      const cd = iso(b.clientDate);
+      if (cd) { t.clientDate = cd; t.clientDateOverride = true; }
+      recordDateChange(state, t, me, before, reason, 'manager_change');
+      log('change_due', before, { internal: t.internalDeadline, client: t.clientDate });
+      break;
+    }
+    case 'change_reviewer': {
+      const rv = findEmployee(state, b.reviewerId);
+      if (!rv || !isAdminRole(rv.accessRole)) return res.status(400).json({ error: 'Pick a manager or founder as reviewer.' });
+      if (rv.id === t.assignedTo) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
+      if (t.status === 'completed' && t.reviewStatus !== 'done' && t.reviewStatus !== 'clean' && t.reviewStatus !== 'error') { /* in review: allowed */ }
+      const from = t.reviewerId || null;
+      t.reviewerId = rv.id;
+      notify(state, rv.id, 'review', me.name + ' made you the reviewer of "' + t.name + '" — ' + reason, t.id);
+      log('change_reviewer', from, rv.id);
+      break;
+    }
+    default: return res.status(400).json({ error: 'Unknown action.' });
+  }
+  logEvent(state, t.assignedTo || me.id, '<b>' + escHtml(me.name) + '</b> changed "' + escHtml(t.name) + '" (' + escHtml(b.action) + '): ' + escHtml(reason));
+  db.save();
+  res.json({ task: taskForClient(t) });
 });
 
 // Recover calls Aircall never delivered (see connector.js recoverCalls). Superadmin only. DRY RUN unless the
