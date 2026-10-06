@@ -1988,7 +1988,7 @@
         <div class="panel" id="marksGivePanel" style="display:none;">
           <div class="panel-head"><h2>Give marks</h2></div>
           <div style="display:grid;grid-template-columns:minmax(200px,2fr) minmax(200px,1fr);gap:12px;align-items:end;">
-            <div class="field" style="margin:0;"><label>Person</label><select id="markTo"></select></div>
+            <div class="field" style="margin:0;"><label>Person</label><select id="markTo" onchange="_markToSel = this.value"></select></div>
             <div class="field" style="margin:0;"><label>Marks</label>
               <div style="display:flex;gap:8px;">
                 <div class="src-subtabs" style="margin:0;flex-wrap:nowrap;">
@@ -2794,7 +2794,7 @@ function renderDashMirrorPicker(){
   if(!pool.length){ chip.textContent = '👤 My work'; return; }
   const basePool = (isDashObserver() ? employees.slice() : isAdmin ? myScopedPeople() : []).filter(e => e.id !== currentViewerId);
   const delegateOnly = doneDelegatePool().filter(e => !basePool.some(x => x.id === e.id));
-  const optgroup = (label, list) => list.length ? `<optgroup label="${esc(label)}">${list.map(e => `<option value="${e.id}"${_dashMirror === e.id ? ' selected' : ''}>${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('')}</optgroup>` : '';
+  const optgroup = (label, list) => list.length ? `<optgroup label="${esc(label)}">${list.map(e => `<option value="${e.id}"${_dashMirror === e.id ? ' selected' : ''}>${esc(e.name)}</option>`).join('')}</optgroup>` : '';
   chip.innerHTML = `<select onchange="setDashMirror(this.value)" style="font-size:13px;font-weight:600;padding:5px 9px;border-radius:8px;background:var(--panel-2);border:1px solid var(--panel-border);color:var(--text);max-width:260px;">
     <option value="">👤 My work</option>
     ${optgroup(isDashObserver() ? 'Mirror any employee' : 'Mirror a team member', basePool)}
@@ -3379,6 +3379,8 @@ function marksGiveablePeople(){
   if(isAdmin) return myScopedPeople().filter(e => e.id !== currentViewerId);
   return [];
 }
+// The person chosen in "Give marks" stays chosen — the form is redrawn whenever the page refreshes, and that used to blank it.
+let _markToSel = '';
 function setMarkSign(s){
   _markSign = s;
   document.getElementById('markSignPos').classList.toggle('on', s > 0);
@@ -3394,7 +3396,7 @@ function autoLinksHint(t, who){
   const r = _autoRules && _autoRules.links;
   if(!r || !r.enabled || !t || t.kind === 'internal') return '';
   const full = who === 'reviewer' ? r.reviewer : r.processor;
-  return `<div style="font-size:12.5px;color:var(--amber);margin:2px 0 8px;">⚠ Client work needs <b>both</b> the Sheet and Cashbook links. ${who === 'reviewer' ? 'Passing it on without them' : 'Sending it without them'} takes <b>${full} marks</b> automatically (${full / 2} if only one is missing).</div>`;
+  return `<div style="font-size:12.5px;color:var(--amber);margin:2px 0 8px;">⚠ Client work needs <b>both</b> the Sheet and the Cashbook — a link or an attached file for each. ${who === 'reviewer' ? 'Passing it on without them' : 'Sending it without them'} takes <b>${full} marks</b> automatically (${full / 2} if only one is missing).</div>`;
 }
 async function renderAutoMarksPanel(){
   const panel = document.getElementById('autoMarksPanel');
@@ -3479,8 +3481,11 @@ async function renderMarksTab(){
   catch(e){ document.getElementById('marksHistory').innerHTML = `<div style="color:var(--text-faint);padding:12px 0;">${esc(e.message)}</div>`; return; }
   const givers = marksGiveablePeople();
   document.getElementById('marksGivePanel').style.display = givers.length ? '' : 'none';
-  document.getElementById('markTo').innerHTML = '<option value="">— Choose —</option>' + givers.slice().sort((a,b)=>a.name.localeCompare(b.name))
-    .map(e => `<option value="${esc(e.id)}">${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('');
+  const markToEl = document.getElementById('markTo');
+  const keepTo = _markToSel || markToEl.value || '';
+  markToEl.innerHTML = '<option value="">— Choose —</option>' + givers.slice().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+  if(keepTo && givers.some(g => g.id === keepTo)) markToEl.value = keepTo; else _markToSel = '';
   const personSel = document.getElementById('marksPerson');
   const prev = personSel.value;
   const ids = [...new Set(_marksData.map(m => m.toId))];
@@ -4312,7 +4317,7 @@ function openGiveKudosModal(){
   document.getElementById('modalBox').innerHTML = `
     <h3>🏆 Give Kudos</h3>
     <div class="modal-sub">Posts publicly to the Kudos wall and the team Slack channel.</div>
-    <div class="field"><label>To</label><select id="gkTo"><option value="">— Choose —</option>${eligible.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="field"><label>To</label><select id="gkTo"><option value="">— Choose —</option>${eligible.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Level</label>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         ${Object.entries(KUDOS_LEVELS).map(([key,lv]) => `<button type="button" class="btn small gkLevelBtn" data-level="${key}" onclick="setGiveKudosLevel('${key}')">${lv.badge}</button>`).join('')}
@@ -4367,7 +4372,7 @@ function openRecommendKudosModal(){
   document.getElementById('modalBox').innerHTML = `
     <h3>👍 Recommend Kudos</h3>
     <div class="modal-sub">Their team's manager will review it and decide the star level.</div>
-    <div class="field"><label>Who</label><select id="rkTo"><option value="">— Choose —</option>${others.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="field"><label>Who</label><select id="rkTo"><option value="">— Choose —</option>${others.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Why <span class="req-mark">*</span></label><textarea id="rkNote" placeholder="e.g. Stayed late to get the annuals out before the deadline"></textarea></div>
     <div class="modal-error" id="rkErr"></div>
     <div class="modal-actions">
@@ -5149,7 +5154,7 @@ async function doMarkDoneNoReview(id){
 function openSetOwnerModal(id){
   const t = tasks.find(x => x.id === id);
   if(!t) return;
-  const opts = employees.map(e => `<option value="${e.id}">${esc(e.name)}${e.team ? ' — ' + esc(e.team) : ''}</option>`).join('');
+  const opts = employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
   document.getElementById('modalBox').innerHTML = `
     <h3>Assign task</h3>
     <div class="modal-sub">${esc(t.name)}</div>
@@ -7861,7 +7866,7 @@ function openCompleteModal(id){
   // Send it to anyone for review — just not yourself.
   const reviewers = eligibleReviewersFor(t.assignedTo).slice().sort((a,b) => a.name.localeCompare(b.name));
   const options = reviewers
-  .map(e => `<option value="${e.id}">${esc(e.name)} — ${esc(e.jobTitle||'')}</option>`).join('');
+  .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
   const picker = reviewers.length
     ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
     : `<div class="modal-error" style="display:block;">There's no one else to review this yet.</div>`;
@@ -7870,8 +7875,10 @@ function openCompleteModal(id){
   const linkFields = `${autoLinksHint(t, 'processor')}
   <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(${_autoRules && _autoRules.links && _autoRules.links.enabled && t.kind !== 'internal' ? 'needed' : 'optional'})</span></label>
     <input type="text" id="cmpSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+  ${slotHtml('cmpSheet', t.sheetFiles)}
   ${t.kind !== 'internal' ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(${_autoRules && _autoRules.links && _autoRules.links.enabled ? 'needed' : 'optional'})</span></label>
-    <input type="text" id="cmpCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}`;
+    <input type="text" id="cmpCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>
+  ${slotHtml('cmpCash', t.cashbookFiles)}` : ''}`;
   document.getElementById('modalBox').innerHTML = `
   <h3>Mark Complete — ${esc(t.name)}</h3>
   <div class="modal-sub">${esc(t.clientName)||'—'} ${t.scope ? '· ' + esc(t.scope) : ''}</div>
@@ -7898,7 +7905,7 @@ function openCompleteModal(id){
     const sheetLink = (document.getElementById('cmpSheetLink')||{}).value || undefined;
     const cashbookLink = (document.getElementById('cmpCashbookLink')||{}).value || undefined;
     try {
-      await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST', body: JSON.stringify({ reviewerId, sheetLink, cashbookLink, directProfitConfirm }) });
+      await api(`/api/tasks/${encodeURIComponent(id)}/complete`, { method:'POST', body: JSON.stringify({ reviewerId, sheetLink, cashbookLink, directProfitConfirm, sheetFileIds: slotIds('cmpSheet'), cashbookFileIds: slotIds('cmpCash') }) });
       closeModal(); await refreshTasks(); await refreshActivity();
     } catch(e){
       document.getElementById('cmpError').textContent = e.message;
@@ -7910,7 +7917,7 @@ function openSendForReviewModal(id){
   const t = findTask(id);
   if(!t) return;
   const reviewers = eligibleReviewersFor(t.assignedTo).slice().sort((a,b) => a.name.localeCompare(b.name));
-  const options = reviewers.map(e => `<option value="${e.id}">${esc(e.name)} — ${esc(e.jobTitle||'')}</option>`).join('');
+  const options = reviewers.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
   const wasClean = t.reviewStatus === 'clean';
   document.getElementById('modalBox').innerHTML = `
     <h3>Reopen for re-review — ${esc(t.name)}</h3>
@@ -7918,8 +7925,10 @@ function openSendForReviewModal(id){
     <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:10px 0 4px;">This re-opens the task and puts it in front of a reviewer${wasClean ? ' for another look' : ''}. Any earlier profit-confirmation / report-send decision is cleared, so it can be reviewed and sent for profit confirmation again. It stays counted as delivered.</p>
     <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="sfrSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+    ${slotHtml('sfrSheet', t.sheetFiles)}
     <div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="sfrCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>
+    ${slotHtml('sfrCash', t.cashbookFiles)}
     ${directProfitToggleHtml(t, 'sfr')}
     <div id="sfrReviewerField">${reviewers.length
       ? `<div class="field"><label>Send for review to</label><select id="sfrReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
@@ -7937,7 +7946,7 @@ async function submitSendForReview(id){
   const err = document.getElementById('sfrError');
   if(!reviewerId && !directProfitConfirm){ if(err){ err.textContent = 'Choose who should review this task first.'; err.style.display = 'block'; } return; }
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/send-for-review`, { method:'POST', body: JSON.stringify({ reviewerId, directProfitConfirm, sheetLink: (document.getElementById('sfrSheetLink')||{}).value || undefined, cashbookLink: (document.getElementById('sfrCashbookLink')||{}).value || undefined }) });
+    await api(`/api/tasks/${encodeURIComponent(id)}/send-for-review`, { method:'POST', body: JSON.stringify({ reviewerId, directProfitConfirm, sheetFileIds: slotIds('sfrSheet'), cashbookFileIds: slotIds('sfrCash'), sheetLink: (document.getElementById('sfrSheetLink')||{}).value || undefined, cashbookLink: (document.getElementById('sfrCashbookLink')||{}).value || undefined }) });
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
     showToast('info', 'Sent for review', 'The task is back in front of a reviewer.');
   } catch(e){ if(err){ err.textContent = e.message; err.style.display = 'block'; } }
@@ -8335,7 +8344,7 @@ function openNewTask(who){
     const w = workload.find(x => x.id === e.id);
     const ct = w && w.committedThrough;
     const load = ct && ct > todayISO() ? ` — free from ${fmtDate(ct)}` : (w && w.freeCapacityNext5wd != null ? ` — ${w.freeCapacityNext5wd}h free this week` : '');
-    return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${load}</option>`;
+    return `<option value="${e.id}">${esc(e.name)}${load}</option>`;
   };
   const choose = who === 'choose';
   document.getElementById('modalBox').innerHTML = `
@@ -8350,7 +8359,7 @@ function openNewTask(who){
     <div class="field"><label>What needs doing? <span class="req-mark">*</span></label><input type="text" id="atName" placeholder="e.g. GST Return / Train new hire on cashbook" autocomplete="off"></div>
     <div class="field"><label>For</label>
       <select id="atAssignee" onchange="atAssigneeChanged()">
-        ${choose ? '<option value="">— Choose —</option>' : ''}<option value="${esc(currentViewerId)}"${choose ? '' : ' selected'}>Me${meRec.team ? ' — ' + esc(meRec.team) : ''}</option>
+        ${choose ? '<option value="">— Choose —</option>' : ''}<option value="${esc(currentViewerId)}"${choose ? '' : ' selected'}>Me</option>
         ${others.map(optFor).join('')}
       </select>
       <div id="atPlanHint" style="font-size:12.5px;color:var(--text-dim);margin-top:6px;line-height:1.5;"></div>
@@ -8586,7 +8595,7 @@ function _openAssignModalOld(mode){
       const w = workload.find(x => x.id === e.id);
       const ct = w && w.committedThrough;
       const load = ct && ct > todayISO() ? ` — free from ${fmtDate(ct)}` : (w && w.freeCapacityNext5wd != null ? ` — ${w.freeCapacityNext5wd}h free this week` : '');
-      return `<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}${load}</option>`;
+      return `<option value="${e.id}">${esc(e.name)}${load}</option>`;
     }).join('')}</select>
     <div id="atPlanHint" style="font-size:12.5px;color:var(--text-dim);margin-top:6px;line-height:1.5;"></div></div>` : ''}
     <div id="atClientBlock"${noClients ? ' style="display:none;"' : ''}>
@@ -8908,7 +8917,7 @@ function openBulkAssignModal(){
     <div class="field" id="bkClientWrap"${cs.length?'':' style="display:none;"'}><label>Default client <span style="font-weight:400;color:var(--text-faint);">— used for any line that doesn't name its own</span></label>
       <select id="bkClient" onchange="renderBulkPreview()"><option value="">— none (name a client on every line) —</option>${cs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Assign every task to</label>
-      <select id="bkAssignee">${people.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+      <select id="bkAssignee">${people.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Tasks <span style="font-weight:400;color:var(--text-faint);">— one per line: <code id="bkFmt">Client | Name | hours | YYYY-MM-DD</code></span></label>
       <textarea id="bkLines" rows="7" placeholder="Neo Wave ICT Ltd | GST return Q1 | 3 | 2026-10-20&#10;City Cabs Ltd | Bank reconciliation | 2 | 2026-10-21&#10;GST return Q2 | 4 | 2026-10-28   (uses the default client)" oninput="renderBulkPreview()" style="width:100%;background:var(--bg-deep);border:1px solid var(--panel-border);color:var(--text);border-radius:8px;padding:10px;font-family:var(--font-mono);font-size:13px;"></textarea></div>
     <div id="bkPreview" style="margin:4px 0 10px;"></div>
@@ -8979,7 +8988,7 @@ function openReassignModal(id){
   document.getElementById('modalBox').innerHTML = `
     <h3>Reassign Task</h3>
     <div class="modal-sub">${esc(t.name)} — currently with ${esc(empById(t.assignedTo)?.name || '—')}. The new assignee gets the same Accept / Propose new date step as a brand-new assignment before their clock starts.</div>
-    <div class="field"><label>Reassign to</label><select id="rsAssignee">${options.map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="field"><label>Reassign to</label><select id="rsAssignee">${options.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
     <div class="field"><label>Reason (optional)</label><input type="text" id="rsReason" placeholder="e.g. workload rebalancing"></div>
     <div class="modal-error" id="reassignError"></div>
     <div class="modal-actions">
@@ -9062,7 +9071,7 @@ function renderMyTeamPanel(){
   wrap.innerHTML = `
     <div class="mt-list">${rows}</div>
     <div class="mt-add">
-      <select id="mtAddSel">${available.map(e=>`<option value="${e.id}">${esc(e.name)} — currently ${esc(empTeams(e).join(' + ')||'Unassigned')}</option>`).join('') || '<option value="">Everyone is already on this team</option>'}</select>
+      <select id="mtAddSel">${available.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('') || '<option value="">Everyone is already on this team</option>'}</select>
       <button class="btn primary small" title="Someone already on another team stays on it and is on yours too" onclick="teamAdd(document.getElementById('mtAddSel').value)" ${available.length?'':'disabled'}>+ Add to ${esc(teamName)}</button>
     </div>`;
 }
@@ -10445,8 +10454,8 @@ function renderReviewsView(){
       <span class="tm-task-main"><b>${esc(t.name)}</b><small>${sub}</small></span>
       <span class="rv-cell" data-l="From">${c2}</span>
       <span class="rv-cell" data-l="Waiting">${c3}</span>
-      <span class="rv-cell" data-l="Sheet">${link(t.sheetLink, 'Sheet')}</span>
-      <span class="rv-cell" data-l="Cashbook">${link(t.cashbookLink, 'Cashbook')}</span>
+      <span class="rv-cell" data-l="Sheet">${slotCell(t.sheetLink, 'Sheet', t.sheetFiles, 'rv-link')}</span>
+      <span class="rv-cell" data-l="Cashbook">${slotCell(t.cashbookLink, 'Cashbook', t.cashbookFiles, 'rv-link')}</span>
       <span class="wk-act">${btn}</span></div>`;
   const row = (t, sub, meta, btn) => `<div class="wk-task" style="cursor:default;">
       <span class="tm-task-main"><b>${esc(t.name)}</b><small>${sub}</small></span>
@@ -11186,7 +11195,7 @@ function openReviewFormModal(id){
       <div><b style="color:var(--text);">Completed on:</b> ${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</div>
       <div><b style="color:var(--text);">Client committed date:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
       <div><b style="color:var(--text);">Commitment:</b> ${cs === 'met' ? '<span style="color:var(--teal);">✓ Met</span>' : cs === 'missed' ? '<span style="color:#C2410C;">✗ Missed</span>' : '—'}</div>
-      ${t.sheetLink || t.cashbookLink ? `<div><b style="color:var(--text);">Links:</b> ${t.sheetLink ? `<a href="${esc(t.sheetLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Sheet</a>` : ''}${t.sheetLink && t.cashbookLink ? ' · ' : ''}${t.cashbookLink ? `<a href="${esc(t.cashbookLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Cashbook</a>` : ''}</div>` : ''}
+      ${linksLine(t)}
     </div>
     <div class="field" style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
@@ -11299,10 +11308,52 @@ function fileIcon(a){
 function attachChipsHtml(list, removeFn){
   list = list || [];
   if(!list.length) return '';
+  const callFor = i => removeFn.includes('{i}') ? removeFn.replace('{i}', i) : removeFn + '(' + i + ')';
   return list.map((a, i) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:6px;border:1px solid var(--panel-border);border-radius:8px;font-size:13px;background:var(--panel-bg, transparent);">
     <span>${fileIcon(a)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.name)}</span>
     <span style="color:var(--text-faint);font-size:12px;">${fmtBytes(a.size)}</span>
-    <button type="button" class="btn" style="padding:2px 8px;" title="Remove" onclick="${removeFn}(${i})">✕</button></div>`).join('');
+    <button type="button" class="btn" style="padding:2px 8px;" title="Remove" onclick="${callFor(i)}">✕</button></div>`).join('');
+}
+/* "…or attach a file" under every Sheet / Cashbook link field. One small block per field: files already on the task
+   (each downloads), a file picker, and the files being added now. The submit button sends slotIds(key). */
+const _slots = {};
+function slotHtml(key, existing){
+  _slots[key] = [];
+  existing = existing || [];
+  return `<div style="margin:-6px 0 12px;">
+    <div style="font-size:12.5px;color:var(--text-faint);">…or attach a file <span style="font-size:12px;">(PDF, Excel, Word, image — up to ${ATTACH_MAX})</span></div>
+    ${existing.length ? `<div>${downloadListHtml(existing)}</div>` : ''}
+    <input type="file" id="slotIn_${key}" data-have="${existing.length}" multiple accept="${ATTACH_ACCEPT}" style="margin-top:4px;">
+    <div id="slotList_${key}" style="margin-top:6px;"></div>
+    <div class="modal-error" id="slotErr_${key}" style="display:none;"></div>
+  </div>`;
+}
+function slotIds(key){ return (_slots[key] || []).map(a => a.id); }
+function removeSlotFile(key, i){
+  (_slots[key] || []).splice(i, 1);
+  const box = document.getElementById('slotList_' + key);
+  if(box) box.innerHTML = attachChipsHtml(_slots[key], "removeSlotFile('" + key + "',{i})");
+}
+document.addEventListener('change', e => {
+  const el = e.target;
+  if(!el || !el.id || !String(el.id).startsWith('slotIn_')) return;
+  const key = el.id.slice(7);
+  pickAndUpload(el, _slots[key] = _slots[key] || [], ATTACH_MAX - (parseInt(el.dataset.have, 10) || 0), 'slotList_' + key, 'slotErr_' + key, "removeSlotFile('" + key + "',{i})");
+});
+// A Sheet / Cashbook "cell": the link if there is one, plus any files attached in that slot (each downloads on click).
+function slotBits(url, label, files, cls){
+  const bits = [];
+  if(url) bits.push(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"${cls ? ` class="${cls}"` : ' style="color:var(--purple);"'}>${label}</a>`);
+  (files || []).forEach(f => bits.push(`<a href="#" onclick="event.preventDefault();downloadAttachment('${esc(f.id)}','${esc(f.name).replace(/'/g, '&#39;')}')" title="Download ${esc(f.name)}" style="color:var(--purple);white-space:nowrap;">📎 ${esc(f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name)}</a>`));
+  return bits;
+}
+function slotCell(url, label, files, cls){
+  const b = slotBits(url, label, files, cls);
+  return b.length ? b.join(' · ') : '<span style="color:var(--text-faint);">—</span>';
+}
+function linksLine(t){
+  const parts = [slotBits(t.sheetLink, 'Sheet', t.sheetFiles).join(' · '), slotBits(t.cashbookLink, 'Cashbook', t.cashbookFiles).join(' · ')].filter(Boolean);
+  return parts.length ? `<div style="margin-top:8px;"><b style="color:var(--text);">Links &amp; files:</b> ${parts.join(' · ')}</div>` : '';
 }
 async function uploadAttachment(blob, name){
   const res = await fetch(API_BASE + '/api/files', { method:'POST', headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(name) }, body: blob });
@@ -11434,8 +11485,10 @@ function openReviewScoreModal(){
   const linksBlock = isClean ? `${isInternal ? '' : autoLinksHint(t, 'reviewer')}
     <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="stcSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+    ${slotHtml('stcSheet', t.sheetFiles)}
     ${!isInternal ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
-      <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}` : '';
+      <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>
+    ${slotHtml('stcCash', t.cashbookFiles)}` : ''}` : '';
   // Rarely needed, so it stays folded away: a report that should never go out.
   const waiveBlock = isClean && !isInternal ? `
     <details class="waive-fold">
@@ -11566,7 +11619,7 @@ async function submitReviewFinal(action){
     if(decision === 'clean' && sheetEl){
       const sheetLink = sheetEl.value || undefined;
       const cashbookLink = (document.getElementById('stcCashbookLink')||{}).value || undefined;
-      await api(`/api/tasks/${encodeURIComponent(id)}/links`, { method:'PATCH', body: JSON.stringify({ sheetLink, cashbookLink }) });
+      await api(`/api/tasks/${encodeURIComponent(id)}/links`, { method:'PATCH', body: JSON.stringify({ sheetLink, cashbookLink, sheetFileIds: slotIds('stcSheet'), cashbookFileIds: slotIds('stcCash') }) });
     }
     _reviewShotData = null; _revState = null;
     if(decision === 'clean' && action === 'return'){
@@ -11623,8 +11676,10 @@ async function submitReviewFinal(action){
     const linksBlock = `
     <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="stcSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
+    ${slotHtml('stcSheet', t.sheetFiles)}
     ${!isInternal ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
-      <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}`;
+      <input type="text" id="stcCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>
+    ${slotHtml('stcCash', t.cashbookFiles)}` : ''}`;
     document.getElementById('modalBox').innerHTML = `
     <h3>${isInternal ? '✓ Reviewed clean' : 'Send to client?'} — ${esc(t.name)}</h3>
     <div class="modal-sub">${isInternal ? 'Internal task — no client to send to.' : `Reviewed clean — send this report directly to the client?`}</div>
@@ -11666,7 +11721,7 @@ async function submitReviewFinal(action){
     const sheetLink = sheetEl.value || undefined;
     const cashbookLink = (document.getElementById('stcCashbookLink')||{}).value || undefined;
     try {
-      await api(`/api/tasks/${encodeURIComponent(id)}/links`, { method:'PATCH', body: JSON.stringify({ sheetLink, cashbookLink }) });
+      await api(`/api/tasks/${encodeURIComponent(id)}/links`, { method:'PATCH', body: JSON.stringify({ sheetLink, cashbookLink, sheetFileIds: slotIds('stcSheet'), cashbookFileIds: slotIds('stcCash') }) });
       await refreshTasks();
       if(thenClose) closeModal();
     } catch(e){ showToast('error', 'Could not save links', e.message); }
@@ -11756,8 +11811,8 @@ async function submitReviewFinal(action){
       return `<tr>
         <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')}${t.id ? ' · ' + taskNo(t.id) : ''}</div></td>
         <td class="tl-sub">${a ? esc(a.name) : '—'}</td>
-        <td>${linkTag(t.sheetLink, 'Sheet')}</td>
-        <td>${linkTag(t.cashbookLink, 'Cashbook')}</td>
+        <td>${slotCell(t.sheetLink, 'Sheet', t.sheetFiles)}</td>
+        <td>${slotCell(t.cashbookLink, 'Cashbook', t.cashbookFiles)}</td>
         <td><button class="verify-btn" style="border-color:var(--teal);color:var(--teal);white-space:nowrap;" onclick="submitProfitConfirmDone('${t.id}')">✓ Done</button></td>
       </tr>`;
     }).join('');
@@ -11793,7 +11848,7 @@ function openReviewViewModal(id){
       <div><b style="color:var(--text);">Reviewed on:</b> ${t.reviewedAt ? fmtDate(dayOf(t.reviewedAt)) : '—'}</div>
       ${Number(t.reviewHours) > 0 ? `<div><b style="color:var(--text);">Time spent reviewing:</b> ${Number(t.reviewHours).toFixed(2)}h</div>` : ''}
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
-      ${t.sheetLink || t.cashbookLink ? `<div style="margin-top:8px;"><b style="color:var(--text);">Links:</b> ${t.sheetLink ? `<a href="${esc(t.sheetLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Sheet</a>` : ''}${t.sheetLink && t.cashbookLink ? ' · ' : ''}${t.cashbookLink ? `<a href="${esc(t.cashbookLink)}" target="_blank" rel="noopener noreferrer" style="color:var(--purple);">Cashbook</a>` : ''}</div>` : ''}
+      ${linksLine(t)}
       <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.profitConfirmStatus === 'pending'
         ? '<span style="color:#B45309;">💰 Awaiting profit confirmation from Shubam Sharma</span>'
         : t.awaitingClientDecision
@@ -12103,7 +12158,7 @@ async function renderReportCard(){
   if(people.length > 1){
     pickWrap.style.display = '';
     if(!_rcPersonId || !people.some(p=>p.id===_rcPersonId)) _rcPersonId = (currentViewer() && people.some(p=>p.id===currentViewerId)) ? currentViewerId : people[0].id;
-    pick.innerHTML = people.map(p=>`<option value="${p.id}"${p.id===_rcPersonId?' selected':''}>${esc(p.name)} — ${esc(p.team)}</option>`).join('');
+    pick.innerHTML = people.map(p=>`<option value="${p.id}"${p.id===_rcPersonId?' selected':''}>${esc(p.name)}</option>`).join('');
   } else {
     pickWrap.style.display = 'none';
     _rcPersonId = people[0] ? people[0].id : currentViewerId;
@@ -12269,7 +12324,7 @@ function openAddClientModal(){
   selectedClientType = 'Rideshare';
   const me = currentViewer();
   const ownerField = isAdmin
-    ? `<div class="field"><label>Owner</label><select id="ncOwner"><option value="${currentViewerId}">Me — ${esc((me&&me.name)||'')}</option>${employees.filter(e=>e.id!==currentViewerId).map(e=>`<option value="${e.id}">${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>`
+    ? `<div class="field"><label>Owner</label><select id="ncOwner"><option value="${currentViewerId}">Me</option>${employees.filter(e=>e.id!==currentViewerId).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>`
     : `<div class="field"><label>Owner</label><input type="text" value="You (${esc((me&&me.name)||'')})" disabled><input type="hidden" id="ncOwner" value="${currentViewerId}"></div>`;
   document.getElementById('modalBox').innerHTML = `
     <h3>Add Client</h3>
@@ -12355,7 +12410,7 @@ function openAssignClientOwner(id){
   const c = clientById(id);
   document.getElementById('modalBox').innerHTML = `
     <h3>Assign Owner — ${esc(c.name)}</h3>
-    <div class="field"><label>Owner</label><select id="acOwner"><option value="">— No owner —</option>${employees.map(e=>`<option value="${e.id}" ${c.ownerId===e.id?'selected':''}>${esc(e.name)} — ${esc(e.team)}</option>`).join('')}</select></div>
+    <div class="field"><label>Owner</label><select id="acOwner"><option value="">— No owner —</option>${employees.map(e=>`<option value="${e.id}" ${c.ownerId===e.id?'selected':''}>${esc(e.name)}</option>`).join('')}</select></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn primary" onclick="submitAssignClientOwner('${id}')">Save</button>
@@ -12736,7 +12791,7 @@ function openManageEmployee(id){
       <div class="field"><label>Mark-done delegate <span style="text-transform:none;color:var(--text-faint);">— lets one person close ${esc(e.name)}'s own tasks (Mark Done only — no review, reassign, or edit) when ${e.id === session.id ? 'they' : 'this person'} don't have time to do it themselves</span></label>
         <select id="meDoneDelegate">
           <option value="">None</option>
-          ${employees.filter(x => x.id !== e.id).sort((a,b)=>a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${e.doneDelegateId === x.id ? ' selected' : ''}>${esc(x.name)}${x.team ? ' — ' + esc(x.team) : ''}</option>`).join('')}
+          ${employees.filter(x => x.id !== e.id).sort((a,b)=>a.name.localeCompare(b.name)).map(x => `<option value="${x.id}"${e.doneDelegateId === x.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}
         </select>
       </div>
       <div class="field"><label>Slack user ID <span style="text-transform:none; color:var(--text-faint);">— so Slack tasks reach this person</span></label><input type="text" id="meSlackId" value="${esc(e.slackUserId || '')}" placeholder="U0XXXXXXXX"></div>
