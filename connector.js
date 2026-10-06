@@ -1455,13 +1455,16 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
 //           Social/Updates tabs (same filters as allEmailsReport);
 //           ACKNOWLEDGED = anything but unread: replied, opened/👍 but not
 //           replied, or marked no-reply-needed (see email-status.js).
-function callsEmailsStats(state, from, to) {
+// opts.until (a Date): only items received up to then — the daily report counts the day "up to send time",
+// and the acknowledgement marks must agree with it.
+function callsEmailsStats(state, from, to, opts) {
+  const until = opts && opts.until ? opts.until.getTime() : null;
   const byPerson = {};
   const row = (id, name) => {
     if (!byPerson[id]) byPerson[id] = { id, name, calls: { total: 0, ack: 0, notAck: 0 }, emails: { total: 0, ack: 0, notAck: 0 } };
     return byPerson[id];
   };
-  const inRange = ts => { const d = nzToday(new Date(ts)); return d >= from && d <= to; };
+  const inRange = ts => { const d = nzToday(new Date(ts)); return d >= from && d <= to && (until == null || new Date(ts).getTime() <= until); };
   (state.calls || []).filter(c => countsAsCall(c) && c.occurredAt && inRange(c.occurredAt))
     .forEach(c => {
       responsiblePeopleForCall(state, c).forEach(p => {
@@ -1504,7 +1507,8 @@ function autoMarksDeps(state) {
     nowMinutes: (() => { const p = now.toLocaleTimeString('en-GB', { timeZone: DIGEST_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).split(':'); return (Number(p[0]) % 24) * 60 + Number(p[1]); })(),
     cutoffMinutes: CALLS_EMAILS_DIGEST_HOUR * 60 + 45,
     workingDayAfter: d => cal.addWorkingDays(d, 1),
-    getStats: day => callsEmailsStats(state, day, day).people,
+    // what the 18:45 report counts: items received up to the report time on that day
+    getStats: day => callsEmailsStats(state, day, day, { until: new Date(crmSync.nzLocalToISO(day, String(Math.floor((CALLS_EMAILS_DIGEST_HOUR * 60 + 45) / 60)).padStart(2, '0') + ':45')) }).people,
     skip: (empId, day) => {
       const emp = (state.employees || []).find(e => e.id === empId);
       return !emp || emp.accessDisabled || ['LEAVE', 'WORKSHOP', 'HOLIDAY'].includes(server.attendanceStatus(state, emp, day));

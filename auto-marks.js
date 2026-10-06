@@ -9,6 +9,8 @@
 //       nothing acknowledged, or MORE than half unacknowledged  → −10
 //       half or fewer unacknowledged (but some)                 → −5 or less,
 //                                                                 in proportion
+//     Judged at 18:45 NZ the SAME day — the moment the daily Calls & Email report goes
+//     to the admins — using exactly what that report counts (items received up to then).
 //     A person on leave / a holiday / a workshop day is skipped.
 //  3. REPORT DEADLINE — a client report not sent by the (query-aware) committed
 //     date costs whoever is sending it −10. Only for dates after the rules started.
@@ -182,15 +184,17 @@ function evaluateAckDay(state, day, people, ctx) {
 }
 
 const addDays = (day, n) => { const d = new Date(day + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-// Evaluate every finished working day since the last run (or since activeFrom).
-// Day D is evaluated once the clock passes 08:00 NZ on the next day, so people have
-// the evening and the early morning to clear what came in. Never more than 14 days
-// in one run, and a disabled rule never "catches up" later.
+// Evaluate every working day whose daily report has gone out since the last run (or
+// since activeFrom). Day D is judged once the clock reaches the report time (18:45 NZ)
+// ON day D, so the marks and the report the admins receive always agree; a day that
+// was missed (server down) is judged afterwards. Never more than 14 days in one run,
+// and a disabled rule never "catches up" later.
 function runDays(state, deps) {
   const settings = settingsOf(state, deps.today);
   const a = state.autoMarks;
   const out = { days: [], created: 0 };
-  const lastFinished = deps.hourNZ >= 8 ? addDays(deps.today, -1) : addDays(deps.today, -2);
+  const cutoff = deps.cutoffMinutes != null ? deps.cutoffMinutes : digestCutoffMinutes();
+  const lastFinished = (deps.nowMinutes != null && deps.nowMinutes >= cutoff) ? deps.today : addDays(deps.today, -1);
   if (!settings.enabled.acknowledgement) { a.lastEvaluated = lastFinished > (a.lastEvaluated || '') ? lastFinished : a.lastEvaluated; return out; }
   let day = addDays(a.lastEvaluated && a.lastEvaluated >= settings.activeFrom ? a.lastEvaluated : addDays(settings.activeFrom, -1), 1);
   let guard = 0;

@@ -187,33 +187,43 @@ test('a day: someone on leave / a workshop / a holiday is not marked down', () =
 });
 
 /* ---------------- running the finished days ---------------- */
-const workingDays = new Set(['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16']);
-const mkDeps = (state, today, hourNZ, extra) => ({ today, hourNZ, isWorkingDay: d => workingDays.has(d), getStats: () => people, now: today + 'T00:00:00Z', ...(extra || {}) });
+const workingDays = new Set(['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-19']); // Mon–Fri, then the next Monday
+// the second argument is the NZ clock time, 'HH:MM'; the daily report goes out at 18:45
+const mkDeps = (state, today, hhmm, extra) => ({ today, nowMinutes: Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5)), cutoffMinutes: 18 * 60 + 45, isWorkingDay: d => workingDays.has(d), getStats: () => people, now: today + 'T00:00:00Z', ...(extra || {}) });
 test('runDays: nothing is ever deducted retroactively — it starts the day the rules were first read', () => {
   const s = { employees: staff, marks: [] };
-  const r = am.runDays(s, mkDeps(s, '2026-10-14', 9));  // first read on the 14th
+  const r = am.runDays(s, mkDeps(s, '2026-10-14', '09:00'));  // first read on the 14th, in the morning
   assert.equal(s.autoMarks.settings.activeFrom, '2026-10-14');
   assert.equal(r.created, 0, 'the 13th and earlier are never judged'); assert.equal(s.marks.length, 0);
 });
-test('runDays: a day is judged only after 08:00 the next morning, once, and skips non-working days', () => {
+test('runDays: a day is judged the SAME evening, at 18:45 when the daily report goes out — not before, and once', () => {
   const s = { employees: staff, marks: [], autoMarks: { settings: { activeFrom: '2026-10-12' } } };
-  assert.equal(am.runDays(s, mkDeps(s, '2026-10-13', 7)).created, 0, 'before 08:00 on the 13th the 12th is still open');
-  const morning = am.runDays(s, mkDeps(s, '2026-10-13', 8));
-  assert.deepEqual(morning.days.map(d => d.day), ['2026-10-12']); assert.equal(morning.created, 3);
-  assert.equal(am.runDays(s, mkDeps(s, '2026-10-13', 12)).created, 0, 'the same day is not judged twice');
-  // weekend: 17th and 18th are not working days; Monday 19th morning judges Friday 16th only
+  assert.equal(am.runDays(s, mkDeps(s, '2026-10-12', '09:00')).created, 0, 'morning: the day is still open');
+  assert.equal(am.runDays(s, mkDeps(s, '2026-10-12', '18:44')).created, 0, 'a minute before the report: still open');
+  const evening = am.runDays(s, mkDeps(s, '2026-10-12', '18:45'));
+  assert.deepEqual(evening.days.map(d => d.day), ['2026-10-12']); assert.equal(evening.created, 3, 'judged the same evening');
+  assert.equal(am.runDays(s, mkDeps(s, '2026-10-12', '21:00')).created, 0, 'the same day is not judged twice');
+  assert.equal(am.runDays(s, mkDeps(s, '2026-10-13', '08:00')).created, 0, 'and the next morning does not re-judge it');
+  assert.equal(s.autoMarks.lastEvaluated, '2026-10-12');
+});
+test('runDays: weekends are skipped, and a missed day is judged afterwards', () => {
   const w = { employees: staff, marks: [], autoMarks: { settings: { activeFrom: '2026-10-16' } } };
-  const mon = am.runDays(w, mkDeps(w, '2026-10-19', 9));
-  assert.deepEqual(mon.days.map(d => d.day), ['2026-10-16']);
+  const fri = am.runDays(w, mkDeps(w, '2026-10-16', '19:00'));
+  assert.deepEqual(fri.days.map(d => d.day), ['2026-10-16']);
+  const mon = am.runDays(w, mkDeps(w, '2026-10-19', '10:00'));
+  assert.equal(mon.days.length, 0, 'Saturday and Sunday are not working days, Monday is still open');
   assert.equal(w.autoMarks.lastEvaluated, '2026-10-18');
+  const down = { employees: staff, marks: [], autoMarks: { settings: { activeFrom: '2026-10-12' } } };
+  const caught = am.runDays(down, mkDeps(down, '2026-10-14', '09:00')); // server was down on the 12th and 13th
+  assert.deepEqual(caught.days.map(d => d.day), ['2026-10-12', '2026-10-13']);
 });
 test('runDays: switched off, it does not catch up when switched back on', () => {
   const s = { employees: staff, marks: [], autoMarks: { settings: { activeFrom: '2026-10-12', enabled: { acknowledgement: false } } } };
-  am.runDays(s, mkDeps(s, '2026-10-16', 9));
+  am.runDays(s, mkDeps(s, '2026-10-16', '19:00'));
   assert.equal(s.marks.length, 0);
   s.autoMarks.settings.enabled.acknowledgement = true;
-  assert.equal(am.runDays(s, mkDeps(s, '2026-10-16', 10)).created, 0, 'the days it was off are not judged afterwards');
-  assert.equal(am.runDays(s, mkDeps(s, '2026-10-19', 9)).days.map(d => d.day).join(), '2026-10-16');
+  assert.equal(am.runDays(s, mkDeps(s, '2026-10-16', '20:00')).created, 0, 'the days it was off are not judged afterwards');
+  assert.equal(am.runDays(s, mkDeps(s, '2026-10-19', '19:00')).days.map(d => d.day).join(), '2026-10-19');
 });
 
 /* ---------------- settings ---------------- */
