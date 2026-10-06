@@ -1009,6 +1009,11 @@ function todayISO() { return _NZ_FMT.format(new Date()); }
 // The NZ calendar day a stored UTC timestamp falls on — for "was this done
 // today / on time" checks where the stored value is a full ISO timestamp.
 function nzDay(ts) { return ts ? _NZ_FMT.format(new Date(ts)) : ''; }
+// Minutes since midnight, New Zealand time.
+function nzMinutesOfDay(ts) {
+  const p = new Date(ts).toLocaleTimeString('en-GB', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit', hour12: false }).split(':');
+  return (Number(p[0]) % 24) * 60 + Number(p[1]);
+}
 
 // ---------------------------------------------------------------------------
 // P2 — REMINDER LEDGER. Every chase — a manual manager nudge or a system
@@ -5598,9 +5603,13 @@ app.get('/api/emails/reassigned-to-me', requireAuth, (req, res) => {
     .map(e => {
       const last = (e.reassignHistory || [])[(e.reassignHistory || []).length - 1] || {};
       const by = findEmployee(state, last.by);
-      const handedOn = last.at ? nzDay(last.at) : null;
+      // the same-working-day deadline the automatic marks use: before the daily Calls & Email report
+      const d = autoMarks.reassignedMailDeadline(e, {
+        nzDay, nzMinutes: nzMinutesOfDay, isWorkingDay: x => cal.isWorkingDay(x), workingDayAfter: x => cal.addWorkingDays(x, 1),
+        skip: (id, day) => { const p = findEmployee(state, id); return !p || ['LEAVE', 'WORKSHOP', 'HOLIDAY'].includes(attendanceStatus(state, p, day)); },
+      }, { activeFrom: '0000-01-01' });
       return { id: e.id, subject: e.subject || '(no subject)', fromAddress: e.fromAddress, mailbox: e.mailbox, occurredAt: e.occurredAt, reassignedAt: last.at || null,
-        reassignedBy: by ? by.name : null, replyBy: handedOn ? cal.addWorkingDays(handedOn, 1) : null, thumbsUp: !!e.thumbsUp };
+        reassignedBy: by ? by.name : null, replyBy: d ? d.deadline : null, replyByTime: d ? autoMarks.cutoffLabel(d.cutoffMinutes) : null, thumbsUp: !!e.thumbsUp };
     })
     .sort((a, b) => (a.replyBy || '').localeCompare(b.replyBy || ''));
   res.json({ emails: list, penalty: s.enabled.mailReply ? s.points.mailReplyLate : 0 });

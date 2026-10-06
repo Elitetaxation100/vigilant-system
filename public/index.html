@@ -3409,7 +3409,7 @@ async function renderAutoMarksPanel(){
       <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: nothing acknowledged or more than half not acknowledged → <b>−${p.ackAll}</b>; half or fewer not acknowledged → up to <b>−${p.ackHalfMax}</b>, in proportion. Judged from 08:00 NZ the next morning; leave, holidays and workshop days are skipped.<br>
       <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). Internal tasks never need links.<br>
       <b>Reports</b> — a client report not sent to the client by its committed date (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever is sending it, once per task. Only dates after “Starts from” count.<br>
-      <b>Reassigned mail</b> — a mail reassigned to someone must be replied to (or marked “no reply needed”) by the end of the next working day after the hand-off, otherwise <b>−${p.mailReplyLate}</b> to that person, once per hand-off. Leave days push the deadline on. The mail shows on their dashboard until it is handled.
+      <b>Reassigned mail</b> — a mail reassigned to someone must be replied to (or marked “no reply needed”) <b>the same working day, before the daily Calls &amp; Email report goes to the admins (6:45 pm NZ)</b>; handed over after that report, or on a day off, it is due before the next working day's report. Otherwise <b>−${p.mailReplyLate}</b> to that person, once per hand-off. Leave days push the deadline on. The mail shows on their dashboard until it is handled.
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnAck" ${s.enabled.acknowledgement ? 'checked' : ''}> Email &amp; call acknowledgement</label>
@@ -7395,8 +7395,8 @@ function renderReassignedMail(){
   if(!_reassignedMail.length || (typeof isMirroring === 'function' && isMirroring())){ wrap.innerHTML = ''; return; }
   const today = todayISO();
   const rows = _reassignedMail.map(m => {
-    const late = m.replyBy && today > m.replyBy, due = m.replyBy && today === m.replyBy;
-    const when = m.replyBy ? (late ? '<b style="color:var(--coral);">overdue</b> since ' : due ? '<b style="color:var(--amber);">reply today</b> · ' : 'reply by ') + esc(fmtDate(m.replyBy)) : '';
+    const late = m.replyBy && (today > m.replyBy), due = m.replyBy && today === m.replyBy;
+    const when = m.replyBy ? (late ? '<b style="color:var(--coral);">overdue</b> since ' + esc(fmtDate(m.replyBy)) : due ? '<b style="color:var(--amber);">reply by ' + esc(m.replyByTime || '6:45 pm') + ' today</b>' : 'reply by ' + esc(m.replyByTime || '6:45 pm') + ' on ' + esc(fmtDate(m.replyBy))) : '';
     return '<div class="to-row" style="align-items:flex-start;">'
       + '<div class="to-main"><b>' + esc(m.subject) + '</b>'
       + '<div style="font-size:12px;color:var(--text-faint);">from ' + esc(m.fromAddress || '—') + (m.reassignedBy ? ' · reassigned to you by ' + esc(m.reassignedBy) : '') + ' · ' + when + '</div></div>'
@@ -7404,7 +7404,7 @@ function renderReassignedMail(){
   }).join('');
   wrap.innerHTML = '<div class="panel" style="margin-bottom:14px;border-left:4px solid var(--amber);">'
     + '<div class="panel-head"><h2>✉ Mail reassigned to you <span class="badge pending dot">' + _reassignedMail.length + '</span></h2></div>'
-    + '<div style="font-size:12.5px;color:var(--text-dim);margin:-4px 0 8px;">Reply to each (or mark it &ldquo;no reply needed&rdquo;) by the end of the next working day' + (_reassignedMailPenalty ? ' &mdash; otherwise <b>' + _reassignedMailPenalty + ' marks</b> are taken automatically' : '') + '.</div>'
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin:-4px 0 8px;">Reply to each (or mark it &ldquo;no reply needed&rdquo;) <b>the same working day, before the daily Calls &amp; Email report goes to the admins</b>' + (_reassignedMailPenalty ? ' &mdash; otherwise <b>' + _reassignedMailPenalty + ' marks</b> are taken automatically' : '') + '.</div>'
     + rows + '</div>';
 }
 async function refreshTasks(){

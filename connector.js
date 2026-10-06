@@ -1500,6 +1500,9 @@ function autoMarksDeps(state) {
     today: nzToday(now), hourNZ: nzHour(now), now: now.toISOString(),
     isWorkingDay: d => cal.isWorkingDay(d),
     nzDay: iso => nzToday(new Date(iso)),
+    nzMinutes: iso => { const p = new Date(iso).toLocaleTimeString('en-GB', { timeZone: DIGEST_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).split(':'); return (Number(p[0]) % 24) * 60 + Number(p[1]); },
+    nowMinutes: (() => { const p = now.toLocaleTimeString('en-GB', { timeZone: DIGEST_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).split(':'); return (Number(p[0]) % 24) * 60 + Number(p[1]); })(),
+    cutoffMinutes: CALLS_EMAILS_DIGEST_HOUR * 60 + 45,
     workingDayAfter: d => cal.addWorkingDays(d, 1),
     getStats: day => callsEmailsStats(state, day, day).people,
     skip: (empId, day) => {
@@ -1515,7 +1518,7 @@ function runAutoMarks(reason) {
   res.reports = require('./server').sweepReportDeadlines(state); // reports still unsent past their committed date
   res.created += res.reports;
   const d = autoMarksDeps(state);
-  res.mail = autoMarks.evaluateReassignedMail(state, { today: d.today, hourNZ: d.hourNZ, nzDay: d.nzDay, workingDayAfter: d.workingDayAfter, skip: d.skip, onCreated: d.onCreated }).filter(r => r.created).length;
+  res.mail = autoMarks.evaluateReassignedMail(state, { today: d.today, nowMinutes: d.nowMinutes, cutoffMinutes: d.cutoffMinutes, nzDay: d.nzDay, nzMinutes: d.nzMinutes, isWorkingDay: d.isWorkingDay, workingDayAfter: d.workingDayAfter, skip: d.skip, onCreated: d.onCreated }).filter(r => r.created).length;
   res.created += res.mail;
   db.save();
   if (res.created) clog('info', 'automatic marks given', { reason, created: res.created, days: res.days.map(d => d.day) });

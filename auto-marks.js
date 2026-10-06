@@ -12,9 +12,11 @@
 //     A person on leave / a holiday / a workshop day is skipped.
 //  3. REPORT DEADLINE — a client report not sent by the (query-aware) committed
 //     date costs whoever is sending it −10. Only for dates after the rules started.
-//  4. REASSIGNED MAIL — an email that was reassigned to someone must be REPLIED to (or
-//     marked "no reply needed") by the end of the next working day after the hand-off;
-//     otherwise that person loses 10, once per hand-off. Leave days push the deadline on.
+//  4. REASSIGNED MAIL — an email reassigned to someone must be REPLIED to (or marked
+//     "no reply needed") the SAME working day, before the daily Calls & Email report goes
+//     to the admins (6:45 pm NZ). Handed over after that report, or on a non-working day,
+//     it is due before the next working day's report. Otherwise that person loses 10, once
+//     per hand-off. Leave days push the deadline on.
 //  2. LINKS — a CLIENT task needs both a Google Sheet and a Cashbook link
 //     (internal tasks never do).
 //       the processor sends it for review without them          → −20 (−10 if one is missing)
@@ -82,9 +84,18 @@ function reportIsLate(committedDate, today, activeFrom) {
   return !!committedDate && isDay(committedDate) && today > committedDate && (!isDay(activeFrom) || committedDate >= activeFrom);
 }
 
-// ---- rule 4: a reassigned email must be replied to --------------------------
-// The CURRENT hand-off is what counts (the last reassignHistory entry that points at
-// the current owner). Only hand-offs on/after the day the rules started.
+// ---- rule 4: a reassigned email must be replied to BEFORE the daily report ----
+// The firm's Calls & Email report goes to the admins at 18:45 NZ (CALLS_EMAILS_DIGEST_HOUR).
+// A mail reassigned before that on a working day must be answered that day; otherwise it
+// is due before the next working day's report.
+function digestCutoffMinutes() { return (Number(process.env.CALLS_EMAILS_DIGEST_HOUR) || 18) * 60 + 45; }
+function cutoffLabel(minutes) {
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  return (h % 12 || 12) + ':' + String(m).padStart(2, '0') + (h >= 12 ? ' pm' : ' am');
+}
+// ctx: nzDay(iso), nzMinutes(iso) (minutes since midnight NZ), isWorkingDay(day), workingDayAfter(day),
+//      skip(empId, day), cutoffMinutes. The CURRENT hand-off is what counts (the last reassignHistory
+//      entry that points at the current owner); hand-offs before the rules started are ignored.
 function reassignedMailDeadline(e, ctx, settings) {
   if (!e || e.direction !== 'inbound' || !e.reassignedTo || e.reassignedTo === e.mailboxOwner) return null;
   const hist = e.reassignHistory || [];
@@ -92,25 +103,30 @@ function reassignedMailDeadline(e, ctx, settings) {
   if (!last || last.to !== e.reassignedTo || !last.at) return null;
   const day = ctx.nzDay(last.at);
   if (!isDay(day) || (settings && isDay(settings.activeFrom) && day < settings.activeFrom)) return null;
-  let deadline = ctx.workingDayAfter(day);
+  const cutoff = ctx.cutoffMinutes != null ? ctx.cutoffMinutes : digestCutoffMinutes();
+  const mins = ctx.nzMinutes ? ctx.nzMinutes(last.at) : 0;
+  let deadline = (ctx.isWorkingDay(day) && mins < cutoff) ? day : ctx.workingDayAfter(day);
   let guard = 0;
   while (ctx.skip && ctx.skip(e.reassignedTo, deadline) && guard++ < 30) deadline = ctx.workingDayAfter(deadline);
-  return { toId: e.reassignedTo, handedOn: day, deadline, index: hist.length };
+  return { toId: e.reassignedTo, handedOn: day, deadline, cutoffMinutes: cutoff, index: hist.length };
 }
-// Judged from 08:00 NZ, like the acknowledgement rule.
+// Due once the daily report has gone out on the deadline day (or that day has passed).
+function reassignedMailIsDue(d, ctx) {
+  return ctx.today > d.deadline || (ctx.today === d.deadline && ctx.nowMinutes >= d.cutoffMinutes);
+}
 function evaluateReassignedMail(state, ctx) {
   const settings = settingsOf(state, ctx.today);
   const out = [];
-  if (!settings.enabled.mailReply || ctx.hourNZ < 8) return out;
+  if (!settings.enabled.mailReply) return out;
   (state.emails || []).forEach(e => {
     if (e.replied || e.replyNotNeeded) return; // handled (a real reply, or marked no-reply-needed)
     const d = reassignedMailDeadline(e, ctx, settings);
-    if (!d || !(ctx.today > d.deadline)) return;
+    if (!d || !reassignedMailIsDue(d, ctx)) return;
     const r = { emailId: e.id, toId: d.toId, subject: e.subject || '(no subject)', deadline: d.deadline, marks: settings.points.mailReplyLate, created: false };
     if (!ctx.dryRun) {
       const row = createAutoMark(state, {
         toId: d.toId, points: r.marks, type: 'auto_mail_reply', key: `mailreply:${e.id}:${d.index}`,
-        reason: `Automatic: the email "${String(e.subject || '(no subject)').slice(0, 80)}" reassigned to you on ${dayLabel(d.handedOn)} was not replied to by ${dayLabel(d.deadline)}`,
+        reason: `Automatic: the email "${String(e.subject || '(no subject)').slice(0, 80)}" reassigned to you on ${dayLabel(d.handedOn)} was not replied to by ${cutoffLabel(d.cutoffMinutes)} on ${dayLabel(d.deadline)} (before the daily report)`,
       });
       if (row) { r.created = true; if (ctx.onCreated) ctx.onCreated(row); }
     }
@@ -192,6 +208,6 @@ function runDays(state, deps) {
 }
 
 module.exports = {
-  DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, linkMarks, reportIsLate, reassignedMailDeadline, evaluateReassignedMail,
+  DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, linkMarks, reportIsLate, reassignedMailDeadline, reassignedMailIsDue, evaluateReassignedMail, digestCutoffMinutes, cutoffLabel,
   createAutoMark, evaluateAckDay, runDays, addDays, dayLabel,
 };

@@ -59,7 +59,10 @@ test('DASHBOARD: the mail shows for the person it was reassigned to, with who ga
   const subjects = mine.emails.map(e => e.subject).sort();
   assert.deepEqual(subjects, [S1, S2].sort(), 'the already-replied mail is not listed');
   const e1 = mine.emails.find(e => e.subject === S1);
-  assert.equal(e1.reassignedBy, emp('khushi').name); assert.match(e1.replyBy, /^\d{4}-\d{2}-\d{2}$/); assert.ok(e1.replyBy > new Date().toISOString().slice(0, 10) || true);
+  assert.equal(e1.reassignedBy, emp('khushi').name); assert.match(e1.replyBy, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(e1.replyByTime, '6:45 pm', 'the deadline is the daily Calls & Email report');
+  const todayNZ = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland' }).format(new Date());
+  assert.ok(e1.replyBy >= todayNZ, 'a mail reassigned just now is never already overdue');
   assert.deepEqual((await reassignedList(KH)).emails, [], "Khushi's own list is empty — they are no longer hers to answer");
   assert.deepEqual((await reassignedList(SA)).emails, []);
   // handled mail drops off the dashboard
@@ -67,7 +70,7 @@ test('DASHBOARD: the mail shows for the person it was reassigned to, with who ga
   assert.deepEqual((await reassignedList(RJ)).emails.map(e => e.subject), [S1]);
 });
 
-test('NOTHING is deducted while it is still inside the deadline', async () => {
+test('NOTHING is deducted while it is still before the daily report', async () => {
   await http('POST', '/api/admin/auto-marks/settings', { token: SA, body: { activeFrom: '2026-01-01' } });
   await http('POST', '/api/admin/auto-marks/run', { token: SA });
   assert.equal((await mailMarks(RJ)).length, 0);
@@ -86,12 +89,12 @@ test('go past the deadline (stop, edit the hand-off time into September, restart
   await start(); await sessions();
 });
 
-test('NOT replied by the end of the next working day → −10 to the person it was reassigned to, once; replied / no-reply-needed mail is not charged', async () => {
+test("NOT replied before that day's report → −10 to the person it was reassigned to, once; replied / no-reply-needed mail is not charged", async () => {
   const run = await http('POST', '/api/admin/auto-marks/run', { token: SA });
   assert.equal(run.status, 200);
   const got = await mailMarks(RJ);
   assert.equal(got.length, 1, JSON.stringify(got)); assert.equal(got[0].points, -10); assert.equal(got[0].byId, null); assert.equal(got[0].toId, emp('ranjit').id);
-  assert.match(got[0].reason, new RegExp(`"${S1}" reassigned to you on .* was not replied to by`));
+  assert.match(got[0].reason, new RegExp(`"${S1}" reassigned to you on .* was not replied to by 6:45 pm on .* \\(before the daily report\\)`));
   assert.equal((await mailMarks(RJ, S2)).length, 0, 'marked no-reply-needed → handled');
   assert.equal((await mailMarks(RJ, S3)).length, 0, 'already replied → handled');
   assert.equal((await mailMarks(KH)).length, 0, 'the person who handed it over is not charged');
