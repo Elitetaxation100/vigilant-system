@@ -3244,8 +3244,9 @@ function onAtTeamChange(){
   if(isCustom) cust.focus();
 }
 // A task can be sent to anyone for review except the person who did it.
+// A reviewer is new work for that person, so inactive / deactivated people are never offered (same rule as assigning).
 function eligibleReviewersFor(assigneeId){
-  return employees.filter(e => e.id !== assigneeId);
+  return employees.filter(e => e.id !== assigneeId && canReceiveNewWork(e));
 }
 
 /* The "My Dashboard" (Commitment Dashboard) is strictly personal for
@@ -4537,7 +4538,7 @@ function applyClockMode(){
   if(label){
     label.textContent = off ? 'Attendance' : 'Time Clock';
     let note = document.getElementById('clockCrmNote');
-    if(off && !note){ note = document.createElement('div'); note.id = 'clockCrmNote'; note.style.cssText = 'font-size:12px;color:var(--text-dim);margin:4px 0 8px;'; note.textContent = 'Recorded in ET-CRM — nothing to punch here.'; label.after(note); }
+    if(off && !note){ note = document.createElement('div'); note.id = 'clockCrmNote'; note.style.cssText = 'font-size:12px;color:var(--text-dim);margin:4px 0 8px;'; note.textContent = 'Attendance is managed in ET-CRM — there is nothing to punch here.'; label.after(note); }
     if(!off && note) note.remove();
   }
   if(off && clockInterval){ clearInterval(clockInterval); clockInterval = null; }
@@ -4561,6 +4562,15 @@ function applyLeaveMode(){
     if(!off && note) note.remove();
   }
 }
+async function crmConfirmNoLeave(){
+  if(!confirm('Confirm that there is currently NO leave booked in ET-CRM?\n\nLeave will then be switched to ET-CRM even though no leave event has arrived yet. Leave booked there from now on will count automatically. This is recorded against your name.')) return;
+  try {
+    await api('/api/admin/crm-sync/cutover', { method:'POST', body: JSON.stringify({ leave: true, confirmNoLeave: true }) });
+    showToast('success', 'ET-CRM is now the source', 'leave');
+    await loadCrmMode();
+  } catch(e){ showToast('error', 'Could not switch', e.message); }
+  loadCrmConnection();
+}
 async function crmSetCutover(kind, on){
   const what = kind === 'attendance'
     ? 'Punch In/Out will be switched OFF for everyone, manual attendance edits stop, and attendance comes only from ET-CRM. The "settle all tasks before you punch out" rule will no longer apply.'
@@ -4580,10 +4590,16 @@ function crmCutoverHtml(d){
     const ev = c1.events ? c1.events + ' event(s) received, last ' + crmAgo(c1.lastOk) : '<span style="color:var(--amber);">nothing received from ET-CRM yet</span>';
     const btn = c1.on
       ? '<button class="btn small" onclick="crmSetCutover(\'' + kind + '\', false)">Switch back to the Task Manager</button>'
-      : '<button class="btn small primary" ' + (c1.ready ? '' : 'disabled title="Turns on once real ' + kind + ' has arrived from ET-CRM"') + ' onclick="crmSetCutover(\'' + kind + '\', true)">Make ET-CRM the source</button>';
+      : '<button class="btn small primary" ' + (c1.ready ? '' : 'disabled title="Turns on once real ' + kind + ' has arrived from ET-CRM"') + ' onclick="crmSetCutover(\'' + kind + '\', true)">Make ET-CRM the source</button>'
+        + (kind === 'leave' && !c1.ready ? ' <button class="btn small" onclick="crmConfirmNoLeave()" title="Only if there is genuinely no leave booked in ET-CRM right now">There is no leave in ET-CRM — switch on anyway</button>' : '');
+    const errs = (c1.recentErrors || []).length
+      ? '<div style="font-size:12px;color:var(--coral);margin-top:6px;">Recent problems: ' + c1.recentErrors.map(e => esc(crmAgo(e.at)) + ' — ' + esc(e.outcome) + ': ' + esc(e.note || '')).join(' &middot; ') + '</div>' : '<div style="font-size:12px;color:var(--text-faint);margin-top:6px;">No recent sync problems.</div>';
+    const why = !c1.ready && !c1.on ? '<div style="font-size:12.5px;color:var(--amber);margin:4px 0;">Blocked: no valid ' + kind + ' has ever arrived from ET-CRM' + (kind === 'leave' ? ' (or confirm that there is none).' : '. Send a test event from ET-CRM first.') + '</div>' : '';
     return '<div style="padding:10px 0;border-top:1px solid var(--panel-border);">'
       + '<div style="font-weight:600;">' + title + ' &mdash; ' + state + '</div>'
-      + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 6px;">' + lines + '<br>' + ev + '</div>' + btn + '</div>';
+      + '<div style="font-size:12.5px;color:var(--text-dim);margin:2px 0 6px;">' + lines + '<br>' + ev
+      + '<br>Last ' + kind + ' sync: <b>' + esc(crmAgo(c1.lastOk)) + '</b> &middot; employees linked to ET-CRM: <b>' + c1.linkedEmployees + '</b> &middot; not linked: <b style="color:' + (c1.unlinkedEmployees ? 'var(--amber)' : 'inherit') + ';">' + c1.unlinkedEmployees + '</b>'
+      + (c1.confirmedNoLeave ? '<br>A founder confirmed there was no leave in ET-CRM when this was switched on.' : '') + '</div>' + why + btn + errs + '</div>';
   };
   return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">'
     + '<div style="font-weight:700;">Cut-over: who is the source of truth?</div>'
@@ -4612,8 +4628,8 @@ function crmSectionCard(title, s, extraHtml, reconcileKind){
   const stats = [crmStat('created', s.created, 'var(--teal)'), crmStat('updated', s.updated, 'var(--teal)'), crmStat('skipped', s.skipped, 'var(--text-dim)'),
     crmStat('errors', s.errors, 'var(--coral)'), crmStat('conflicts', s.conflicts, 'var(--coral)'), crmStat('ambiguous', s.ambiguous, 'var(--amber)')];
   const buttons = reconcileKind ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">'
-    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', false)">Preview reconcile</button>'
-    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', true)">Reconcile now</button></div>' : '';
+    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', false)">Preview Reconciliation</button>'
+    + '<button class="btn small" onclick="crmReconcile(\'' + reconcileKind + '\', true)">Apply Reconciliation</button></div>' : '';
   return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;min-width:0;">'
     + '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;"><div style="font-weight:700;letter-spacing:.3px;text-transform:uppercase;font-size:12.5px;">' + esc(title) + '</div><div style="font-size:12.5px;">Configured: ' + yes + '</div></div>'
     + '<div style="font-size:12.5px;color:var(--text-dim);margin:6px 0;">Last successful sync: <b>' + crmAgo(s.lastSuccess) + '</b><br>Last failed sync: ' + fail + '</div>'
@@ -4625,7 +4641,7 @@ function crmPullHtml(d){
   let out = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--panel-border);">'
     + '<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:6px;">Reconcile reads ET-CRM\'s contact list and applies the <b>same rule as the live webhook</b>. Preview changes nothing.</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
-    + '<button class="btn small" id="crmPreviewBtn" onclick="crmPull(false)">Preview reconcile</button>'
+    + '<button class="btn small" id="crmPreviewBtn" onclick="crmPull(false)">Preview Reconciliation</button>'
     + '<button class="btn small primary" onclick="crmPull(true)">Reconcile now</button>'
     + '<label style="font-size:12.5px;display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="crmAuto" ' + (d.autoPull ? 'checked' : '') + ' onchange="crmSaveAuto(this.checked)"> repeat every 15 min</label></div>';
   if(p){
@@ -4720,6 +4736,55 @@ async function crmPull(apply){
 async function crmSaveAuto(on){
   try { await api('/api/admin/crm-sync/settings', { method:'POST', body: JSON.stringify({ autoPull: !!on }) }); showToast('success', on ? 'Repeat on' : 'Repeat off', on ? 'Customers are reconciled every 15 minutes.' : 'Only when you press Reconcile.'); } catch(e){ showToast('error', 'Could not save', e.message); }
 }
+const CRM_CHECK_TONE = { ok: ['✓', 'var(--teal)'], info: ['•', 'var(--text-faint)'], warn: ['!', 'var(--amber)'], fail: ['✗', 'var(--coral)'] };
+async function crmRunCheck(){
+  const out = document.getElementById('crmCheckOut'), btn = document.getElementById('crmCheckBtn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Checking…'; }
+  try {
+    const r = await api('/api/admin/crm-sync/check', { method:'POST', body: '{}' });
+    const tone = { healthy: 'var(--teal)', needs_attention: 'var(--amber)', not_configured: 'var(--coral)' }[r.status];
+    out.innerHTML = '<div style="font-weight:700;color:' + tone + ';margin:8px 0 6px;">' + esc(r.label) + '</div>'
+      + r.checks.map(c => { const t = CRM_CHECK_TONE[c.status] || CRM_CHECK_TONE.info; return '<div style="display:flex;gap:8px;font-size:13px;padding:3px 0;"><span style="color:' + t[1] + ';width:14px;font-weight:700;">' + t[0] + '</span><span style="min-width:210px;font-weight:600;">' + esc(c.label) + '</span><span style="color:var(--text-dim);">' + esc(c.detail) + '</span></div>'; }).join('')
+      + '<div style="font-size:11.5px;color:var(--text-faint);margin-top:6px;">Read-only: nothing was changed. Checked ' + esc(crmAgo(r.at)) + '.</div>';
+  } catch(e){ out.innerHTML = '<div style="color:var(--coral);font-size:13px;">' + esc(e.message) + '</div>'; }
+  if(btn){ btn.disabled = false; btn.textContent = 'Run CRM Connection Check'; }
+}
+function crmHardeningHtml(d){
+  const h = d.health; if(!h) return '';
+  const eh = h.employees, ch = h.customers, st = h.staleness, pol = h.policy;
+  const own = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' + (d.ownership || []).map(o => '<span style="padding:4px 10px;border-radius:999px;border:1px solid var(--panel-border);font-size:12.5px;"><b>' + esc(o.area) + '</b> — source: <b style="color:' + (o.source === 'ET-CRM' ? 'var(--purple)' : 'var(--teal)') + ';">' + esc(o.source) + '</b></span>').join('') + '</div>';
+  const stat = (n, label, color) => '<div style="min-width:104px;padding:8px 10px;border:1px solid var(--panel-border);border-radius:10px;"><div style="font-size:20px;font-weight:700;color:' + (n ? color : 'var(--text)') + ';">' + n + '</div><div style="font-size:12px;color:var(--text-faint);">' + label + '</div></div>';
+  const unl = (eh.unlinkedEmployees || []).slice(0, 12).map(u => '<tr><td>' + esc(u.name) + (u.inactive ? ' <span style="color:var(--text-faint);">(inactive)</span>' : '') + '</td><td>' + esc(u.email || '—') + '</td><td>' + (u.candidate ? '<span style="font-family:var(--font-mono);font-size:12px;">' + esc(u.candidate.crmUserId || '') + '</span> <span style="color:var(--text-faint);">(same work email)</span>' : u.ambiguousCandidates ? '<span style="color:var(--amber);">' + u.ambiguousCandidates + ' possible — resolve by hand</span>' : '<span style="color:var(--text-faint);">no CRM user waiting for this email</span>') + '</td><td>' + (u.candidate && u.candidate.crmUserId ? '<button class="btn small" onclick="crmLinkUser(\'' + esc(u.candidate.crmUserId) + '\', \'' + esc(u.id) + '\')">Link</button>' : '') + '</td></tr>').join('');
+  const dups = (eh.duplicateEmails || []).length ? '<div style="font-size:12.5px;color:var(--amber);margin-top:6px;">Duplicate work email: ' + eh.duplicateEmails.map(x => esc(x.email) + ' (' + x.employees.map(e => esc(e.name)).join(', ') + ')').join('; ') + ' — ET-CRM cannot be matched to either until this is fixed.</div>' : '';
+  const reasons = Object.entries(ch.skipReasons || {}).map(([k, v]) => esc(k) + ': <b>' + v + '</b>').join(' &middot; ');
+  const age = x => x && x.lastAt ? crmAgo(x.lastAt) : 'never';
+  const stTone = x => x === 'stale' ? 'var(--coral)' : x === 'ok' ? 'var(--teal)' : 'var(--text-faint)';
+  return '<div style="border:1px solid var(--panel-border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;"><div style="font-weight:700;">Connection health</div><button class="btn small primary" id="crmCheckBtn" onclick="crmRunCheck()">Run CRM Connection Check</button></div>'
+    + '<div id="crmCheckOut"></div>'
+    + '<div style="font-weight:600;margin:12px 0 6px;">Who owns what</div>' + own
+    + '<div style="font-weight:600;margin:12px 0 6px;">Employee links</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + stat(eh.linked, 'linked', 'var(--teal)') + stat(eh.unlinked, 'not linked', 'var(--amber)') + stat(eh.inactiveLinked, 'inactive (linked)', 'var(--text-dim)') + stat(eh.conflicts + eh.ambiguous, 'conflicts / ambiguous', 'var(--coral)') + stat((eh.duplicateEmails || []).length, 'duplicate emails', 'var(--coral)') + '</div>' + dups
+    + (unl ? '<div style="overflow-x:auto;margin-top:8px;"><table><thead><tr><th>Employee</th><th>Work email</th><th>ET-CRM user</th><th></th></tr></thead><tbody>' + unl + '</tbody></table></div><div style="font-size:12px;color:var(--text-faint);margin-top:4px;">A match is offered only when exactly one waiting ET-CRM user has the same work email. Never by name.</div>' : '')
+    + '<div style="font-weight:600;margin:12px 0 6px;">Customer links</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + stat(ch.linked, 'clients linked', 'var(--teal)') + stat(ch.unlinked, 'not linked to a contact', 'var(--text-dim)') + stat(ch.ambiguous, 'ambiguous (never merged)', 'var(--amber)') + stat(ch.linkBack.failed + ch.linkBack.conflicts, 'link-back failures', 'var(--coral)') + '</div>'
+    + '<div style="font-size:12.5px;color:var(--text-dim);margin-top:6px;">Last customer sync: <b>' + esc(crmAgo(ch.lastSuccess)) + '</b> &middot; last failure: ' + (ch.lastFailure ? esc(crmAgo(ch.lastFailure.at)) + ' — ' + esc(ch.lastFailure.note || '') : 'none')
+    + '<br>A contact becomes a client only when: <b>' + esc(d.eligibility.description) + '</b>.' + (reasons ? '<br>Skipped contacts, by reason: ' + reasons : '') + '</div>'
+    + '<div style="font-weight:600;margin:12px 0 6px;">Connection &amp; freshness</div>'
+    + '<div style="font-size:13px;line-height:1.7;">CRM webhook secret: <b style="color:' + (h.secret.configured ? 'var(--teal)' : 'var(--coral)') + ';">' + (h.secret.configured ? 'Configured' : 'Missing') + '</b>' + (h.secret.recentRefused24h ? ' &middot; <span style="color:var(--amber);">' + h.secret.recentRefused24h + ' call(s) refused in 24 h (401 bad secret)</span>' : '')
+    + '<br>CRM API: address ' + (h.api.urlConfigured ? 'set' : 'built-in default') + ' &middot; key <b style="color:' + (h.api.keyConfigured ? 'var(--teal)' : 'var(--amber)') + ';">' + (h.api.keyConfigured ? 'configured' : 'missing') + '</b> &middot; actions needed: ' + h.api.actions.map(a => '<code>' + esc(a) + '</code>').join(', ')
+    + '<br>Attendance sync: <b style="color:' + stTone(st.attendance.status) + ';">' + (st.attendance.status === 'stale' ? 'STALE' : st.attendance.status === 'ok' ? 'healthy' : 'nothing yet') + '</b> (last ' + esc(age(st.attendance)) + ')'
+    + '<br>Leave sync: <b style="color:' + stTone(st.leave.status) + ';">' + (st.leave.status === 'ok' ? 'healthy' : 'nothing yet') + '</b> (last ' + esc(age(st.leave)) + ') &mdash; <span style="color:var(--text-faint);">quiet is normal; leave arrives only when someone books it</span>'
+    + '<br>Policy: last event ' + esc(crmAgo(pol.lastEventAt)) + ' &middot; last reconciliation ' + esc(pol.lastReconcile ? crmAgo(pol.lastReconcile) : 'never') + ' &middot; ' + pol.pendingLinked + ' linked employee(s) with a pending policy &middot; ' + pol.blockedNow + ' blocked now</div>'
+    + '</div>';
+}
+async function crmLinkUser(crmUserId, employeeId){
+  try {
+    const r = await api('/api/admin/crm-sync/link-user', { method:'POST', body: JSON.stringify({ crmUserId, employeeId }) });
+    showToast('success', 'Linked', 'Replayed ' + ((r.replayed || {}).attendance || 0) + ' attendance and ' + ((r.replayed || {}).leave || 0) + ' leave record(s).');
+  } catch(e){ showToast('error', 'Could not link', e.message); }
+  loadCrmConnection();
+}
 async function loadCrmConnection(){
   const panel = document.getElementById('crmConnPanel');
   if(!panel) return;
@@ -4753,6 +4818,7 @@ async function loadCrmConnection(){
     + '<b>Legacy CRM Task Sync: Disabled.</b> Tasks live only in the Task Manager &mdash; nothing is imported from ET-CRM.'
     + (d.legacyTask.refused ? ' <span style="color:var(--amber);">' + d.legacyTask.refused + ' call(s) to the old task webhook were refused &mdash; remove that webhook in ET-CRM.</span>' : '') + '</div>'
     + crmCutoverHtml(d)
+    + crmHardeningHtml(d)
     + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:14px;">' + cards + '</div>'
     + crmReconcileResultHtml(_crmReconcileLast)
     + crmUnlinkedHtml(d)
@@ -12375,7 +12441,7 @@ function openAddClientModal(){
   selectedClientType = 'Rideshare';
   const me = currentViewer();
   const ownerField = isAdmin
-    ? `<div class="field"><label>Owner</label><select id="ncOwner"><option value="${currentViewerId}">Me</option>${employees.filter(e=>e.id!==currentViewerId).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>`
+    ? `<div class="field"><label>Owner</label><select id="ncOwner"><option value="${currentViewerId}">Me</option>${employees.filter(e => e.id!==currentViewerId && canReceiveNewWork(e)).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>`
     : `<div class="field"><label>Owner</label><input type="text" value="You (${esc((me&&me.name)||'')})" disabled><input type="hidden" id="ncOwner" value="${currentViewerId}"></div>`;
   document.getElementById('modalBox').innerHTML = `
     <h3>Add Client</h3>
@@ -12461,7 +12527,7 @@ function openAssignClientOwner(id){
   const c = clientById(id);
   document.getElementById('modalBox').innerHTML = `
     <h3>Assign Owner — ${esc(c.name)}</h3>
-    <div class="field"><label>Owner</label><select id="acOwner"><option value="">— No owner —</option>${employees.map(e=>`<option value="${e.id}" ${c.ownerId===e.id?'selected':''}>${esc(e.name)}</option>`).join('')}</select></div>
+    <div class="field"><label>Owner</label><select id="acOwner"><option value="">— No owner —</option>${employees.filter(e => canReceiveNewWork(e) || e.id === c.ownerId).map(e=>`<option value="${e.id}" ${c.ownerId===e.id?'selected':''}>${esc(e.name)}</option>`).join('')}</select></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn primary" onclick="submitAssignClientOwner('${id}')">Save</button>
