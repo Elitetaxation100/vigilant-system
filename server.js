@@ -2605,8 +2605,9 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, (req, res) => {
   const isMine = t.assignedTo === req.employee.id;
   const isAdminOver = isAdminRole(req.employee.accessRole) &&
     (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo) || !t.assignedTo);
-  if (!isMine && !isAdminOver) {
-    return res.status(403).json({ error: 'Only the assignee or an admin can send this for review.' });
+  const isReviewer = t.reviewStatus === 'clean' && (t.reviewedBy === req.employee.id || canReviewWorkOf(state, req.employee, t.assignedTo, t));
+  if (!isMine && !isAdminOver && !isReviewer) {
+    return res.status(403).json({ error: 'Only the assignee, the reviewer or an admin can send this for review.' });
   }
   if (t.status !== 'completed' || !['done', 'clean'].includes(t.reviewStatus)) {
     return res.status(400).json({ error: 'Only a closed task (marked done, or reviewed clean) can be re-sent for review.' });
@@ -2621,6 +2622,11 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, (req, res) => {
   t.reviewedBy = null; t.reviewedAt = null; t.reviewNote = null;
   t.closedBy = null; t.closedAt = null;
   t.awaitingClientDecision = false;
+  // Re-review starts the post-review pipeline over (profit confirmation /
+  // report send), so a mistaken close doesn't leave stale decisions behind.
+  t.profitConfirmStatus = null; t.profitConfirmRequestedAt = null; t.profitConfirmRequestedBy = null;
+  t.profitConfirmAt = null; t.profitConfirmBy = null;
+  t.reportSendOwner = null; t.reportReturnedAt = null; t.reportReturnedBy = null;
   logEvent(state, reviewerId, `<b>${escHtml(req.employee.name)}</b> asked you to review "${escHtml(t.name)}" — a task that had already been closed.`);
   if (t.assignedTo && t.assignedTo !== reviewerId) {
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was re-opened and sent to <b>${escHtml(reviewer.name)}</b> for review by <b>${escHtml(req.employee.name)}</b>.`);
