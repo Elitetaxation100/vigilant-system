@@ -3853,7 +3853,7 @@ function renderCallsRows(list){
   const rows = order.map(d => {
     const dayRows = groups[d].map(c => `
     <tr>
-      <td><div class="tl-name">${esc(c.clientName)}</div><div class="tl-sub">${esc(c.callerPhone || '—')} · ${esc(c.agentName)}${c.team ? ' · '+esc(c.team) : ''}</div></td>
+      <td><div class="tl-name">${esc(c.clientName)}</div><div class="tl-sub">${c.direction === 'outbound' ? '<b title="We called them">↗ Out</b> · ' : c.direction === 'inbound' ? '<b title="They called us">↙ In</b> · ' : ''}${esc(c.callerPhone || '—')} · ${esc(c.agentName)}${c.team ? ' · '+esc(c.team) : ''}</div></td>
       <td><div class="tl-name">${esc(c.responsibleName)}</div><div class="tl-sub" style="color:${statusColor(c)};">${esc(c.outcomeLabel)}</div></td>
       <td>${c.link ? `<a href="${esc(c.link)}" target="_blank" rel="noopener" class="verify-btn" style="text-decoration:none;display:inline-block;">Open in Slack</a>` : '<span class="tl-sub">no card</span>'}</td>
     </tr>`).join('');

@@ -374,7 +374,7 @@ function buttonEl(text, actionId, value) {
 }
 function buildCallCard(o) {
   const blocks = [
-    { type: 'header', text: { type: 'plain_text', text: `${o.icon} ${o.statusLabel} — ${o.team}`, emoji: true } },
+    { type: 'header', text: { type: 'plain_text', text: `${o.icon} ${o.statusLabel} — ${o.team}${o.direction ? ' · ' + o.direction : ''}`, emoji: true } },
     { type: 'section', fields: [
       { type: 'mrkdwn', text: `*Agent*\n${esc(o.agent)}` },
       { type: 'mrkdwn', text: `*Client*\n${esc(o.client)}` },
@@ -393,7 +393,9 @@ function buildCallCard(o) {
   }
   return blocks;
 }
-function callCardFallback(o) { return `${o.icon} ${o.statusLabel} — ${o.team} — ${o.client} (${o.phone})`; }
+function callCardFallback(o) { return `${o.icon} ${o.statusLabel} — ${o.team}${o.direction ? ' · ' + o.direction : ''} — ${o.client} (${o.phone})`; }
+// What the card for a call would look like (used by the tests).
+function callCardPreview(state, row, stage) { const o = cardOptsFor(state, row, stage || (row.recordingUrl ? 'recording' : 'ended')); return { text: callCardFallback(o), header: buildCallCard(o)[0].text.text }; }
 
 function endedButtons(rowId) {
   return [buttonEl('📝 Log Outcome & Action Item', 'log_outcome', rowId),
@@ -409,12 +411,14 @@ function recordingButtons(rowId, resolved) {
           buttonEl('🚫 No Action Needed', 'no_action', rowId)];
 }
 
+// Which way the call went — shown on the Slack card and in the reports. Anything Aircall did not label gets no tag.
+function directionTag(d) { const v = String(d || '').toLowerCase(); return v === 'outbound' ? '↗ Outbound' : v === 'inbound' ? '↙ Inbound' : null; }
 function cardOptsFor(state, row, stage) {
   const mentions = agentSlackIds(state, row.agentAircallId).map(id => `<@${id}>`).join(' ');
   const resolved = !!row.finalOutcome || !!row.taskId || row.status === 'no_action';
   if (stage === 'ended') {
     return {
-      icon: '📞', statusLabel: 'Call Ended', team: row.team, agent: row.agentName,
+      icon: '📞', statusLabel: 'Call Ended', team: row.team, agent: row.agentName, direction: directionTag(row.direction),
       client: row.clientName || 'Unknown / not saved', phone: row.callerPhone ? '+' + row.callerPhone : '—',
       duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions, ref: row.id,
       footer: row.mandatory ? '🎙️ Recording will follow once ready.' : null,
@@ -422,7 +426,7 @@ function cardOptsFor(state, row, stage) {
     };
   }
   return {
-    icon: '🎙️', statusLabel: 'Recording Ready', team: row.team, agent: row.agentName,
+    icon: '🎙️', statusLabel: 'Recording Ready', team: row.team, agent: row.agentName, direction: directionTag(row.direction),
     client: row.clientName || 'Unknown / not saved', phone: row.callerPhone ? '+' + row.callerPhone : '—',
     duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions, ref: row.id,
     footer: resolved ? '✅ Already resolved — see the task manager.' : '👂 Please listen and note action items.',
@@ -1149,6 +1153,7 @@ function allCallsReport(state, { from, to, personId, agentId, actor } = {}) {
       team: (agent && agent.team) || null,
       clientName: c.clientName || 'Unknown / not saved',
       callerPhone: c.callerPhone,
+      direction: c.direction || null,
       status: c.status,
       listened: !!c.listenedBy,
       finalOutcome: c.finalOutcome || null,
@@ -3427,6 +3432,6 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  runAutoMarks, previewAutoMarksDay, recoverCalls, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
+  runAutoMarks, previewAutoMarksDay, recoverCalls, callCardPreview, directionTag, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
   callsEmailsDigestData, callsEmailsStats, callsEmailsDetail, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };

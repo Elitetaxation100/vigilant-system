@@ -150,3 +150,25 @@ test('recordings: a recovered call with a card but NO recording gets its recordi
 test('a failure from Aircall is reported, not swallowed', async () => {
   await assert.rejects(connector.recoverCalls({ day, fetchPage: async () => { throw new Error('Aircall answered 401'); } }), /401/);
 });
+
+test('the Slack card and the calls report say which way the call went', () => {
+  const st = { employees: [], agentMap: {}, calls: [] };
+  const row = d => ({ id: 'c', agentName: 'Ann', team: 'Companies', clientName: 'Acme', callerPhone: '215550000', durationSec: 40, direction: d, status: 'ended', agentAircallId: '1' });
+  assert.equal(connector.directionTag('outbound'), '↗ Outbound');
+  assert.equal(connector.directionTag('INBOUND'), '↙ Inbound');
+  assert.equal(connector.directionTag(null), null); assert.equal(connector.directionTag('weird'), null);
+  const out = connector.callCardPreview(st, row('outbound'));
+  assert.equal(out.header, '📞 Call Ended — Companies · ↗ Outbound');
+  assert.match(out.text, /Companies · ↗ Outbound — Acme/);
+  assert.equal(connector.callCardPreview(st, row('inbound')).header, '📞 Call Ended — Companies · ↙ Inbound');
+  assert.equal(connector.callCardPreview(st, row(null)).header, '📞 Call Ended — Companies', 'an unlabelled call looks exactly as before');
+  assert.equal(connector.callCardPreview(st, { ...row('outbound'), recordingUrl: 'https://x/r.mp3' }).header, '🎙️ Recording Ready — Companies · ↗ Outbound', 'the tag stays when the recording arrives');
+});
+test('the calls report carries the direction of each call', () => {
+  const at = crmSync.nzLocalToISO(day, '10:00');
+  const st = { employees: [{ id: 'e1', name: 'Ann', slackUserId: 'U1', accessRole: 'superadmin' }], agentMap: { 1: { name: 'Ann', team: 'GST', employeeIds: ['e1'] } }, emailIgnoredSenders: [], emails: [],
+    calls: [{ id: 'a', aircallId: '1', agentAircallId: '1', status: 'ended', occurredAt: at, direction: 'outbound' }, { id: 'b', aircallId: '2', agentAircallId: '1', status: 'ended', occurredAt: at, direction: 'inbound' }, { id: 'c', aircallId: '3', agentAircallId: '1', status: 'ended', occurredAt: at }] };
+  const rep = connector.allCallsReport(st, { from: day, to: day, actor: st.employees[0] });
+  const byId = Object.fromEntries(rep.calls.map(c => [c.id, c.direction]));
+  assert.deepEqual(byId, { a: 'outbound', b: 'inbound', c: null });
+});
