@@ -234,3 +234,43 @@ test('a screenshot attached the OLD way is visible to the employee and to the re
   await wait(1500);
   assert.equal((await http('GET', url, { token: RJ })).j.screenshot, shot);
 });
+
+test('adding files AFTER a review was sent back: reviewer only, notifies the employee, no extra rework round', async () => {
+  const client = (await http('POST', '/api/clients', { token: SA, body: { name: 'Late Files Ltd', email: 'lf' + Date.now() + '@t.co' } })).j.client;
+  const due = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  const clientDate = new Date(Date.now() + 9 * 86400000).toISOString().slice(0, 10);
+  const t5 = (await http('POST', '/api/tasks', { token: SA, body: { mode: 'team', name: 'Late files task', clientId: client.id, assignedTo: emp('ranjit').id, tat: 1, internalDeadline: due, clientDate } })).j.task;
+  const url = `/api/tasks/${enc(t5.id)}/review-files`;
+  await http('POST', `/api/tasks/${enc(t5.id)}/accept`, { token: RJ });
+  await http('POST', `/api/tasks/${enc(t5.id)}/complete`, { token: RJ, body: { reviewerId: emp('disha').id, sheetLink: 'https://docs.google.com/spreadsheets/d/x', cashbookLink: 'https://example.com/cb' } });
+  assert.equal((await http('POST', url, { token: DI, body: { attachments: ['f_000000000000000000000000'] } })).status, 400, 'not sent back yet');
+  const r = await http('POST', `/api/tasks/${enc(t5.id)}/review`, { token: DI, body: { status: 'error', note: 'no file at first', faultType: 'processor' } });
+  assert.equal(r.status, 200); assert.equal(r.j.task.reworkCount, 1);
+  assert.deepEqual(r.j.task.reviewAttachments, []);
+
+  const f1 = (await upload(DI, 'late.pdf', pdf)).j.file;
+  assert.equal((await http('POST', url, { token: RJ, body: { attachments: [f1.id] } })).status, 403, 'the employee cannot add to their own rework');
+  assert.equal((await http('POST', url, { token: OUT, body: { attachments: [f1.id] } })).status, 403, 'an unrelated employee cannot');
+  assert.equal((await http('POST', url, { token: DI, body: { attachments: [] } })).status, 400, 'nothing chosen');
+  const theirs = (await upload(RJ, 'theirs.pdf', pdf)).j.file;
+  assert.equal((await http('POST', url, { token: DI, body: { attachments: [theirs.id] } })).status, 400, "someone else's upload");
+
+  const ok = await http('POST', url, { token: DI, body: { attachments: [f1.id] } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.j));
+  assert.deepEqual(ok.j.task.reviewAttachments.map(a => a.name), ['late.pdf']);
+  assert.equal(ok.j.task.reworkCount, 1, 'not another rework round');
+  assert.equal(ok.j.task.status, 'awaiting_acceptance');
+  // the employee sees it, can download it, and was told
+  const mine = (await http('GET', '/api/tasks', { token: RJ })).j.tasks.find(t => t.id === t5.id);
+  assert.equal(mine.reviewAttachments.length, 1);
+  assert.deepEqual(Buffer.from(await (await download(RJ, f1.id)).arrayBuffer()), pdf);
+  const notes = (await http('GET', '/api/notifications', { token: RJ })).j;
+  const list = notes.notifications || notes;
+  assert.ok(JSON.stringify(list).includes('attached 1 file to'), 'the employee was notified');
+  // a second one is added to the first, and the limit is five in all
+  const f2 = (await upload(DI, 'second.png', png)).j.file;
+  assert.equal((await http('POST', url, { token: DI, body: { attachments: [f2.id] } })).j.task.reviewAttachments.length, 2);
+  const many = []; for (let i = 0; i < 4; i++) many.push((await upload(DI, `m${i}.pdf`, pdf)).j.file.id);
+  assert.equal((await http('POST', url, { token: DI, body: { attachments: many } })).status, 400, 'over five in all');
+  assert.equal((await http('POST', url, { token: DI, body: { attachments: [f1.id] } })).status, 400, 'the same file twice');
+});

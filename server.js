@@ -1919,6 +1919,45 @@ app.get('/api/files/:id', requireAuth, async (req, res) => {
   }
 });
 
+// The reviewer (or a manager over the assignee, or a superadmin) adds files to a review that was
+// ALREADY sent back — no need to redo the review (which would count as another rework round).
+app.post('/api/tasks/:id/review-files', requireAuth, async (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (!(canReviewWorkOf(state, req.employee, t.assignedTo, t) || req.employee.accessRole === 'superadmin')) {
+    return res.status(403).json({ error: "Only the reviewer, or a manager over this person, can add files." });
+  }
+  if (t.reviewStatus !== 'error') return res.status(400).json({ error: 'Files can only be added to a task that was sent back for rework.' });
+  const ids = [...new Set(((req.body || {}).attachments || []).map(String))];
+  if (!ids.length) return res.status(400).json({ error: 'Choose at least one file.' });
+  const existing = t.reviewAttachments || [];
+  if (existing.length + ids.length > fileStore.MAX_PER_REVIEW) {
+    return res.status(400).json({ error: `A rework can have at most ${fileStore.MAX_PER_REVIEW} files — ${existing.length} already attached.` });
+  }
+  const metas = [];
+  try {
+    for (const fid of ids) {
+      const m = await fileStore.meta(fid);
+      if (!m || m.createdBy !== req.employee.id || (m.taskId && m.taskId !== t.id) || existing.some(x => x.id === m.id)) {
+        return res.status(400).json({ error: 'One of the files is no longer available — please attach it again.' });
+      }
+      metas.push(fileRef(m));
+    }
+    for (const m of metas) await fileStore.attach(m.id, t.id, 'review');
+  } catch (e) {
+    console.error('[files] adding to a rework failed:', e && e.message);
+    return res.status(500).json({ error: 'Could not attach the files — please try again.' });
+  }
+  if (t.reviewStatus !== 'error') return res.status(409).json({ error: 'This task changed while you were attaching — reload and try again.' });
+  t.reviewAttachments = [...(t.reviewAttachments || []), ...metas];
+  const what = metas.length === 1 ? '1 file' : metas.length + ' files';
+  logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> attached ${what} to the rework of "${escHtml(t.name)}".`);
+  notify(state, t.assignedTo, 'rework', `${req.employee.name} attached ${what} to "${t.name}" — open it to see and download.`, t.id);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
 // Move any image still stored inline in the state (older screenshots, and new ones as they arrive)
 // out into the file store, so the state stays small. Safe by construction: the file is written
 // FIRST and the inline copy is only dropped once that succeeded and nothing changed meanwhile;

@@ -6120,6 +6120,7 @@ function actionCell(t){
     if(flagged){
       html += `<span style="font-size:12px;color:#C2410C;display:block;margin-bottom:4px;" title="${esc(t.reviewNote||'')}">⚠ Sent back to fix</span>`;
       html += `<span style="display:inline-flex;align-items:center;gap:8px;margin-right:8px;"><span style="font-size:12.5px;color:var(--text-dim);">Start rework</span><div class="toggle-switch" onclick="acceptTask('${t.id}')" title="Accept and start fixing"></div></span>`;
+      if((t.reviewAttachments || []).length || t.hasReviewScreenshot) html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="openReworkDetailModal('${t.id}')">📎 View files${(t.reviewAttachments || []).length ? ' (' + t.reviewAttachments.length + ')' : ''}</button>`;
     } else {
       html += `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Accept</button>`;
     }
@@ -11272,14 +11273,18 @@ async function uploadAttachment(blob, name){
   if(!res.ok) throw new Error((data && data.error) || ('Upload failed: ' + res.status));
   return data.file;
 }
-async function addReviewAttachments(inputEl){
+function addReviewAttachments(inputEl){
+  return pickAndUpload(inputEl, _revState.attachments, ATTACH_MAX, 'reviewFilesList', 'reviewFormError', 'removeReviewAttachment');
+}
+// Upload each chosen file; `arr` collects the small references; `room` is how many more are allowed.
+async function pickAndUpload(inputEl, arr, room, boxId, errId, removeFn){
   const files = Array.from(inputEl.files || []);
   inputEl.value = '';
-  const box = document.getElementById('reviewFilesList');
-  const err = document.getElementById('reviewFormError');
+  const box = document.getElementById(boxId);
+  const err = document.getElementById(errId);
   if(err) err.style.display = 'none';
   for(const file of files){
-    if(_revState.attachments.length >= ATTACH_MAX){ if(err){ err.textContent = 'You can attach up to ' + ATTACH_MAX + ' files.'; err.style.display = 'block'; } break; }
+    if(arr.length >= room){ if(err){ err.textContent = 'You can attach up to ' + ATTACH_MAX + ' files in all.'; err.style.display = 'block'; } break; }
     if(box) box.insertAdjacentHTML('beforeend', '<div class="uploading" style="font-size:12.5px;color:var(--text-faint);margin-bottom:6px;">Uploading ' + esc(file.name) + '…</div>');
     try {
       let blob = file, name = file.name;
@@ -11290,12 +11295,53 @@ async function addReviewAttachments(inputEl){
         name = name.replace(/\.[^.]+$/, '') + '.jpg';
       }
       const meta = await uploadAttachment(blob, name);
-      _revState.attachments.push(meta);
+      arr.push(meta);
     } catch(e){
       if(err){ err.textContent = file.name + ': ' + e.message; err.style.display = 'block'; }
     }
-    if(box) box.innerHTML = attachChipsHtml(_revState.attachments, 'removeReviewAttachment');
+    if(box) box.innerHTML = attachChipsHtml(arr, removeFn);
   }
+}
+
+// The reviewer adds files to a review that was already sent back (no need to redo the review).
+let _addFiles = { id: null, list: [] };
+function openAddReviewFilesModal(id){
+  const t = findTask(id);
+  if(!t) return;
+  _addFiles = { id, list: [] };
+  const have = (t.reviewAttachments || []);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Add files — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(t.clientName) || '—'} · sent back for rework — ${esc((empById(t.assignedTo)||{}).name || 'the assignee')} will be told.</div>
+    ${have.length ? `<div style="font-size:12.5px;color:var(--text-faint);margin-top:10px;">Already attached</div>${downloadListHtml(have)}` : ''}
+    <div class="field" style="margin-top:14px;"><label>Files <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(screenshot, PDF, Excel, Word…)</span></label>
+      <input type="file" id="addFilesInput" multiple accept="${ATTACH_ACCEPT}">
+      <div id="addFilesList" style="margin-top:8px;"></div>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Up to ${ATTACH_MAX} files in all, 15 MB each.</div>
+    </div>
+    <div class="modal-error" id="addFilesErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="openTaskTrailModal('${id}')">← Back</button>
+      <button class="btn primary" onclick="submitAddReviewFiles()">Attach &amp; notify</button>
+    </div>`;
+  openModal();
+  document.getElementById('addFilesInput').addEventListener('change', e => pickAndUpload(e.target, _addFiles.list, ATTACH_MAX - have.length, 'addFilesList', 'addFilesErr', 'removeAddFile'));
+}
+function removeAddFile(i){
+  _addFiles.list.splice(i, 1);
+  const box = document.getElementById('addFilesList');
+  if(box) box.innerHTML = attachChipsHtml(_addFiles.list, 'removeAddFile');
+}
+async function submitAddReviewFiles(){
+  const err = document.getElementById('addFilesErr');
+  if(!_addFiles.list.length){ err.textContent = 'Choose at least one file first.'; err.style.display = 'block'; return; }
+  try {
+    await api(`/api/tasks/${encodeURIComponent(_addFiles.id)}/review-files`, { method:'POST', body: JSON.stringify({ attachments: _addFiles.list.map(a => a.id) }) });
+    const id = _addFiles.id; _addFiles = { id: null, list: [] };
+    await refreshTasks();
+    showToast('success', 'Files attached', 'The employee has been told.');
+    openTaskTrailModal(id);
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
 }
 function removeReviewAttachment(i){
   _revState.attachments.splice(i, 1);
@@ -11830,6 +11876,7 @@ function openTaskTrailModal(id){
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
+      ${t.reviewStatus === 'error' && (iCanReview(t) || isSuperAdmin) ? `<button class="btn" style="border-color:var(--coral);color:#C2410C;" onclick="openAddReviewFilesModal('${id}')" title="Attach a screenshot, PDF or other file to this rework">📎 Add files</button>` : ''}
       ${empManagesWork(currentViewer(), t.assignedTo) ? `<button class="btn" style="border-color:#6D28D9;color:#6D28D9;" onclick="openCorrectNameModal('${id}')" title="Fix a garbled or wrong title">Rename task</button>` : ''}
       ${isSuperAdmin ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="openCorrectLoggedModal('${id}')" title="Fix a bad logged-hours value — e.g. a forgotten timer">Correct logged hours (${t.logged.toFixed(1)}h)</button>` : ''}
       ${t.noReviewAuthorizedAt ? `<span style="font-size:12px;color:var(--text-faint);align-self:center;">✓ No-review authorised by ${esc((empById(t.noReviewAuthorizedBy)||{}).name || '—')}, ${fmtDate(dayOf(t.noReviewAuthorizedAt))}</span>` : ''}
