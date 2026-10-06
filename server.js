@@ -1864,9 +1864,7 @@ app.get('/api/tasks/:id/review-screenshot', requireAuth, async (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t || !(t.reviewScreenshot || t.reviewScreenshotFile)) return res.status(404).json({ error: 'No screenshot.' });
-  const allowed = t.assignedTo === req.employee.id ||
-    isAdminRole(req.employee.accessRole) && (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo));
-  if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
+  if (!canSeeTaskFiles(state, req.employee, t)) return res.status(403).json({ error: 'Not allowed.' });
   const shot = await loadScreenshot(t.reviewScreenshot, t.reviewScreenshotFile);
   if (!shot) return res.status(404).json({ error: 'No screenshot.' });
   res.json({ screenshot: shot });

@@ -214,3 +214,23 @@ test('orphans: a file uploaded but never attached is swept; an attached one is k
   const kept = (await http('GET', '/api/tasks', { token: RJ })).j.tasks.find(t => t.id === task.id).reworkHistory[0].attachments[0].id;
   assert.equal((await download(RJ, kept)).status, 200, 'attached files survive');
 });
+
+test('a screenshot attached the OLD way is visible to the employee and to the reviewer, and to nobody unrelated', async () => {
+  const client = (await http('POST', '/api/clients', { token: SA, body: { name: 'Old Shot Ltd', email: 'os' + Date.now() + '@t.co' } })).j.client;
+  const due = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  const clientDate = new Date(Date.now() + 9 * 86400000).toISOString().slice(0, 10);
+  const t4 = (await http('POST', '/api/tasks', { token: SA, body: { mode: 'team', name: 'Old way task', clientId: client.id, assignedTo: emp('ranjit').id, tat: 1, internalDeadline: due, clientDate } })).j.task;
+  await http('POST', `/api/tasks/${enc(t4.id)}/accept`, { token: RJ });
+  await http('POST', `/api/tasks/${enc(t4.id)}/complete`, { token: RJ, body: { reviewerId: emp('disha').id, sheetLink: 'https://docs.google.com/spreadsheets/d/x', cashbookLink: 'https://example.com/cb' } });
+  const shot = 'data:image/png;base64,' + png.toString('base64');
+  assert.equal((await http('POST', `/api/tasks/${enc(t4.id)}/review`, { token: DI, body: { status: 'error', note: 'see the picture', faultType: 'processor', screenshot: shot } })).status, 200);
+  const url = `/api/tasks/${enc(t4.id)}/review-screenshot`;
+  for (const [who, tok] of [['the employee', RJ], ['the reviewer', DI], ['a superadmin', SA]]) {
+    const r = await http('GET', url, { token: tok });
+    assert.equal(r.status, 200, who); assert.equal(r.j.screenshot, shot, who);
+  }
+  assert.equal((await http('GET', url, { token: OUT })).status, 403, 'an unrelated employee');
+  // it still works after being moved into the file store
+  await wait(1500);
+  assert.equal((await http('GET', url, { token: RJ })).j.screenshot, shot);
+});

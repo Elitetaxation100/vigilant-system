@@ -11312,6 +11312,11 @@ async function downloadAttachment(id, name){
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   } catch(e){ showToast('error', 'Could not download', e.message); }
 }
+function downloadDataUrl(id){
+  if(!window.__trailShot) return;
+  const a = document.createElement('a'); a.href = window.__trailShot; a.download = 'review-screenshot-' + String(id).replace(/[^0-9A-Za-z]/g, '') + '.jpg';
+  document.body.appendChild(a); a.click(); a.remove();
+}
 function downloadListHtml(list){
   return (list || []).map(a => `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-top:6px;border:1px solid #F0603E4a;border-radius:8px;background:var(--panel-bg, rgba(255,255,255,.5));">
     <span style="font-size:18px;">${fileIcon(a)}</span>
@@ -11731,7 +11736,7 @@ function openTaskTrailModal(id){
   const nm = eid => eid ? ((empById(eid)||{}).name || '—') : null;
   const dt = iso => { if(!iso) return ''; const d = new Date(iso); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'}); };
   const ev = [];
-  const push = (at, icon, text) => ev.push({ at: at || '', icon, text });
+  const push = (at, icon, text, extra) => ev.push({ at: at || '', icon, text, extra: extra || '' });
 
   const assignedByName = nm(t.assignedBy), assignedToName = nm(t.assignedTo);
   const srcLabel = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'from a call' : 'from Slack') : null;
@@ -11779,7 +11784,8 @@ function openTaskTrailModal(id){
   });
 
   (t.reworkHistory||[]).forEach(h => {
-    if(h.startedAt) push(h.startedAt, '⚠', `Sent back for rework (round ${h.round||'?'})${h.faultType ? ' — ' + (h.faultType === 'processor' ? 'processor fault' : h.faultType === 'other' ? 'other cause' : 'SOP / manager fault') : ''}${h.reviewNote ? ': “'+esc(h.reviewNote)+'”' : ''}.`);
+    if(h.startedAt) push(h.startedAt, '⚠', `Sent back for rework (round ${h.round||'?'})${h.faultType ? ' — ' + (h.faultType === 'processor' ? 'processor fault' : h.faultType === 'other' ? 'other cause' : 'SOP / manager fault') : ''}${h.reviewNote ? ': “'+esc(h.reviewNote)+'”' : ''}.`,
+      (h.attachments || []).length ? `<div class="trail-files">${downloadListHtml(h.attachments)}</div>` : '');
     if(h.endedAt) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
   });
 
@@ -11793,7 +11799,8 @@ function openTaskTrailModal(id){
 
   if(t.reviewedAt && (t.reviewStatus === 'clean' || t.reviewStatus === 'error')){
     push(t.reviewedAt, t.reviewStatus === 'clean' ? '🔎' : '🛑',
-      `<b>${esc(nm(t.reviewedBy)||'—')}</b> reviewed it — ${t.reviewStatus === 'clean' ? 'error-free' : 'error found'}${t.reviewNote ? ': “'+esc(t.reviewNote)+'”' : ''}.`);
+      `<b>${esc(nm(t.reviewedBy)||'—')}</b> reviewed it — ${t.reviewStatus === 'clean' ? 'error-free' : 'error found'}${t.reviewNote ? ': “'+esc(t.reviewNote)+'”' : ''}.`,
+      t.reviewStatus === 'error' ? `<div class="trail-files">${downloadListHtml(t.reviewAttachments)}${t.hasReviewScreenshot ? '<div id="trailReviewShot" style="margin-top:8px;"><span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span></div>' : ''}</div>` : '');
   }
 
   if(t.sentToClientAt){
@@ -11809,6 +11816,7 @@ function openTaskTrailModal(id){
       <div style="font-size:15px;line-height:1.4;">${e.icon}</div>
       <div>
         <div style="font-size:13.5px;color:var(--text-dim);line-height:1.55;">${e.text}</div>
+        ${e.extra || ''}
         <div style="font-size:11.5px;color:var(--text-faint);font-family:var(--font-mono);margin-top:2px;">${e.at ? dt(e.at) : '—'}</div>
       </div>
     </div>`).join('');
@@ -11828,6 +11836,13 @@ function openTaskTrailModal(id){
     </div>
   `;
   openModal();
+  if(t.reviewStatus === 'error' && t.hasReviewScreenshot){
+    api(`/api/tasks/${encodeURIComponent(id)}/review-screenshot`).then(r => {
+      const h = document.getElementById('trailReviewShot');
+      if(h && r && r.screenshot) h.innerHTML = `<img src="${r.screenshot}" alt="review screenshot" style="max-width:100%;max-height:220px;border:1px solid var(--panel-border);border-radius:6px;display:block;"><button type="button" class="btn" style="margin-top:6px;" onclick="downloadDataUrl('${id}')">⬇ Download screenshot</button>`;
+      window.__trailShot = r && r.screenshot;
+    }).catch(() => { const h = document.getElementById('trailReviewShot'); if(h) h.textContent = ''; });
+  }
   // did the assignee open their alerts for this? (manager / assigner view)
   if(t.assignedTo && (isAdmin || t.assignedBy === currentViewerId || t.assignedTo === currentViewerId)){
     api(`/api/tasks/${encodeURIComponent(id)}/notify-status`).then(d => {
