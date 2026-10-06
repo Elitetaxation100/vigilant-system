@@ -772,6 +772,11 @@ async function handleCallEnded(call, opts) {
       if (vm) { priorLeg.voicemail = true; priorLeg.recordingUrl = null; }
       db.save();
       clog('info', 'call.ended merged into transfer leg', { id: call.id, into: priorLeg.id });
+      // A merged answered call used to get no card unless the recording webhook arrived. Same backstop as an unmerged call:
+      // ask Aircall for the recording a couple of minutes out, which also posts the card.
+      if (!opts.recovered && routing && !unanswered && !vm && !priorLeg.recordingUrl) {
+        const t = setTimeout(() => backfillRecording(priorLeg.id, String(call.id)), 150000); if (t.unref) t.unref();
+      }
       return;
     }
   }
@@ -847,16 +852,30 @@ async function recoverCalls(opts) {
   const madeThisRun = new Set(); // rows THIS run created: a second genuine call from the same person must not be taken for a leg of them
   // An answered call that was merged into an earlier leg is stored without a Slack card (live, the card comes when the
   // recording arrives by webhook — which recovery never gets). So give any recovered, answered, mapped call its card.
-  const needsCard = r => r && r.recovered && !r.slackTs && r.status === 'ended' && r.team && r.team !== 'Unmapped' && !r.voicemail;
+  const fetchCall = opts.fetchCall || fetchAircallCall;
+  const mapped = r => r && r.recovered && r.status === 'ended' && r.team && r.team !== 'Unmapped' && !r.voicemail;
+  // a recovered call that still has no Slack card, or still no recording on its card
+  const needsCard = r => mapped(r) && !r.slackTs;
+  const needsRecording = r => mapped(r) && !r.recordingUrl;
+  // The recording of a LIVE call arrives by its own webhook a little after the call; recovery never gets that event,
+  // so ask Aircall for it directly, then post — or update in place — the card.
   const giveCard = async (row, call) => {
-    if (!row.recordingUrl) { const u = recordingUrlOf(call); if (u) { row.recordingUrl = u; row.recordingFetchedAt = new Date().toISOString(); } }
-    await post(state, row);
-    if (row.slackTs) { out.onSlack++; await sleepMs(opts.pauseMs != null ? opts.pauseMs : 1100); }
+    let gotUrl = false;
+    if (!row.recordingUrl) {
+      let u = recordingUrlOf(call);
+      if (!u) { try { const fresh = await fetchCall(row.aircallId); u = fresh && !isVoicemail(fresh) ? recordingUrlOf(fresh) : null; } catch (e) { out.errors.push('recording ' + row.aircallId + ': ' + (e && e.message || e)); } }
+      if (u) { row.recordingUrl = u; row.recordingFetchedAt = new Date().toISOString(); gotUrl = true; out.recordingsFound++; }
+    }
+    const hadCard = !!row.slackTs;
+    if (!hadCard || gotUrl) await post(state, row);
+    if (row.slackTs && !hadCard) out.onSlack++;
+    if (row.slackTs && hadCard && gotUrl) out.cardsUpdated++;
+    if (row.slackTs && (!hadCard || gotUrl)) await sleepMs(opts.pauseMs != null ? opts.pauseMs : 1100);
     db.save();
   };
   const fromUnix = Math.floor(new Date(crmSync.nzLocalToISO(day, '00:00')).getTime() / 1000);
   const toUnix = Math.min(Math.floor(Date.now() / 1000), fromUnix + 86400);
-  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, mergedLegs: 0, stillRinging: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, cardsToPost: 0, errors: [], calls: [] };
+  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, mergedLegs: 0, stillRinging: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, cardsToPost: 0, recordingsToFetch: 0, recordingsFound: 0, cardsUpdated: 0, errors: [], calls: [] };
   const todo = [];
   for (let page = 1; page <= 40; page++) {
     const body = await fetchPage(fromUnix, toUnix, page);
@@ -871,7 +890,8 @@ async function recoverCalls(opts) {
     const have = findCall(state, call.id);
     if (have && !have.stub) {
       out.alreadyHad++;
-      if (needsCard(have)) { out.cardsToPost++; if (!dryRun) { try { await giveCard(have, call); } catch (e) { out.errors.push('card ' + call.id + ': ' + (e && e.message || e)); } } }
+      if (needsRecording(have) && have.slackTs) out.recordingsToFetch++;
+      if (needsCard(have) || needsRecording(have)) { if (needsCard(have)) out.cardsToPost++; if (!dryRun) { try { await giveCard(have, call); } catch (e) { out.errors.push('card ' + call.id + ': ' + (e && e.message || e)); } } }
       continue;
     }
     const when = new Date((call.ended_at || call.started_at) * 1000).toISOString();
@@ -897,7 +917,7 @@ async function recoverCalls(opts) {
       const row = findCall(state, call.id);
       if (row) madeThisRun.add(row.id);
       if (row && row.slackTs) { out.onSlack++; await sleepMs(opts.pauseMs != null ? opts.pauseMs : 1100); } // Slack allows about one post a second
-      else if (needsCard(row)) { out.cardsToPost++; await giveCard(row, call); }
+      else if (needsCard(row) || needsRecording(row)) { if (needsCard(row)) out.cardsToPost++; await giveCard(row, call); }
     } catch (e) { out.errors.push(String(call.id) + ': ' + (e && e.message || e)); }
   }
   clog('info', 'recover calls', { day, dryRun, found: out.found, alreadyHad: out.alreadyHad, recovered: out.recovered, onSlack: out.onSlack, errors: out.errors.length });

@@ -130,6 +130,23 @@ test('a recovered call stored earlier WITHOUT a card gets one on the next run (h
   const r = await connector.recoverCalls({ day, dryRun: false, fetchPage: async () => ({ calls: [call], meta: {} }), pauseMs: 0, syncCard: fake });
   assert.deepEqual(posted, ['950']); assert.equal(r.onSlack, 1); assert.equal(r.recovered, 0);
 });
+test('recordings: a recovered call with a card but NO recording gets its recording from Aircall, and its card is updated in place', async () => {
+  const st = db.get();
+  st.calls.push({ id: 'callR', aircallId: '960', callerPhone: '219990099', occurredAt: new Date((unix('21:00') + 60) * 1000).toISOString(), status: 'ended', team: 'GST', recovered: true, recordingUrl: null, slackTs: '1700000000.000300', slackChannel: 'C1', stub: false });
+  const call = mk(960, '21:00', 1, { raw_digits: '+64219990099', user: { id: 7778, name: 'Mapped Agent' } });
+  const updates = [];
+  const post = async (state, row) => { updates.push(row.recordingUrl); };
+  const noRec = await connector.recoverCalls({ day, dryRun: false, fetchPage: async () => ({ calls: [call], meta: {} }), pauseMs: 0, syncCard: post, fetchCall: async () => ({ id: 960 }) });
+  assert.equal(noRec.recordingsFound, 0); assert.deepEqual(updates, [], 'no recording on Aircall either: nothing is posted, and nothing breaks');
+  const dry = await connector.recoverCalls({ day, fetchPage: async () => ({ calls: [call], meta: {} }) });
+  assert.equal(dry.recordingsToFetch, 1);
+  const r = await connector.recoverCalls({ day, dryRun: false, fetchPage: async () => ({ calls: [call], meta: {} }), pauseMs: 0, syncCard: post, fetchCall: async () => ({ id: 960, recording: 'https://example/rec960.mp3' }) });
+  assert.equal(r.recordingsFound, 1); assert.equal(r.cardsUpdated, 1); assert.equal(r.onSlack, 0, 'not a new card — the existing one is updated');
+  assert.deepEqual(updates, ['https://example/rec960.mp3']);
+  assert.equal(st.calls.find(c => c.aircallId === '960').recordingUrl, 'https://example/rec960.mp3');
+  const again = await connector.recoverCalls({ day, dryRun: false, fetchPage: async () => ({ calls: [call], meta: {} }), pauseMs: 0, syncCard: post, fetchCall: async () => ({ id: 960, recording: 'https://example/other.mp3' }) });
+  assert.equal(again.cardsUpdated, 0); assert.equal(updates.length, 1, 'once it has its recording it is left alone');
+});
 test('a failure from Aircall is reported, not swallowed', async () => {
   await assert.rejects(connector.recoverCalls({ day, fetchPage: async () => { throw new Error('Aircall answered 401'); } }), /401/);
 });
