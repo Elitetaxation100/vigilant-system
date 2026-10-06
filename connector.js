@@ -845,7 +845,7 @@ async function recoverCalls(opts) {
   const fetchPage = opts.fetchPage || fetchAircallCallsPage;
   const fromUnix = Math.floor(new Date(crmSync.nzLocalToISO(day, '00:00')).getTime() / 1000);
   const toUnix = Math.min(Math.floor(Date.now() / 1000), fromUnix + 86400);
-  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, stillRinging: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, errors: [], calls: [] };
+  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, mergedLegs: 0, stillRinging: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, errors: [], calls: [] };
   const todo = [];
   for (let page = 1; page <= 40; page++) {
     const body = await fetchPage(fromUnix, toUnix, page);
@@ -860,10 +860,16 @@ async function recoverCalls(opts) {
     const have = findCall(state, call.id);
     if (have && !have.stub) { out.alreadyHad++; continue; }
     const when = new Date((call.ended_at || call.started_at) * 1000).toISOString();
+    // A transferred / ring-group call is stored as ONE row that keeps only one of its Aircall ids (see handleCallEnded's
+    // leg-merging). So an Aircall call we have no id for may simply be another leg of a call we DO have: same caller, within
+    // the transfer window. Skip those rather than add a duplicate.
+    const phone = normalizeNumber(call.raw_digits || '');
+    const t0 = new Date(when).getTime();
+    if (phone && (state.calls || []).some(c => !c.stub && !c.recovered && c.callerPhone === phone && Math.abs(new Date(c.occurredAt).getTime() - t0) <= TRANSFER_MERGE_MINUTES * 60000)) { out.mergedLegs++; continue; }
     const agentId = call.user ? String(call.user.id) : null;
     const routing = agentId ? agentRouting(state, agentId) : null;
     const vm = isVoicemail(call), unanswered = isUnanswered(call);
-    const line = { aircallId: String(call.id), at: when, agent: routing ? routing.name : (call.user ? call.user.name : 'Unknown'), team: routing ? routing.team : 'Unmapped', status: vm ? 'voicemail' : (unanswered ? 'not_picked_up' : 'ended') };
+    const line = { aircallId: String(call.id), at: when, caller: phone ? '…' + phone.slice(-4) : '—', agent: routing ? routing.name : (call.user ? call.user.name : 'Unknown'), team: routing ? routing.team : 'Unmapped', status: vm ? 'voicemail' : (unanswered ? 'not_picked_up' : 'ended') };
     if (out.wouldRecover >= max) { out.errors.push('Stopped at ' + max + ' calls — run it again for the rest.'); break; }
     out.wouldRecover++;
     out.calls.push(line);

@@ -89,6 +89,20 @@ test('the acknowledgement marks do not count recovered calls — nobody is penal
   assert.deepEqual([ann({ excludeRecovered: true }).calls.total, ann({ excludeRecovered: true }).calls.notAck], [1, 0], 'the acknowledgement check sees only the live call');
 });
 
+test('another leg of a call we already have (same caller, a different Aircall id) is skipped, not duplicated; two genuine calls in one run are both kept', async () => {
+  const st = db.get();
+  st.calls.push({ id: 'callL', aircallId: '800', callerPhone: '215550001', occurredAt: new Date((unix('17:00') + 120) * 1000).toISOString(), status: 'ended', team: 'GST', stub: false });
+  const before = st.calls.length;
+  const leg = mk(801, '17:00', 1, { raw_digits: '+64215550001', answered_at: null, missed_call_reason: 'agent_did_not_answer' });            // another leg of the call we have
+  const a1 = mk(802, '18:00', 2, { raw_digits: '+64215550002' });
+  const a2 = mk(803, '18:05', 2, { raw_digits: '+64215550002', started_at: unix('18:05') });                                                  // same person calls again 5 min later
+  const dry = await connector.recoverCalls({ day, fetchPage: async () => ({ calls: [leg, a1, a2], meta: {} }) });
+  assert.equal(dry.mergedLegs, 1); assert.equal(dry.wouldRecover, 2, 'the dry run and the real run agree');
+  const r = await connector.recoverCalls({ day, dryRun: false, fetchPage: async () => ({ calls: [leg, a1, a2], meta: {} }), pauseMs: 0 });
+  assert.equal(r.mergedLegs, 1); assert.equal(r.recovered, 2);
+  assert.equal(st.calls.length, before + 2, 'no duplicate for the leg; both genuine calls stored');
+  assert.ok(dry.calls[0].caller.startsWith('…'), 'the report shows only the last 4 digits of a number');
+});
 test('a failure from Aircall is reported, not swallowed', async () => {
   await assert.rejects(connector.recoverCalls({ day, fetchPage: async () => { throw new Error('Aircall answered 401'); } }), /401/);
 });
