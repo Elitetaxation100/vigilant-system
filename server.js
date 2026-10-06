@@ -5509,6 +5509,24 @@ app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, async (req,
   });
 });
 
+// What is using the database, and a safe clean-up. Superadmin only.
+app.get('/api/admin/space-report', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const rep = await db.spaceReport();
+    rep.files = await fileStore.totals().catch(() => null);
+    res.json(rep);
+  } catch (e) { res.status(500).json({ error: 'Could not build the report: ' + e.message }); }
+});
+app.post('/api/admin/space-cleanup', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const r = await db.maintenance();
+    if (!r.ok) return res.status(400).json(r);
+    logEvent(db.get(), req.employee.id, `Ran the database clean-up — ${r.beforeMB}MB → ${r.afterMB}MB.`);
+    db.save();
+    res.json(r);
+  } catch (e) { res.status(500).json({ error: 'Clean-up failed: ' + e.message }); }
+});
+
 // Clear out test tasks for a clean demo. Superadmin only, and the body must
 // carry { confirm: "DELETE ALL TASKS" } so it can't fire by accident. Keeps
 // employees, clients, teams and the org chart exactly as they are — only the
