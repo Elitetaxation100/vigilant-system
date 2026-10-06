@@ -10,6 +10,8 @@
 //       half or fewer unacknowledged (but some)                 → −5 or less,
 //                                                                 in proportion
 //     A person on leave / a holiday / a workshop day is skipped.
+//  3. REPORT DEADLINE — a client report not sent by the (query-aware) committed
+//     date costs whoever is sending it −10. Only for dates after the rules started.
 //  2. LINKS — a CLIENT task needs both a Google Sheet and a Cashbook link
 //     (internal tasks never do).
 //       the processor sends it for review without them          → −20 (−10 if one is missing)
@@ -19,8 +21,8 @@
 // given twice for the same thing, and can be voided by a superadmin.
 // ---------------------------------------------------------------------------
 const DEFAULTS = {
-  enabled: { acknowledgement: true, links: true },
-  points: { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30 },
+  enabled: { acknowledgement: true, links: true, reports: true },
+  points: { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30, reportLate: 10 },
 };
 const isDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const clampInt = (v, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : d; };
@@ -69,6 +71,13 @@ function missingLinks(t) {
   return out;
 }
 const linkMarks = (missing, full) => Math.round((full * missing.length) / 2); // both missing = full, one = half
+
+// ---- rule 3: the report must go to the client by the committed date ----------
+// Late = still unsent the day AFTER the committed date, and that date is on/after
+// the day the rules started (nothing is judged retroactively).
+function reportIsLate(committedDate, today, activeFrom) {
+  return !!committedDate && isDay(committedDate) && today > committedDate && (!isDay(activeFrom) || committedDate >= activeFrom);
+}
 
 // ---- creating a mark ---------------------------------------------------------
 function dayLabel(day) {
@@ -143,6 +152,6 @@ function runDays(state, deps) {
 }
 
 module.exports = {
-  DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, linkMarks,
+  DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, linkMarks, reportIsLate,
   createAutoMark, evaluateAckDay, runDays, addDays, dayLabel,
 };

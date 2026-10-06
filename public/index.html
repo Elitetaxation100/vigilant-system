@@ -3406,15 +3406,17 @@ async function renderAutoMarksPanel(){
     <div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:10px;">
       The system deducts marks by itself. Each one is a normal mark (the person and their manager see it, it counts in the totals) and you can void any of them.<br>
       <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: nothing acknowledged or more than half not acknowledged → <b>−${p.ackAll}</b>; half or fewer not acknowledged → up to <b>−${p.ackHalfMax}</b>, in proportion. Judged from 08:00 NZ the next morning; leave, holidays and workshop days are skipped.<br>
-      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). Internal tasks never need links.
+      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). Internal tasks never need links.<br>
+      <b>Reports</b> — a client report not sent to the client by its committed date (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever is sending it, once per task. Only dates after “Starts from” count.
     </div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnAck" ${s.enabled.acknowledgement ? 'checked' : ''}> Email &amp; call acknowledgement</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnLinks" ${s.enabled.links ? 'checked' : ''}> Missing links</label>
+      <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnReports" ${s.enabled.reports ? 'checked' : ''}> Report not sent on time</label>
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px;">
       <span>Ack: all ${num('amAckAll', p.ackAll)}</span><span>half max ${num('amAckHalf', p.ackHalfMax)}</span>
-      <span>Processor links ${num('amProc', p.processorLinks)}</span><span>Reviewer links ${num('amRev', p.reviewerLinks)}</span>
+      <span>Processor links ${num('amProc', p.processorLinks)}</span><span>Reviewer links ${num('amRev', p.reviewerLinks)}</span><span>Late report ${num('amLate', p.reportLate)}</span>
       <span>Starts from <input type="date" id="amFrom" value="${esc(s.activeFrom || '')}"></span>
       <button class="btn small primary" onclick="saveAutoMarks()">Save</button>
     </div>
@@ -3432,8 +3434,8 @@ async function saveAutoMarks(){
   const n = id => Number(document.getElementById(id).value);
   try {
     await api('/api/admin/auto-marks/settings', { method:'POST', body: JSON.stringify({
-      enabled: { acknowledgement: document.getElementById('amOnAck').checked, links: document.getElementById('amOnLinks').checked },
-      points: { ackAll: n('amAckAll'), ackHalfMax: n('amAckHalf'), processorLinks: n('amProc'), reviewerLinks: n('amRev') },
+      enabled: { acknowledgement: document.getElementById('amOnAck').checked, links: document.getElementById('amOnLinks').checked, reports: document.getElementById('amOnReports').checked },
+      points: { ackAll: n('amAckAll'), ackHalfMax: n('amAckHalf'), processorLinks: n('amProc'), reviewerLinks: n('amRev'), reportLate: n('amLate') },
       activeFrom: document.getElementById('amFrom').value || undefined }) });
     showToast('success', 'Saved', 'Automatic marks settings updated.');
     await loadAutoRules();

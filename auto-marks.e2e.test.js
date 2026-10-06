@@ -66,7 +66,7 @@ test('setup', async () => {
 
 test('everyone can read the rules; only a superadmin can change them', async () => {
   const r = await http('GET', '/api/auto-marks/rules', { token: RJ });
-  assert.deepEqual(r.j, { links: { enabled: true, processor: 20, reviewer: 30 }, acknowledgement: { enabled: true, all: 10, halfMax: 5 } });
+  assert.deepEqual(r.j, { links: { enabled: true, processor: 20, reviewer: 30 }, acknowledgement: { enabled: true, all: 10, halfMax: 5 }, reports: { enabled: true, late: 10 } });
   assert.equal((await http('GET', '/api/admin/auto-marks', { token: RJ })).status, 403);
   assert.equal((await http('POST', '/api/admin/auto-marks/settings', { token: DI, body: { enabled: { links: false } } })).status, 403);
   assert.equal((await http('POST', '/api/admin/auto-marks/run', { token: RJ })).status, 403);

@@ -46,6 +46,21 @@ test('links: both missing = full, one missing = half; blank counts as missing', 
   assert.equal(am.linkMarks([], 30), 0);
 });
 
+/* ---------------- rule 3: report deadline ---------------- */
+test('report: late only the day AFTER the committed date, and never for dates before the rules started', () => {
+  assert.equal(am.reportIsLate('2026-10-12', '2026-10-12', '2026-10-01'), false, 'on the committed date itself is still on time');
+  assert.equal(am.reportIsLate('2026-10-12', '2026-10-13', '2026-10-01'), true);
+  assert.equal(am.reportIsLate('2026-10-12', '2026-10-20', '2026-10-13'), false, 'it was already overdue before the rules started — no retroactive hit');
+  assert.equal(am.reportIsLate('2026-10-13', '2026-10-20', '2026-10-13'), true, 'a date on the first day the rules started counts');
+  assert.equal(am.reportIsLate(null, '2026-10-20', '2026-10-01'), false, 'no committed date (internal work) → never late');
+});
+test('report: the −10 is recorded once per task per round, even if the sender changes', () => {
+  const s = { employees: [{ id: 'e1' }, { id: 'e2' }], marks: [] };
+  const a = am.createAutoMark(s, { toId: 'e1', points: 10, type: 'auto_report_late', key: 'report:t1:0', taskId: 't1', reason: 'late' });
+  assert.equal(a.points, -10);
+  assert.equal(am.createAutoMark(s, { toId: 'e2', points: 10, type: 'auto_report_late', key: 'report:t1:0', taskId: 't1', reason: 'late' }), null);
+});
+
 /* ---------------- creating marks ---------------- */
 test('an automatic mark is negative, tagged, and can never be given twice for the same thing', () => {
   const s = { employees: [{ id: 'e1' }], marks: [] };
@@ -130,7 +145,8 @@ test('runDays: switched off, it does not catch up when switched back on', () => 
 test('settings: defaults, validation, and activeFrom stays put', () => {
   const s = {};
   const d = am.settingsOf(s, '2026-10-12');
-  assert.deepEqual(d.points, { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30 });
+  assert.deepEqual(d.points, { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30, reportLate: 10 });
+  assert.deepEqual(d.enabled, { acknowledgement: true, links: true, reports: true });
   assert.equal(d.activeFrom, '2026-10-12');
   assert.equal(am.settingsOf(s, '2026-11-01').activeFrom, '2026-10-12');
   am.updateSettings(s, { enabled: { links: false, nonsense: true }, points: { processorLinks: '15', reviewerLinks: -5, ackAll: 'abc' }, activeFrom: 'tomorrow' }, '2026-10-12');

@@ -2730,6 +2730,7 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
     t.reportDeliveryStatus = null; // superseded by the sentToClient fact itself
     t.awaitingClientDecision = false;
     giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
+    giveReportMarks(state, t, req.employee.id);
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent directly to the client by <b>${escHtml(req.employee.name)}</b>${channel ? ' (' + channel + ')' : ''}.`);
     managersOfEmployee(state, t.assignedTo).forEach(m => {
       logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was sent directly to the client.`);
@@ -3064,10 +3065,32 @@ function giveLinkMarks(state, t, who, reviewerId) {
   if (row) announceAutoMark(state, row);
   return row;
 }
+// A client report that has not gone out by the committed date (query-aware, so a
+// client query that froze the clock is respected) costs whoever is sending it.
+function giveReportMarks(state, t, toId) {
+  const s = autoMarks.settingsOf(state, todayISO());
+  if (!s.enabled.reports || !toId) return null;
+  const committed = effectiveClientDate(t);
+  if (!autoMarks.reportIsLate(committed, todayISO(), s.activeFrom)) return null;
+  const row = autoMarks.createAutoMark(state, {
+    toId, points: s.points.reportLate, type: 'auto_report_late', key: `report:${t.id}:${t.reworkCount || 0}`, taskId: t.id,
+    reason: `Automatic: the report for "${t.name}" was not sent to the client by the committed date (${committed})`,
+  });
+  if (row) announceAutoMark(state, row);
+  return row;
+}
+// Run by the daily job: every report still waiting to be sent, past its date.
+function sweepReportDeadlines(state) {
+  let n = 0;
+  (state.tasks || []).forEach(t => {
+    if (t.awaitingClientDecision && t.kind !== 'internal' && giveReportMarks(state, t, t.reportSendOwner || t.assignedTo)) n++;
+  });
+  return n;
+}
 // What everyone is told up front (the Mark Complete and review screens quote these numbers).
 app.get('/api/auto-marks/rules', requireAuth, (req, res) => {
   const s = autoMarks.settingsOf(db.get(), todayISO());
-  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, all: s.points.ackAll, halfMax: s.points.ackHalfMax } });
+  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, all: s.points.ackAll, halfMax: s.points.ackHalfMax }, reports: { enabled: s.enabled.reports, late: s.points.reportLate } });
 });
 app.get('/api/admin/auto-marks', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
@@ -3083,7 +3106,7 @@ app.post('/api/admin/auto-marks/settings', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   const state = db.get();
   const s = autoMarks.updateSettings(state, req.body, todayISO());
-  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}; ack −${s.points.ackAll}/−${s.points.ackHalfMax}, links −${s.points.processorLinks}/−${s.points.reviewerLinks}).`);
+  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}, late reports ${s.enabled.reports ? 'on' : 'off'}; ack −${s.points.ackAll}/−${s.points.ackHalfMax}, links −${s.points.processorLinks}/−${s.points.reviewerLinks}, late report −${s.points.reportLate}).`);
   db.save();
   res.json({ settings: s });
 });
@@ -5765,7 +5788,7 @@ require('./connector').mountConnector(app);
 // buttons to share instead of re-implementing the same transitions —
 // required lazily from there (after this file has fully loaded), same
 // pattern connector.js already uses elsewhere.
-module.exports = { resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee, attendanceStatus, announceAutoMark };
+module.exports = { sweepReportDeadlines, resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee, attendanceStatus, announceAutoMark };
 
 // ---------------------------------------------------------------------------
 // Static frontend

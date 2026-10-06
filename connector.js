@@ -1510,6 +1510,8 @@ function autoMarksDeps(state) {
 function runAutoMarks(reason) {
   const state = db.get();
   const res = autoMarks.runDays(state, autoMarksDeps(state));
+  res.reports = require('./server').sweepReportDeadlines(state); // reports still unsent past their committed date
+  res.created += res.reports;
   db.save();
   if (res.created) clog('info', 'automatic marks given', { reason, created: res.created, days: res.days.map(d => d.day) });
   return res;
