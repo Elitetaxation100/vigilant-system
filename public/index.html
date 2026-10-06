@@ -7907,8 +7907,8 @@ function openSendForReviewModal(id){
     <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:10px 0 4px;">This re-opens the task and puts it in front of a reviewer${wasClean ? ' for another look' : ''}. Any earlier profit-confirmation / report-send decision is cleared, so it can be reviewed and sent for profit confirmation again. It stays counted as delivered.</p>
     <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="sfrSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
-    ${t.kind !== 'internal' ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
-      <input type="text" id="sfrCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}
+    <div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+      <input type="text" id="sfrCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>
     ${reviewers.length
       ? `<div class="field"><label>Send for review to</label><select id="sfrReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
       : `<div class="modal-error" style="display:block;">There's no one else to review this.</div>`}
