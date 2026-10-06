@@ -145,6 +145,21 @@ body.v2-dash .clock-card{ display:none !important; }
 .td-facts{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px 18px; font-size:13.5px; margin-bottom:14px; }
 .td-facts b{ display:block; font-size:11.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
 .td-act{ min-height:44px; }
+/* ---- Reviews queue (v2) and the review screen ---- */
+.rq-bar{ display:grid; grid-template-columns:repeat(5,minmax(120px,1fr)); gap:10px; margin:0 0 14px; }
+.rq-sec{ margin:0 0 14px; border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); overflow:hidden; }
+.rq-card{ display:grid; grid-template-columns:1fr auto; gap:6px 14px; padding:12px 14px; border-top:1px solid var(--panel-border); align-items:center; }
+.rq-card .t1{ font-size:14.5px; } .rq-card .t2{ font-size:12.5px; color:var(--text-dim); line-height:1.6; grid-column:1 / 2; }
+.rq-card .go{ grid-column:2; grid-row:1 / 3; align-self:center; }
+.rq-yes{ color:var(--teal); font-weight:700; } .rq-no{ color:var(--coral); font-weight:700; }
+.rv2-pick{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin:12px 0; }
+.rv2-pick button{ min-height:64px; border:2px solid var(--panel-border); border-radius:12px; background:var(--panel); font:inherit; font-weight:700; font-size:15px; cursor:pointer; color:inherit; }
+.rv2-pick button[aria-pressed="true"]{ border-color:var(--purple); background:var(--purple); color:#fff; }
+.rv2-pick button:focus-visible{ outline:3px solid var(--purple); outline-offset:2px; }
+.rv2-sec{ margin:14px 0 0; padding-top:10px; border-top:1px solid var(--panel-border); }
+.rv2-sec h4{ margin:0 0 8px; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-faint); }
+.rv2-yn{ display:flex; gap:10px; flex-wrap:wrap; margin:4px 0 10px; } .rv2-yn label{ display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:0 14px; border:1px solid var(--panel-border); border-radius:10px; cursor:pointer; }
+@media (max-width:900px){ .rq-bar{ grid-template-columns:repeat(2,1fr); } .rq-card{ grid-template-columns:1fr; } .rq-card .go{ grid-column:1; grid-row:auto; } .rv2-pick{ grid-template-columns:1fr; } }
 /* more specific than the general .btn rule, so it only appears on phones */
 .td-detail .td-back{ display:none; }
 @media (max-width:900px){
@@ -1493,6 +1508,7 @@ body.v2-dash .clock-card{ display:none !important; }
           <span id="rvCustom" style="display:none;"><input type="date" id="rvFrom" onchange="onRvFilter()"> → <input type="date" id="rvTo" onchange="onRvFilter()"></span>
           <button class="btn small" id="rvClear" style="display:none;" onclick="clearRvFilters()">Clear filters</button>
         </div>
+        <div id="rvV2" style="display:none;"></div>
         <div id="rvAwaiting"></div>
         <div id="rvRework" style="margin-top:16px;"></div>
         <div id="rvSentBack" style="margin-top:16px;"></div>
@@ -5724,7 +5740,7 @@ function dismissBanner(key){
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
 let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
-const NOTIF_ICON = { send_report:'📨', assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋', workshop:'📖', system:'🛠' };
+const NOTIF_ICON = { send_report:'📨', assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋', workshop:'📖', system:'🛠', escalation:'⚖️' };
 async function refreshNotifications(opts){
   opts = opts || {};
   if(!session) return;
@@ -7575,7 +7591,8 @@ document.addEventListener('keydown', e => { if(e.key === 'Escape' && todayViewAc
 function tdPrimary(id){
   const n = (_today.sections.needs.find(x => x.id === id) || {}), c = _today.cards[id];
   const btn = (label, fn) => '<button type="button" class="btn primary td-act" onclick="' + fn + '">' + label + '</button>';
-  if(n.type === 'review' || n.type === 'correction_resubmitted') return btn('Open review', "openReviewFormModal('" + esc(id) + "')");
+  if(n.type === 'review' || n.type === 'correction_resubmitted') return btn('Open review', "openReviewV2('" + esc(id) + "')");
+  if(n.type === 'escalation') return btn('Make the decision', "openEscalationDecision('" + esc(id) + "')");
   if(n.type === 'send_report') return btn('Send to client…', "openSendToClientModal('" + esc(id) + "')");
   if(n.type === 'profit_confirm') return btn('Profit confirmed', "submitProfitConfirmDone('" + esc(id) + "')");
   if(n.type === 'decision') return c.status === 'Assigned' && findTask(id) && findTask(id).status === 'pending_approval' ? btn('Approve assignment', "approveAssignment('" + esc(id) + "')") : btn('Decide the new date', 'openProposedWindows()');
@@ -10620,7 +10637,52 @@ function clearRvFilters(){
   renderReviewsView();
 }
 function rvFiltersOn(){ return !!(_rv.q || _rv.emp || _rv.preset !== 'all'); }
+let _rvFilter = null;
+const RQ_BAR = [['urgent', 'Urgent'], ['newSubmissions', 'New submissions'], ['resubmitted', 'Corrections resubmitted'], ['waitingEmployee', 'Waiting on employee'], ['completedToday', 'Completed today']];
+const RQ_SECTIONS = [
+  ['urgent', 'Urgent — client deadline overdue or at risk', 'urgent', 'No client deadlines are currently at risk.'],
+  ['resubmitted', 'Corrections resubmitted', 'resubmitted', 'No corrections have come back to you.'],
+  ['newSubmissions', 'New submissions', 'fresh', 'No reviews are waiting for you.'],
+  ['waitingEmployee', 'Waiting on employee correction', 'waitingEmployee', 'No corrections are waiting on employees.'],
+  ['completedToday', 'Completed reviews', 'completed', 'No reviews completed yet today.'],
+];
+const rqYN = v => v ? '<span class="rq-yes">Yes</span>' : '<span class="rq-no">No</span>';
+function rqAge(c){
+  if(!c.reviewWaiting) return '';
+  const d = c.reviewWaiting.days, h = c.reviewWaiting.hours;
+  return 'Waiting for review: <b>' + (d >= 1 ? d + (d === 1 ? ' day' : ' days') : (h < 1 ? 'under an hour' : Math.round(h) + ' h')) + '</b>';
+}
+function rqCardHtml(c, kind){
+  const submitted = c.reviewWaiting ? new Date(c.reviewWaiting.since).toLocaleString('en-NZ', { day:'2-digit', month:'short', hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }) : '—';
+  const go = kind === 'waitingEmployee' ? '<button type="button" class="btn td-act" onclick="openAddReviewFilesModal(\'' + esc(c.id) + '\')">Add files</button>'
+    : kind === 'completedToday' ? '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(c.id) + '\')">History</button>'
+    : '<button type="button" class="btn primary td-act" onclick="openReviewV2(\'' + esc(c.id) + '\')">Review</button>';
+  return '<div class="rq-card"><div class="t1"><b>' + esc(c.name) + '</b> — ' + esc(c.clientName || 'Admin task') + ' ' + tdRiskTag(c) + '</div>'
+    + '<div class="t2">' + esc(c.assigneeName || '—') + ' · ' + esc(taskNo(c.id)) + (c.reworkCount ? ' · rework cycle ' + c.reworkCount : '') + '<br>'
+    + (c.reviewWaiting ? 'Submitted ' + esc(submitted) + ' · ' + rqAge(c) + '<br>' : '')
+    + (c.clientDate ? 'Client commitment ' + esc(fmtDate(c.clientDate)) + ' — ' + esc(c.clientRisk.label.replace('Client deadline: ', '')) : 'No client commitment')
+    + '<br>Sheet: ' + rqYN(c.hasSheet) + ' · Cashbook: ' + rqYN(c.hasCashbook) + ' · Attachments: <b>' + c.attachmentCount + '</b></div><div class="go">' + go + '</div></div>';
+}
+async function renderReviewsV2(quiet){
+  const box = document.getElementById('rvV2'); if(!box) return;
+  if(!quiet && !_today) box.innerHTML = '<div class="td-empty">Loading your review queue…</div>';
+  try { _today = await api('/api/workflow/today'); }
+  catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not load your reviews: ' + esc(e.message) + ' <button class="btn small td-act" onclick="renderReviewsV2()">Retry</button></div>'; return; }
+  const T = _today, rc = T.reviewCounts;
+  const bar = RQ_BAR.map(([k, label]) => '<button type="button" class="td-count' + (_rvFilter === k ? ' on' : '') + (k === 'urgent' && rc[k] ? ' hot' : '') + '" onclick="_rvFilter = (_rvFilter === \'' + k + '\' ? null : \'' + k + '\'); renderReviewsV2(true)" aria-pressed="' + (_rvFilter === k) + '" aria-label="' + esc(label) + ': ' + rc[k] + '. Show these."><span class="n">' + rc[k] + '</span><span class="l">' + esc(label) + '</span></button>').join('');
+  const secs = RQ_SECTIONS.filter(x => !_rvFilter || _rvFilter === x[0]).map(([key, title, field, empty]) => {
+    const ids = (T.review[field] || []).filter(id => T.cards[id]);
+    return '<div class="rq-sec"><div class="td-sec"><span>' + esc(title) + '</span><span>' + ids.length + '</span></div>'
+      + (ids.length ? ids.map(id => rqCardHtml(T.cards[id], key)).join('') : '<div class="td-empty">' + esc(empty) + '</div>') + '</div>';
+  }).join('');
+  box.innerHTML = '<div class="rq-bar">' + bar + '</div>' + (_rvFilter ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(RQ_BAR.find(x => x[0] === _rvFilter)[1]) + '</b> <button class="btn small td-act" onclick="_rvFilter=null;renderReviewsV2(true)">Clear filter</button></div>' : '') + secs;
+}
 function renderReviewsView(){
+  const v2 = !!(session && session.dashboardV2);
+  const box = document.getElementById('rvV2');
+  ['rvToolbar', 'rvAwaiting', 'rvRework', 'rvSentBack', 'rvProfit', 'rvProfitSent', 'rvProfitStats', 'rvSend'].forEach(id => { const e = document.getElementById(id); if(e) e.style.display = v2 ? 'none' : ''; });
+  if(box) box.style.display = v2 ? '' : 'none';
+  if(v2){ renderReviewsV2(); return; }
   const link = (url, label) => url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="rv-link">${label}</a>` : '<span style="color:var(--text-faint);">—</span>';
   const bounds = rangeBoundsFor(_rv.preset, _rv.from, _rv.to);
   // does a task pass the search, the employee and the date filters? `ts` is the date that matters for its list.
@@ -11408,9 +11470,11 @@ const REVIEW_CHECKLIST = [
 // the time the last step submits.
 let _revState = null;
 let _reviewShotData = null;
+function openReviewScreen(id){ return (session && session.dashboardV2) ? openReviewV2(id) : openReviewFormModal(id); }
 function openReviewFormModal(id){
   const t = findTask(id);
   if(!t) return;
+  if(session && session.dashboardV2 && !window.__oldReviewForm){ return openReviewV2(id); }   // the simple review screen replaces the long wizard
   if(!iCanReview(t)){
     showToast('error', 'Not allowed', 'Only a manager or admin responsible for this person can review their work.');
     return;
@@ -11547,6 +11611,142 @@ function attachChipsHtml(list, removeFn){
     <span style="color:var(--text-faint);font-size:12px;">${fmtBytes(a.size)}</span>
     <button type="button" class="btn" style="padding:2px 8px;" title="Remove" onclick="${callFor(i)}">✕</button></div>`).join('');
 }
+/* =========================================================================
+   THE REVIEW SCREEN (v2) — A: what was submitted · B: three big decisions · C: only the fields that decision needs.
+   No score, no marks buttons, no penalties here. One atomic request per decision; a repeated click is harmless (same requestId).
+   ========================================================================= */
+const RV2_CATEGORIES = ['Calculation error', 'Missing information', 'Incorrect classification', 'Missing supporting document', 'Formatting or presentation issue', 'Client requirement not followed', 'Other'];
+const RV2_RESPONSIBILITY = ['Employee', 'Reviewer', 'Manager', 'Client dependency', 'System/data issue', 'Shared responsibility'];
+let _rv2 = null;
+function rv2History(t){
+  const ev = (t.reviewEvents || []).map(e => ({ at: e.at, text: (e.type === 'returned' ? 'Returned for correction' : e.type === 'approved' ? 'Approved' : e.type === 'escalated' ? 'Escalated' : 'Escalation decided') + ' by ' + esc((empById(e.byId) || {}).name || '—') + (e.category ? ' — ' + esc(e.category) : '') + (e.note ? ': “' + esc(e.note) + '”' : '') }));
+  const legacy = (t.reworkHistory || []).filter(h => h.reviewNote && !ev.length).map(h => ({ at: h.startedAt || '', text: 'Round ' + (h.round || '?') + ' — returned: “' + esc(h.reviewNote) + '”' }));
+  return [...ev, ...legacy].sort((a, b) => String(a.at).localeCompare(String(b.at)));
+}
+function openReviewV2(id){
+  const t = findTask(id), c = (_today && _today.cards[id]) || null;
+  if(!t){ showToast('error', 'Not found', 'That task is no longer in the list.'); return; }
+  if(!(isAdmin || t.reviewerId === currentViewerId)){ showToast('error', 'Not allowed', 'Only the reviewer, or a manager over this person, can review their work.'); return; }
+  _rv2 = { id, decision: null, requestId: 'rv-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), busy: false };
+  const e = empById(t.assignedTo) || {};
+  const submitted = t.completedAt ? new Date(t.completedAt).toLocaleString('en-NZ', { weekday:'short', day:'2-digit', month:'short', year:'numeric', hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }) + ' (NZ time)' : '—';
+  const fact = (l, v) => '<div><b>' + l + '</b>' + (v || '<span style="color:var(--text-faint);">—</span>') + '</div>';
+  const hist = rv2History(t);
+  document.getElementById('modalBox').innerHTML = '<h3>Review — ' + esc(t.name) + '</h3><div class="modal-sub">' + esc(t.clientName || 'Admin task') + ' · ' + esc(taskNo(t.id)) + (t.reworkCount ? ' · rework cycle ' + t.reworkCount : '') + '</div>'
+    + '<div class="rv2-sec" style="border-top:0;margin-top:6px;"><h4>A · The work submitted</h4><div class="td-facts">'
+    + fact('Employee', esc(e.name || '')) + fact('Allocated hours', t.tat != null ? esc(String(t.productivityAllocatedHoursSnapshot != null ? t.productivityAllocatedHoursSnapshot : t.tat)) + ' h' : '')
+    + fact('Internal due date', t.internalDeadline ? esc(fmtDate(t.internalDeadline)) : '') + fact('Client commitment', t.clientDate ? esc(fmtDate(t.clientDate)) + (c ? '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : '') : '')
+    + fact('Submitted', esc(submitted)) + fact('Commitment', c ? esc(c.commitment.label) : '')
+    + fact('Google Sheet', (t.sheetLink || (t.sheetFiles || []).length) ? slotCell(t.sheetLink, 'Open Sheet', t.sheetFiles) : '<span class="rq-no">Missing</span>')
+    + fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '<span class="rq-no">Missing</span>')
+    + '</div>'
+    + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 8px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Earlier files from reviews</b>' + reviewFilesByRoundHtml(t) + '</div>' : '')
+    + (hist.length ? '<div style="margin:8px 0 0;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Previous review history</b>' + hist.map(h => '<div style="font-size:13px;color:var(--text-dim);padding:3px 0;">' + h.text + '</div>').join('') + '</div>' : '')
+    + '</div>'
+    + '<div class="rv2-sec"><h4>B · Your decision</h4><div class="rv2-pick" role="group" aria-label="Review decision">'
+    + '<button type="button" onclick="rv2Pick(\'approve\')" aria-pressed="false" id="rv2Approve">✓ Approve</button>'
+    + '<button type="button" onclick="rv2Pick(\'return\')" aria-pressed="false" id="rv2Return">↩ Return for Correction</button>'
+    + '<button type="button" onclick="rv2Pick(\'escalate\')" aria-pressed="false" id="rv2Escalate">⚖ Escalate</button></div></div>'
+    + '<div class="rv2-sec" id="rv2Fields" style="display:none;"></div>'
+    + '<div class="modal-error" id="rv2Err" role="alert"></div>'
+    + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="rv2Submit" onclick="rv2Submit()" disabled>Choose a decision</button></div>';
+  openModal();
+}
+function rv2Pick(d){
+  _rv2.decision = d;
+  ['approve', 'return', 'escalate'].forEach(k => { const b = document.getElementById('rv2' + k[0].toUpperCase() + k.slice(1)); if(b) b.setAttribute('aria-pressed', String(k === d)); });
+  const t = findTask(_rv2.id), isClient = t.kind !== 'internal' || !!t.clientId;
+  const box = document.getElementById('rv2Fields'); box.style.display = '';
+  const sub = document.getElementById('rv2Submit'); sub.disabled = false;
+  const note = (label, req) => '<div class="field"><label>' + label + (req ? ' <span class="req-mark">*</span>' : ' <span style="color:var(--text-faint);font-weight:400;">(optional)</span>') + '</label><textarea id="rv2Note" rows="3"></textarea></div>';
+  const yn = (name, yes) => '<div class="rv2-yn"><label><input type="radio" name="' + name + '" value="yes"' + (yes ? ' checked' : '') + '> Yes</label><label><input type="radio" name="' + name + '" value="no"' + (yes ? '' : ' checked') + '> No</label></div>';
+  const opts = arr => '<option value="">— Choose —</option>' + arr.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('');
+  if(d === 'approve'){
+    box.innerHTML = '<h4>C · Approve</h4><div class="field"><label>Is this work clean and ready for the next stage?</label>' + yn('rv2Clean', true) + '</div>'
+      + (isClient ? '<div class="field"><label>Is profit confirmation required?</label>' + yn('rv2Profit', false) + '<div style="font-size:12.5px;color:var(--text-faint);">If yes it goes to Shubam Sharma; if no it goes to the report sender, ready to send. Approving never marks the report as sent.</div></div>' : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
+      + note('Reviewer note', false);
+    sub.textContent = 'Approve';
+  } else if(d === 'return'){
+    box.innerHTML = '<h4>C · Return for correction</h4>'
+      + '<div class="field"><label>Correction category <span class="req-mark">*</span></label><select id="rv2Cat">' + opts(RV2_CATEGORIES) + '</select></div>'
+      + note('Correction note — what must be fixed', true)
+      + '<div class="field"><label>Who is responsible? <span class="req-mark">*</span></label><select id="rv2Resp">' + opts(RV2_RESPONSIBILITY) + '</select></div>'
+      + '<div class="field"><label>Correction due date <span class="req-mark">*</span></label><input type="date" id="rv2Due" min="' + todayISO() + '" value="' + addDaysISO(2) + '"></div>'
+      + '<div class="field"><label>Attachment <span style="color:var(--text-faint);font-weight:400;">(optional — the employee sees and can download it)</span></label></div>' + slotHtml('rv2File', []);
+    sub.textContent = 'Return for correction';
+  } else {
+    const people = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && canReceiveNewWork(e) && e.id !== currentViewerId).sort((a, b) => a.name.localeCompare(b.name));
+    box.innerHTML = '<h4>C · Escalate</h4>'
+      + '<div class="field"><label>Why are you escalating? <span class="req-mark">*</span></label><textarea id="rv2Reason" rows="3"></textarea></div>'
+      + '<div class="field"><label>Who should decide? <span class="req-mark">*</span></label><select id="rv2To"><option value="">— Choose —</option>' + people.map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>').join('') + '</select></div>'
+      + '<div class="field"><label>Decision needed by <span class="req-mark">*</span></label><input type="date" id="rv2Due" min="' + todayISO() + '" value="' + addDaysISO(2) + '"></div>'
+      + note('Note', false)
+      + '<div class="field"><label>Attachment <span style="color:var(--text-faint);font-weight:400;">(optional)</span></label></div>' + slotHtml('rv2File', []);
+    sub.textContent = 'Escalate';
+  }
+  document.getElementById('rv2Err').style.display = 'none';
+}
+async function rv2Submit(){
+  if(!_rv2 || !_rv2.decision || _rv2.busy) return;                       // a second click while the first is in flight does nothing
+  const d = _rv2.decision, v = id => (document.getElementById(id) || {}).value || '';
+  const err = document.getElementById('rv2Err'), sub = document.getElementById('rv2Submit');
+  const fail = m => { err.textContent = m; err.style.display = 'block'; };
+  const body = { decision: d, requestId: _rv2.requestId, note: v('rv2Note').trim() };
+  if(d === 'approve'){
+    const clean = document.querySelector('input[name="rv2Clean"]:checked');
+    if(clean && clean.value === 'no') return fail('If the work is not clean and ready, choose Return for Correction instead.');
+    body.clean = true;
+    const p = document.querySelector('input[name="rv2Profit"]:checked'); body.profitRequired = !!(p && p.value === 'yes');
+  } else if(d === 'return'){
+    if(!v('rv2Cat')) return fail('Choose the correction category.');
+    if(body.note.length < 3) return fail('Write the correction note — what must be fixed.');
+    if(!v('rv2Resp')) return fail('Choose who is responsible.');
+    if(!v('rv2Due')) return fail('Choose the correction due date.');
+    Object.assign(body, { category: v('rv2Cat'), responsibility: v('rv2Resp'), dueDate: v('rv2Due'), attachments: slotIds('rv2File') });
+  } else {
+    if(v('rv2Reason').trim().length < 3) return fail('Say why you are escalating.');
+    if(!v('rv2To')) return fail('Choose who should decide.');
+    if(!v('rv2Due')) return fail('Choose the date a decision is needed by.');
+    Object.assign(body, { reason: v('rv2Reason').trim(), assignTo: v('rv2To'), decisionDate: v('rv2Due'), attachments: slotIds('rv2File') });
+  }
+  _rv2.busy = true; sub.disabled = true; sub.textContent = 'Saving…'; err.style.display = 'none';
+  try {
+    await api('/api/tasks/' + encodeURIComponent(_rv2.id) + '/review-decision', { method:'POST', body: JSON.stringify(body) });
+    closeModal();
+    showToast('success', d === 'approve' ? 'Approved' : d === 'return' ? 'Returned for correction' : 'Escalated', d === 'approve' ? 'It is ready for the next stage.' : d === 'return' ? 'The employee has been told, with your note and files.' : 'The decision-maker has been told.');
+    _rv2 = null;
+    await refreshTasks(); await refreshActivity({ silent:true });
+    if(todayViewActive()) renderToday(true);
+    if(document.getElementById('view-reviews').classList.contains('active')) renderReviewsV2(true);
+  } catch(e){
+    _rv2.busy = false; sub.disabled = false; sub.textContent = d === 'approve' ? 'Approve' : d === 'return' ? 'Return for correction' : 'Escalate';
+    fail(e.message);                                                       // the same requestId is kept, so a retry can never double-record
+  }
+}
+// The person an escalation was sent to makes the decision.
+function openEscalationDecision(id){
+  const t = findTask(id); if(!t || !t.escalation || t.escalation.status !== 'open') return;
+  const by = (empById(t.escalation.byId) || {}).name || 'The reviewer';
+  window.__esc = { id, requestId: 'esc-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7), busy: false };
+  document.getElementById('modalBox').innerHTML = '<h3>Decision needed — ' + esc(t.name) + '</h3><div class="modal-sub">' + esc(t.clientName || 'Admin task') + ' · escalated by ' + esc(by) + ' · decision needed by ' + esc(fmtDate(t.escalation.decisionDate)) + '</div>'
+    + '<div style="padding:10px 12px;border-radius:8px;background:var(--panel-2);margin:10px 0;font-size:13.5px;"><b>Why it was escalated</b><br>' + esc(t.escalation.reason) + (t.escalation.note ? '<br><br>' + esc(t.escalation.note) : '') + '</div>'
+    + ((t.escalation.attachments || []).length ? downloadListHtml(t.escalation.attachments) : '')
+    + '<div class="field"><label>Your decision <span class="req-mark">*</span></label><textarea id="escDecision" rows="4"></textarea></div><div class="modal-error" id="escErr"></div>'
+    + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="escGo" onclick="submitEscalationDecision()">Send decision to ' + esc(by.split(' ')[0]) + '</button></div>';
+  openModal();
+}
+async function submitEscalationDecision(){
+  const e = window.__esc; if(!e || e.busy) return;
+  const text = (document.getElementById('escDecision').value || '').trim(), err = document.getElementById('escErr');
+  if(text.length < 3){ err.textContent = 'Write your decision so the reviewer knows what to do.'; err.style.display = 'block'; return; }
+  e.busy = true; document.getElementById('escGo').disabled = true;
+  try {
+    await api('/api/tasks/' + encodeURIComponent(e.id) + '/escalation/resolve', { method:'POST', body: JSON.stringify({ decision: text, requestId: e.requestId }) });
+    closeModal(); showToast('success', 'Decision sent', 'The task is back in the reviewer\'s queue.'); await refreshTasks();
+    if(todayViewActive()) renderToday(true);
+  } catch(x){ e.busy = false; document.getElementById('escGo').disabled = false; err.textContent = x.message; err.style.display = 'block'; }
+}
+
 /* "…or attach a file" under every Sheet / Cashbook link field. One small block per field: files already on the task
    (each downloads), a file picker, and the files being added now. The submit button sends slotIds(key). */
 const _slots = {};
@@ -11684,10 +11884,32 @@ function downloadDataUrl(id){
   const a = document.createElement('a'); a.href = window.__trailShot; a.download = 'review-screenshot-' + String(id).replace(/[^0-9A-Za-z]/g, '') + '.jpg';
   document.body.appendChild(a); a.click(); a.remove();
 }
+// Open a PDF or image in place (everything else downloads). A missing file shows a message, never a blank page.
+async function previewAttachment(id, name, mime){
+  document.getElementById('modalBox').innerHTML = '<h3>' + esc(name) + '</h3><div id="pvBody" style="margin:10px 0;min-height:120px;" aria-live="polite">Loading…</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button><button class="btn primary" onclick="downloadAttachment(\'' + esc(id) + '\', \'' + esc(name).replace(/'/g, '&#39;') + '\')">⬇ Download</button></div>';
+  openModal();
+  try {
+    const res = await fetch(API_BASE + '/api/files/' + encodeURIComponent(id), { headers: { 'Authorization': 'Bearer ' + authToken } });
+    if(!res.ok) throw new Error(res.status === 403 ? 'You do not have access to this file.' : 'This file is no longer available.');
+    const url = URL.createObjectURL(await res.blob());
+    document.getElementById('pvBody').innerHTML = String(mime).startsWith('image/')
+      ? '<img src="' + url + '" alt="' + esc(name) + '" style="max-width:100%;max-height:70vh;border:1px solid var(--panel-border);border-radius:6px;">'
+      : '<iframe src="' + url + '" title="' + esc(name) + '" style="width:100%;height:70vh;border:1px solid var(--panel-border);border-radius:6px;"></iframe>';
+  } catch(e){ const b = document.getElementById('pvBody'); if(b) b.innerHTML = '<div class="modal-error" style="display:block;">' + esc(e.message) + '</div>'; }
+}
+// Every round's reviewer files, newest round first, so earlier files are never lost after a resubmission.
+function reviewFilesByRoundHtml(t){
+  const list = t.reviewAttachments || [];
+  if(!list.length) return '';
+  const round = a => a.cycle != null ? a.cycle : (t.reworkCount || 0);
+  const rounds = [...new Set(list.map(round))].sort((a, b) => b - a);
+  return rounds.map(r => '<div style="margin-top:6px;">' + (rounds.length > 1 ? '<div style="font-size:12px;color:var(--text-faint);">Round ' + r + (r === rounds[0] ? ' — latest' : '') + '</div>' : '') + downloadListHtml(list.filter(a => round(a) === r)) + '</div>').join('');
+}
 function downloadListHtml(list){
   return (list || []).map(a => `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-top:6px;border:1px solid #F0603E4a;border-radius:8px;background:var(--panel-bg, rgba(255,255,255,.5));">
     <span style="font-size:18px;">${fileIcon(a)}</span>
     <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#7A2A0C;">${esc(a.name)} <span style="color:var(--text-faint);font-size:12px;">· ${fmtBytes(a.size)}</span></span>
+    ${/^(application\/pdf|image\/)/.test(a.mime || '') ? `<button type="button" class="btn" onclick="previewAttachment('${esc(a.id)}', '${esc(a.name).replace(/'/g, '&#39;')}', '${esc(a.mime)}')">Preview</button>` : ''}
     <button type="button" class="btn" onclick="downloadAttachment('${esc(a.id)}', '${esc(a.name).replace(/'/g, '&#39;')}')">⬇ Download</button></div>`).join('');
 }
 function reviewDetailNext(){
@@ -12169,7 +12391,15 @@ function taskTimelineEvents(t){
     }
   }
 
-  if(t.reviewedAt && (t.reviewStatus === 'clean' || t.reviewStatus === 'error')){
+  (t.reviewEvents || []).forEach(e => {
+    const who = '<b>' + esc(nm(e.byId) || '—') + '</b>';
+    const files = (e.attachmentIds || []).length ? '<div style="font-size:12px;color:var(--text-faint);">📎 ' + e.attachmentIds.length + ' file' + (e.attachmentIds.length > 1 ? 's' : '') + ' attached</div>' : '';
+    if(e.type === 'returned') push(e.at, '🛑', who + ' returned it for correction — <i>' + esc(e.category || '') + '</i> · responsibility: ' + esc(e.responsibility || '—') + ' · due ' + esc(e.dueDate ? fmtDate(e.dueDate) : '—') + (e.note ? ': “' + esc(e.note) + '”' : '') + '.', files);
+    else if(e.type === 'approved') push(e.at, '🔎', who + ' approved it' + (e.profitRequired ? ' — profit confirmation required' : '') + (e.note ? ': “' + esc(e.note) + '”' : '') + '.');
+    else if(e.type === 'escalated') push(e.at, '⚖️', who + ' escalated it to <b>' + esc(nm(e.toId) || '—') + '</b> — decision needed by ' + esc(e.decisionDate ? fmtDate(e.decisionDate) : '—') + ': “' + esc(e.reason || '') + '”.', files);
+    else if(e.type === 'escalation_resolved') push(e.at, '✅', who + ' decided on the escalation: “' + esc(e.note || '') + '”.');
+  });
+  if(t.reviewedAt && (t.reviewStatus === 'clean' || t.reviewStatus === 'error') && !(t.reviewEvents || []).some(e => (e.type === 'approved' || e.type === 'returned') && e.at === t.reviewedAt)){
     push(t.reviewedAt, t.reviewStatus === 'clean' ? '🔎' : '🛑',
       `<b>${esc(nm(t.reviewedBy)||'—')}</b> reviewed it — ${t.reviewStatus === 'clean' ? 'error-free' : 'error found'}${t.reviewNote ? ': “'+esc(t.reviewNote)+'”' : ''}.`,
       t.reviewStatus === 'error' ? `<div class="trail-files">${downloadListHtml(t.reviewAttachments)}${t.hasReviewScreenshot ? '<div id="trailReviewShot" style="margin-top:8px;"><span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span></div>' : ''}</div>` : '');
@@ -12217,6 +12447,7 @@ function openTaskTrailModal(id){
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
+      ${t.escalation && t.escalation.status === 'open' && (t.escalation.toId === currentViewerId || isSuperAdmin) ? `<button class="btn primary" onclick="openEscalationDecision('${id}')">Make the decision</button>` : ''}
       ${t.reviewStatus === 'error' && (iCanReview(t) || isSuperAdmin) ? `<button class="btn" style="border-color:var(--coral);color:#C2410C;" onclick="openAddReviewFilesModal('${id}')" title="Attach a screenshot, PDF or other file to this rework">📎 Add files</button>` : ''}
       ${empManagesWork(currentViewer(), t.assignedTo) ? `<button class="btn" style="border-color:#6D28D9;color:#6D28D9;" onclick="openCorrectNameModal('${id}')" title="Fix a garbled or wrong title">Rename task</button>` : ''}
       ${isSuperAdmin ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="openCorrectLoggedModal('${id}')" title="Fix a bad logged-hours value — e.g. a forgotten timer">Correct logged hours (${t.logged.toFixed(1)}h)</button>` : ''}
@@ -12318,7 +12549,8 @@ function openReworkDetailModal(id){
       ${t.reviewScore != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Score given:</b> ${t.reviewScore}/100</div>` : ''}
       ${t.reviewMarks ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Marks:</b> ${t.reviewMarks > 0 ? '+' : ''}${t.reviewMarks}</div>` : ''}
       ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
-      ${(t.reviewAttachments || []).length ? `<div style="margin-top:10px;"><b style="color:#7A2A0C;">Attached by the reviewer:</b>${downloadListHtml(t.reviewAttachments)}</div>` : ''}
+      ${t.correction ? `<div style="margin-top:8px;"><b style="color:#7A2A0C;">Correction category:</b> ${esc(t.correction.category)} · <b style="color:#7A2A0C;">Due:</b> ${esc(fmtDate(t.correction.dueDate))}</div>` : ''}
+      ${(t.reviewAttachments || []).length ? `<div style="margin-top:10px;"><b style="color:#7A2A0C;">Attached by the reviewer:</b>${reviewFilesByRoundHtml(t)}</div>` : ''}
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
     <p style="font-size:13.5px; color:var(--text-dim); line-height:1.6; margin-bottom:16px;">Fix the issue above, then resubmit — this puts it back in front of a reviewer and the completion date used for commitment tracking will be updated to when you resubmit.</p>

@@ -16,6 +16,7 @@ function daysBetween(a, b) {
 const isClientTask = t => !!t && !(t.kind === 'internal' && !t.clientId);
 const taskKindLabel = t => (isClientTask(t) ? 'Client Task' : 'Admin Task');   // "Internal" is shown to people as "Admin"
 
+const openEscalation = t => (t && t.escalation && t.escalation.status === 'open') ? t.escalation : null;
 function isFlagged(t) { return t.reviewStatus === 'error' && t.status !== 'completed'; }
 
 function status(t) {
@@ -51,6 +52,11 @@ function waitingOn(t, st, deps) {
     return mk('manager', null, 'Waiting on manager');
   }
   if (st === 'Correction Required') return mk('employee', t.assignedTo, 'Waiting on employee');
+  const esc = openEscalation(t);
+  if (st === 'In Review' && esc) {            // escalated: the reviewer stays the reviewer, but the NEXT action is the decision-maker's
+    const founder = deps.roleOf && deps.roleOf(esc.toId) === 'founder';
+    return mk(founder ? 'founder' : 'manager', esc.toId, founder ? 'Waiting on founder' : 'Waiting on manager');
+  }
   if (st === 'In Review') return mk('reviewer', t.reviewerId, 'Waiting on reviewer');
   if (st === 'Approved') {
     if (t.profitConfirmStatus === 'pending') return mk('profit', deps.profitOwnerId, 'Waiting on profit confirmation');
@@ -120,7 +126,7 @@ function nextAction(t, st, w, deps) {
   const who = w.ownerName || '';
   switch (st) {
     case 'Completed': return 'Nothing — finished';
-    case 'In Review': return (who || 'The reviewer') + ' to review';
+    case 'In Review': { const e = openEscalation(t); return e ? (who || 'The manager') + ' to decide' + (e.decisionDate ? ' by ' + e.decisionDate : '') : (who || 'The reviewer') + ' to review'; }
     case 'Correction Required': return (who || 'The employee') + ' to correct and resubmit';
     case 'Approved': return w.kind === 'profit' ? (who || 'Shubam') + ' to confirm profit' : (who || 'The report sender') + ' to send the report';
     case 'On Hold': return w.label + (t.holdFollowUp ? ' — follow up ' + t.holdFollowUp : '');
@@ -148,6 +154,8 @@ function card(t, deps) {
     reviewerId: t.reviewerId || null, reviewerName: t.reviewerId ? deps.nameOf(t.reviewerId) : null,
     allocatedHours: t.productivityAllocatedHoursSnapshot != null ? t.productivityAllocatedHoursSnapshot : (t.tat != null ? t.tat : null),
     reworkCount: t.reworkCount || 0, priority: t.priority || null,
+    escalation: openEscalation(t) ? { toId: t.escalation.toId, toName: deps.nameOf(t.escalation.toId), reason: t.escalation.reason, decisionDate: t.escalation.decisionDate, at: t.escalation.at } : null,
+    correction: t.correction ? { category: t.correction.category, responsibility: t.correction.responsibility, dueDate: t.correction.dueDate } : null,
     reviewWaiting: reviewWaiting(t, st, deps.today, deps, deps.nowMs),
     tracker: tracker(t, st), nextAction: nextAction(t, st, w, deps),
     hasSheet: !!(t.sheetLink || (t.sheetFiles || []).length), hasCashbook: !!(t.cashbookLink || (t.cashbookFiles || []).length),
@@ -183,10 +191,11 @@ function buildToday(tasks, me, deps) {
   const add = (t, type, why, since) => { if (taken.has(t.id)) return; taken.add(t.id); needs.push({ id: t.id, type, why, since: since || null, card: cards[t.id] }); };
   for (const t of open) {
     const c = cards[t.id];
-    if (c.status === 'In Review' && (t.reviewerId === me.id || (!t.reviewerId && deps.isManager && t.assignedTo !== me.id))) {
+    if (c.status === 'In Review' && !c.escalation && (t.reviewerId === me.id || (!t.reviewerId && deps.isManager && t.assignedTo !== me.id))) {
       add(t, c.subState === 'Correction resubmitted' ? 'correction_resubmitted' : 'review', c.subState === 'Correction resubmitted' ? 'Correction resubmitted — needs your review' : 'Waiting for your review', t.completedAt);
     }
   }
+  for (const t of open) if (cards[t.id].escalation && cards[t.id].escalation.toId === me.id) add(t, 'escalation', 'A decision is requested from you', t.escalation.at);
   for (const t of open) if (t.profitConfirmStatus === 'pending' && me.id === deps.profitOwnerId) add(t, 'profit_confirm', 'Profit confirmation needs you', t.profitConfirmRequestedAt);
   for (const t of open) if (cards[t.id].status === 'Approved' && t.awaitingClientDecision && t.reportSendOwner === me.id) add(t, 'send_report', 'Report ready for you to send', t.reviewedAt);
   for (const t of open) if ((t.status === 'window_proposed' || t.status === 'pending_approval') && deps.canApprove(t)) add(t, 'decision', t.status === 'window_proposed' ? 'A new date needs your decision' : 'An assignment needs your approval', t.assignedAt);
@@ -198,6 +207,7 @@ function buildToday(tasks, me, deps) {
   // ---- C. Completed today — what I did today
   for (const t of tasks) {
     if (t.reviewedBy === me.id && t.reviewedAt && deps.nzDay(t.reviewedAt) === deps.today) doneToday.push({ id: t.id, action: t.reviewStatus === 'error' ? 'Returned for correction' : 'Review approved', at: t.reviewedAt });
+    if (t.escalation && t.escalation.status === 'open' && t.escalation.byId === me.id && t.escalation.at && deps.nzDay(t.escalation.at) === deps.today) doneToday.push({ id: t.id, action: 'Escalated to ' + (deps.nameOf(t.escalation.toId) || 'someone'), at: t.escalation.at });
     if (t.sentToClient === true && t.sentToClientBy === me.id && t.sentToClientAt && deps.nzDay(t.sentToClientAt) === deps.today) doneToday.push({ id: t.id, action: 'Report sent', at: t.sentToClientAt });
     if (t.assignedBy === me.id && t.assignedAt && t.assignedTo !== me.id && deps.nzDay(t.assignedAt) === deps.today) doneToday.push({ id: t.id, action: 'Assigned to ' + (deps.nameOf(t.assignedTo) || 'someone'), at: t.assignedAt });
     (t.reassignHistory || []).forEach(h => { if (h.by === me.id && h.at && deps.nzDay(h.at) === deps.today) doneToday.push({ id: t.id, action: 'Reassigned to ' + (deps.nameOf(h.to) || 'someone'), at: h.at }); });
@@ -213,7 +223,7 @@ function buildToday(tasks, me, deps) {
     if (w.ownerId && w.ownerId === me.id) continue;           // mine → it would be in A
     (waitingGroups[w.kind] = waitingGroups[w.kind] || []).push(t.id);
   }
-  const KIND_LABEL = { employee: 'Employee', client: 'Client', reviewer: 'Another reviewer', profit: 'Profit confirmer', manager: 'Another manager', external: 'External authority', ready_to_send: 'Report sender' };
+  const KIND_LABEL = { founder: 'Founder', employee: 'Employee', client: 'Client', reviewer: 'Another reviewer', profit: 'Profit confirmer', manager: 'Another manager', external: 'External authority', ready_to_send: 'Report sender' };
   const waiting = Object.keys(KIND_LABEL).filter(k => waitingGroups[k]).map(k => ({ kind: k, label: KIND_LABEL[k], ids: waitingGroups[k] }));
   // ---- the six counts, each with the exact records behind it
   const ids = f => open.filter(f).map(t => t.id);
@@ -221,16 +231,25 @@ function buildToday(tasks, me, deps) {
   const filters = {
     review: needs.filter(isReviewNeed).map(n => n.id),
     risk: ids(t => ['overdue', 'due_today', 'at_risk'].includes(cards[t.id].clientRisk.state)),
-    decision: needs.filter(n => ['decision', 'profit_confirm', 'unassigned'].includes(n.type)).map(n => n.id),
+    decision: needs.filter(n => ['decision', 'escalation', 'profit_confirm', 'unassigned'].includes(n.type)).map(n => n.id),
     reports: ids(t => cards[t.id].status === 'Approved' && isClientTask(t)),
     overdue: ids(t => cards[t.id].waitingOn.kind === 'employee' && ['Assigned', 'In Progress'].includes(cards[t.id].status) && t.internalDeadline && t.internalDeadline < deps.today),
     completed: [...new Set(doneToday.map(d => d.id))],
   };
+  const rvNeeds = needs.filter(isReviewNeed);
+  const urgentRisk = id => ['overdue', 'due_today', 'at_risk'].includes(cards[id].clientRisk.state);
+  const urgent = rvNeeds.filter(n => urgentRisk(n.id)).map(n => n.id);
+  const resubmitted = rvNeeds.filter(n => n.type === 'correction_resubmitted' && !urgent.includes(n.id)).map(n => n.id);
+  const fresh = rvNeeds.filter(n => !urgent.includes(n.id) && !resubmitted.includes(n.id)).map(n => n.id);
+  const waitingEmployee = open.filter(t => cards[t.id].status === 'Correction Required' && !finishedIds.has(t.id) && (t.reviewedBy === me.id || t.reviewerId === me.id)).map(t => t.id);   // one I returned TODAY is under Completed, not here
+  const completedReviews = [...new Set(doneToday.filter(d => /approved|Returned|scalated/.test(d.action)).map(d => d.id))];
+  const review = { urgent, resubmitted, fresh, waitingEmployee, completed: completedReviews };
+  const reviewCounts = { urgent: urgent.length, newSubmissions: fresh.length, resubmitted: resubmitted.length, waitingEmployee: waitingEmployee.length, completedToday: completedReviews.length };
   const counts = Object.fromEntries(Object.entries(filters).map(([k, v]) => [k, v.length]));
   // only ship the cards the page will actually show
-  const used = new Set([...needs.map(n => n.id), ...waiting.flatMap(g => g.ids), ...doneToday.map(d => d.id), ...Object.values(filters).flat()]);
+  const used = new Set([...Object.values(review).flat(), ...needs.map(n => n.id), ...waiting.flatMap(g => g.ids), ...doneToday.map(d => d.id), ...Object.values(filters).flat()]);
   const outCards = Object.fromEntries([...used].map(id => [id, cards[id]]));
-  return { counts, filters, sections: { needs: needs.map(({ id, type, why }) => ({ id, type, why })), waiting, completed: doneToday }, cards: outCards };
+  return { counts, filters, review, reviewCounts, sections: { needs: needs.map(({ id, type, why }) => ({ id, type, why })), waiting, completed: doneToday }, cards: outCards };
 }
 
 // "Good morning / afternoon / evening" from the BUSINESS clock (hour 0–23 in the company timezone).

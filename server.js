@@ -1034,7 +1034,7 @@ function notify(state, empId, type, text, taskId, opts) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'New date decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send', system: 'System alert' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send', system: 'System alert', escalation: 'Decision requested' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -1923,6 +1923,7 @@ app.get('/api/tasks/:id/review-screenshot', requireAuth, async (req, res) => {
 function canSeeTaskFiles(state, me, t) {
   if (!t) return false;
   if (t.assignedTo === me.id || t.reviewedBy === me.id || t.reviewerId === me.id || t.reportSendOwner === me.id) return true;
+  if (t.escalation && t.escalation.toId === me.id) return true;
   if (me.accessRole === 'superadmin') return true;
   const po = profitConfirmOwner(state); // Shubam needs the files to confirm profit
   if (po && po.id === me.id && t.profitConfirmStatus) return true;
@@ -2035,7 +2036,7 @@ app.post('/api/tasks/:id/review-files', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Could not attach the files — please try again.' });
   }
   if (t.reviewStatus !== 'error') return res.status(409).json({ error: 'This task changed while you were attaching — reload and try again.' });
-  t.reviewAttachments = [...(t.reviewAttachments || []), ...metas];
+  t.reviewAttachments = [...(t.reviewAttachments || []), ...metas.map(m => ({ ...m, eventId: null, uploaderId: req.employee.id, uploaderRole: req.employee.accessRole, uploadedAt: new Date().toISOString(), stage: 'review_return', cycle: t.reworkCount || 0 }))];
   const what = metas.length === 1 ? '1 file' : metas.length + ' files';
   logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> attached ${what} to the rework of "${escHtml(t.name)}".`);
   notify(state, t.assignedTo, 'rework', `${req.employee.name} attached ${what} to "${t.name}" — open it to see and download.`, t.id);
@@ -2904,7 +2905,10 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     t.reviewScreenshot = null; t.reviewScreenshotFile = null;
   }
   // this round's files (earlier rounds stay on the task's rework history)
-  t.reviewAttachments = status === 'error' ? attachMetas : [];
+  // every round's files are kept (earlier rounds stay visible after a resubmission), each tagged with who / when / which stage
+  const tagged = attachMetas.map(m => ({ ...m, eventId: null, uploaderId: req.employee.id, uploaderRole: req.employee.accessRole, uploadedAt: t.reviewedAt, stage: 'review_return', cycle: (t.reworkCount || 0) + 1 }));
+  if (status === 'error') t.reviewAttachments = [...(t.reviewAttachments || []), ...tagged];
+  else if (!Array.isArray(t.reviewAttachments)) t.reviewAttachments = [];
   if (status === 'error') {
     if (t.reviewScreenshot) t.reviewScreenshotFile = null; // a fresh inline screenshot replaces an older stored one
     t.status = 'awaiting_acceptance';
@@ -3089,17 +3093,21 @@ app.post('/api/tasks/:id/profit-confirm', requireAuth, (req, res) => {
   }
   const owner = profitConfirmOwner(state);
   if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
-  t.profitConfirmStatus = 'pending';
-  t.profitConfirmRequestedAt = new Date().toISOString();
-  t.profitConfirmRequestedBy = req.employee.id;
-  t.awaitingClientDecision = false;
-  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
-  logEvent(state, owner.id, `<b>${escHtml(req.employee.name)}</b> sent "${escHtml(t.name)}" for profit confirmation.`);
-  logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
-  notify(state, owner.id, 'profit_confirm', `${req.employee.name} sent "${t.name}" for profit confirmation.`, t.id);
+  applyProfitRequest(state, t, req.employee, owner);
   db.save();
   res.json({ task: taskForClient(t) });
 });
+// Clean, and profit confirmation is required: it goes to Shubam. Shared by /profit-confirm and Approve.
+function applyProfitRequest(state, t, actor, owner) {
+  t.profitConfirmStatus = 'pending';
+  t.profitConfirmRequestedAt = new Date().toISOString();
+  t.profitConfirmRequestedBy = actor.id;
+  t.awaitingClientDecision = false;
+  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || actor.id);
+  logEvent(state, owner.id, `<b>${escHtml(actor.name)}</b> sent "${escHtml(t.name)}" for profit confirmation.`);
+  logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
+  notify(state, owner.id, 'profit_confirm', `${actor.name} sent "${t.name}" for profit confirmation.`, t.id);
+}
 // Shubam confirms the profit — hands the report-send job back to whoever it
 // belonged to (unchanged throughout: the original assignee, unless
 // reassigned via /report-owner). Superadmin can also confirm, as a backup.
@@ -3180,12 +3188,156 @@ app.post('/api/tasks/:id/return-to-processor', requireAuth, (req, res) => {
   }
   const processor = findEmployee(state, t.assignedTo);
   if (!processor) return res.status(400).json({ error: 'The processor for this task no longer exists.' });
+  applyReturnToProcessor(state, t, req.employee, processor);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+// Clean and needs no profit confirmation: the report goes to the processor to send. Shared by /return-to-processor and Approve.
+function applyReturnToProcessor(state, t, actor, processor) {
   t.reportSendOwner = processor.id;
   t.reportReturnedAt = new Date().toISOString();
-  t.reportReturnedBy = req.employee.id;
-  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
-  logEvent(state, processor.id, `<b>${escHtml(req.employee.name)}</b> reviewed "${escHtml(t.name)}" — it's clean and needs no profit confirmation. Please send the report to the client.`);
-  notify(state, processor.id, 'send_report', `${req.employee.name} reviewed "${t.name}" — send the report to the client.`, t.id);
+  t.reportReturnedBy = actor.id;
+  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || actor.id);
+  logEvent(state, processor.id, `<b>${escHtml(actor.name)}</b> reviewed "${escHtml(t.name)}" — it's clean and needs no profit confirmation. Please send the report to the client.`);
+  notify(state, processor.id, 'send_report', `${actor.name} reviewed "${t.name}" — send the report to the client.`, t.id);
+}
+
+// ---------------------------------------------------------------------------
+// REVIEW DECISIONS — the simple review screen: Approve, Return for Correction, or Escalate. One endpoint, one atomic step, and
+// safe to double-click (a repeated requestId — or a task that is no longer awaiting review — never creates a second event).
+// Everything is written to t.reviewEvents, an append-only ledger; earlier notes, reasons and files are never overwritten or removed.
+// ---------------------------------------------------------------------------
+const CORRECTION_CATEGORIES = ['Calculation error', 'Missing information', 'Incorrect classification', 'Missing supporting document', 'Formatting or presentation issue', 'Client requirement not followed', 'Other'];
+const RESPONSIBILITY_CATEGORIES = ['Employee', 'Reviewer', 'Manager', 'Client dependency', 'System/data issue', 'Shared responsibility'];
+const FAULT_FOR_RESPONSIBILITY = { Employee: 'processor', Manager: 'sop' };   // everything else is "other" for the existing quality reports
+const validDay = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && d >= todayISO();
+function newReviewEvent(t, actor, type, extra) {
+  return { id: 'rv-' + ((t.reviewEvents || []).length + 1), type, at: new Date().toISOString(), byId: actor.id, byRole: actor.accessRole, cycle: t.reworkCount || 0, ...(extra || {}) };
+}
+// The reviewer's files for one decision: each must be one THEY uploaded; each is tied to the task and carries who / when / which stage.
+async function claimReviewFiles(actor, t, ids, ev, stage) {
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map(String))];
+  if (list.length > fileStore.MAX_PER_REVIEW) return { ok: false, error: `Attach at most ${fileStore.MAX_PER_REVIEW} files.` };
+  const refs = [];
+  for (const fid of list) {
+    const m = await fileStore.meta(fid);
+    if (!m || m.createdBy !== actor.id || (m.taskId && m.taskId !== t.id)) return { ok: false, error: 'One of the attached files is no longer available — please attach it again.' };
+    refs.push({ ...fileRef(m), eventId: ev.id, uploaderId: actor.id, uploaderRole: actor.accessRole, uploadedAt: new Date().toISOString(), stage, cycle: ev.cycle });
+  }
+  for (const r of refs) await fileStore.attach(r.id, t.id, 'review');
+  return { ok: true, refs };
+}
+const openEscalation = t => (t.escalation && t.escalation.status === 'open') ? t.escalation : null;
+app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
+  try {
+    const state = db.get(), me = req.employee;
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (!canReviewWorkOf(state, me, t.assignedTo, t)) return res.status(403).json({ error: "You can't review this task — it wasn't sent to you, and it isn't your report's work." });
+    const b = req.body || {};
+    const decision = String(b.decision || '');
+    if (!['approve', 'return', 'escalate'].includes(decision)) return res.status(400).json({ error: 'Choose Approve, Return for Correction or Escalate.' });
+    // double-click / retry: the same requestId has already been recorded → say so, change nothing
+    const requestId = b.requestId ? String(b.requestId).slice(0, 64) : null;
+    if (requestId && (t.reviewEvents || []).some(e => e.requestId === requestId)) return res.json({ task: taskForClient(t), duplicate: true });
+    if (t.status !== 'completed') return res.status(400).json({ error: 'Only work that has been submitted for review can be reviewed.' });
+    if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
+    if (t.reviewStatus) return res.status(409).json({ error: 'This task has already been reviewed — reload to see its current state.', code: 'ALREADY_DECIDED' });
+    if (openEscalation(t)) return res.status(409).json({ error: 'This task is waiting on an escalated decision. It returns to you once that is made.', code: 'ESCALATED' });
+    const note = String(b.note == null ? '' : b.note).trim().slice(0, 2000);
+    const assignee = findEmployee(state, t.assignedTo);
+    const isClient = t.kind !== 'internal' || !!t.clientId;
+
+    // ---------- validate EVERYTHING first, so a refused decision changes nothing ----------
+    let owner = null, to = null;
+    if (decision === 'approve') {
+      if (b.clean === false) return res.status(400).json({ error: 'If the work is not clean and ready, use Return for Correction.' });
+      if (b.profitRequired === true && isClient) {
+        if (!hasSheetOrCashbook(t)) return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before asking for profit confirmation.' });
+        owner = profitConfirmOwner(state);
+        if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+      }
+      if (isClient && b.profitRequired !== true && !assignee) return res.status(400).json({ error: 'The processor for this task no longer exists.' });
+    } else if (decision === 'return') {
+      if (!CORRECTION_CATEGORIES.includes(b.category)) return res.status(400).json({ error: 'Choose the correction category.' });
+      if (!RESPONSIBILITY_CATEGORIES.includes(b.responsibility)) return res.status(400).json({ error: 'Choose who is responsible for the correction.' });
+      if (note.length < 3) return res.status(400).json({ error: 'Write a correction note so the employee knows what to fix.' });
+      if (!validDay(b.dueDate)) return res.status(400).json({ error: 'Choose a correction due date (today or later).' });
+      if (!assignee) return res.status(400).json({ error: 'This task has no assignee to send the correction to.' });
+    } else {
+      const reason = String(b.reason || '').trim();
+      if (reason.length < 3) return res.status(400).json({ error: 'Give the reason for escalating.' });
+      to = findEmployee(state, b.assignTo);
+      if (!to || !isAdminRole(to.accessRole) || !canReceiveNewWork(to)) return res.status(400).json({ error: 'Choose an active manager or founder to decide.' });
+      if (to.id === me.id) return res.status(400).json({ error: 'Escalate to someone other than yourself.' });
+      if (!validDay(b.decisionDate)) return res.status(400).json({ error: 'Choose the date a decision is needed by (today or later).' });
+    }
+    const ev = newReviewEvent(t, me, decision === 'approve' ? 'approved' : decision === 'return' ? 'returned' : 'escalated', { requestId, note: note || null });
+    if (decision === 'return') ev.cycle = (t.reworkCount || 0) + 1;
+    let files = [];
+    if (decision !== 'approve') {
+      const c = await claimReviewFiles(me, t, b.attachments, ev, decision === 'return' ? 'review_return' : 'review_escalation');
+      if (!c.ok) return res.status(400).json({ error: c.error });
+      files = c.refs;
+      if (requestId && (t.reviewEvents || []).some(e => e.requestId === requestId)) return res.json({ task: taskForClient(t), duplicate: true }); // the same click, answered twice
+      if (t.status !== 'completed' || t.reviewStatus || openEscalation(t)) return res.status(409).json({ error: 'This task changed while you were deciding — reload and try again.' });
+    }
+
+    // ---------- apply (synchronous from here) ----------
+    const now = ev.at;
+    if (decision === 'approve') {
+      t.reviewStatus = 'clean'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note || null;
+      t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
+      ev.profitRequired = !!owner;
+      t.awaitingClientDecision = isClient;
+      if (isClient) t.reportSendOwner = t.assignedTo;
+      logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
+      managersOfEmployee(state, t.assignedTo).forEach(m => logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml((assignee || {}).name || '—')}</b> was reviewed clean by <b>${escHtml(me.name)}</b>.`));
+      if (isClient) { if (owner) applyProfitRequest(state, t, me, owner); else applyReturnToProcessor(state, t, me, assignee); }
+    } else if (decision === 'return') {
+      t.reviewStatus = 'error'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note;
+      t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
+      t.faultType = FAULT_FOR_RESPONSIBILITY[b.responsibility] || 'other';
+      t.status = 'awaiting_acceptance';                      // "Correction required — waiting for your correction", never "not started"
+      t.reworkCount = (t.reworkCount || 0) + 1;
+      t.correction = { category: b.category, responsibility: b.responsibility, dueDate: b.dueDate, eventId: ev.id, cycle: t.reworkCount };
+      Object.assign(ev, { category: b.category, responsibility: b.responsibility, dueDate: b.dueDate, attachmentIds: files.map(f => f.id) });
+      t.reviewAttachments = [...(t.reviewAttachments || []), ...files];   // earlier files are kept; this round's are added
+      logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for correction (${escHtml(b.category)}) — due ${escHtml(b.dueDate)}. Note: ${escHtml(note)}`);
+      notify(state, t.assignedTo, 'rework', `"${t.name}" needs a correction: ${b.category} — due ${b.dueDate}${files.length ? ' · ' + files.length + ' file' + (files.length > 1 ? 's' : '') + ' attached' : ''}. ${note}`, t.id);
+    } else {
+      const reason = String(b.reason).trim().slice(0, 1000);
+      t.escalation = { id: ev.id, status: 'open', byId: me.id, toId: to.id, reason, note: note || null, decisionDate: b.decisionDate, at: now, attachments: files };
+      Object.assign(ev, { reason, toId: to.id, decisionDate: b.decisionDate, attachmentIds: files.map(f => f.id) });
+      t.reviewAttachments = [...(t.reviewAttachments || []), ...files];
+      logEvent(state, to.id, `<b>${escHtml(me.name)}</b> escalated "${escHtml(t.name)}" to you — decision needed by ${escHtml(b.decisionDate)}: ${escHtml(reason)}`);
+      logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was escalated by <b>${escHtml(me.name)}</b> to <b>${escHtml(to.name)}</b> for a decision.`);
+      notify(state, to.id, 'escalation', `${me.name} escalated "${t.name}" to you — decision needed by ${b.decisionDate}: ${reason}`, t.id);
+    }
+    t.reviewEvents = [...(t.reviewEvents || []), ev];
+    db.save();
+    res.json({ task: taskForClient(t) });
+  } catch (e) {
+    console.error('[review-decision] failed:', e && e.stack || e);
+    res.status(500).json({ error: 'Could not record that decision — please try again.' });
+  }
+});
+// The person it was escalated to makes the call; the task goes straight back to its reviewer.
+app.post('/api/tasks/:id/escalation/resolve', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const requestId = (req.body || {}).requestId ? String(req.body.requestId).slice(0, 64) : null;
+  if (requestId && (t.reviewEvents || []).some(e => e.requestId === requestId)) return res.json({ task: taskForClient(t), duplicate: true });   // the same click twice
+  const esc = openEscalation(t);
+  if (!esc) return res.status(409).json({ error: 'There is no open escalation on this task.' });
+  if (esc.toId !== me.id && me.accessRole !== 'superadmin') return res.status(403).json({ error: 'Only the person it was escalated to can decide.' });
+  const decision = String((req.body || {}).decision || '').trim().slice(0, 2000);
+  if (decision.length < 3) return res.status(400).json({ error: 'Write the decision so the reviewer knows what to do.' });
+  esc.status = 'resolved'; esc.resolvedAt = new Date().toISOString(); esc.resolvedBy = me.id; esc.decision = decision;
+  t.reviewEvents = [...(t.reviewEvents || []), newReviewEvent(t, me, 'escalation_resolved', { requestId, note: decision, escalationId: esc.id })];
+  logEvent(state, esc.byId, `<b>${escHtml(me.name)}</b> decided on "${escHtml(t.name)}": ${escHtml(decision)}`);
+  notify(state, esc.byId, 'escalation', `${me.name} made a decision on "${t.name}": ${decision} — it is back in your review queue.`, t.id);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -3708,7 +3860,7 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   const durationHours = startedAt ? Math.round(((new Date(endedAt) - new Date(startedAt)) / 3600000) * 100) / 100 : null;
   t.logged += durationHours || 0; // actual time spent on this rework round, added to the task's total
   t.reworkHistory = t.reworkHistory || [];
-  t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: t.reviewAttachments || [] });
+  t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: (t.reviewAttachments || []).filter(a => a.cycle == null || a.cycle === t.reworkCount) });
   t.reworkStartedAt = null;
   t.status = 'completed';
   t.completedAt = endedAt;
@@ -5700,6 +5852,7 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
   const payload = workflow.buildToday(scoped, me, {
     today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
+    roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
   });
   const hour = Math.floor(nzMinutesOfDay(nowMs) / 60);
   res.json({ ...payload, today, timezone: BUSINESS_TZ, hour, greeting: workflow.greetingFor(hour), name: me.name });
