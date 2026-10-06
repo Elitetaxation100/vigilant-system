@@ -85,3 +85,12 @@ test('reopening a closed job can also go straight to profit confirmation', async
   assert.equal(r.j.task.profitConfirmStatus, 'pending');
   assert.equal(r.j.task.cashbookLink, 'https://example.com/cb');
 });
+
+test('an internal task with no client cannot be profit-confirmed', async () => {
+  const t = await http('POST', '/api/tasks', { token: SA, body: { mode: 'team', kind: 'internal', name: 'Training', assignedTo: emp('parvinder').id, tat: 1, internalDeadline: due() } });
+  assert.equal(t.status, 201, JSON.stringify(t.j));
+  const id = t.j.task.id;
+  assert.equal((await http('POST', `/api/tasks/${encodeURIComponent(id)}/accept`, { token: PA })).status, 200);
+  const r = await http('POST', `/api/tasks/${encodeURIComponent(id)}/complete`, { token: PA, body: { directProfitConfirm: true, sheetLink: 'https://docs.google.com/spreadsheets/d/x' } });
+  assert.equal(r.status, 400);
+});

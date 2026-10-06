@@ -7850,7 +7850,7 @@ async function submitStartWork(id){
 // job straight to Shubam for profit confirmation, skipping the review step.
 function directProfitToggleHtml(t, prefix){
   const v = currentViewer();
-  if(!v || !v.canDirectProfitConfirm || t.kind === 'internal') return '';
+  if(!v || !v.canDirectProfitConfirm || (t.kind === 'internal' && !t.clientId)) return '';
   return `<label style="display:flex;gap:8px;align-items:flex-start;margin:10px 0;font-size:13px;cursor:pointer;">
     <input type="checkbox" id="${prefix}Direct" onchange="document.getElementById('${prefix}ReviewerField')&&(document.getElementById('${prefix}ReviewerField').style.display=this.checked?'none':'')" style="margin-top:3px;">
     <span><b>💰 Profit confirm</b> — send straight to Shubam for profit confirmation, no separate review. Needs a Sheet or Cashbook link.</span></label>`;

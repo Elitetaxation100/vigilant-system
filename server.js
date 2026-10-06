@@ -301,6 +301,10 @@ const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
 // (comma-separated) without a code change.
 const DIRECT_PROFIT_CONFIRM_EMAILS = (process.env.DIRECT_PROFIT_CONFIRM_EMAILS ||
   'parvinder@elitetaxation.co.nz,simran@elitetaxation.co.nz').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+// A task stored as "internal" that nevertheless has a client attached is
+// really client work (it was set up with the wrong type) — it can be profit-
+// confirmed, and is converted to a client task when it is.
+function hasClient(t) { return !!(t && t.clientId); }
 function canDirectProfitConfirm(emp) {
   return !!(emp && emp.email && DIRECT_PROFIT_CONFIRM_EMAILS.includes(String(emp.email).toLowerCase()));
 }
@@ -308,11 +312,15 @@ function canDirectProfitConfirm(emp) {
 // Shubam. Returns an error message, or null when it was routed. Call AFTER
 // the task's links have been saved onto it.
 function startDirectProfitConfirm(state, t, actor) {
-  if (t.kind === 'internal') return 'Internal tasks have no client, so there is nothing to profit-confirm.';
+  if (t.kind === 'internal' && !hasClient(t)) return 'Internal tasks have no client, so there is nothing to profit-confirm.';
   if (!t.sheetLink && !t.cashbookLink) return 'Attach a Google Sheet or Cashbook link before sending for profit confirmation.';
   const owner = profitConfirmOwner(state);
   if (!owner) return 'Profit confirmation is not set up — Shubam Sharma was not found.';
   const now = new Date().toISOString();
+  if (t.kind === 'internal') {
+    t.kind = 'client';
+    logEvent(state, t.assignedTo || actor.id, `"${escHtml(t.name)}" has a client attached, so it was switched from an internal task to client work by <b>${escHtml(actor.name)}</b>.`);
+  }
   t.reviewerId = null;
   t.reviewStatus = 'clean'; t.reviewSkipped = true;
   t.reviewedBy = null; t.reviewedAt = now;
@@ -2567,9 +2575,9 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   const cashbookLinkN = normalizeLink(cashbookLink);
   if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
   if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
-  if (direct && t.kind === 'internal') return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
+  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
   if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
-  if (direct && t.kind !== 'internal' && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink))) {
+  if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink))) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link before sending for profit confirmation.' });
   }
     const elapsed = t.timerStartedAt ? (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000 : 0;
@@ -2667,7 +2675,7 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, (req, res) => {
   const cashbookLinkN = normalizeLink(cashbookLink);
   if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
   if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
-  if (direct && t.kind === 'internal') return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
+  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
   if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink))) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link before sending for profit confirmation.' });
