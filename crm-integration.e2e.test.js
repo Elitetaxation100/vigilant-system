@@ -351,6 +351,18 @@ test('PANEL: five health sections with counts, the client rule, five live endpoi
 });
 
 /* ------------------------------ RECONCILIATION ------------------------------ */
+test('CONNECTION DIAGNOSTIC: read-only health check never changes task data', async () => {
+  const before = (await http('GET', '/api/tasks', { token: SA })).j.tasks.length;
+  const r = await http('POST', '/api/admin/crm-sync/diagnostic', { token: SA, body: {} });
+  assert.equal(r.status, 200);
+  assert.equal(r.j.readOnly, true);
+  assert.equal(r.j.checks.legacyTaskSync.status, 'Healthy');
+  assert.ok(['Healthy', 'Needs Attention', 'Not Configured'].includes(r.j.checks.webhookSecret.status));
+  assert.ok(['Healthy', 'Needs Attention', 'Not Configured'].includes(r.j.checks.crmApi.status));
+  assert.equal((await http('GET', '/api/tasks', { token: SA })).j.tasks.length, before, 'diagnostic must not mutate task data');
+  assert.equal((await http('POST', '/api/admin/crm-sync/diagnostic', { token: KH, body: {} })).status, 403);
+});
+
 test('RECONCILE: every area previews safely and says plainly what ET-CRM can/cannot offer', async () => {
   for (const kind of ['employees', 'attendance', 'leave', 'policy']) {
     const pre = await http('POST', '/api/admin/crm-sync/reconcile', { token: SA, body: { kind, apply: false } });
