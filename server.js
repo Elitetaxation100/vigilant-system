@@ -17,6 +17,7 @@ const fileStore = require('./files');
 fileStore.init(db);
 const archive = require('./archive');
 const spaceWatch = require('./space-watch');
+const workflow = require('./workflow');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
 const crmSync = require('./crm-sync');
@@ -1305,6 +1306,8 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   if (typeof req.body.isHr === 'boolean' && emp.email !== 'hr@elitetaxation.co.nz') emp.isHr = req.body.isHr;
   // Read-only firm-wide Commitment Dashboard observer — no other powers.
   if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
+  // The new Today dashboard (master-detail, combined Manager + Review actions). Off unless switched on for that person.
+  if (typeof req.body.dashboardV2 === 'boolean') emp.dashboardV2 = req.body.dashboardV2;
   // Time-boxed self-edit grant (estimate, due date & client date on their own tasks).
   if (req.body.selfEditUntil !== undefined) {
     const v = req.body.selfEditUntil;
@@ -5670,6 +5673,36 @@ app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, async (req,
     clients: (state.clients || []).length,
     teams: (state.teams || []).length,
   });
+});
+
+// ---------------------------------------------------------------------------
+// TODAY (GET /api/workflow/today — the older /api/today feeds the current dashboard) — the personal command centre (see workflow.js). Read-only: it derives a picture of the tasks the caller may see and
+// scopes it to THEIR work — their team, tasks they review, tasks whose report they send, tasks they assigned. Everything is
+// computed on the company clock (Pacific/Auckland), so the greeting, the date and "overdue" always agree.
+// ---------------------------------------------------------------------------
+const BUSINESS_TZ = 'Pacific/Auckland';
+function todayTouched(t, day) {
+  return [t.reviewedAt, t.sentToClientAt, t.assignedAt].some(x => x && nzDay(x) === day) || (t.reassignHistory || []).some(h => h.at && nzDay(h.at) === day);
+}
+app.get('/api/workflow/today', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const nowMs = Date.now(), today = todayISO();
+  const roster = new Set(teamRoster(state, me).map(e => e.id)); roster.add(me.id);
+  const visible = visibleTasks(state, me);
+  const scoped = visible.filter(t => {
+    const mine = !t.assignedTo || roster.has(t.assignedTo) || t.reviewerId === me.id || t.reportSendOwner === me.id || t.reviewedBy === me.id || t.assignedBy === me.id;
+    if (!mine) return false;
+    // long-finished work only matters if I touched it today (it feeds "Completed today")
+    const finished = t.status === 'completed' && (t.reviewStatus === 'done' || (t.reviewStatus === 'clean' && t.sentToClient !== null && t.sentToClient !== undefined));
+    return !finished || todayTouched(t, today);
+  });
+  const po = profitConfirmOwner(state);
+  const payload = workflow.buildToday(scoped, me, {
+    today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
+    canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
+  });
+  const hour = Math.floor(nzMinutesOfDay(nowMs) / 60);
+  res.json({ ...payload, today, timezone: BUSINESS_TZ, hour, greeting: workflow.greetingFor(hour), name: me.name });
 });
 
 // Recover calls Aircall never delivered (see connector.js recoverCalls). Superadmin only. DRY RUN unless the

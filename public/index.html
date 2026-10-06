@@ -116,6 +116,43 @@
   .brand-text .t2{ font-size:11px; color:var(--text-faint); letter-spacing:.6px; text-transform:uppercase; margin-top:1px;}
 
   .clock-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 14px; margin-bottom:16px; }
+/* ---- Today (v2): the personal command centre ---- */
+body.v2-dash .clock-card{ display:none !important; }
+.td-head{ display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+.td-greet{ font-size:26px; font-weight:700; letter-spacing:-.01em; margin:0; }
+.td-date{ color:var(--text-dim); font-size:13.5px; margin-top:2px; }
+.td-seg{ display:inline-flex; border:1px solid var(--panel-border); border-radius:10px; overflow:hidden; }
+.td-seg button{ padding:10px 16px; min-height:44px; background:transparent; border:0; color:var(--text-dim); font:inherit; font-weight:600; cursor:pointer; }
+.td-seg button.on{ background:var(--purple); color:#fff; }
+.td-counts{ display:grid; grid-template-columns:repeat(6,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
+.td-count{ text-align:left; padding:12px 14px; min-height:64px; border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); cursor:pointer; font:inherit; color:inherit; }
+.td-count .n{ font-size:26px; font-weight:700; line-height:1.1; display:block; } .td-count .l{ font-size:12.5px; color:var(--text-dim); }
+.td-count.on{ outline:2px solid var(--purple); } .td-count.hot .n{ color:var(--coral); }
+.td-grid{ display:grid; grid-template-columns:minmax(300px,430px) 1fr; gap:14px; align-items:start; }
+.td-list{ border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); max-height:calc(100vh - 250px); overflow:auto; }
+.td-sec{ padding:10px 14px 6px; font-weight:700; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); position:sticky; top:0; background:var(--panel); z-index:1; display:flex; justify-content:space-between; gap:8px; }
+.td-empty{ padding:10px 14px 14px; font-size:13.5px; color:var(--text-faint); }
+.td-card{ padding:10px 14px; border:0; border-top:1px solid var(--panel-border); cursor:pointer; display:block; width:100%; text-align:left; background:transparent; font:inherit; color:inherit; min-height:44px; }
+.td-card:hover{ background:var(--panel-2); } .td-card.sel{ background:var(--panel-2); box-shadow:inset 3px 0 0 var(--purple); }
+.td-card:focus-visible, .td-count:focus-visible, .td-seg button:focus-visible, .td-act:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
+.td-card .t1{ display:flex; justify-content:space-between; gap:8px; font-size:14px; align-items:flex-start; } .td-card .t2{ font-size:12.5px; color:var(--text-dim); margin-top:3px; line-height:1.5; }
+.td-tag{ display:inline-block; padding:1px 8px; border-radius:999px; font-size:11.5px; font-weight:700; border:1px solid currentColor; white-space:nowrap; }
+.td-tag.red{ color:var(--coral); } .td-tag.amber{ color:#B45309; } .td-tag.green{ color:var(--teal); } .td-tag.grey{ color:var(--text-dim); } .td-tag.blue{ color:var(--purple); }
+.td-detail{ border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); padding:16px 18px; min-height:300px; }
+.td-track{ display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 14px; }
+.td-step{ padding:6px 12px; border-radius:999px; font-size:12.5px; border:1px solid var(--panel-border); color:var(--text-dim); }
+.td-step.done{ border-color:var(--teal); color:var(--teal); } .td-step.current{ background:var(--purple); color:#fff; border-color:var(--purple); } .td-step.attention{ border-color:var(--coral); color:var(--coral); font-weight:700; }
+.td-facts{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px 18px; font-size:13.5px; margin-bottom:14px; }
+.td-facts b{ display:block; font-size:11.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+.td-act{ min-height:44px; }
+/* more specific than the general .btn rule, so it only appears on phones */
+.td-detail .td-back{ display:none; }
+@media (max-width:900px){
+  .td-counts{ grid-template-columns:repeat(2,1fr); } .td-grid{ grid-template-columns:1fr; } .td-detail{ display:none; }
+  .td-grid.show-detail .td-list{ display:none; } .td-grid.show-detail .td-detail{ display:block; position:fixed; inset:0; z-index:60; overflow:auto; border-radius:0; padding-bottom:90px; }
+  .td-detail .td-back{ display:inline-flex; margin-bottom:10px; min-height:44px; align-items:center; }
+  .td-sticky{ position:fixed; left:0; right:0; bottom:0; padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px)); background:var(--panel); border-top:1px solid var(--panel-border); z-index:61; display:flex; gap:8px; }
+}
   .clock-label{ font-size:12px; text-transform:uppercase; letter-spacing:.8px; color:var(--text-faint); margin-bottom:6px; }
   .clock-time{ font-family:var(--font-mono); font-size:25px; font-weight:600; letter-spacing:.5px; margin-bottom:12px; color:var(--text); font-variant-numeric:tabular-nums;}
   .btn-punch{
@@ -1078,6 +1115,7 @@
     </div>
 
     <div class="nav-section">
+      <div class="nav-item" id="todayNavItem" data-view="today" style="display:none;" onclick="showView('today', this)"><span class="nav-icon">◉</span> Today</div>
       <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> My Dashboard</div>
       <details class="nav-drop" id="mgmtNavGroup">
         <summary class="nav-item nav-sub" id="mgmtNavToggle" style="display:none;"><span class="nav-icon">▾</span> Management dashboards</summary>
@@ -1156,6 +1194,9 @@
     <div class="content">
 
       <div id="deadlineBannerWrap"></div>
+
+      <!-- ===================== TODAY (v2) ===================== -->
+      <section class="view" id="view-today"><div id="tdRoot" aria-live="polite"></div></section>
 
       <!-- ===================== DASHBOARD VIEW ===================== -->
       <section class="view active" id="view-dashboard">
@@ -3263,6 +3304,7 @@ function dashboardScopeLabelShort(){ return ''; }
    VIEW SWITCHING
    ========================================================================= */
 const titles = {
+  today: ['Today', 'What needs you now, what is waiting on others, and what you finished'],
   dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
   tasks: ['Tasks', 'My Tasks, Team Tasks and All Tasks — with saved filters, recurring tasks, and Recently Removed'],
   reviews: ['Reviews', 'Everything waiting on you — the ones most at risk of missing the client date come first'],
@@ -4473,6 +4515,7 @@ function showView(id, el){
   document.getElementById('pageSub').textContent = titles[id][1];
   if(id !== 'dashboard' && _dashMirror){ _dashMirror = null; renderMirrorBanner(); }  // mirror only lives on the Commitment Dashboard
   if(id === 'timeoff') renderTimeOff();
+  if(id === 'today') renderToday();
   if(id === 'dashboard'){ renderTaskTable(); refreshToday(); }
   if(id === 'tasks') renderTasksPage(true);
   if(id === 'reviews') renderReviewsView();
@@ -7424,6 +7467,156 @@ function renderReassignedMail(){
     + '<div style="font-size:12.5px;color:var(--text-dim);margin:-4px 0 8px;">Reply to each (or mark it &ldquo;no reply needed&rdquo;) <b>the same working day, before the daily Calls &amp; Email report goes to the admins</b>' + (_reassignedMailPenalty ? ' &mdash; otherwise <b>' + _reassignedMailPenalty + ' marks</b> are taken automatically' : '') + '.</div>'
     + rows + '</div>';
 }
+/* =========================================================================
+   TODAY (v2) — one personal command centre: what needs ME now, what waits on others, what I finished today.
+   Left: a compact list. Right: the selected task in full — progress tracker, facts, files, timeline — without leaving the page.
+   Every number is derived by the server (workflow.js) from the same tasks, on the company clock.
+   ========================================================================= */
+let _today = null, _tdMode = 'today', _tdFilter = null, _tdSel = null, _tdShowAllDone = false;
+const TD_COUNTS = [['review', 'Needs your review'], ['risk', 'Client delivery at risk'], ['decision', 'Waiting for your decision'], ['reports', 'Reports not sent'], ['overdue', 'Team overdue'], ['completed', 'Completed today']];
+const TD_EMPTY = { review: 'No reviews are waiting for you.', risk: 'No client deadlines are currently at risk.', decision: 'Nothing is waiting for your decision.', reports: 'All reports due today have been sent.', overdue: 'No team tasks are overdue.', completed: 'Nothing completed yet today.' };
+function applyDashboardV2(){
+  const on = !!(session && session.dashboardV2);
+  document.body.classList.toggle('v2-dash', on);
+  const n = document.getElementById('todayNavItem'); if(n) n.style.display = on ? '' : 'none';
+}
+function todayViewActive(){ const v = document.getElementById('view-today'); return !!(v && v.classList.contains('active')); }
+async function renderToday(quiet){
+  const box = document.getElementById('tdRoot'); if(!box) return;
+  if(!quiet && !_today) box.innerHTML = '<div class="td-head"><div><div class="td-greet" style="opacity:.35;">Loading…</div></div></div><div class="td-counts">' + '<div class="td-count" style="opacity:.4;"><span class="n">–</span><span class="l">&nbsp;</span></div>'.repeat(6) + '</div><div class="td-list"><div class="td-empty">Loading your day…</div></div>';
+  try { _today = await api('/api/workflow/today'); }
+  catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not load Today: ' + esc(e.message) + ' <button class="btn small td-act" onclick="renderToday()">Retry</button></div>'; return; }
+  drawToday();
+}
+function tdRiskTag(c){
+  const r = c.clientRisk || {};
+  if(r.state === 'overdue') return '<span class="td-tag red">⚠ Client overdue ' + (-r.days) + 'd</span>';
+  if(r.state === 'due_today') return '<span class="td-tag amber">⏰ Client due today</span>';
+  if(r.state === 'at_risk') return '<span class="td-tag amber">⚠ At risk · ' + r.days + 'd left</span>';
+  if(r.state === 'waiting_client') return '<span class="td-tag grey">⏸ Waiting on client</span>';
+  if(r.state === 'done') return '<span class="td-tag green">✓ Done</span>';
+  if(r.state === 'ok') return '<span class="td-tag blue">On track · ' + r.days + 'd</span>';
+  return '<span class="td-tag grey">' + esc(c.kindLabel) + '</span>';
+}
+function tdCardHtml(id, note){
+  const c = _today.cards[id]; if(!c) return '';
+  const when = c.clientDate ? 'Client ' + fmtDate(c.clientDate) : (c.internalDeadline ? 'Due ' + fmtDate(c.internalDeadline) : '');
+  const wait = c.reviewWaiting ? ' · waiting for review ' + c.reviewWaiting.days + 'd' : '';
+  return '<button type="button" class="td-card' + (_tdSel === id ? ' sel' : '') + '" data-id="' + esc(id) + '" onclick="tdSelect(\'' + esc(id) + '\')" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status) + '">'
+    + '<div class="t1"><span><b>' + esc(c.clientName || 'Admin task') + '</b> — ' + esc(c.name) + '</span>' + tdRiskTag(c) + '</div>'
+    + '<div class="t2">' + (note ? '<b>' + esc(note) + '</b><br>' : '') + esc(c.status) + (c.subState ? ' · ' + esc(c.subState) : '') + (c.taskType ? ' · ' + esc(c.taskType) : '') + (when ? ' · ' + esc(when) : '') + esc(wait)
+    + '<br>' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + ' → ' + esc(c.nextAction) + '</div></button>';
+}
+// The sections for the chosen mode. A task appears ONCE per screen: the first section that claims it keeps it.
+function tdSections(){
+  const T = _today, seen = new Set(), out = [];
+  const take = (ids, noteFor) => ids.filter(id => T.cards[id] && !seen.has(id)).map(id => { seen.add(id); return { id, note: noteFor ? noteFor(id) : '' }; });
+  const sec = (title, items, empty) => out.push({ title, items, empty });
+  const why = id => (T.sections.needs.find(n => n.id === id) || {}).why || '';
+  const needs = T.sections.needs, rvNeeds = needs.filter(n => n.type === 'review' || n.type === 'correction_resubmitted');
+  const waitGroups = T.sections.waiting;
+  if(_tdFilter){
+    const lab = TD_COUNTS.find(x => x[0] === _tdFilter)[1];
+    sec(lab, take(T.filters[_tdFilter], why), TD_EMPTY[_tdFilter]);
+    return out;
+  }
+  if(_tdMode === 'review'){
+    const urgent = rvNeeds.filter(n => ['overdue', 'due_today', 'at_risk'].includes(T.cards[n.id].clientRisk.state)).map(n => n.id);
+    sec('Urgent — client deadline overdue or at risk', take(urgent, why), 'No client deadlines are currently at risk.');
+    sec('Corrections resubmitted', take(rvNeeds.filter(n => n.type === 'correction_resubmitted').map(n => n.id), why), 'No corrections have come back.');
+    sec('New submissions', take(rvNeeds.map(n => n.id), why), 'No reviews are waiting for you.');
+    const corr = Object.values(T.cards).filter(c => c.status === 'Correction Required').map(c => c.id);
+    sec('Waiting on employee correction', take(corr), 'No corrections are waiting on employees.');
+    sec('Completed reviews', take(T.sections.completed.filter(d => /approved|Returned/.test(d.action)).map(d => d.id), id => (T.sections.completed.find(d => d.id === id) || {}).action), 'No reviews completed yet today.');
+    return out;
+  }
+  if(_tdMode === 'manager'){
+    sec('Client delivery at risk', take(T.filters.risk, why), TD_EMPTY.risk);
+    sec('Team overdue', take(T.filters.overdue), TD_EMPTY.overdue);
+    sec('Waiting for your decision', take(T.filters.decision, why), TD_EMPTY.decision);
+    sec('Reports not sent', take(T.filters.reports), TD_EMPTY.reports);
+    waitGroups.forEach(g => sec('Waiting on ' + g.label.toLowerCase(), take(g.ids), ''));
+    return out.filter(x => x.items.length || x.empty);
+  }
+  sec('Needs your action now', take(needs.map(n => n.id), why), 'Nothing requires your action right now.');
+  waitGroups.forEach(g => sec('Waiting on others — ' + g.label.toLowerCase(), take(g.ids), ''));
+  const done = take(T.sections.completed.map(d => d.id), id => (T.sections.completed.find(d => d.id === id) || {}).action);
+  sec('Completed today', _tdShowAllDone ? done : done.slice(0, 5), 'Nothing completed yet today.');
+  if(done.length > 5 && !_tdShowAllDone) out[out.length - 1].more = done.length - 5;
+  return out.filter((x, i, a) => x.items.length || i === 0 || x.empty);
+}
+function drawToday(){
+  const T = _today, box = document.getElementById('tdRoot'); if(!box) return;
+  const first = (T.name || '').split(' ')[0];
+  const dateLabel = new Date(T.today + 'T12:00:00').toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  const counts = TD_COUNTS.map(([k, label]) => '<button type="button" class="td-count' + (_tdFilter === k ? ' on' : '') + ((k === 'risk' || k === 'overdue') && T.counts[k] ? ' hot' : '') + '" onclick="tdSetFilter(\'' + k + '\')" aria-pressed="' + (_tdFilter === k) + '" aria-label="' + esc(label) + ': ' + T.counts[k] + '. Show these.">'
+    + '<span class="n">' + T.counts[k] + '</span><span class="l">' + esc(label) + '</span></button>').join('');
+  const seg = [['today', 'Today'], ['manager', 'Manager View'], ['review', 'Review View']].map(([k, l]) => '<button type="button" class="' + (_tdMode === k ? 'on' : '') + '" onclick="tdSetMode(\'' + k + '\')" aria-pressed="' + (_tdMode === k) + '">' + l + '</button>').join('');
+  const secs = tdSections();
+  const list = secs.map(x => '<div class="td-sec"><span>' + esc(x.title) + '</span><span>' + x.items.length + '</span></div>'
+    + (x.items.length ? x.items.map(i => tdCardHtml(i.id, i.note)).join('') : (x.empty ? '<div class="td-empty">' + esc(x.empty) + '</div>' : ''))
+    + (x.more ? '<div class="td-empty"><button class="btn small td-act" onclick="_tdShowAllDone=true;drawToday()">Show all ' + (x.items.length + x.more) + '</button></div>' : '')).join('');
+  box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(T.greeting) + ', ' + esc(first) + '</h2><div class="td-date">' + esc(dateLabel) + ' · ' + esc(T.timezone.replace('Pacific/Auckland', 'New Zealand time')) + '</div></div>'
+    + '<div class="td-seg" role="group" aria-label="Dashboard view">' + seg + '</div></div>'
+    + '<div class="td-counts">' + counts + '</div>'
+    + (_tdFilter ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(TD_COUNTS.find(x => x[0] === _tdFilter)[1]) + '</b> <button class="btn small td-act" onclick="tdSetFilter(null)">Clear filter</button></div>' : '')
+    + '<div class="td-grid' + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + list + '</div><div class="td-detail" id="tdDetail">' + tdDetailHtml(_tdSel) + '</div></div>';
+}
+function tdSetMode(m){ _tdMode = m; _tdFilter = null; drawToday(); }
+function tdSetFilter(k){ _tdFilter = (_tdFilter === k) ? null : k; drawToday(); }
+function tdSelect(id){
+  _tdSel = id; window.__tdMobileOpen = true;
+  document.querySelectorAll('#tdList .td-card').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
+  const d = document.getElementById('tdDetail'); if(d) d.innerHTML = tdDetailHtml(id);
+  const g = document.getElementById('tdGrid'); if(g) g.classList.add('show-detail');
+}
+function tdBack(){ window.__tdMobileOpen = false; const g = document.getElementById('tdGrid'); if(g) g.classList.remove('show-detail'); }
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && todayViewActive() && window.__tdMobileOpen){ tdBack(); } });
+function tdPrimary(id){
+  const n = (_today.sections.needs.find(x => x.id === id) || {}), c = _today.cards[id];
+  const btn = (label, fn) => '<button type="button" class="btn primary td-act" onclick="' + fn + '">' + label + '</button>';
+  if(n.type === 'review' || n.type === 'correction_resubmitted') return btn('Open review', "openReviewFormModal('" + esc(id) + "')");
+  if(n.type === 'send_report') return btn('Send to client…', "openSendToClientModal('" + esc(id) + "')");
+  if(n.type === 'profit_confirm') return btn('Profit confirmed', "submitProfitConfirmDone('" + esc(id) + "')");
+  if(n.type === 'decision') return c.status === 'Assigned' && findTask(id) && findTask(id).status === 'pending_approval' ? btn('Approve assignment', "approveAssignment('" + esc(id) + "')") : btn('Decide the new date', 'openProposedWindows()');
+  if(n.type === 'unassigned') return btn('Assign an owner', "openReassignModal('" + esc(id) + "')");
+  if(c.waitingOn.kind === 'employee' && c.waitingOn.ownerId && c.waitingOn.ownerId !== currentViewerId) return btn('Nudge ' + esc((c.waitingOn.ownerName || '').split(' ')[0]), "nudgeTask('" + esc(id) + "')");
+  return '';
+}
+function tdDetailHtml(id){
+  if(!id || !_today.cards[id]) return '<div class="td-empty" style="padding:30px 10px;">Select a task on the left to see everything about it here — no new page needed.</div>';
+  const c = _today.cards[id], t = findTask(id);
+  const dt = iso => { const d = new Date(iso); return d.toLocaleDateString('en-NZ', { day:'2-digit', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }); };
+  const fact = (label, val) => '<div><b>' + label + '</b>' + (val || '<span style="color:var(--text-faint);">—</span>') + '</div>';
+  const track = c.tracker.applicable ? '<div class="td-track" role="list" aria-label="Delivery progress">' + c.tracker.steps.map(st => '<span class="td-step ' + st.state + '" role="listitem">' + (st.state === 'done' ? '✓ ' : st.state === 'attention' ? '⚠ ' : '') + esc(st.label) + '</span>').join('') + '</div>'
+    : '<div style="font-size:13px;color:var(--text-dim);margin:8px 0 12px;">Admin task — no client report to send.</div>';
+  let body = '<button type="button" class="btn td-back td-act" onclick="tdBack()">← Back to the list</button>'
+    + '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><div><div style="font-size:12.5px;color:var(--text-faint);">' + esc(c.kindLabel) + ' · ' + esc(taskNo(c.id)) + '</div>'
+    + '<h3 style="margin:2px 0 0;">' + esc(c.clientName || 'Admin task') + ' — ' + esc(c.name) + '</h3></div><div>' + tdRiskTag(c) + '</div></div>'
+    + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>'
+    + '<div style="font-size:13.5px;color:var(--text-dim);">Next: ' + esc(c.nextAction) + '</div>' + track;
+  if(!t){ return body + '<div class="td-empty">Loading the task details…</div>'; }
+  body += '<div class="td-facts">'
+    + fact('Task type', esc(c.taskType || c.kindLabel)) + fact('Assigned employee', esc(c.assigneeName || '')) + fact('Reviewer', esc(c.reviewerName || ''))
+    + fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : '') + fact('Internal submission date', c.internalDeadline ? esc(fmtDate(c.internalDeadline)) : '')
+    + fact('Client commitment', c.clientDate ? esc(fmtDate(c.clientDate)) + '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : '')
+    + fact('Your employee\'s commitment', esc(c.commitment.label))
+    + (c.reviewWaiting ? fact('Waiting for review', c.reviewWaiting.days + (c.reviewWaiting.days === 1 ? ' day' : ' days') + '<br><span style="color:var(--text-dim);">since ' + esc(dt(c.reviewWaiting.since)) + '</span>') : '')
+    + fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : '')
+    + fact('Google Sheet', (t.sheetLink || (t.sheetFiles || []).length) ? slotCell(t.sheetLink, 'Open Sheet', t.sheetFiles) : '')
+    + fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '')
+    + '</div>'
+    + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
+    + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '');
+  const prim = tdPrimary(id);
+  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px;">' + prim + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>';
+  const { ev } = taskTimelineEvents(t);
+  body += '<div style="font-weight:700;margin:6px 0 4px;">Timeline <span style="font-weight:400;color:var(--text-faint);font-size:12px;">(New Zealand time)</span></div>'
+    + (ev.length ? ev.map(e => '<div style="display:grid;grid-template-columns:26px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--panel-border);"><div>' + e.icon + '</div><div><div style="font-size:13.5px;color:var(--text-dim);line-height:1.5;">' + e.text + '</div>' + (e.extra || '') + '<div style="font-size:11.5px;color:var(--text-faint);font-family:var(--font-mono);">' + (e.at ? esc(dt(e.at)) : '—') + '</div></div></div>').join('')
+      : '<div class="td-empty">No recorded events yet.</div>');
+  return body;
+}
+
 async function refreshTasks(){
   try {
     const { tasks: fresh } = await api('/api/tasks');
@@ -7433,7 +7626,7 @@ async function refreshTasks(){
     const unchanged = sig === _tasksSig && (now - _lastFullRender) < 60000;
     tasks = fresh; _tasksSig = sig;
     checkForNewAssignments();
-    if(!unchanged){ renderTaskTable(); _lastFullRender = now; }
+    if(!unchanged){ renderTaskTable(); _lastFullRender = now; if(todayViewActive()) renderToday(true); }
     updateReviewsNavBadge();
   } catch(e){ console.error('Failed to refresh tasks', e); }
   await refreshWorkload();
@@ -11910,9 +12103,8 @@ function openReviewViewModal(id){
    TASK TRAIL — the full "who did what, when" for one task, built from the
    task's own timestamped fields. Reachable from every Command Center row.
    ========================================================================= */
-function openTaskTrailModal(id){
-  const t = findTask(id);
-  if(!t){ showToast('error', 'Not found', 'That task is no longer in the list.'); return; }
+// The task's chronological events (shared by the history window and the Today side panel).
+function taskTimelineEvents(t){
   const nm = eid => eid ? ((empById(eid)||{}).name || '—') : null;
   const dt = iso => { if(!iso) return ''; const d = new Date(iso); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'}); };
   const ev = [];
@@ -12000,6 +12192,12 @@ function openTaskTrailModal(id){
   }
 
   ev.sort((a,b) => (a.at||'').localeCompare(b.at||''));
+  return { ev, dt, nm };
+}
+function openTaskTrailModal(id){
+  const t = findTask(id);
+  if(!t){ showToast('error', 'Not found', 'That task is no longer in the list.'); return; }
+  const { ev, dt, nm } = taskTimelineEvents(t);
   const rowsHtml = ev.map(e => `
     <div style="display:grid;grid-template-columns:26px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--panel-border);">
       <div style="font-size:15px;line-height:1.4;">${e.icon}</div>
@@ -13138,6 +13336,8 @@ async function onLoginComplete(){
   await loadPunchState();
   await loadCrmMode();
   await loadAutoRules();
+  applyDashboardV2();
+  if(session && session.dashboardV2) showView('today', document.getElementById('todayNavItem')); // Today is this person's landing page
 
   // Everyone lands on My Dashboard now, admins included — it's already
   // fully populated by refreshTasks() above regardless of role, and
@@ -13164,7 +13364,7 @@ function logoutSession(){
   const wasAdmin = isAdmin;
   authToken = null;
   _tokClear();
-  session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null; _dashMirror = null;
+  session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null; _dashMirror = null; _today = null; applyDashboardV2();
   _dashRange = { preset: 'today', from: '', to: '' }; _dashTab = 'today'; _workStatus = 'todo'; // a new login starts on Today / To do
   try { sessionStorage.removeItem('govOsDashRange'); sessionStorage.removeItem('govOsDashTab'); } catch(e){}
   _notifs = []; _notifUnread = 0; _notifPrevIds = null; renderNotifBadge();
