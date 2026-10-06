@@ -38,6 +38,8 @@ test('CONTACT contract + the configurable client rule', () => {
   assert.equal(sync.describeEligibility(), 'authority signed AND PBQ done');
   assert.equal(sync.describeEligibility({ requirePbqDone: false }), 'authority signed');
   assert.equal(sync.isClientContact(c({ id: 7, authority_signed: 'no', pbq_done_at: 'x' })), false);
+  assert.equal(c({ id: 8, assigned_to_user_id: 'crm-user-canonical', assigned_to: 'crm-user-legacy' }).owner.crmUserId, 'crm-user-canonical');
+  assert.equal(c({ id: 9, assigned_to: 'crm-user-legacy' }).owner.crmUserId, 'crm-user-legacy');
 });
 
 test('a contact is matched to the one client it is, never a guess', () => {

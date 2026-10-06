@@ -156,7 +156,7 @@ function mapContact(row) {
       status: lower(row && row.status), lead: lower(row && row.lead_stage), onboarding: lower(row && row.onboarding_stage),
     },
     owner: {
-      crmUserId: str(pick(row, ['assigned_to', 'owner_id', 'agent_id', 'account_manager_id', 'assigned_user_id'])),
+      crmUserId: str(pick(row, ['assigned_to_user_id', 'assigned_to', 'owner_id', 'agent_id', 'account_manager_id', 'assigned_user_id'])),
       email: lower(pick(row, ['owner_email', 'assigned_to_email', 'agent_email'])),
     },
   };
