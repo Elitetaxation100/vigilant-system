@@ -274,3 +274,17 @@ test('adding files AFTER a review was sent back: reviewer only, notifies the emp
   assert.equal((await http('POST', url, { token: DI, body: { attachments: many } })).status, 400, 'over five in all');
   assert.equal((await http('POST', url, { token: DI, body: { attachments: [f1.id] } })).status, 400, 'the same file twice');
 });
+
+test('space report and clean-up endpoints: superadmin only; sensible without Postgres', async () => {
+  assert.equal((await http('GET', '/api/admin/space-report', { token: RJ })).status, 403);
+  assert.equal((await http('GET', '/api/admin/space-report', { token: DI })).status, 403, 'an admin is not enough');
+  assert.equal((await http('POST', '/api/admin/space-cleanup', { token: RJ })).status, 403);
+  const rep = await http('GET', '/api/admin/space-report', { token: SA });
+  assert.equal(rep.status, 200, JSON.stringify(rep.j));
+  assert.equal(rep.j.mode, 'file');
+  assert.ok(rep.j.biggestInState.length > 0 && rep.j.stateMB >= 0);
+  assert.ok(rep.j.files && rep.j.files.files >= 1, 'files held outside the state are counted');
+  const clean = await http('POST', '/api/admin/space-cleanup', { token: SA });
+  assert.equal(clean.status, 400, 'nothing to clean without Postgres — and it says so');
+  assert.match(clean.j.error, /Postgres/);
+});

@@ -937,6 +937,61 @@ function replace(newState) {
   save();
   return state;
 }
+// ---------------------------------------------------------------------------
+// Space report + clean-up (superadmin tools) — what is using the database, and a safe way to give
+// back space that Postgres is holding on to. Every probe is optional: a managed Postgres may not
+// let us read some of these, and that must never break the report.
+// ---------------------------------------------------------------------------
+const mb = n => Math.round((Number(n) || 0) / 1048576 * 10) / 10;
+async function probe(sql, params) { try { return (await pool.query(sql, params)).rows; } catch (e) { return null; } }
+async function spaceReport() {
+  const sizes = {};
+  for (const k of Object.keys(state || {})) { try { sizes[k] = JSON.stringify(state[k]).length; } catch (e) {} }
+  const biggest = Object.entries(sizes).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([key, bytes]) => ({ key, mb: mb(bytes), kb: Math.round(bytes / 1024) }));
+  const stateBytes = Object.values(sizes).reduce((a, b) => a + b, 0);
+  const out = { mode: pgActive ? 'postgres' : 'file', stateMB: mb(stateBytes), biggestInState: biggest };
+  if (!pgActive) return out;
+  const one = async sql => { const r = await probe(sql); return r && r[0] ? r[0] : null; };
+  const dbSize = await one('SELECT pg_database_size(current_database()) AS b');
+  const tbl = await one(`SELECT pg_total_relation_size('app_state') AS total, pg_relation_size('app_state') AS main,
+      (SELECT pg_total_relation_size(reltoastrelid) FROM pg_class WHERE oid = 'app_state'::regclass AND reltoastrelid <> 0) AS toast`);
+  const files = await one(`SELECT pg_total_relation_size('app_files') AS total, count(*)::int AS n FROM app_files`);
+  const vac = await one(`SELECT n_dead_tup, last_autovacuum, last_vacuum, autovacuum_count FROM pg_stat_user_tables WHERE relname = 'app_state'`);
+  const wal = await one('SELECT count(*)::int AS n, coalesce(sum(size),0) AS b FROM pg_ls_waldir()');
+  const slots = await probe('SELECT slot_name, active, wal_status FROM pg_replication_slots');
+  const maxWal = await one('SHOW max_wal_size');
+  const idle = await one(`SELECT count(*)::int AS n, coalesce(max(extract(epoch FROM now() - xact_start)),0)::int AS oldest_s FROM pg_stat_activity WHERE xact_start IS NOT NULL AND state <> 'idle' AND pid <> pg_backend_pid()`);
+  out.database = {
+    totalMB: dbSize ? mb(dbSize.b) : null,
+    appStateMB: tbl ? mb(tbl.total) : null,
+    appStateMainMB: tbl ? mb(tbl.main) : null,
+    appStateToastMB: tbl && tbl.toast != null ? mb(tbl.toast) : null,
+    appFilesMB: files ? mb(files.total) : null,
+    appFilesCount: files ? files.n : null,
+    deadRowVersions: vac ? Number(vac.n_dead_tup) : null,
+    lastAutovacuum: vac ? vac.last_autovacuum : null,
+    walMB: wal ? mb(wal.b) : null,
+    walFiles: wal ? wal.n : null,
+    maxWalSize: maxWal ? maxWal.max_wal_size : null,
+    replicationSlots: slots,
+    longRunningTransactions: idle ? { count: idle.n, oldestSeconds: idle.oldest_s } : null,
+  };
+  return out;
+}
+// Give back space Postgres is holding: rewrite the one-row state table compactly (a brief lock on
+// that table only — the app keeps serving) and ask for a checkpoint so old log files are recycled.
+async function maintenance() {
+  if (!pgActive) return { ok: false, error: 'Not running on Postgres.' };
+  const before = await spaceReport();
+  await flush();
+  const steps = [];
+  try { await pool.query('VACUUM (FULL, ANALYZE) app_state'); steps.push('vacuum full app_state: done'); }
+  catch (e) { steps.push('vacuum full app_state: ' + e.message); }
+  try { await pool.query('CHECKPOINT'); steps.push('checkpoint: done'); }
+  catch (e) { steps.push('checkpoint: ' + e.message + ' (harmless — Postgres does this by itself)'); }
+  const after = await spaceReport();
+  return { ok: true, steps, beforeMB: before.database && before.database.totalMB, afterMB: after.database && after.database.totalMB, before: before.database, after: after.database };
+}
 async function replaceNow(newState) { replace(newState); await flush(); return state; }
 
 // P2 — append-only task-event ledger. Today it only carries 'reminded' (a
@@ -974,6 +1029,8 @@ module.exports = {
   PII_PHONE_RE,
   flush,
   replaceNow,
+  spaceReport,
+  maintenance,
   _pool: () => pool,
   _dataDir: () => DATA_DIR,
   _pgStats: () => ({ ...pgStats, delayMs: PG_SAVE_DELAY_MS, pending: pgPending !== null }),
