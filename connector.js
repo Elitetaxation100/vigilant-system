@@ -1499,6 +1499,8 @@ function autoMarksDeps(state) {
   return {
     today: nzToday(now), hourNZ: nzHour(now), now: now.toISOString(),
     isWorkingDay: d => cal.isWorkingDay(d),
+    nzDay: iso => nzToday(new Date(iso)),
+    workingDayAfter: d => cal.addWorkingDays(d, 1),
     getStats: day => callsEmailsStats(state, day, day).people,
     skip: (empId, day) => {
       const emp = (state.employees || []).find(e => e.id === empId);
@@ -1512,6 +1514,9 @@ function runAutoMarks(reason) {
   const res = autoMarks.runDays(state, autoMarksDeps(state));
   res.reports = require('./server').sweepReportDeadlines(state); // reports still unsent past their committed date
   res.created += res.reports;
+  const d = autoMarksDeps(state);
+  res.mail = autoMarks.evaluateReassignedMail(state, { today: d.today, hourNZ: d.hourNZ, nzDay: d.nzDay, workingDayAfter: d.workingDayAfter, skip: d.skip, onCreated: d.onCreated }).filter(r => r.created).length;
+  res.created += res.mail;
   db.save();
   if (res.created) clog('info', 'automatic marks given', { reason, created: res.created, days: res.days.map(d => d.day) });
   return res;

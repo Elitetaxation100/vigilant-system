@@ -61,6 +61,54 @@ test('report: the −10 is recorded once per task per round, even if the sender 
   assert.equal(am.createAutoMark(s, { toId: 'e2', points: 10, type: 'auto_report_late', key: 'report:t1:0', taskId: 't1', reason: 'late' }), null);
 });
 
+/* ---------------- rule 4: a reassigned email must be replied to ---------------- */
+const wd = new Set(['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16', '2026-10-19', '2026-10-20']);
+const nextWd = d => { let x = am.addDays(d, 1); while (!wd.has(x)) x = am.addDays(x, 1); return x; };
+const mailCtx = (today, hourNZ, extra) => ({ today, hourNZ, nzDay: iso => iso.slice(0, 10), workingDayAfter: nextWd, ...(extra || {}) });
+const mailState = (over, settings) => ({ employees: [{ id: 'e1' }, { id: 'e2' }], marks: [], autoMarks: { settings: { activeFrom: '2026-10-01', ...(settings || {}) } },
+  emails: [{ id: 'm1', direction: 'inbound', subject: 'Client question', mailboxOwner: 'e1', reassignedTo: 'e2', reassignHistory: [{ at: '2026-10-12T02:00:00Z', by: 'e1', from: 'e1', to: 'e2' }], replied: false, replyNotNeeded: false, ...(over || {}) }] });
+test('mail: the deadline is the end of the NEXT working day; weekends push it on', () => {
+  const s = mailState();
+  const d = am.reassignedMailDeadline(s.emails[0], mailCtx('2026-10-14', 9), s.autoMarks.settings);
+  assert.deepEqual([d.toId, d.handedOn, d.deadline], ['e2', '2026-10-12', '2026-10-13']);
+  const fri = mailState({ reassignHistory: [{ at: '2026-10-16T02:00:00Z', by: 'e1', from: 'e1', to: 'e2' }] });
+  assert.equal(am.reassignedMailDeadline(fri.emails[0], mailCtx('2026-10-20', 9), fri.autoMarks.settings).deadline, '2026-10-19', 'Friday hand-off → Monday');
+});
+test('mail: not replied by the deadline → −10 to the person it was reassigned to, once', () => {
+  const s = mailState();
+  assert.equal(am.evaluateReassignedMail(s, mailCtx('2026-10-13', 9)).length, 0, 'still the deadline day');
+  assert.equal(am.evaluateReassignedMail(s, mailCtx('2026-10-14', 7)).length, 0, 'not before 08:00');
+  const made = [];
+  const r = am.evaluateReassignedMail(s, mailCtx('2026-10-14', 9, { onCreated: row => made.push(row) }));
+  assert.equal(r.length, 1); assert.equal(r[0].created, true); assert.equal(made[0].toId, 'e2'); assert.equal(made[0].points, -10); assert.equal(made[0].type, 'auto_mail_reply');
+  assert.match(made[0].reason, /"Client question" reassigned to you on .* was not replied to by/);
+  assert.equal(am.evaluateReassignedMail(s, mailCtx('2026-10-15', 9)).filter(x => x.created).length, 0, 'never twice for the same hand-off');
+  assert.equal(s.marks.length, 1);
+});
+test('mail: a reply, "no reply needed", or handing it back to the mailbox owner means no deduction', () => {
+  assert.equal(am.evaluateReassignedMail(mailState({ replied: true }), mailCtx('2026-10-14', 9)).length, 0);
+  assert.equal(am.evaluateReassignedMail(mailState({ replyNotNeeded: true }), mailCtx('2026-10-14', 9)).length, 0);
+  assert.equal(am.evaluateReassignedMail(mailState({ reassignedTo: null }), mailCtx('2026-10-14', 9)).length, 0);
+  assert.equal(am.evaluateReassignedMail(mailState({ direction: 'outbound' }), mailCtx('2026-10-14', 9)).length, 0);
+});
+test('mail: a hand-off before the rules started is never judged; the rule can be switched off; leave moves the deadline', () => {
+  assert.equal(am.evaluateReassignedMail(mailState({}, { activeFrom: '2026-10-13' }), mailCtx('2026-10-20', 9)).length, 0);
+  assert.equal(am.evaluateReassignedMail(mailState({}, { enabled: { mailReply: false } }), mailCtx('2026-10-20', 9)).length, 0);
+  const s = mailState();
+  const onLeave13 = (id, day) => id === 'e2' && day === '2026-10-13';
+  assert.equal(am.evaluateReassignedMail(s, mailCtx('2026-10-14', 9, { skip: onLeave13 })).length, 0, 'on leave on the deadline day → the deadline moves to the 14th');
+  assert.equal(am.evaluateReassignedMail(s, mailCtx('2026-10-15', 9, { skip: onLeave13 })).length, 1);
+});
+test('mail: only the CURRENT hand-off counts, and each hand-off has its own clock', () => {
+  const s = mailState({ reassignHistory: [
+    { at: '2026-10-12T02:00:00Z', by: 'e1', from: 'e1', to: 'e2' },
+    { at: '2026-10-14T02:00:00Z', by: 'e2', from: 'e2', to: 'e1x' }], reassignedTo: 'e1x' });
+  s.employees.push({ id: 'e1x' });
+  const r = am.evaluateReassignedMail(s, mailCtx('2026-10-15', 9));
+  assert.equal(r.length, 0, 'handed on the 14th → deadline the 15th; the first person is not charged');
+  assert.equal(am.evaluateReassignedMail(s, mailCtx('2026-10-16', 9))[0].toId, 'e1x');
+});
+
 /* ---------------- creating marks ---------------- */
 test('an automatic mark is negative, tagged, and can never be given twice for the same thing', () => {
   const s = { employees: [{ id: 'e1' }], marks: [] };
@@ -145,8 +193,8 @@ test('runDays: switched off, it does not catch up when switched back on', () => 
 test('settings: defaults, validation, and activeFrom stays put', () => {
   const s = {};
   const d = am.settingsOf(s, '2026-10-12');
-  assert.deepEqual(d.points, { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30, reportLate: 10 });
-  assert.deepEqual(d.enabled, { acknowledgement: true, links: true, reports: true });
+  assert.deepEqual(d.points, { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30, reportLate: 10, mailReplyLate: 10 });
+  assert.deepEqual(d.enabled, { acknowledgement: true, links: true, reports: true, mailReply: true });
   assert.equal(d.activeFrom, '2026-10-12');
   assert.equal(am.settingsOf(s, '2026-11-01').activeFrom, '2026-10-12');
   am.updateSettings(s, { enabled: { links: false, nonsense: true }, points: { processorLinks: '15', reviewerLinks: -5, ackAll: 'abc' }, activeFrom: 'tomorrow' }, '2026-10-12');

@@ -3090,7 +3090,7 @@ function sweepReportDeadlines(state) {
 // What everyone is told up front (the Mark Complete and review screens quote these numbers).
 app.get('/api/auto-marks/rules', requireAuth, (req, res) => {
   const s = autoMarks.settingsOf(db.get(), todayISO());
-  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, all: s.points.ackAll, halfMax: s.points.ackHalfMax }, reports: { enabled: s.enabled.reports, late: s.points.reportLate } });
+  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, all: s.points.ackAll, halfMax: s.points.ackHalfMax }, reports: { enabled: s.enabled.reports, late: s.points.reportLate }, mailReply: { enabled: s.enabled.mailReply, late: s.points.mailReplyLate } });
 });
 app.get('/api/admin/auto-marks', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
@@ -3106,7 +3106,7 @@ app.post('/api/admin/auto-marks/settings', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   const state = db.get();
   const s = autoMarks.updateSettings(state, req.body, todayISO());
-  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}, late reports ${s.enabled.reports ? 'on' : 'off'}; ack −${s.points.ackAll}/−${s.points.ackHalfMax}, links −${s.points.processorLinks}/−${s.points.reviewerLinks}, late report −${s.points.reportLate}).`);
+  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}, late reports ${s.enabled.reports ? 'on' : 'off'}, reassigned-mail replies ${s.enabled.mailReply ? 'on' : 'off'}; ack −${s.points.ackAll}/−${s.points.ackHalfMax}, links −${s.points.processorLinks}/−${s.points.reviewerLinks}, late report −${s.points.reportLate}, unreplied reassigned mail −${s.points.mailReplyLate}).`);
   db.save();
   res.json({ settings: s });
 });
@@ -5588,6 +5588,22 @@ app.post('/api/emails/:id/no-reply-needed', requireAuth, (req, res) => {
   e.replyNotNeededAt = e.replyNotNeeded ? new Date().toISOString() : null;
   db.save();
   res.json({ ok: true, replyNotNeeded: e.replyNotNeeded });
+});
+// Mail reassigned to ME that still needs a reply — shown on the dashboard.
+app.get('/api/emails/reassigned-to-me', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const s = autoMarks.settingsOf(state, todayISO());
+  const list = (state.emails || [])
+    .filter(e => e.direction === 'inbound' && e.reassignedTo === me.id && e.reassignedTo !== e.mailboxOwner && !e.replied && !e.replyNotNeeded)
+    .map(e => {
+      const last = (e.reassignHistory || [])[(e.reassignHistory || []).length - 1] || {};
+      const by = findEmployee(state, last.by);
+      const handedOn = last.at ? nzDay(last.at) : null;
+      return { id: e.id, subject: e.subject || '(no subject)', fromAddress: e.fromAddress, mailbox: e.mailbox, occurredAt: e.occurredAt, reassignedAt: last.at || null,
+        reassignedBy: by ? by.name : null, replyBy: handedOn ? cal.addWorkingDays(handedOn, 1) : null, thumbsUp: !!e.thumbsUp };
+    })
+    .sort((a, b) => (a.replyBy || '').localeCompare(b.replyBy || ''));
+  res.json({ emails: list, penalty: s.enabled.mailReply ? s.points.mailReplyLate : 0 });
 });
 // Who may act on a logged email (👍 it, reassign it): a superadmin, whoever is
 // currently responsible for it, or their manager.

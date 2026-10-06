@@ -12,6 +12,9 @@
 //     A person on leave / a holiday / a workshop day is skipped.
 //  3. REPORT DEADLINE — a client report not sent by the (query-aware) committed
 //     date costs whoever is sending it −10. Only for dates after the rules started.
+//  4. REASSIGNED MAIL — an email that was reassigned to someone must be REPLIED to (or
+//     marked "no reply needed") by the end of the next working day after the hand-off;
+//     otherwise that person loses 10, once per hand-off. Leave days push the deadline on.
 //  2. LINKS — a CLIENT task needs both a Google Sheet and a Cashbook link
 //     (internal tasks never do).
 //       the processor sends it for review without them          → −20 (−10 if one is missing)
@@ -21,8 +24,8 @@
 // given twice for the same thing, and can be voided by a superadmin.
 // ---------------------------------------------------------------------------
 const DEFAULTS = {
-  enabled: { acknowledgement: true, links: true, reports: true },
-  points: { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30, reportLate: 10 },
+  enabled: { acknowledgement: true, links: true, reports: true, mailReply: true },
+  points: { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30, reportLate: 10, mailReplyLate: 10 },
 };
 const isDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const clampInt = (v, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : d; };
@@ -77,6 +80,43 @@ const linkMarks = (missing, full) => Math.round((full * missing.length) / 2); //
 // the day the rules started (nothing is judged retroactively).
 function reportIsLate(committedDate, today, activeFrom) {
   return !!committedDate && isDay(committedDate) && today > committedDate && (!isDay(activeFrom) || committedDate >= activeFrom);
+}
+
+// ---- rule 4: a reassigned email must be replied to --------------------------
+// The CURRENT hand-off is what counts (the last reassignHistory entry that points at
+// the current owner). Only hand-offs on/after the day the rules started.
+function reassignedMailDeadline(e, ctx, settings) {
+  if (!e || e.direction !== 'inbound' || !e.reassignedTo || e.reassignedTo === e.mailboxOwner) return null;
+  const hist = e.reassignHistory || [];
+  const last = hist[hist.length - 1];
+  if (!last || last.to !== e.reassignedTo || !last.at) return null;
+  const day = ctx.nzDay(last.at);
+  if (!isDay(day) || (settings && isDay(settings.activeFrom) && day < settings.activeFrom)) return null;
+  let deadline = ctx.workingDayAfter(day);
+  let guard = 0;
+  while (ctx.skip && ctx.skip(e.reassignedTo, deadline) && guard++ < 30) deadline = ctx.workingDayAfter(deadline);
+  return { toId: e.reassignedTo, handedOn: day, deadline, index: hist.length };
+}
+// Judged from 08:00 NZ, like the acknowledgement rule.
+function evaluateReassignedMail(state, ctx) {
+  const settings = settingsOf(state, ctx.today);
+  const out = [];
+  if (!settings.enabled.mailReply || ctx.hourNZ < 8) return out;
+  (state.emails || []).forEach(e => {
+    if (e.replied || e.replyNotNeeded) return; // handled (a real reply, or marked no-reply-needed)
+    const d = reassignedMailDeadline(e, ctx, settings);
+    if (!d || !(ctx.today > d.deadline)) return;
+    const r = { emailId: e.id, toId: d.toId, subject: e.subject || '(no subject)', deadline: d.deadline, marks: settings.points.mailReplyLate, created: false };
+    if (!ctx.dryRun) {
+      const row = createAutoMark(state, {
+        toId: d.toId, points: r.marks, type: 'auto_mail_reply', key: `mailreply:${e.id}:${d.index}`,
+        reason: `Automatic: the email "${String(e.subject || '(no subject)').slice(0, 80)}" reassigned to you on ${dayLabel(d.handedOn)} was not replied to by ${dayLabel(d.deadline)}`,
+      });
+      if (row) { r.created = true; if (ctx.onCreated) ctx.onCreated(row); }
+    }
+    out.push(r);
+  });
+  return out;
 }
 
 // ---- creating a mark ---------------------------------------------------------
@@ -152,6 +192,6 @@ function runDays(state, deps) {
 }
 
 module.exports = {
-  DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, linkMarks, reportIsLate,
+  DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, linkMarks, reportIsLate, reassignedMailDeadline, evaluateReassignedMail,
   createAutoMark, evaluateAckDay, runDays, addDays, dayLabel,
 };
