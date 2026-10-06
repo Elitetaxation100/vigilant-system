@@ -218,6 +218,12 @@ function managersOfEmployee(state, empId) {
   if (!emp) return [];
   return teamRoster(state, emp).filter(e => e.id !== empId && isAdminRole(e.accessRole));
 }
+// Inactive employees remain in state forever so historical tasks, reviews and
+// audit trails keep their original identity. They must not receive new work.
+function canReceiveNewWork(emp) {
+  return !!emp && !emp.accessDisabled && emp.crmActive !== false
+    && !['inactive', 'terminated', 'resigned'].includes(String(emp.employmentStatus || '').toLowerCase());
+}
 /**
  * Whose team roster/workload does `actor` see (Manager Dashboard, Team
  * Board, the workload panel)? This is a VISIBILITY boundary, separate from
@@ -226,14 +232,14 @@ function managersOfEmployee(state, empId) {
  * because everyone can now assign each other tasks.
  */
 function assignableEmployees(state, actor) {
-  if (actor.accessRole === 'superadmin') return state.employees;
-  if (actor.accessRole === 'admin') return teamRoster(state, actor).filter(e => e.id !== actor.id);
+  if (actor.accessRole === 'superadmin') return state.employees.filter(canReceiveNewWork);
+  if (actor.accessRole === 'admin') return teamRoster(state, actor).filter(e => e.id !== actor.id && canReceiveNewWork(e));
   return [];
 }
 /** Who can `actor` hand a brand-new task to? Everyone — any role — can
  * assign work to anyone else in the firm. */
 function anyEmployeeInFirm(state) {
-  return state.employees;
+  return state.employees.filter(canReceiveNewWork);
 }
 /**
  * Can `actor` act on a task that's currently assigned to `employeeId`?
