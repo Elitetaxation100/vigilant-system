@@ -288,3 +288,29 @@ test('space report and clean-up endpoints: superadmin only; sensible without Pos
   assert.equal(clean.status, 400, 'nothing to clean without Postgres — and it says so');
   assert.match(clean.j.error, /Postgres/);
 });
+
+test('archive endpoints: founder only; a first look changes nothing; nothing old waiting here', async () => {
+  assert.equal((await http('GET', '/api/admin/archives', { token: RJ })).status, 403);
+  assert.equal((await http('GET', '/api/admin/archives', { token: DI })).status, 403, 'an admin is not enough');
+  assert.equal((await http('POST', '/api/admin/archive/run', { token: DI })).status, 403);
+  const a = await http('GET', '/api/admin/archives', { token: SA });
+  assert.equal(a.status, 200, JSON.stringify(a.j));
+  assert.equal(a.j.afterDays, 95); assert.deepEqual(a.j.archives, []);
+  assert.ok(a.j.inState.calls >= 0 && a.j.waiting.calls === 0);
+  const dry = await http('POST', '/api/admin/archive/run', { token: SA });          // dry run unless told otherwise
+  assert.equal(dry.status, 200); assert.equal(dry.j.dryRun, true); assert.equal(dry.j.archived, 0);
+  const real = await http('POST', '/api/admin/archive/run', { token: SA, body: { dryRun: false } });
+  assert.equal(real.status, 200); assert.equal(real.j.dryRun, false); assert.deepEqual(real.j.errors, []);
+});
+
+test('a test alert reaches every founder in the app, and nobody else', async () => {
+  assert.equal((await http('POST', '/api/admin/alerts/test', { token: DI })).status, 403);
+  assert.equal((await http('POST', '/api/admin/alerts/test', { token: RJ })).status, 403);
+  const r = await http('POST', '/api/admin/alerts/test', { token: SA });
+  assert.equal(r.status, 200, JSON.stringify(r.j));
+  assert.equal(r.j.sent, true); assert.ok(r.j.inApp >= 1); assert.ok(r.j.founders.length >= 1);
+  const notes = async tok => JSON.stringify((await http('GET', '/api/notifications', { token: tok })).j);
+  assert.match(await notes(SA), /Test alert from the Task Manager/);
+  assert.ok(!(await notes(RJ)).includes('Test alert'), 'an employee is not told');
+  assert.ok(!(await notes(DI)).includes('Test alert'), 'neither is a non-founder admin');
+});

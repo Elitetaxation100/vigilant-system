@@ -83,3 +83,16 @@ test('if the clean-up itself cannot run, it says so and does not throw', async (
   assert.equal(r.ok, true);
   assert.ok(r.steps.some(s => /No space left/.test(s)));
 });
+
+test('volumeUsage: every database plus the write-ahead log, against DB_VOLUME_MB (default 5 GB)', async () => {
+  fake.dbBytes = 1000 * 1048576;
+  delete process.env.DB_VOLUME_MB;
+  const u = await db.volumeUsage();
+  assert.equal(u.usedMB, 1064);                       // 1000 MB of databases + the 64 MB log in the fake
+  assert.equal(u.volumeMB, 5120); assert.equal(u.pct, 20.8);
+  process.env.DB_VOLUME_MB = '2048';
+  assert.equal((await db.volumeUsage()).pct, 52);
+  delete process.env.DB_VOLUME_MB;
+  const rep = await db.spaceReport();
+  assert.ok(rep.volume && rep.volume.usedMB === 1064, 'the space report carries it too');
+});

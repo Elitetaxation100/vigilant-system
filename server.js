@@ -15,6 +15,8 @@ const rateLimit = require('express-rate-limit');
 const db = require('./db');
 const fileStore = require('./files');
 fileStore.init(db);
+const archive = require('./archive');
+const spaceWatch = require('./space-watch');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
 const crmSync = require('./crm-sync');
@@ -1031,7 +1033,7 @@ function notify(state, empId, type, text, taskId, opts) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'New date decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send', system: 'System alert' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -5642,11 +5644,91 @@ app.post('/api/admin/calls/recover', requireAuth, requireSuperAdmin, async (req,
   } catch (e) { res.status(502).json({ error: 'Could not read the calls from Aircall: ' + (e && e.message || e) }); }
 });
 
+// ---------------------------------------------------------------------------
+// FOUNDER ALERTS + the watchers that raise them: failed database saves, the volume filling up, Aircall calls recovered by the
+// self-heal. An alert is an in-app notification AND a Slack DM to every founder (the DM still works when the database does not).
+// Each kind is throttled so a problem is loud once, not a flood.
+// ---------------------------------------------------------------------------
+const _alertThrottle = {};
+async function alertFounders(key, text, minGapMs) {
+  const gap = minGapMs != null ? minGapMs : 3600e3, now = Date.now();
+  if (_alertThrottle[key] && now - _alertThrottle[key] < gap) return { sent: false, throttled: true };
+  _alertThrottle[key] = now;
+  const state = db.get();
+  const founders = (state.employees || []).filter(e => e.accessRole === 'superadmin' && !e.accessDisabled);
+  founders.forEach(e => { try { notify(state, e.id, 'system', text, null, { noDedupe: true }); } catch (x) { /* keep going */ } });
+  try { db.save(); } catch (x) { /* the DM below is the point if the database is the problem */ }
+  let dms = 0;
+  try {
+    const { slackDm } = require('./connector');
+    for (const e of founders) if (e.slackUserId) { try { const r = await slackDm(e.slackUserId, '🛠 ' + text); if (r && r.ok !== false) dms++; } catch (x) { /* one DM failing must not stop the rest */ } }
+  } catch (x) { /* connector not loaded */ }
+  console.log('[alert] ' + key + ': ' + text);
+  return { sent: true, inApp: founders.length, slackDms: dms, founders: founders.map(e => e.name) };
+}
+db.setAlertHook((key, text) => alertFounders(key, text, 3600e3));
+try { require('./connector').setAlertSink((key, text) => alertFounders(key, text, 6 * 3600e3)); } catch (e) { /* tests that load server.js without the connector */ }
+
+async function spaceWatchTick() {
+  try {
+    if (db._mode() !== 'postgres') return null;
+    const u = await db.volumeUsage();
+    if (!u) return null;
+    const state = db.get(), prev = state.spaceWatch || {};
+    const level = spaceWatch.levelFor(u.pct), d = spaceWatch.decide(prev, level, Date.now());
+    state.spaceWatch = { level, pct: u.pct, usedMB: u.usedMB, volumeMB: u.volumeMB, checkedAt: new Date().toISOString(), lastAlertAt: d.alert ? new Date().toISOString() : (prev.lastAlertAt || null) };
+    if (d.alert) await alertFounders('disk_' + level, spaceWatch.message(level, u.pct, u.usedMB, u.volumeMB), 0);
+    db.save();
+    return state.spaceWatch;
+  } catch (e) { console.error('[watch] disk check failed:', e && e.message); return null; }
+}
+
+// ---------------------------------------------------------------------------
+// ARCHIVE — calls / emails / WhatsApp older than ARCHIVE_AFTER_DAYS (95) leave the state and live in downloadable monthly files.
+// ---------------------------------------------------------------------------
+let _archiving = false;
+async function archiveOldRecords(opts) {
+  if (_archiving) return null;
+  _archiving = true;
+  try {
+    const r = await archive.run(db.get(), { fileStore, persist: async () => { db.save(); await db.flush(); } }, opts);
+    if (r.archived) console.log('[archive] moved ' + r.archived + ' record(s) older than ' + r.days + ' days into monthly files.');
+    if (r.errors.length) console.error('[archive] problems:', r.errors.join(' | '));
+    return r;
+  } catch (e) { console.error('[archive] failed:', e && e.message); return null; }
+  finally { _archiving = false; }
+}
+// Prove the alerts reach you: sends a harmless test message to every founder (in-app + Slack DM).
+app.post('/api/admin/alerts/test', requireAuth, requireSuperAdmin, async (req, res) => {
+  const r = await alertFounders('test:' + Date.now(), 'Test alert from the Task Manager — if you can read this, database and Aircall alerts will reach you. (Sent by ' + req.employee.name + '.)', 0);
+  res.json(r);
+});
+app.get('/api/admin/archives', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const p = archive.plan(state, archive.cutoffISO());
+  res.json({
+    afterDays: archive.days(), cutoff: archive.cutoffISO(),
+    waiting: Object.fromEntries(Object.entries(p).map(([k, v]) => [k, v.total])),
+    inState: { calls: (state.calls || []).length, emails: (state.emails || []).length, waMessages: (state.waMessages || []).length },
+    archives: (state.archives || []).slice().sort((a, b) => (b.month + b.kind).localeCompare(a.month + a.kind)),
+    note: 'Download any archive file with GET /api/files/<fileId> (founder only).',
+  });
+});
+// DRY RUN unless the body says { "dryRun": false }.
+app.post('/api/admin/archive/run', requireAuth, requireSuperAdmin, async (req, res) => {
+  const dryRun = (req.body || {}).dryRun !== false;
+  const r = await archiveOldRecords({ dryRun });
+  if (!r) return res.status(409).json({ error: 'An archive run is already in progress.' });
+  res.json(r);
+});
+
 // What is using the database, and a safe clean-up. Superadmin only.
 app.get('/api/admin/space-report', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
     const rep = await db.spaceReport();
     rep.files = await fileStore.totals().catch(() => null);
+    rep.watch = db.get().spaceWatch || null;
+    rep.archives = (db.get().archives || []).length;
     res.json(rep);
   } catch (e) { res.status(500).json({ error: 'Could not build the report: ' + e.message }); }
 });
@@ -6133,7 +6215,8 @@ require('./connector').mountConnector(app);
 // buttons to share instead of re-implementing the same transitions —
 // required lazily from there (after this file has fully loaded), same
 // pattern connector.js already uses elsewhere.
-module.exports = { sweepReportDeadlines, resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee, attendanceStatus, announceAutoMark };
+module.exports = {
+  alertFounders, spaceWatchTick, archiveOldRecords, sweepReportDeadlines, resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee, attendanceStatus, announceAutoMark };
 
 // ---------------------------------------------------------------------------
 // Static frontend
@@ -6151,6 +6234,10 @@ db.init()
   .then(() => {
     initPush();
     // Keep images out of the state, and tidy files that were uploaded but never attached.
+    const watchTimer = setInterval(() => { spaceWatchTick(); }, 30 * 60 * 1000); if (watchTimer.unref) watchTimer.unref();
+    const watchFirst = setTimeout(() => { spaceWatchTick(); }, 2 * 60 * 1000); if (watchFirst.unref) watchFirst.unref();
+    const archTimer = setInterval(() => { archiveOldRecords(); }, 6 * 3600 * 1000); if (archTimer.unref) archTimer.unref();
+    const archFirst = setTimeout(() => { archiveOldRecords(); }, 4 * 60 * 1000); if (archFirst.unref) archFirst.unref();
     const imgTimer = setInterval(() => { externalizeInlineImages(); }, Number(process.env.FILES_MOVE_INTERVAL_MS) || 30 * 1000); if (imgTimer.unref) imgTimer.unref();
     const firstMove = setTimeout(() => { externalizeInlineImages(); }, 5000); if (firstMove.unref) firstMove.unref();
     const sweepTimer = setInterval(() => { fileStore.sweepOrphans(24 * 3600 * 1000).catch(() => {}); }, 6 * 3600 * 1000); if (sweepTimer.unref) sweepTimer.unref();

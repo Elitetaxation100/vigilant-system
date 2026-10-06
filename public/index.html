@@ -5679,7 +5679,7 @@ function dismissBanner(key){
 /* In-app notification inbox — persistent + read-tracked (server-side), so a
    task alert can't be missed silently. Polled alongside tasks. */
 let _notifs = [], _notifUnread = 0, _notifPrevIds = null;
-const NOTIF_ICON = { send_report:'📨', assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋', workshop:'📖' };
+const NOTIF_ICON = { send_report:'📨', assigned:'📥', nudge:'👉', review:'📝', rework:'⚠️', due:'⏰', window:'🗓', kudos:'🎉', points:'🪙', mark:'📊', comment:'💬', card:'📋', workshop:'📖', system:'🛠' };
 async function refreshNotifications(opts){
   opts = opts || {};
   if(!session) return;

@@ -90,3 +90,17 @@ test('the local file mirror is still written on every save', async () => {
   assert.equal(onDisk.mirrorProbe, 'now');
   await db.flush();
 });
+
+test('three failed saves in a row raise ONE alert to the founders hook; a recovery stops it', async () => {
+  const seen = [];
+  db.setAlertHook((key, text) => seen.push({ key, text }));
+  const s = db.get();
+  s.alertProbe = 'x'; fake.fail = 3; db.save();
+  await db.flush(); assert.equal(seen.length, 0, 'one failure is a blip');
+  await db.flush(); assert.equal(seen.length, 0, 'two is still a blip');
+  await db.flush(); assert.equal(seen.length, 1, 'the third in a row raises the alert');
+  assert.equal(seen[0].key, 'save_failures'); assert.match(seen[0].text, /3 saves in a row \(No space left on device\)/); assert.match(seen[0].text, /Railway/);
+  await db.flush();                                  // the retry succeeds
+  assert.equal(db._pgStats().consecutiveFailures, 0); assert.equal(fake.row.data.alertProbe, 'x', 'nothing was lost');
+  db.setAlertHook(null);
+});

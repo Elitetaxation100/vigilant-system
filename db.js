@@ -813,6 +813,8 @@ let pgLastJson = null;      // what Postgres is known to hold
 let pgInFlight = Promise.resolve();
 const pgStats = { writes: 0, skipped: 0, failures: 0, lastError: null, lastErrorAt: null, lastWriteAt: null, consecutiveFailures: 0 };
 
+let alertHook = null; // (key, text) — set by server.js
+function setAlertHook(fn) { alertHook = typeof fn === 'function' ? fn : null; }
 function pgSave(json) {
   pgPending = json;
   if (pgTimer) return;
@@ -839,6 +841,10 @@ function pgFlush() {
   }).catch(err => {
     pgStats.failures++; pgStats.consecutiveFailures++; pgStats.lastError = err.message; pgStats.lastErrorAt = new Date().toISOString();
     console.error('[db] Postgres save FAILED (rev ' + r + ', ' + pgStats.consecutiveFailures + ' in a row):', err.message);
+    // Three in a row is not a blip — tell the founders (see server.js alertFounders; it throttles).
+    if (pgStats.consecutiveFailures >= 3 && alertHook) {
+      try { alertHook('save_failures', 'The database has refused ' + pgStats.consecutiveFailures + ' saves in a row (' + err.message + '). Changes are kept in memory and retried, but they are NOT safe until saving works again. Check Railway → Postgres now.'); } catch (e) { /* never let an alert break a save */ }
+    }
     if (pgPending === null) pgPending = json;          // keep the newest state for the retry
     if (!pgTimer) pgTimer = setTimeout(() => { pgTimer = null; pgFlush(); }, Math.min(60000, 5000 * pgStats.consecutiveFailures));
   });
@@ -961,6 +967,7 @@ async function spaceReport() {
   const slots = await probe('SELECT slot_name, active, wal_status FROM pg_replication_slots');
   const maxWal = await one('SHOW max_wal_size');
   const idle = await one(`SELECT count(*)::int AS n, coalesce(max(extract(epoch FROM now() - xact_start)),0)::int AS oldest_s FROM pg_stat_activity WHERE xact_start IS NOT NULL AND state <> 'idle' AND pid <> pg_backend_pid()`);
+  out.volume = await volumeUsage();
   out.database = {
     totalMB: dbSize ? mb(dbSize.b) : null,
     appStateMB: tbl ? mb(tbl.total) : null,
@@ -991,6 +998,16 @@ async function maintenance() {
   catch (e) { steps.push('checkpoint: ' + e.message + ' (harmless — Postgres does this by itself)'); }
   const after = await spaceReport();
   return { ok: true, steps, beforeMB: before.database && before.database.totalMB, afterMB: after.database && after.database.totalMB, before: before.database, after: after.database };
+}
+// How full the volume is: every database on the server plus the write-ahead log, against DB_VOLUME_MB (default 5120 = 5 GB).
+async function volumeUsage() {
+  if (!pgActive) return null;
+  const dbs = await probe('SELECT coalesce(sum(pg_database_size(datname)),0) AS b FROM pg_database');
+  const wal = await probe('SELECT coalesce(sum(size),0) AS b FROM pg_ls_waldir()');
+  if (!dbs || !dbs[0]) return null;
+  const usedMB = mb(Number(dbs[0].b) + (wal && wal[0] ? Number(wal[0].b) : 0));
+  const volumeMB = Number(process.env.DB_VOLUME_MB) > 0 ? Number(process.env.DB_VOLUME_MB) : 5120;
+  return { usedMB, volumeMB, pct: Math.round(usedMB / volumeMB * 1000) / 10 };
 }
 async function replaceNow(newState) { replace(newState); await flush(); return state; }
 
@@ -1031,6 +1048,8 @@ module.exports = {
   replaceNow,
   spaceReport,
   maintenance,
+  volumeUsage,
+  setAlertHook,
   _pool: () => pool,
   _dataDir: () => DATA_DIR,
   _pgStats: () => ({ ...pgStats, delayMs: PG_SAVE_DELAY_MS, pending: pgPending !== null }),

@@ -172,3 +172,20 @@ test('the calls report carries the direction of each call', () => {
   const byId = Object.fromEntries(rep.calls.map(c => [c.id, c.direction]));
   assert.deepEqual(byId, { a: 'outbound', b: 'inbound', c: null });
 });
+
+test('the self-heal option: calls that ended in the last N minutes are left to their live webhook', async () => {
+  const nowU = Math.floor(Date.now() / 1000);
+  const recent = { id: 990, direction: 'inbound', raw_digits: '+64215559991', user: null, started_at: nowU - 300, answered_at: null, missed_call_reason: 'no_available_agent', ended_at: nowU - 240, duration: 60 };
+  const old = { ...recent, id: 991, raw_digits: '+64215559992', started_at: nowU - 7200, ended_at: nowU - 7140 };
+  const dayNow = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' });
+  const r = await connector.recoverCalls({ day: dayNow, dryRun: true, olderThanMin: 20, fetchPage: async () => ({ calls: [recent, old], meta: {} }) });
+  assert.equal(r.tooRecent, 1, 'the 4-minute-old call is skipped'); assert.equal(r.wouldRecover, 1, 'the 2-hour-old one is a candidate');
+  const r0 = await connector.recoverCalls({ day: dayNow, dryRun: true, fetchPage: async () => ({ calls: [recent, old], meta: {} }) });
+  assert.equal(r0.tooRecent, 0); assert.equal(r0.wouldRecover, 2, 'a manual run still sees everything');
+});
+test('healMissedCalls does nothing without Aircall credentials, and can be switched off', async () => {
+  assert.equal(await connector.healMissedCalls(), null, 'no credentials in the test environment');
+  process.env.AIRCALL_AUTOHEAL = 'off';
+  assert.equal(await connector.healMissedCalls(), null);
+  delete process.env.AIRCALL_AUTOHEAL;
+});

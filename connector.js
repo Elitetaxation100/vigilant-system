@@ -681,9 +681,9 @@ async function handleInteraktWebhook(body) {
   // API instead of guessing another heuristic blind. Bounded defensively —
   // WhatsApp message payloads are small, but never trust that blindly.
   let raw = null;
-  try { raw = JSON.stringify(body).slice(0, 4000); } catch (e) {}
+  try { raw = JSON.stringify(body).slice(0, 1500); } catch (e) {}
   state.waMessages.push({ id: 'wa' + state.waSeq, phone, name: c.name, direction, text, at: now, raw });
-  if (state.waMessages.length > 500) state.waMessages.shift(); // rolling window, same cap style as connectorLog
+  if (state.waMessages.length > 3000) state.waMessages.shift(); // safety net only — old messages are archived by age (archive.js)
   c.lastMessageText = text; c.lastMessageAt = now; c.lastMessageSourceId = sourceId;
   if (direction === 'in') { c.lastInboundAt = now; c.status = 'awaiting'; }
   else { c.lastOutboundAt = now; c.status = 'replied'; }
@@ -879,7 +879,7 @@ async function recoverCalls(opts) {
   };
   const fromUnix = Math.floor(new Date(crmSync.nzLocalToISO(day, '00:00')).getTime() / 1000);
   const toUnix = Math.min(Math.floor(Date.now() / 1000), fromUnix + 86400);
-  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, mergedLegs: 0, stillRinging: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, cardsToPost: 0, recordingsToFetch: 0, recordingsFound: 0, cardsUpdated: 0, errors: [], calls: [] };
+  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, mergedLegs: 0, stillRinging: 0, tooRecent: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, cardsToPost: 0, recordingsToFetch: 0, recordingsFound: 0, cardsUpdated: 0, errors: [], calls: [] };
   const todo = [];
   for (let page = 1; page <= 40; page++) {
     const body = await fetchPage(fromUnix, toUnix, page);
@@ -891,6 +891,7 @@ async function recoverCalls(opts) {
   for (const call of todo) {
     if (!call || call.id == null) continue;
     if (!call.ended_at) { out.stillRinging++; continue; }
+    if (opts.olderThanMin && call.ended_at * 1000 > Date.now() - opts.olderThanMin * 60000) { out.tooRecent++; continue; }
     const have = findCall(state, call.id);
     if (have && !have.stub) {
       out.alreadyHad++;
@@ -926,6 +927,33 @@ async function recoverCalls(opts) {
   }
   clog('info', 'recover calls', { day, dryRun, found: out.found, alreadyHad: out.alreadyHad, recovered: out.recovered, onSlack: out.onSlack, errors: out.errors.length });
   return out;
+}
+
+// SAFETY NET: if Aircall's webhook ever stops reaching us again (an outage, a changed token…), nobody should have to notice and
+// run a recovery by hand. Every 30 minutes the app compares Aircall's own call list for yesterday and today with what it holds
+// and recovers anything missing — skipping calls from the last 20 minutes, whose live webhook may still be on its way — and
+// tells the founders when it had to, because that means live delivery is broken. Turn off with AIRCALL_AUTOHEAL=off.
+let _healBusy = false, _alertSink = null;
+function setAlertSink(fn) { _alertSink = typeof fn === 'function' ? fn : null; }
+async function healMissedCalls() {
+  if (_healBusy || String(process.env.AIRCALL_AUTOHEAL || '').toLowerCase() === 'off') return null;
+  const c = cfg();
+  if (!c.aircallApiId || !c.aircallApiToken) return null;
+  _healBusy = true;
+  try {
+    const days = [nzToday(new Date(Date.now() - 86400000)), nzToday(new Date())];
+    let recovered = 0, onSlack = 0;
+    for (const day of days) {
+      const r = await recoverCalls({ day, dryRun: false, olderThanMin: 20, max: 60 });
+      recovered += r.recovered; onSlack += r.onSlack;
+    }
+    if (recovered) {
+      clog('warn', 'call self-heal: recovered calls Aircall had but we did not', { recovered, onSlack });
+      if (_alertSink) _alertSink('aircall_missed', recovered + ' call(s) that Aircall had were missing here and were recovered automatically' + (onSlack ? ' (' + onSlack + ' posted to Slack)' : '') + '. If this keeps happening, live delivery is broken — check the Aircall webhook (URL, token, events).');
+    }
+    return { recovered, onSlack };
+  } catch (e) { clog('warn', 'call self-heal failed: ' + (e && e.message || e)); return null; }
+  finally { _healBusy = false; }
 }
 
 async function backfillRecording(rowId, aircallId) {
@@ -1362,6 +1390,10 @@ async function pollGmailMailbox(mailboxAddress, employeeId) {
     const msgResp = await gmailApi(mailboxAddress, `messages/${encodeURIComponent(gmailMessageId)}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`);
     if (msgResp.status !== 200 || !msgResp.json) continue;
     const m = msgResp.json;
+    // Mail from a month that has been ARCHIVED was moved out of the state on purpose — a re-sync must not bring it back.
+    // (Only skipped when that month really is archived, so a brand-new mailbox still loads its history normally.)
+    { const ts = Number(m.internalDate);
+      if (ts) { const iso = new Date(ts).toISOString(); if (iso < require('./archive').cutoffISO() && (state.archives || []).some(x => x.kind === 'emails' && x.month === iso.slice(0, 7))) continue; } }
     const headers = m.payload && m.payload.headers;
     const fromAddress = gmailAddressesOf(gmailHeader(headers, 'From'))[0] || '';
     const toAddresses = gmailAddressesOf(gmailHeader(headers, 'To'));
@@ -2808,6 +2840,8 @@ function startSchedulers() {
 
   // CRM client pull — every 15 min, but only once a superadmin has switched it
   // on (after reading a preview). Off by default.
+  const healTimer = setInterval(() => { healMissedCalls(); }, 30 * 60 * 1000); if (healTimer.unref) healTimer.unref();
+  const healFirst = setTimeout(() => { healMissedCalls(); }, 3 * 60 * 1000); if (healFirst.unref) healFirst.unref();
   const crmPullTimer = setInterval(() => {
     try { if (db.get().crmSync && db.get().crmSync.autoPull && cfg().crmApiKey) pullCrmClients({ apply: true }).catch(e => clog('error', 'crm client pull threw: ' + (e && e.stack || e))); } catch (e) {}
   }, 15 * 60 * 1000);
@@ -3432,6 +3466,6 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  runAutoMarks, previewAutoMarksDay, recoverCalls, callCardPreview, directionTag, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
+  runAutoMarks, previewAutoMarksDay, recoverCalls, callCardPreview, directionTag, healMissedCalls, setAlertSink, slackDm: dm, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
   callsEmailsDigestData, callsEmailsStats, callsEmailsDetail, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };
