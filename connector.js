@@ -843,9 +843,20 @@ async function recoverCalls(opts) {
   const dryRun = opts.dryRun !== false;
   const max = Math.min(Number(opts.max) || 150, 400);
   const fetchPage = opts.fetchPage || fetchAircallCallsPage;
+  const post = opts.syncCard || syncCard;
+  const madeThisRun = new Set(); // rows THIS run created: a second genuine call from the same person must not be taken for a leg of them
+  // An answered call that was merged into an earlier leg is stored without a Slack card (live, the card comes when the
+  // recording arrives by webhook — which recovery never gets). So give any recovered, answered, mapped call its card.
+  const needsCard = r => r && r.recovered && !r.slackTs && r.status === 'ended' && r.team && r.team !== 'Unmapped' && !r.voicemail;
+  const giveCard = async (row, call) => {
+    if (!row.recordingUrl) { const u = recordingUrlOf(call); if (u) { row.recordingUrl = u; row.recordingFetchedAt = new Date().toISOString(); } }
+    await post(state, row);
+    if (row.slackTs) { out.onSlack++; await sleepMs(opts.pauseMs != null ? opts.pauseMs : 1100); }
+    db.save();
+  };
   const fromUnix = Math.floor(new Date(crmSync.nzLocalToISO(day, '00:00')).getTime() / 1000);
   const toUnix = Math.min(Math.floor(Date.now() / 1000), fromUnix + 86400);
-  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, mergedLegs: 0, stillRinging: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, errors: [], calls: [] };
+  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, mergedLegs: 0, stillRinging: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, cardsToPost: 0, errors: [], calls: [] };
   const todo = [];
   for (let page = 1; page <= 40; page++) {
     const body = await fetchPage(fromUnix, toUnix, page);
@@ -858,14 +869,18 @@ async function recoverCalls(opts) {
     if (!call || call.id == null) continue;
     if (!call.ended_at) { out.stillRinging++; continue; }
     const have = findCall(state, call.id);
-    if (have && !have.stub) { out.alreadyHad++; continue; }
+    if (have && !have.stub) {
+      out.alreadyHad++;
+      if (needsCard(have)) { out.cardsToPost++; if (!dryRun) { try { await giveCard(have, call); } catch (e) { out.errors.push('card ' + call.id + ': ' + (e && e.message || e)); } } }
+      continue;
+    }
     const when = new Date((call.ended_at || call.started_at) * 1000).toISOString();
     // A transferred / ring-group call is stored as ONE row that keeps only one of its Aircall ids (see handleCallEnded's
     // leg-merging). So an Aircall call we have no id for may simply be another leg of a call we DO have: same caller, within
     // the transfer window. Skip those rather than add a duplicate.
     const phone = normalizeNumber(call.raw_digits || '');
     const t0 = new Date(when).getTime();
-    if (phone && (state.calls || []).some(c => !c.stub && !c.recovered && c.callerPhone === phone && Math.abs(new Date(c.occurredAt).getTime() - t0) <= TRANSFER_MERGE_MINUTES * 60000)) { out.mergedLegs++; continue; }
+    if (phone && (state.calls || []).some(c => !c.stub && !madeThisRun.has(c.id) && c.callerPhone === phone && Math.abs(new Date(c.occurredAt).getTime() - t0) <= TRANSFER_MERGE_MINUTES * 60000)) { out.mergedLegs++; continue; }
     const agentId = call.user ? String(call.user.id) : null;
     const routing = agentId ? agentRouting(state, agentId) : null;
     const vm = isVoicemail(call), unanswered = isUnanswered(call);
@@ -880,7 +895,9 @@ async function recoverCalls(opts) {
       await handleCallEnded(call, { occurredAt: when, nowMs: new Date(when).getTime(), recovered: true });
       out.recovered++;
       const row = findCall(state, call.id);
+      if (row) madeThisRun.add(row.id);
       if (row && row.slackTs) { out.onSlack++; await sleepMs(opts.pauseMs != null ? opts.pauseMs : 1100); } // Slack allows about one post a second
+      else if (needsCard(row)) { out.cardsToPost++; await giveCard(row, call); }
     } catch (e) { out.errors.push(String(call.id) + ': ' + (e && e.message || e)); }
   }
   clog('info', 'recover calls', { day, dryRun, found: out.found, alreadyHad: out.alreadyHad, recovered: out.recovered, onSlack: out.onSlack, errors: out.errors.length });

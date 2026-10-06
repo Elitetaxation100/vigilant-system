@@ -103,6 +103,33 @@ test('another leg of a call we already have (same caller, a different Aircall id
   assert.equal(st.calls.length, before + 2, 'no duplicate for the leg; both genuine calls stored');
   assert.ok(dry.calls[0].caller.startsWith('…'), 'the report shows only the last 4 digits of a number');
 });
+test('an answered call merged into an earlier leg still gets its Slack card; running again does not repeat it', async () => {
+  const st = db.get();
+  st.agentMap = { ...(st.agentMap || {}), 7778: { name: 'Mapped Agent', team: 'GST', employeeIds: [] } };
+  const missed = mk(901, '19:00', 1, { raw_digits: '+64219990077', answered_at: null, missed_call_reason: 'agent_did_not_answer', user: null });
+  const answered = mk(902, '19:02', 5, { raw_digits: '+64219990077', user: { id: 7778, name: 'Mapped Agent' }, recording: 'https://example/rec.mp3' });
+  const posted = [];
+  const fake = async (state, row) => { posted.push(row.aircallId); row.slackTs = '1700000000.000100'; row.slackChannel = 'C1'; };
+  const run = () => connector.recoverCalls({ day, dryRun: false, fetchPage: async () => ({ calls: [missed, answered], meta: {} }), pauseMs: 0, syncCard: fake });
+  const r1 = await run();
+  assert.equal(r1.recovered, 2);
+  assert.deepEqual(posted, ['902'], 'ONE card for the one answered call (the merged row carries the answered call id)');
+  const row = st.calls.find(c => c.aircallId === '902');
+  assert.equal(row.team, 'GST'); assert.equal(row.recordingUrl, 'https://example/rec.mp3'); assert.ok(row.slackTs);
+  const r2 = await run();
+  assert.equal(r2.recovered, 0); assert.deepEqual(posted, ['902'], 'nothing is posted twice');
+});
+test('a recovered call stored earlier WITHOUT a card gets one on the next run (healing the first recovery)', async () => {
+  const st = db.get();
+  st.calls.push({ id: 'callH', aircallId: '950', callerPhone: '219990088', occurredAt: new Date((unix('20:00') + 60) * 1000).toISOString(), status: 'ended', team: 'GST', recovered: true, slackTs: null, stub: false });
+  const posted = [];
+  const fake = async (state, row) => { posted.push(row.aircallId); row.slackTs = '1700000000.000200'; };
+  const call = mk(950, '20:00', 1, { raw_digits: '+64219990088', user: { id: 7778, name: 'Mapped Agent' } });
+  const dry = await connector.recoverCalls({ day, fetchPage: async () => ({ calls: [call], meta: {} }) });
+  assert.equal(dry.cardsToPost, 1); assert.deepEqual(posted, [], 'a dry run posts nothing');
+  const r = await connector.recoverCalls({ day, dryRun: false, fetchPage: async () => ({ calls: [call], meta: {} }), pauseMs: 0, syncCard: fake });
+  assert.deepEqual(posted, ['950']); assert.equal(r.onSlack, 1); assert.equal(r.recovered, 0);
+});
 test('a failure from Aircall is reported, not swallowed', async () => {
   await assert.rejects(connector.recoverCalls({ day, fetchPage: async () => { throw new Error('Aircall answered 401'); } }), /401/);
 });
