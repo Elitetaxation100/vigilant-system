@@ -121,10 +121,11 @@ function exceptions(rows, tasks, deps) {
     if (!r.internalDeadline) add(r, 'no_due_date', 'No internal due date');
     if (!(Number(r.allocatedHours) > 0)) add(r, 'zero_hours', 'No allocated hours');
     if ((r.reworkCount || 0) >= 2) add(r, 'repeated_return', 'Returned ' + r.reworkCount + ' times', 'Rework cycle ' + r.reworkCount);
+    if (r.status === 'On Hold' && r.holdFollowUp && r.holdFollowUp <= today) add(r, 'followup_due', 'Hold follow-up is due', 'Follow up ' + (r.holdFollowUp === today ? 'today' : 'was due ' + r.holdFollowUp) + (r.holdResponsibility ? ' · ' + r.holdResponsibility.replace('_', ' ') : ''));
     if (r.status === 'On Hold' && r.heldAt && dayDiff(r.heldAt) > HOLD_BLOCKED_DAYS) add(r, 'blocked_long', 'On hold for ' + dayDiff(r.heldAt) + ' days', r.waitingOn.label);
     if (r.status === 'Approved' && isClient && r.reportSent === 'not_sent' && t.reviewedAt && dayDiff(t.reviewedAt) >= REPORT_UNSENT_DAYS) add(r, 'report_unsent', 'Client report not sent', 'Approved ' + dayDiff(t.reviewedAt) + ' day(s) ago');
     if (t.profitConfirmStatus === 'pending' && t.profitConfirmRequestedAt && dayDiff(t.profitConfirmRequestedAt) > PROFIT_OVERDUE_DAYS) add(r, 'profit_overdue', 'Profit confirmation overdue', 'Waiting ' + dayDiff(t.profitConfirmRequestedAt) + ' days');
-    if ((t.noReviewAttempts || []).length) add(r, 'no_review_attempt', 'No-review override attempted', (t.noReviewAttempts.length) + ' attempt(s)');
+    if ((t.noReviewAttempts || []).length && ['Assigned', 'In Progress', 'On Hold'].includes(r.status)) add(r, 'no_review_attempt', 'No-review override attempted', (t.noReviewAttempts.length) + ' attempt(s)');
     if (isClient && ['In Review', 'Approved', 'Correction Required'].includes(r.status) && (!r.hasSheet || !r.hasCashbook)) add(r, 'missing_links', 'Missing ' + [!r.hasSheet && 'Sheet', !r.hasCashbook && 'Cashbook'].filter(Boolean).join(' and '));
     if (r.lastDateChange && dayDiff(r.lastDateChange.at) <= DATE_CHANGE_WINDOW_DAYS) add(r, 'date_changed', 'Commitment date changed', 'by ' + (r.lastDateChange.by || '—'));
     const badLink = [t.sheetLink, t.cashbookLink].filter(Boolean).find(u => !hostOf(u) || (deps.enforceDomains && !domainAllowed(u, deps.allowedDomains)));
@@ -163,4 +164,54 @@ function timelineRows(rows, tasks, deps) {
   }).sort((a, b) => a.start.localeCompare(b.start) || String(a.id).localeCompare(String(b.id)));
 }
 
-module.exports = { enrich, applyFilters, sortRows, paginate, teamSummary, exceptions, calendarEvents, timelineRows, toneFor, domainAllowed, hostOf, PAGE_SIZES, HOLD_BLOCKED_DAYS, PROFIT_OVERDUE_DAYS, TONE_LABEL, clientLinkDomains };
+// ---------------------------------------------------------------- reporting measures
+// Each measure answers ONE question and is never blended into another: the client's deadline, the employee's own internal date,
+// report sending, correction rate and reviewer turnaround. Productivity (hours) is a different system and is not touched here.
+const pct = (n, d) => d ? Math.round(n / d * 1000) / 10 : null;
+function measures(tasks, deps, days) {
+  const today = deps.today, span = Math.min(Math.max(Number(days) || 30, 1), 365);
+  const from = new Date(Date.parse(today + 'T00:00:00Z') - (span - 1) * 86400000).toISOString().slice(0, 10);
+  const inDay = ts => ts && deps.nzDay(ts) >= from && deps.nzDay(ts) <= today;
+  const finished = tasks.filter(t => t.status === 'completed' && inDay(t.completedAt));   // delivery measures: work that reached the end of the employee's part
+  const reviewed = tasks.filter(t => t.reviewedBy && inDay(t.reviewedAt));                  // review measures: reviews decided in the window, whatever happened next
+  const blank = () => ({ clientCommitment: { met: 0, missed: 0 }, internalCommitment: { met: 0, breached: 0 }, reportSending: { onTime: 0, late: 0, notSent: 0 }, corrections: { reviewed: 0, returned: 0, rounds: 0, serious: 0 } });
+  const firm = blank(), per = {}, rev = {};
+  const bucket = t => per[t.assignedTo || '-'] = per[t.assignedTo || '-'] || blank();
+  for (const t of finished) {
+    const card = wf.card(t, deps), e = bucket(t);
+    if (!wf.isClientTask(t)) continue;
+    for (const b of [firm, e]) {
+      const o = deps.commitmentOutcome ? deps.commitmentOutcome(t) : null;
+      if (o === 'met') b.clientCommitment.met++; else if (o === 'missed') b.clientCommitment.missed++;
+      if (card.commitment.key === 'met') b.internalCommitment.met++; else if (card.commitment.key === 'breached') b.internalCommitment.breached++;
+      const ri = deps.reportInfo ? deps.reportInfo(t) : null;
+      if (ri && ri.eligible) { if (ri.outcome === 'sent_on_time') b.reportSending.onTime++; else if (ri.outcome === 'sent_late') b.reportSending.late++; else b.reportSending.notSent++; }
+    }
+  }
+  for (const t of reviewed) {
+    const e = bucket(t), rounds = t.reworkCount || 0, returned = t.reviewStatus === 'error' || rounds > 0;
+    for (const b of [firm, e]) {
+      b.corrections.reviewed++;
+      if (returned) { b.corrections.returned++; b.corrections.rounds += Math.max(1, rounds); }
+      if (rounds >= 3) b.corrections.serious++;     // "serious" = returned three or more times
+    }
+    const d = Math.max(0, wf.daysBetween(deps.nzDay(t.completedAt || t.reviewedAt), deps.nzDay(t.reviewedAt)));
+    const r = rev[t.reviewedBy] = rev[t.reviewedBy] || { count: 0, totalDays: 0, maxDays: 0, within1: 0 };
+    r.count++; r.totalDays += d; r.maxDays = Math.max(r.maxDays, d); if (d <= 1) r.within1++;
+  }
+  const fin = b => ({
+    clientCommitment: { ...b.clientCommitment, total: b.clientCommitment.met + b.clientCommitment.missed, pct: pct(b.clientCommitment.met, b.clientCommitment.met + b.clientCommitment.missed) },
+    internalCommitment: { ...b.internalCommitment, total: b.internalCommitment.met + b.internalCommitment.breached, pct: pct(b.internalCommitment.met, b.internalCommitment.met + b.internalCommitment.breached) },
+    reportSending: { ...b.reportSending, total: b.reportSending.onTime + b.reportSending.late + b.reportSending.notSent, pct: pct(b.reportSending.onTime, b.reportSending.onTime + b.reportSending.late + b.reportSending.notSent) },
+    corrections: { ...b.corrections, pct: pct(b.corrections.returned, b.corrections.reviewed), avgRounds: b.corrections.returned ? Math.round(b.corrections.rounds / b.corrections.returned * 10) / 10 : 0 },
+  });
+  const turn = ([id, r]) => ({ id, name: deps.nameOf(id) || '—', count: r.count, avgDays: Math.round(r.totalDays / r.count * 10) / 10, maxDays: r.maxDays, within1DayPct: pct(r.within1, r.count) });
+  return {
+    days: span, from, to: today, firm: fin(firm),
+    byEmployee: Object.entries(per).filter(([id]) => id !== '-').map(([id, b]) => ({ id, name: deps.nameOf(id) || '—', ...fin(b) })).sort((a, b) => a.name.localeCompare(b.name)),
+    byReviewer: Object.entries(rev).map(turn).sort((a, b) => b.count - a.count),
+    reviewerTurnaround: (() => { const all = Object.values(rev); const c = all.reduce((n, r) => n + r.count, 0); return { count: c, avgDays: c ? Math.round(all.reduce((n, r) => n + r.totalDays, 0) / c * 10) / 10 : null, within1DayPct: pct(all.reduce((n, r) => n + r.within1, 0), c) }; })(),
+  };
+}
+
+module.exports = { measures,  enrich, applyFilters, sortRows, paginate, teamSummary, exceptions, calendarEvents, timelineRows, toneFor, domainAllowed, hostOf, PAGE_SIZES, HOLD_BLOCKED_DAYS, PROFIT_OVERDUE_DAYS, TONE_LABEL, clientLinkDomains };

@@ -117,6 +117,15 @@
 
   .clock-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-m); padding:16px 14px; margin-bottom:16px; }
 /* ---- v2 navigation + manager views ---- */
+body.v2-dash :is(button, select, input, textarea, a, summary, [role=menuitem]):focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
+@media (pointer:coarse), (max-width:760px){
+  body.v2-dash .td-act, body.v2-dash .btn.small, body.v2-dash .tm-chip, body.v2-dash .tm-num{ min-height:44px; min-width:44px; }
+  body.v2-dash .mt-f select, body.v2-dash .mt-f input{ min-height:44px; }
+}
+@media (prefers-reduced-motion: reduce){ body.v2-dash *{ animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
+.ms-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px; margin-bottom:14px; }
+.ms-card{ border:1px solid var(--panel-border); border-radius:12px; padding:12px 14px; background:var(--panel-2); }
+.ms-card .n{ font-size:26px; font-weight:700; line-height:1.1; display:block; } .ms-card .l{ font-size:12.5px; color:var(--text-dim); display:block; } .ms-card .s{ font-size:12px; color:var(--text-faint); display:block; margin-top:2px; }
 .sr-only{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
 body.v2-dash .sidebar .nav-section:not(#navV2){ display:none !important; }
 body.v2-dash #navV2{ display:block !important; }
@@ -398,7 +407,8 @@ body.v2-dash .clock-card{ display:none !important; }
   .at-more > summary span{ font-weight:400; font-size:12px; color:var(--text-faint); margin-left:6px; }
   .at-more[open]{ padding-bottom:4px; }
   .at-hint{ font-weight:400; color:var(--text-faint); text-transform:none; letter-spacing:0; }
-  .at-bulk{ font-size:12.5px; color:var(--text-faint); text-decoration:underline; }
+  .field label.at-check{ display:flex; gap:10px; align-items:flex-start; font-weight:600; font-size:14px; letter-spacing:0; text-transform:none; cursor:pointer; color:var(--text); } .field label.at-check input[type=checkbox]{ margin:3px 0 0; width:18px; height:18px; min-height:0; padding:0; flex:none; } .at-note{ font-size:12.5px; color:var(--text-dim); margin-top:4px; line-height:1.45; } .at-linkmsg{ font-size:12px; margin-top:3px; min-height:14px; }
+.at-bulk{ font-size:12.5px; color:var(--text-faint); text-decoration:underline; }
   .guide-card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:14px; padding:14px 16px; margin-bottom:16px; }
   .guide-head{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
   .guide-x{ background:none; border:none; color:var(--text-faint); font-size:12.5px; cursor:pointer; }
@@ -2469,7 +2479,7 @@ body.v2-dash .clock-card{ display:none !important; }
 
 <!-- ============ MODAL: generic overlay ============ -->
 <div class="modal-overlay" id="modalOverlay">
-  <div class="modal-box" id="modalBox"></div>
+  <div class="modal-box" id="modalBox" role="dialog" aria-modal="true" aria-label="Dialog" tabindex="-1"></div>
 </div>
 
 <script>
@@ -7734,7 +7744,7 @@ function tdDetailHtml(id, given){
    Everything shown is derived by the server (manager-views.js); the only write is a manager action, which needs a reason.
    ========================================================================= */
 const MT_ATTN = {
-  unassigned: 'Unassigned', no_client: 'Client work with no client', no_due_date: 'No internal due date', zero_hours: 'No allocated hours',
+  followup_due: 'Hold follow-up due', unassigned: 'Unassigned', no_client: 'Client work with no client', no_due_date: 'No internal due date', zero_hours: 'No allocated hours',
   repeated_return: 'Returned repeatedly', blocked_long: 'Blocked too long', report_unsent: 'Client report not sent', profit_overdue: 'Profit confirmation overdue',
   no_review_attempt: 'No-review override attempted', missing_links: 'Missing Sheet / Cashbook', date_changed: 'Commitment date changed', bad_link: 'Link is invalid',
 };
@@ -7745,13 +7755,37 @@ function mtOpenTasks(preset){
   showView('mtasks', document.querySelector('#navV2 .nav-item[data-view="mtasks"]'));
 }
 /* ---------------- My Team ---------------- */
-let _team = null, _tmType = null, _tmIds = {};
+let _team = null, _tmType = null, _tmIds = {}, _measures = null, _msDays = 30, _msErr = null;
 async function renderTeamView(){
   const box = document.getElementById('tmRoot'); if(!box) return;
   if(!_team) box.innerHTML = '<div class="td-empty">Loading your team…</div>';
   try { _team = await api('/api/workflow/team'); }
   catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not load My Team: ' + esc(e.message) + ' <button class="btn small td-act" onclick="renderTeamView()">Retry</button></div>'; return; }
   drawTeamView();
+  loadMeasures();
+}
+async function loadMeasures(){
+  try { _measures = await api('/api/workflow/measures?days=' + _msDays); _msErr = null; } catch(e){ _msErr = e.message; }
+  const el = document.getElementById('tmMeasures'); if(el) el.innerHTML = measuresHtml();
+}
+function msSetDays(n){ _msDays = Number(n); _measures = null; const el = document.getElementById('tmMeasures'); if(el) el.innerHTML = measuresHtml(); loadMeasures(); }
+function measuresHtml(){
+  const days = [7, 30, 90].map(n => '<option value="' + n + '"' + (_msDays === n ? ' selected' : '') + '>Last ' + n + ' days</option>').join('');
+  const head = '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;"><h3 id="tmMeasH" style="margin:0;">Delivery measures</h3><label class="mt-f" style="flex-direction:row;align-items:center;gap:8px;"><span>Period</span><select onchange="msSetDays(this.value)">' + days + '</select></label></div><div class="tm-sub" style="margin:6px 0 12px;">Each measure answers one question and is never blended into another. Productivity (hours) is a separate score.</div>';
+  if(_msErr) return head + '<div class="td-empty" role="alert">Could not load the measures: ' + esc(_msErr) + ' <button class="btn small td-act" onclick="loadMeasures()">Retry</button></div>';
+  if(!_measures) return head + '<div class="td-empty">Loading the measures…</div>';
+  const M = _measures, F = M.firm;
+  const p = x => x.pct == null ? '—' : x.pct + '%';
+  const card = (title, x, sub, ok) => '<div class="ms-card"><span class="l">' + title + '</span><span class="n">' + p(x) + '</span><span class="s">' + sub + '</span></div>';
+  const cards = '<div class="ms-grid">'
+    + card('Client deadline met', F.clientCommitment, F.clientCommitment.met + ' of ' + F.clientCommitment.total + ' delivered by the client date')
+    + card('Employee internal date met', F.internalCommitment, F.internalCommitment.met + ' of ' + F.internalCommitment.total + ' submitted by their own date')
+    + card('Reports sent on time', F.reportSending, F.reportSending.onTime + ' of ' + F.reportSending.total + ' (' + F.reportSending.late + ' late, ' + F.reportSending.notSent + ' not sent)')
+    + '<div class="ms-card"><span class="l">Reviews returned for correction</span><span class="n">' + p(F.corrections) + '</span><span class="s">' + F.corrections.returned + ' of ' + F.corrections.reviewed + ' reviewed · ' + F.corrections.avgRounds + (F.corrections.avgRounds === 1 ? ' round' : ' rounds') + ' on average' + (F.corrections.serious ? ' · ' + F.corrections.serious + ' returned 3+ times' : '') + '</span></div>'
+    + '<div class="ms-card"><span class="l">Review turnaround</span><span class="n">' + (M.reviewerTurnaround.avgDays == null ? '—' : M.reviewerTurnaround.avgDays + ' d') + '</span><span class="s">' + M.reviewerTurnaround.count + ' reviews · ' + (M.reviewerTurnaround.within1DayPct == null ? '—' : M.reviewerTurnaround.within1DayPct + '% within a day') + '</span></div></div>';
+  const emp = M.byEmployee.length ? '<div class="tm-scroll"><table class="tm-table"><thead><tr><th>Employee</th><th>Client deadline met</th><th>Own internal date met</th><th>Reports on time</th><th>Returned for correction</th></tr></thead><tbody>' + M.byEmployee.map(e => '<tr><th scope="row" data-l="Employee">' + esc(e.name) + '</th><td data-l="Client deadline met">' + p(e.clientCommitment) + ' <span class="tm-sub">' + e.clientCommitment.met + '/' + e.clientCommitment.total + '</span></td><td data-l="Own internal date met">' + p(e.internalCommitment) + ' <span class="tm-sub">' + e.internalCommitment.met + '/' + e.internalCommitment.total + '</span></td><td data-l="Reports on time">' + p(e.reportSending) + ' <span class="tm-sub">' + e.reportSending.onTime + '/' + e.reportSending.total + '</span></td><td data-l="Returned for correction">' + p(e.corrections) + ' <span class="tm-sub">' + e.corrections.returned + '/' + e.corrections.reviewed + '</span></td></tr>').join('') + '</tbody></table></div>' : '<div class="td-empty">No finished or reviewed work in this period yet.</div>';
+  const rv = M.byReviewer.length ? '<h4 style="margin:16px 0 6px;">Reviewers</h4><div class="tm-scroll"><table class="tm-table"><thead><tr><th>Reviewer</th><th>Reviews</th><th>Average days</th><th>Slowest</th><th>Within a day</th></tr></thead><tbody>' + M.byReviewer.map(r => '<tr><th scope="row" data-l="Reviewer">' + esc(r.name) + '</th><td data-l="Reviews">' + r.count + '</td><td data-l="Average days">' + r.avgDays + '</td><td data-l="Slowest">' + r.maxDays + ' d</td><td data-l="Within a day">' + (r.within1DayPct == null ? '—' : r.within1DayPct + '%') + '</td></tr>').join('') + '</tbody></table></div>' : '';
+  return head + cards + emp + rv;
 }
 function drawTeamView(){
   const box = document.getElementById('tmRoot'); if(!box || !_team) return;
@@ -7773,6 +7807,7 @@ function drawTeamView(){
     + '<td data-l="Oldest open task">' + (p.oldest ? '<div class="tm-old"><button type="button" class="tm-link" onclick="mtOpenDetail(\'' + esc(p.oldest.id) + '\')">' + esc(p.oldest.name) + '</button><div class="tm-sub">' + p.oldest.ageDays + ' day' + (p.oldest.ageDays === 1 ? '' : 's') + ' old</div></div>' : '—') + '</td></tr>').join('');
   box.innerHTML = '<div class="tm-head"><h2 class="td-greet">My Team</h2><div class="td-date">Counts are today\'s, in New Zealand time. Select a number to see exactly those tasks.</div></div>'
     + '<section class="tm-panel" aria-labelledby="tmAttnH"><h3 id="tmAttnH">Needs Manager Attention</h3><div class="tm-chips">' + chips + '</div>' + list + '</section>'
+    + '<section class="tm-panel" aria-labelledby="tmMeasH" id="tmMeasures">' + measuresHtml() + '</section>'
     + '<section class="tm-panel" aria-labelledby="tmPeopleH"><h3 id="tmPeopleH">People</h3>' + (T.team.length ? '<div class="tm-scroll"><table class="tm-table"><thead><tr><th>Employee</th><th>Open work</th><th>Overdue</th><th>Waiting on client</th><th>Waiting on reviewer</th><th>Corrections</th><th>Allocated hours</th><th>Free capacity</th><th>Oldest open task</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '<div class="td-empty">No team members yet.</div>') + '</section>';
 }
 function tmPickType(k){ _tmType = (_tmType === k) ? null : k; drawTeamView(); }
@@ -7881,6 +7916,7 @@ function mtMenu(ev, id){
   const items = [['Open details', "mtOpenDetail('" + id + "')", true], ['Full history', "openTaskTrailModal('" + id + "')", true],
     ['Reassign…', "mtAction('reassign','" + id + "')", open], ['Change due date…', "mtAction('change_due','" + id + "')", open],
     ['Change reviewer…', "mtAction('change_reviewer','" + id + "')", open],
+    ['Waive the review…', "mtAction('waive_review','" + id + "')", open && c.kindLabel === 'Client Task' && c.reviewRequired === true],
     ['Nudge employee…', "nudgeTask('" + id + "')", open && !!c.assigneeId], ['Put on hold…', "openHoldModal('" + id + "')", ['Assigned','In Progress'].includes(c.status)],
     ['Resume from hold', "mtResume('" + id + "')", c.status === 'On Hold']].filter(x => x[2]);
   const m = document.createElement('div'); m.id = 'mtMenu'; m.className = 'mt-menu'; m.setAttribute('role', 'menu');
@@ -7905,7 +7941,7 @@ async function mtResume(id){
 }
 function mtAction(kind, id){
   const t = findTask(id), c = ((_mtData || {}).rows || []).find(r => r.id === id); if(!t || !c) return;
-  const title = { reassign:'Reassign task', change_due:'Change due date', change_reviewer:'Change reviewer' }[kind];
+  const title = { reassign:'Reassign task', change_due:'Change due date', change_reviewer:'Change reviewer', waive_review:'Waive the review' }[kind];
   let field = '';
   if(kind === 'reassign'){
     const opts = assignableEmployees().filter(e => e.id !== t.assignedTo);
@@ -7913,6 +7949,8 @@ function mtAction(kind, id){
   } else if(kind === 'change_due'){
     field = '<div class="field"><label for="mtaDue">New internal due date</label><input type="date" id="mtaDue" min="' + todayISO() + '" value="' + esc(t.internalDeadline || '') + '"></div>'
       + (t.clientDate ? '<div class="field"><label for="mtaClient">Client commitment date <span class="at-hint">leave as is unless the client agreed a new date</span></label><input type="date" id="mtaClient" value="' + esc(t.clientDate) + '"></div>' : '');
+  } else if(kind === 'waive_review'){
+    field = '<div class="modal-sub" style="margin-top:-4px;">Client work is normally reviewed before it goes to the client. Waiving the review is recorded with your name and the reason below.</div>';
   } else {
     const opts = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && e.id !== t.assignedTo && !e.accessDisabled);
     field = '<div class="field"><label for="mtaRev">New reviewer</label><select id="mtaRev">' + opts.map(e => '<option value="' + esc(e.id) + '"' + (e.id === t.reviewerId ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('') + '</select></div>';
@@ -8252,7 +8290,16 @@ function openHoldModal(id){
           <input type="date" id="qSentAt" value="${esc(todayISO())}" max="${esc(todayISO())}"></div>
       </div>
     </div>
-    <div class="field"><label>Screenshot (optional)</label>
+    <div id="holdV2" style="display:none;">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div class="field" style="flex:1;min-width:170px;"><label for="holdResp">Who is responsible for the next step? <span class="req-mark">*</span></label>
+          <select id="holdResp"><option value="client">Client</option><option value="employee">Employee</option><option value="reviewer">Reviewer</option><option value="manager">Manager</option><option value="third_party">IRD / bank / third party</option><option value="capacity">Capacity — parked by manager</option></select></div>
+        <div class="field" style="flex:1;min-width:170px;"><label for="holdFollow">Follow up on <span class="req-mark">*</span></label>
+          <input type="date" id="holdFollow" min="${esc(todayISO())}" value="${esc(addDaysISO(2))}"></div>
+      </div>
+      <div id="holdClocks" style="font-size:12.5px;color:var(--text-dim);margin:-2px 0 10px;"></div>
+    </div>
+    <div class="field"><label>Screenshot or attachment (optional)</label>
       <input type="file" id="holdShot" accept="image/*">
       <div id="holdShotPreview" style="margin-top:8px;"></div></div>
     <div class="modal-error" id="holdErr"></div>
@@ -8262,8 +8309,10 @@ function openHoldModal(id){
     </div>`;
   openModal();
   document.getElementById('holdShot').addEventListener('change', e => previewHoldShot(e.target));
+  const v2 = document.getElementById('holdV2'); if(v2 && atV2On()) v2.style.display = '';
   _holdReasonChanged();
 }
+const HOLD_RESP_DEFAULT = { CLIENT_QUERY:'client', CLIENT_DOCS:'client', THIRD_PARTY:'third_party', INTERNAL_REVIEW:'reviewer', CAPACITY:'manager', BLOCKED_OTHER:'employee' };
 function _holdReasonChanged(){
   const code = document.getElementById('holdReasonCode').value;
   const m = HOLD_REASONS[code] || {};
@@ -8272,6 +8321,9 @@ function _holdReasonChanged(){
     ? 'Detail <span style="color:var(--flag,#C2410C);">(required)</span>'
     : 'Detail <span style="color:var(--text-faint);">(optional)</span>';
   document.getElementById('holdExemptBox').style.display = m.exempting ? 'block' : 'none';
+  const resp = document.getElementById('holdResp'); if(resp) resp.value = HOLD_RESP_DEFAULT[code] || 'employee';
+  const ck = document.getElementById('holdClocks');
+  if(ck) ck.innerHTML = '⏸ Your work timer stops now. ' + (m.exempting ? '⏸ The <b>client commitment clock pauses</b> too, because the wait is on the client or a third party.' : '▶ The <b>client commitment clock keeps running</b> — this is an internal wait.');
 }
 let _holdShotData = null;
 async function previewHoldShot(fileEl){
@@ -8309,6 +8361,11 @@ async function submitHold(id){
     errEl.textContent = 'This reason needs a short note.'; errEl.style.display = 'block'; return;
   }
   const body = { reasonCode, detail, screenshot: _holdShotData || undefined };
+  if(atV2On()){
+    body.responsibility = (document.getElementById('holdResp') || {}).value;
+    body.followUpDate = (document.getElementById('holdFollow') || {}).value;
+    if(!body.followUpDate){ errEl.textContent = 'Pick the date you will follow this up.'; errEl.style.display = 'block'; return; }
+  }
   if((HOLD_REASONS[reasonCode]||{}).exempting){
     body.querySource = (document.getElementById('qSource')||{}).value || 'manual';
     body.querySentAt = (document.getElementById('qSentAt')||{}).value || undefined;
@@ -8938,6 +8995,12 @@ function openNewTask(who){
       <div class="field"><label id="atTatLabel">Hours <span class="req-mark">*</span></label><input type="number" id="atTat" value="1" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
       <div class="field"><label id="atDeadlineLabel">Due date <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}" onchange="atPlanPreview(); atSyncClientDate()"></div>
     </div>
+    <div id="atV2Review" style="display:none;">
+      <div class="field"><label for="atReviewer">Reviewer <span class="at-hint">who checks this before it goes to the client</span></label><select id="atReviewer"></select></div>
+      <div class="field"><label class="at-check"><input type="checkbox" id="atReviewReq" checked onchange="atReviewToggle()"> <span id="atReviewReqLabel">Review required before this goes to the client</span></label>
+        <div id="atReviewNote" class="at-note"></div></div>
+      <div class="field" id="atNoReviewWhy" style="display:none;"><label for="atNoReviewReason">Why does this client task need no review? <span class="req-mark">*</span> <span class="at-hint">kept on the record</span></label><textarea id="atNoReviewReason" rows="2" placeholder="e.g. Repeat of last month's return, already reviewed by the founder"></textarea></div>
+    </div>
     <div id="atImpossibleWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 45%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55; color:var(--flag); font-weight:600;"></div>
     <div id="atOverloadWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 35%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55;">
       <div id="atOverloadText" style="color:var(--flag); font-weight:600;"></div>
@@ -8948,7 +9011,11 @@ function openNewTask(who){
       </label>
     </div>
     <details class="at-more">
-      <summary>More options <span>client date, group</span></summary>
+      <summary>More options <span>client date, links, group</span></summary>
+      <div id="atV2Links" style="display:none;">
+        <div class="field"><label for="atSheet">Google Sheet link <span class="at-hint">optional — you can add it when you submit the work</span></label><input type="url" id="atSheet" placeholder="https://docs.google.com/spreadsheets/…" autocomplete="off" oninput="atLinkCheck(this)"><div class="at-linkmsg" id="atSheetMsg"></div></div>
+        <div class="field"><label for="atCash">Cashbook link <span class="at-hint">optional</span></label><input type="url" id="atCash" placeholder="https://…" autocomplete="off" oninput="atLinkCheck(this)"><div class="at-linkmsg" id="atCashMsg"></div></div>
+      </div>
       <div id="atInternalRefWrap" class="field" style="display:none;">
         <label>Client or group <span class="at-hint">optional, e.g. a client name for a payment task, or "Payroll"</span></label>
         <input type="text" id="atInternalRef" list="atClientList" placeholder="e.g. City Cabs Ltd · Payroll · Admin" autocomplete="off">
@@ -8970,7 +9037,50 @@ function openNewTask(who){
   _atImpossible = false;
   setAssignKind(noClients ? 'internal' : 'client');
   atAssigneeChanged();
+  atV2Setup();
   const nm = document.getElementById('atName'); if(nm) nm.focus();
+}
+/* The new form (Parvinder's dashboard): Client Task / Admin Task wording, a reviewer chosen up front, and a review rule — client
+   work is reviewed unless a manager or the founder waives it with a reason. Links are checked as you type. */
+function atV2On(){ return !!(session && session.dashboardV2); }
+function atV2Setup(){
+  if(!atV2On()) return;
+  const set = (id, show) => { const el = document.getElementById(id); if(el) el.style.display = show ? '' : 'none'; };
+  set('atV2Links', true); set('atV2Review', true);
+  document.querySelectorAll('.atKindBtn').forEach(b => { b.textContent = b.dataset.kind === 'client' ? 'Client Task' : 'Admin Task'; });
+  atReviewers();
+  atReviewKindChanged();
+}
+// Any manager or the founder can review — except the person doing the work. Keeps the current choice if it is still allowed.
+function atReviewers(){
+  if(!atV2On()) return;
+  const sel = document.getElementById('atReviewer'); if(!sel) return;
+  const who = (document.getElementById('atAssignee') || {}).value || currentViewerId, keep = sel.value;
+  const mgrs = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && !e.accessDisabled && e.id !== who);
+  sel.innerHTML = '<option value="">Choose when the work is submitted</option>' + mgrs.map(e => '<option value="' + esc(e.id) + '"' + (e.id === keep ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('');
+}
+function atReviewKindChanged(){
+  if(!atV2On()) return;
+  const internal = _assignKind === 'internal', box = document.getElementById('atReviewReq'); if(!box) return;
+  const canWaive = isAdmin;
+  box.checked = !internal;
+  box.disabled = !internal && !canWaive;
+  document.getElementById('atReviewReqLabel').textContent = internal ? 'This admin task needs a review' : 'Review required before this goes to the client';
+  document.getElementById('atReviewNote').textContent = internal ? 'Admin tasks have no client report, so a review is optional.' : (canWaive ? 'Untick only for the rare client task that needs no review — you will be asked for a reason.' : 'Client work is always reviewed. Only a manager or the founder can waive that.');
+  atReviewToggle();
+}
+function atReviewToggle(){
+  const box = document.getElementById('atReviewReq'), why = document.getElementById('atNoReviewWhy'); if(!box || !why) return;
+  why.style.display = (_assignKind !== 'internal' && !box.checked) ? '' : 'none';
+}
+function atLinkCheck(input){
+  const msg = document.getElementById(input.id + 'Msg'); if(!msg) return;
+  const v = input.value.trim();
+  if(!v){ msg.textContent = ''; return; }
+  let ok = true, why = '';
+  try { const u = new URL(v); if(!/^https?:$/.test(u.protocol)){ ok = false; why = 'Must start with http:// or https://'; } else if(u.username || u.password){ ok = false; why = 'Must not contain a username or password.'; } else if(!u.hostname.includes('.')){ ok = false; why = 'That is not a real website address.'; } }
+  catch(e){ ok = false; why = 'That does not look like a link.'; }
+  msg.textContent = ok ? '✓ Looks like a link' : why; msg.style.color = ok ? 'var(--teal)' : 'var(--coral)';
 }
 // "For" changed: the button says what will happen, and the capacity check only
 // applies when the work is going to someone else (same rule the server uses).
@@ -8980,6 +9090,7 @@ function atAssigneeChanged(){
   atRefreshSubmitBtn();
   atPlanPreview();
   atSyncClientDate();
+  atReviewers();
 }
 function submitNewTask(){
   const sel = document.getElementById('atAssignee');
@@ -9300,6 +9411,7 @@ function setAssignKind(kind){
   _assignKind = kind === 'internal' ? 'internal' : 'client';
   const isInternal = _assignKind === 'internal';
   document.querySelectorAll('.atKindBtn').forEach(b => b.classList.toggle('primary', b.dataset.kind === _assignKind));
+  atReviewKindChanged();
   ['atClientOnly','atClientBlock','atClientDateWrap'].forEach(id => {
     const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
   });
@@ -9353,6 +9465,21 @@ async function submitAssign(mode){
     payload.clientId = cid;
     payload.clientDate = (document.getElementById('atClientDate')||{}).value || undefined;
   }
+  if(atV2On()){
+    payload.taskKind = isInternal ? 'admin' : 'client';
+    const rv = (document.getElementById('atReviewer') || {}).value || '';
+    if(rv) payload.reviewerId = rv;
+    const req = document.getElementById('atReviewReq');
+    payload.reviewRequired = req ? req.checked : !isInternal;
+    if(!isInternal && req && !req.checked){
+      const why = ((document.getElementById('atNoReviewReason') || {}).value || '').trim();
+      if(why.length < 5){ showErr('Say why this client task needs no review — it is kept on the record.'); return; }
+      payload.noReviewReason = why;
+    }
+    const sh = ((document.getElementById('atSheet') || {}).value || '').trim(), cb = ((document.getElementById('atCash') || {}).value || '').trim();
+    if(sh) payload.sheetLink = sh;
+    if(cb) payload.cashbookLink = cb;
+  }
   await submitTaskPayload(payload);
 }
   // Turn what the manager typed in the client box into a client id: an
@@ -9375,7 +9502,8 @@ async function submitAssign(mode){
       return;
     }
     closeModal();
-    showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
+    if(atV2On()) showView('today', document.querySelector('#navV2 .nav-item[data-view="today"]'));
+    else showView('dashboard', document.querySelector('.nav-item[data-view="dashboard"]'));
     await refreshTasks();
     await refreshActivity({ silent: true });
     const assigneeName = payload.mode === 'team' ? (empById(payload.assignedTo)?.name || 'team member') : 'yourself';
@@ -13976,8 +14104,33 @@ function logoutSession(){
 /* =========================================================================
    MODAL HELPERS
    ========================================================================= */
-function openModal(){ document.getElementById('modalOverlay').classList.add('active'); }
-function closeModal(){ document.getElementById('modalOverlay').classList.remove('active'); window.__stickyModal = false; }
+let _modalOpener = null;
+function openModal(){
+  const ov = document.getElementById('modalOverlay'), box = document.getElementById('modalBox');
+  if(!ov.classList.contains('active')) _modalOpener = document.activeElement;   // where focus goes back to
+  ov.classList.add('active');
+  const h = box.querySelector('h3, h2'); box.setAttribute('aria-label', h ? h.textContent.trim() : 'Dialog');
+  // move focus into the dialog (first field, else first button) unless a form already focused something inside it
+  setTimeout(() => { if(box.contains(document.activeElement)) return; const f = box.querySelector('input:not([type=hidden]):not([disabled]), select, textarea, button:not([disabled])'); (f || box).focus(); }, 30);
+}
+function closeModal(){
+  const ov = document.getElementById('modalOverlay'); const was = ov.classList.contains('active');
+  ov.classList.remove('active'); window.__stickyModal = false;
+  if(was && _modalOpener && document.contains(_modalOpener) && typeof _modalOpener.focus === 'function'){ try { _modalOpener.focus(); } catch(e){} }
+  _modalOpener = null;
+}
+// Tab / Shift+Tab never leave the open dialog
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Tab') return;
+  const ov = document.getElementById('modalOverlay'); if(!ov || !ov.classList.contains('active')) return;
+  const box = document.getElementById('modalBox');
+  const f = [...box.querySelectorAll('a[href], button:not([disabled]), input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter(x => x.offsetParent !== null);
+  if(!f.length){ e.preventDefault(); box.focus(); return; }
+  const first = f[0], last = f[f.length - 1];
+  if(!box.contains(document.activeElement)){ e.preventDefault(); first.focus(); }
+  else if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+});
 // A click on the backdrop closes most modals — but not a "sticky" one (a
 // half-filled form like Assign Task); those only close via Cancel.
 document.getElementById('modalOverlay').addEventListener('click', function(e){

@@ -296,6 +296,30 @@ function normalizeLink(raw) {
   }
   return { ok: true, value: s };
 }
+// A link a person typed is checked properly: a real web address with a host, no embedded password, and — only when the founder has
+// switched the policy on — on an approved site. (Default OFF so existing data and habits keep working.)
+function workflowSettings(state) { return state.workflowSettings || {}; }
+function checkLink(state, raw, label) {
+  const n = normalizeLink(raw);
+  if (!n.ok) return { ok: false, error: label + ' must be a valid URL starting with http:// or https://' };
+  if (!n.value) return n;
+  let u; try { u = new URL(n.value); } catch (e) { return { ok: false, error: label + ' is not a valid link.' }; }
+  if (u.username || u.password) return { ok: false, error: label + ' must not contain a username or password.' };
+  if (!u.hostname.includes('.')) return { ok: false, error: label + ' needs a real website address.' };
+  const ws = workflowSettings(state);
+  if (ws.linkDomainsEnforced && !mgr.domainAllowed(n.value, ws.linkDomains)) return { ok: false, error: label + ' must be on an approved site (' + (ws.linkDomains || mgr.clientLinkDomains).join(', ') + ').' };
+  return n;
+}
+// Every change to a task's Sheet / Cashbook link is kept: who, when, from what, to what, and through which door.
+function snapLinks(t) { return { sheet: t.sheetLink || null, cashbook: t.cashbookLink || null }; }
+function recordLinkChange(t, actor, before, via) {
+  const now = snapLinks(t);
+  [['sheet', 'Google Sheet'], ['cashbook', 'Cashbook']].forEach(([k, label]) => {
+    if (before[k] === now[k]) return;
+    t.linkHistory = t.linkHistory || [];
+    t.linkHistory.push({ at: new Date().toISOString(), by: actor.name, byId: actor.id, slot: k, label, from: before[k], to: now[k], via: via || null });
+  });
+}
 // Profit confirmation always routes to Shubam Sharma — same "one named
 // person" pattern as FOUNDER_EMAILS in db.js.
 const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
@@ -1035,7 +1059,7 @@ function notify(state, empId, type, text, taskId, opts) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'New date decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send', system: 'System alert', escalation: 'Decision requested' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send', system: 'System alert', escalation: 'Decision requested', attention: 'Needs your attention' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -2095,8 +2119,11 @@ app.get('/api/tasks/:id/notify-status', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind, internalRef, department, departmentOther, service } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, internalRef, department, departmentOther, service } = req.body || {};
   let { internalDeadline } = req.body || {};
+  // The new form says Client Task / Admin Task (taskKind); older callers still send kind. "Admin" is the same as the stored "internal".
+  const body0 = req.body || {};
+  const kind = body0.taskKind === 'admin' ? 'internal' : body0.taskKind === 'client' ? 'client' : body0.kind;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
   // Optional, controlled department + service (IA Phase 6) — free-text
   // `team` above is untouched either way. "Other" always requires a
@@ -2206,6 +2233,31 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     }
   }
 
+  // ---- V2 form extras: the reviewer chosen up front, whether review is required, and links typed at creation
+  const v2Form = body0.taskKind === 'client' || body0.taskKind === 'admin';
+  let assignedReviewerId = null, reviewRequired = null, noReviewAuth = null;
+  if (v2Form) {
+    if (body0.reviewerId) {
+      const rv = findEmployee(state, body0.reviewerId);
+      if (!rv || !isAdminRole(rv.accessRole)) return res.status(400).json({ error: 'The reviewer must be a manager or the founder.' });
+      if (rv.id === assignee) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
+      assignedReviewerId = rv.id;
+    }
+    reviewRequired = isInternal ? body0.reviewRequired === true : body0.reviewRequired !== false;   // client work is reviewed unless a manager says otherwise
+    if (!isInternal && body0.reviewRequired === false) {
+      if (!isAdminRole(req.employee.accessRole)) return res.status(403).json({ error: 'Only a manager or the founder can waive the review on client work.', code: 'REVIEW_REQUIRED' });
+      const why = String(body0.noReviewReason || '').trim();
+      if (why.length < 5) return res.status(400).json({ error: 'Say why this client task needs no review — it is kept on the record.', code: 'REVIEW_REASON' });
+      noReviewAuth = { by: req.employee.id, at: new Date().toISOString(), reason: why };
+    }
+    if (reviewRequired && !assignedReviewerId && !isInternal) {
+      /* a reviewer is picked when the work is submitted if none was chosen now */
+    }
+  }
+  const linkSheet = checkLink(state, body0.sheetLink, 'Google Sheet link'), linkCash = checkLink(state, body0.cashbookLink, 'Cashbook link');
+  if (!linkSheet.ok) return res.status(400).json({ error: linkSheet.error });
+  if (!linkCash.ok) return res.status(400).json({ error: linkCash.error });
+
   // No daily-hours cap and no self-assignment approval — anyone can hand
   // themselves (or someone they manage) work, whatever the day already holds.
   const status = mode === 'team' ? 'awaiting_acceptance' : 'accepted';
@@ -2225,6 +2277,9 @@ app.post('/api/tasks', requireAuth, (req, res) => {
       : (clientDate || (internalDeadline ? cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD) : null)),
     clientDateOverride: !isInternal && !!clientDate,
     internalDeadline: internalDeadline || null,
+    // the dates the task STARTED with are kept forever; every later change is a dateHistory row
+    originalInternalDeadline: internalDeadline || null,
+    originalClientDate: isInternal ? null : (clientDate || (internalDeadline ? cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD) : null)),
     points: parseInt(points, 10) || 0, assignedTo: assignee, assignedBy: req.employee.id,
     assignedAt: new Date().toISOString(), reassignHistory: [], status,
     // logged accumulates ACTUAL delivery time — the wall-clock gap between
@@ -2253,7 +2308,15 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     // app are 'manual'; the Slack connector will send 'call' / 'slack' later.
     source: 'manual', sourceRef: null,
   };
+  if (v2Form) {
+    task.assignedReviewerId = assignedReviewerId; task.reviewRequired = reviewRequired;
+    if (noReviewAuth) { task.noReviewAuthorizedBy = noReviewAuth.by; task.noReviewAuthorizedAt = noReviewAuth.at; task.noReviewAuthorizedReason = noReviewAuth.reason; }
+  }
+  if (linkSheet.value) task.sheetLink = linkSheet.value;
+  if (linkCash.value) task.cashbookLink = linkCash.value;
+  recordLinkChange(task, req.employee, { sheet: null, cashbook: null }, 'created');
   state.tasks.unshift(task);
+  if (noReviewAuth) logEvent(state, assignee, '<b>' + escHtml(req.employee.name) + '</b> waived the review on "' + escHtml(task.name) + '" — ' + escHtml(noReviewAuth.reason));
   if (mode === 'team') {
     const assigneeEmp = findEmployee(state, assignee);
     logEvent(state, assignee, `New task assigned — <b>${assigneeEmp ? escHtml(assigneeEmp.name) : '—'}</b>, awaiting acceptance.`, {
@@ -2395,6 +2458,17 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     if (meta.needsDetail && !detail) {
       return res.status(400).json({ error: 'This reason needs a short note — what exactly are you waiting on?' });
     }
+    // Hold record: WHO is responsible for the next step, WHEN to follow up, and exactly which clocks stopped.
+    const HOLD_RESP = ['client', 'employee', 'reviewer', 'manager', 'third_party', 'capacity'];
+    const respDefault = { CLIENT_QUERY: 'client', CLIENT_DOCS: 'client', THIRD_PARTY: 'third_party', INTERNAL_REVIEW: 'reviewer', CAPACITY: 'manager', BLOCKED_OTHER: 'employee' }[reasonCode];
+    const responsibility = body.responsibility ? String(body.responsibility) : respDefault;
+    if (!HOLD_RESP.includes(responsibility)) return res.status(400).json({ error: 'Say who is responsible for the next step.' });
+    let followUp = null;
+    if (body.followUpDate || body.responsibility) {
+      followUp = /^\d{4}-\d{2}-\d{2}/.test(String(body.followUpDate || '')) ? String(body.followUpDate).slice(0, 10) : null;
+      if (!followUp) return res.status(400).json({ error: 'Pick the date you will follow this up.' });
+      if (followUp < todayISO()) return res.status(400).json({ error: "The follow-up date can't be in the past." });
+    }
     let shot = body.screenshot || null;
     if (shot && (typeof shot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(shot) || shot.length > 6_000_000)) {
       shot = null; // ignore anything that isn't a reasonably-sized inline image
@@ -2424,6 +2498,9 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       t.queries.push(q);
       hh.queryId = q.id;
     }
+    t.holdResponsibility = responsibility; t.holdFollowUp = followUp;
+    hh.responsibility = responsibility; hh.followUp = followUp;
+    hh.clocksStopped = { workTimer: true, clientCommitment: !!hh.queryId };   // the work timer always stops; the client's clock only for a client wait
     t.holdHistory.push(hh);
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}${hh.queryId ? ' · client clock paused' : ''}`, { hold: true });
     db.save();
@@ -2454,7 +2531,7 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       const q = (t.queries || []).find(x => x.id === last.queryId);
       if (q && !q.resumedAt) q.resumedAt = resumeDay;
     }
-    t.heldAt = null;
+    t.heldAt = null; t.holdFollowUp = null; t.holdResponsibility = null;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
     db.save();
     res.json({ task: taskForClient(t) });
@@ -2611,7 +2688,8 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'accepted') return res.status(400).json({ error: 'Only an accepted task can be marked complete.' });
-  const { reviewerId, sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
+  const { sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
+  const reviewerId = (req.body || {}).reviewerId || t.assignedReviewerId || null;   // the reviewer picked when the task was created is the default
   const direct = directProfitConfirm === true;
   if (direct && !canDirectProfitConfirm(req.employee)) return res.status(403).json({ error: "You can't send a job straight to profit confirmation." });
   if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
@@ -2619,10 +2697,10 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   if (!direct && !reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   // You can send your work to anyone for review — just not yourself.
   if (!direct && reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send your own work to yourself for review — pick someone else." });
-  const sheetLinkN = normalizeLink(sheetLink);
-  const cashbookLinkN = normalizeLink(cashbookLink);
-  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
-  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  const sheetLinkN = checkLink(state, sheetLink, 'Google Sheet link');
+  const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
+  if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
   if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
   if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
@@ -2634,8 +2712,10 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   t.status = 'completed';
   t.completedAt = new Date().toISOString();
   t.reviewerId = direct ? null : reviewerId;
+  const linksBefore = snapLinks(t);
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  recordLinkChange(t, req.employee, linksBefore, 'complete');
   applySlotFiles(t, req);
   giveLinkMarks(state, t, 'processor'); // client work needs both links (internal never does)
   logEvent(state, t.assignedTo, `Marked "${escHtml(t.name)}" complete — ${t.logged.toFixed(2)} hrs actual vs ${t.tat} hrs agreed.`, { points: t.points });
@@ -2671,6 +2751,20 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Only the assignee or an admin can mark this done.' });
   }
   if (t.status === 'completed') return res.status(400).json({ error: 'Already done.' });
+  // Review rule (new-form client tasks): finishing without a review is a manager/founder decision, with a reason, kept on the record.
+  if (t.reviewRequired === true && workflow.isClientTask(t) && !t.noReviewAuthorizedAt) {
+    const why = String((req.body || {}).noReviewReason || '').trim();
+    if (isAdminOver && why.length >= 5) {
+      t.noReviewAuthorizedBy = req.employee.id; t.noReviewAuthorizedAt = new Date().toISOString(); t.noReviewAuthorizedReason = why; t.reviewRequired = false;
+      logEvent(state, t.assignedTo || req.employee.id, '<b>' + escHtml(req.employee.name) + '</b> waived the review on "' + escHtml(t.name) + '" — ' + escHtml(why));
+    } else {
+      t.noReviewAttempts = t.noReviewAttempts || [];
+      t.noReviewAttempts.push({ at: new Date().toISOString(), by: req.employee.id, byName: req.employee.name, reasonGiven: why || null });
+      raiseAlert(state, 'no_review_attempt', t, req.employee.name + ' tried to close client task "' + t.name + '" without a review.', alertRecipients(state, 'no_review_attempt', t, req.employee.id));
+      db.save();
+      return res.status(403).json({ error: isAdminOver ? 'Client work needs a review. To close it without one, give the reason (at least a few words) — it is kept on the record.' : 'Client work must be reviewed. Send it for review — only a manager or the founder can waive that, with a reason.', code: 'REVIEW_REQUIRED' });
+    }
+  }
   if (!['accepted', 'rework', 'on_hold', 'awaiting_acceptance', 'window_proposed', 'pending'].includes(t.status)) {
     return res.status(400).json({ error: 'This task can\'t be marked done from its current state.' });
   }
@@ -2720,10 +2814,10 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, takeSlotFiles, (req, res
   const reviewer = direct ? null : findEmployee(state, reviewerId);
   if (!direct && !reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   if (!direct && reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send a task to its own owner for review — pick someone else." });
-  const sheetLinkN = normalizeLink(sheetLink);
-  const cashbookLinkN = normalizeLink(cashbookLink);
-  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
-  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  const sheetLinkN = checkLink(state, sheetLink, 'Google Sheet link');
+  const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
+  if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
   if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
   if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
@@ -2977,12 +3071,14 @@ app.patch('/api/tasks/:id/links', requireAuth, takeSlotFiles, (req, res) => {
     req.employee.id === t.assignedTo || req.employee.accessRole === 'superadmin';
   if (!allowed) return res.status(403).json({ error: "You can't edit this task's links." });
   const { sheetLink, cashbookLink } = req.body || {};
-  const sheetLinkN = normalizeLink(sheetLink);
-  const cashbookLinkN = normalizeLink(cashbookLink);
-  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
-  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  const sheetLinkN = checkLink(state, sheetLink, 'Google Sheet link');
+  const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
+  if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
+  const linksBefore = snapLinks(t);
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  recordLinkChange(t, req.employee, linksBefore, 'links');
   applySlotFiles(t, req);
   db.save();
   res.json({ task: taskForClient(t) });
@@ -4918,6 +5014,7 @@ function notificationResolved(state, n) {
     case 'rework': return t.assignedTo !== n.empId || t.status !== 'awaiting_acceptance';
     case 'send_report': return !t.awaitingClientDecision || t.reportSendOwner !== n.empId;
     case 'profit_confirm': return t.profitConfirmStatus !== 'pending' && !t.awaitingClientDecision;
+    case 'attention': { const ak = String(n.alertKey || ''), i = ak.lastIndexOf('|'); const a = (state.managerAlerts || {})[ak.slice(0, i)]; return !a || !!a.resolvedAt || String(a.episodes) !== ak.slice(i + 1); }   // (task ids contain '#', so '|' separates the episode)   // resolved, or superseded by a newer episode
     default: return false;
   }
 }
@@ -5905,7 +6002,7 @@ app.get('/api/workflow/team', requireAuth, requireAdmin, (req, res) => {
   const { rows, byId, deps } = managerRows(state, me);
   const people = teamPeople(state, me);
   const team = mgr.teamSummary(rows, people, { today: deps.today, workloadOf: id => availabilityOf(state, findEmployee(state, id)) });
-  const attention = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs, enforceDomains: !!(state.settings && state.settings.linkDomainsEnforced), allowedDomains: state.settings && state.settings.linkDomains });
+  const attention = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs, enforceDomains: !!workflowSettings(state).linkDomainsEnforced, allowedDomains: workflowSettings(state).linkDomains });
   const byType = {};
   attention.forEach(a => { (byType[a.type] = byType[a.type] || []).push(a); });
   res.json({ today: deps.today, team, attention, attentionCounts: Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, v.length])) });
@@ -5937,6 +6034,88 @@ app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
   const { rows, byId, deps } = managerRows(state, req.employee);
   const open = rows.filter(r => r.status !== 'Completed' && (!q.employee || r.assigneeId === q.employee));
   res.json({ today: deps.today, rows: mgr.timelineRows(open, byId, deps).slice(0, 300) });
+});
+
+app.get('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, res) => {
+  const ws = workflowSettings(db.get());
+  res.json({ settings: { linkDomainsEnforced: !!ws.linkDomainsEnforced, linkDomains: ws.linkDomains || mgr.clientLinkDomains }, defaultDomains: mgr.clientLinkDomains });
+});
+app.post('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get(), b = req.body || {};
+  state.workflowSettings = state.workflowSettings || {};
+  if (typeof b.linkDomainsEnforced === 'boolean') state.workflowSettings.linkDomainsEnforced = b.linkDomainsEnforced;
+  if (Array.isArray(b.linkDomains)) {
+    const list = b.linkDomains.map(d => String(d).trim().toLowerCase()).filter(d => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d));
+    if (!list.length) return res.status(400).json({ error: 'Give at least one valid website, like docs.google.com.' });
+    state.workflowSettings.linkDomains = list;
+  }
+  logEvent(state, req.employee.id, 'Changed the link policy (approved sites ' + (state.workflowSettings.linkDomainsEnforced ? 'on' : 'off') + ').');
+  db.save();
+  const ws = workflowSettings(state);
+  res.json({ settings: { linkDomainsEnforced: !!ws.linkDomainsEnforced, linkDomains: ws.linkDomains || mgr.clientLinkDomains } });
+});
+
+// ---------------------------------------------------------------------------
+// MANAGER ALERTS (Phase 7). A problem raises ONE notification per episode (never a flood), is tracked in state.managerAlerts, and is
+// resolved automatically — the notification drops out of the inbox — as soon as the problem is gone. A problem that comes back
+// after being resolved is a new episode and is raised again.
+// ---------------------------------------------------------------------------
+const ALERT_TYPES = new Set(['blocked_long', 'followup_due', 'report_unsent', 'profit_overdue', 'repeated_return', 'no_review_attempt']);
+function alertRecipients(state, type, t, exceptId) {
+  const to = new Set();
+  const founders = state.employees.filter(e => e.accessRole === 'superadmin' && !e.accessDisabled);
+  if (t.assignedTo) managersOfEmployee(state, t.assignedTo).forEach(m => to.add(m.id));
+  if (t.assignedBy) { const a = findEmployee(state, t.assignedBy); if (a && isAdminRole(a.accessRole)) to.add(a.id); }
+  if (type === 'followup_due' && t.assignedTo) to.add(t.assignedTo);
+  if (type === 'report_unsent') { to.add(t.reportSendOwner || t.assignedTo); }
+  if (type === 'profit_overdue') { const po = profitConfirmOwner(state); if (po) to.add(po.id); founders.forEach(f => to.add(f.id)); }
+  if (!t.assignedTo) founders.forEach(f => to.add(f.id));
+  to.delete(exceptId); to.delete(null); to.delete(undefined);
+  return [...to];
+}
+function raiseAlert(state, type, t, text, recipients) {
+  state.managerAlerts = state.managerAlerts || {};
+  const key = type + ':' + t.id, prev = state.managerAlerts[key];
+  if (prev && !prev.resolvedAt) return false;                       // already raised and still open — say it once
+  state.managerAlerts[key] = { key, type, taskId: t.id, raisedAt: new Date().toISOString(), resolvedAt: null, to: recipients, episodes: ((prev && prev.episodes) || 0) + 1 };
+  const episode = state.managerAlerts[key].episodes;
+  recipients.forEach(id => { const row = notify(state, id, 'attention', text, t.id, { noDedupe: true }); if (row) row.alertKey = key + '|' + episode; });
+  return true;
+}
+function sweepManagerAlerts(state) {
+  const me = { id: '_sweep', accessRole: 'superadmin', name: 'System' };
+  const deps = workflowDeps(state, me);
+  const byId = {}, rows = [];
+  for (const t of state.tasks) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, deps), t, deps)); }
+  const found = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs }).filter(a => ALERT_TYPES.has(a.type));
+  const open = new Set();
+  let raised = 0, resolved = 0;
+  for (const a of found) {
+    const t = byId[a.id], key = a.type + ':' + a.id;
+    open.add(key);
+    const who = a.assigneeName ? ' (' + a.assigneeName + ')' : '';
+    if (raiseAlert(state, a.type, t, a.label + ' — ' + (a.clientName || 'Admin task') + ' · ' + a.name + who + (a.detail ? ': ' + a.detail : ''), alertRecipients(state, a.type, t))) raised++;
+  }
+  for (const [key, al] of Object.entries(state.managerAlerts || {})) {
+    if (al.resolvedAt || open.has(key)) continue;
+    al.resolvedAt = new Date().toISOString(); resolved++;
+  }
+  if (raised || resolved) db.save();
+  return { raised, resolved, open: open.size };
+}
+app.post('/api/admin/manager-alerts/run', requireAuth, requireSuperAdmin, (req, res) => res.json(sweepManagerAlerts(db.get())));
+if (process.env.NODE_ENV !== 'test') {
+  setInterval(() => { try { sweepManagerAlerts(db.get()); } catch (e) { console.error('[alerts] sweep failed:', e && e.message); } }, 30 * 60 * 1000).unref();
+  setTimeout(() => { try { sweepManagerAlerts(db.get()); } catch (e) { /* first sweep is best-effort */ } }, 60 * 1000).unref();
+}
+
+// The reporting measures — each one separate (see manager-views.js measures).
+app.get('/api/workflow/measures', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const deps = workflowDeps(state, me, { commitmentOutcome });
+  const roster = new Set(teamRoster(state, me).map(e => e.id));
+  const tasks = visibleTasks(state, me).filter(t => me.accessRole === 'superadmin' || me.dashObserver || (t.assignedTo && roster.has(t.assignedTo)));
+  res.json(mgr.measures(tasks, deps, req.query.days));
 });
 
 // A manager's one-off change to someone's task. Always needs a reason; every change is written to t.managerActions (who, when, why,
@@ -5985,6 +6164,14 @@ app.post('/api/tasks/:id/manager-change', requireAuth, requireAdmin, (req, res) 
       t.reviewerId = rv.id;
       notify(state, rv.id, 'review', me.name + ' made you the reviewer of "' + t.name + '" — ' + reason, t.id);
       log('change_reviewer', from, rv.id);
+      break;
+    }
+    case 'waive_review': {
+      if (!workflow.isClientTask(t)) return res.status(400).json({ error: 'Admin tasks do not need a review waiver.' });
+      if (t.status === 'completed') return res.status(400).json({ error: 'This task is already finished.' });
+      if (reason.length < 5) return res.status(400).json({ error: 'Say why this client task needs no review.' });
+      t.reviewRequired = false; t.noReviewAuthorizedBy = me.id; t.noReviewAuthorizedAt = new Date().toISOString(); t.noReviewAuthorizedReason = reason;
+      log('waive_review', true, false);
       break;
     }
     default: return res.status(400).json({ error: 'Unknown action.' });
