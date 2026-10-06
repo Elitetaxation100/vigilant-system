@@ -172,6 +172,23 @@ what became resolvable, and — only if ET-CRM offers the list action — the sa
 panel says "ET-CRM does not offer … yet — local checks only"). *Customers:* reads `list-pipeline` and runs every contact through
 the same rule as the webhook. *Policy:* re-checks every linked employee with `get-policy-compliance`.
 
+## Admin connection health
+
+Admin → ET-CRM connection is intentionally an operations view, not a second integration engine.
+
+It shows:
+
+- explicit ownership: Employees, Customers, Attendance, Leave and Policy Compliance are sourced from **ET-CRM**; Tasks are sourced from **Task Manager**;
+- linked, unlinked and inactive-linked employees, plus duplicate-email conflicts;
+- linked clients, locally unlinked clients, ambiguous matches and the last reconciliation's eligible-unlinked count;
+- last successful / failed webhook activity per area;
+- whether `CRM_WEBHOOK_SECRET`, `CRM_API_KEY` and an explicit `CRM_API_URL` are configured (the secret/key values are never exposed);
+- the legacy CRM task sync as **Disabled**.
+
+The **Run CRM Connection Check** action is read-only. It does not reconcile, link records, change attendance/leave cut-over switches or write anything to ET-CRM. It checks configuration, employee/client link health, attendance/leave sync evidence, a read-only `get-policy-compliance` probe when credentials and a linked employee are available, and confirms that the legacy CRM task import remains disabled.
+
+Reconciliation buttons are named **Preview Reconciliation** and **Apply Reconciliation**. Preview never mutates data.
+
 ## Railway environment variables
 
 | Variable | Needed for |
