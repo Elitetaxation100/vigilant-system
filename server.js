@@ -1603,14 +1603,19 @@ app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
   const base = (process.env.APP_BASE_URL || (proto + '://' + host)).replace(/\/$/, '');
   const emps = state.employees || [];
   const clients = state.clients || [];
-  const secret = !!process.env.CRM_WEBHOOK_SECRET, apiKey = !!process.env.CRM_API_KEY;
+  const secret = !!process.env.CRM_WEBHOOK_SECRET, apiKey = !!process.env.CRM_API_KEY, apiUrlConfigured = !!process.env.CRM_API_URL;
   const waiting = kind => Object.values(sync.unlinked || {}).reduce((n, e) => n + ((e.pending || []).filter(p => p.kind === kind).length), 0);
+  const normMail = e => String((e && e.email) || '').trim().toLowerCase();
+  const emailCounts = {};
+  emps.forEach(e => { const m = normMail(e); if (m) emailCounts[m] = (emailCounts[m] || 0) + 1; });
+  const duplicateEmailConflicts = Object.values(emailCounts).filter(n => n > 1).length;
+  const pull = sync.pull || {};
   res.json({
-    configured: { webhookSecret: secret, apiKey },
+    configured: { webhookSecret: secret, apiKey, apiUrl: apiUrlConfigured, apiUrlUsingDefault: !apiUrlConfigured },
     endpoints: ['user', 'customer', 'attendance', 'leave', 'policy-compliance'].map(k => ({ kind: k, url: base + '/webhooks/crm-' + k })),
     sections: {
-      employees: crmSection(state, ['user'], { configured: secret, unlinked: emps.filter(e => !e.crmUserId).length, linked: emps.filter(e => e.crmUserId).length, total: emps.length, disabledByCrm: emps.filter(e => e.accessDisabled && e.accessDisabled.by === 'crm').length }),
-      customers: crmSection(state, ['customer', 'pull'], { configured: secret, linkBackConfigured: apiKey, unlinked: clients.filter(c => !c.crmContactId).length, linked: clients.filter(c => c.crmContactId).length, total: clients.length, linkBack: crmSection(state, ['linkback']) }),
+      employees: crmSection(state, ['user'], { configured: secret, unlinked: emps.filter(e => !e.crmUserId).length, linked: emps.filter(e => e.crmUserId).length, total: emps.length, disabledByCrm: emps.filter(e => e.accessDisabled && e.accessDisabled.by === 'crm').length, inactiveLinked: emps.filter(e => e.crmUserId && !canReceiveNewWork(e)).length, duplicateEmailConflicts }),
+      customers: crmSection(state, ['customer', 'pull'], { configured: secret, linkBackConfigured: apiKey, unlinked: clients.filter(c => !c.crmContactId).length, linked: clients.filter(c => c.crmContactId).length, total: clients.length, unlinkedEligible: (pull.linkable || 0) + (pull.toCreate || 0), ambiguousMatches: pull.ambiguous || 0, linkBackFailures: crmSection(state, ['linkback']).errors, linkBack: crmSection(state, ['linkback']) }),
       attendance: crmSection(state, ['attendance'], { configured: secret, unlinked: waiting('attendance') }),
       leave: crmSection(state, ['leave'], { configured: secret, unlinked: waiting('leave') }),
       policy: crmSection(state, ['policy'], { configured: secret, reconcileConfigured: apiKey, unlinked: emps.filter(e => !e.crmUserId).length, blockedNow: emps.filter(e => e.accessRole === 'employee' && policyCompliance.isBlocked(e)).length }),
@@ -1623,6 +1628,41 @@ app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
     pull: sync.pull || null, autoPull: !!sync.autoPull,
     cutover: crmCutoverStatus(state),
   });
+});
+
+// Read-only connection diagnostic. It never applies reconciliation, links records,
+// changes cut-over switches, or writes to ET-CRM. The only remote probe is the
+// read-only policy-compliance action for one already-linked employee.
+app.post('/api/admin/crm-sync/diagnostic', requireAuth, async (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const sync = state.crmSync || { counts: {}, unlinked: {} };
+  const emps = state.employees || [], clients = state.clients || [];
+  const status = (ok, configured = true) => !configured ? 'Not Configured' : (ok ? 'Healthy' : 'Needs Attention');
+  const attendance = crmEvidence(state, 'attendance'), leave = crmEvidence(state, 'leave');
+  const linkedPolicyEmp = emps.find(e => e.crmUserId);
+  let policyProbe = { status: status(false, !!process.env.CRM_API_KEY), detail: process.env.CRM_API_KEY ? 'No linked employee available for a read-only probe.' : 'CRM_API_KEY missing.' };
+  if (process.env.CRM_API_KEY && linkedPolicyEmp) {
+    try {
+      const apiUrl = process.env.CRM_API_URL || 'https://ceqqphhqjqyfxxmaaglw.supabase.co/functions/v1/crm-api';
+      const r = await fetch(apiUrl, { method: 'POST', headers: { Authorization: 'Bearer ' + process.env.CRM_API_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'get-policy-compliance', crm_user_id: linkedPolicyEmp.crmUserId }) });
+      const j = await r.json().catch(() => ({}));
+      policyProbe = { status: status(r.ok && j.ok !== false), detail: r.ok && j.ok !== false ? 'Read-only policy fallback is reachable.' : ('Policy fallback failed: HTTP ' + r.status + (j.error ? ' — ' + String(j.error).slice(0,120) : '')) };
+    } catch (e) { policyProbe = { status: 'Needs Attention', detail: 'Policy fallback could not be reached.' }; }
+  }
+  const unlinkedPeople = crmSync.unlinkedList(state).length + emps.filter(e => !e.crmUserId).length;
+  const linkback = crmSection(state, ['linkback']);
+  const checks = {
+    webhookSecret: { status: status(!!process.env.CRM_WEBHOOK_SECRET, !!process.env.CRM_WEBHOOK_SECRET), detail: process.env.CRM_WEBHOOK_SECRET ? 'CRM webhook secret configured.' : 'CRM_WEBHOOK_SECRET missing.' },
+    crmApi: { status: status(!!process.env.CRM_API_KEY, !!process.env.CRM_API_KEY), detail: process.env.CRM_API_KEY ? (process.env.CRM_API_URL ? 'CRM API URL and key configured.' : 'CRM API key configured; default API URL is in use.') : 'CRM_API_KEY missing.' },
+    employees: { status: status(unlinkedPeople === 0), detail: emps.filter(e => e.crmUserId).length + ' linked; ' + unlinkedPeople + ' unlinked/waiting.' },
+    customers: { status: status(clients.filter(c => !c.crmContactId).length === 0 && linkback.conflicts === 0), detail: clients.filter(c => c.crmContactId).length + ' linked; ' + clients.filter(c => !c.crmContactId).length + ' local unlinked; ' + linkback.conflicts + ' link-back conflict(s).' },
+    attendance: { status: status(!!attendance.lastOk, !!process.env.CRM_WEBHOOK_SECRET), detail: attendance.lastOk ? ('Last successful attendance sync ' + attendance.lastOk) : 'No successful attendance sync recorded yet.' },
+    leave: { status: status(!!leave.lastOk, !!process.env.CRM_WEBHOOK_SECRET), detail: leave.lastOk ? ('Last successful leave sync ' + leave.lastOk) : 'No successful leave sync recorded yet.' },
+    policyFallback: policyProbe,
+    legacyTaskSync: { status: 'Healthy', detail: 'Legacy CRM task import remains disabled (410).' },
+  };
+  res.json({ readOnly: true, checkedAt: new Date().toISOString(), checks });
 });
 // Customers — preview (changes nothing) or apply. Same rule as the webhook.
 app.post('/api/admin/crm-sync/pull-clients', requireAuth, async (req, res) => {
