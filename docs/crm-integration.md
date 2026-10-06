@@ -106,6 +106,7 @@ attendance history is kept. To end someone's access, mark them inactive in ET-CR
 ```
 
 * **Required:** `crm_user_id` (or a unique `email`) and `date` (or `check_in_at`, from which the **Pacific/Auckland** day is taken).
+* ET-CRM's own daily table identifies the person as `team_member_id`; that is accepted as the CRM user id (it must be the same value as `crm_users.id`). The same goes for leave rows. The Task Manager does not depend on the table's name — only on the URL the webhook posts to.
 * **Idempotent** on `crm_attendance_id`; fallback `crm_user_id` + date. A correction updates the same day; if the row moves
   to another date the old day is cleared. Hours come from `net_minutes` (else check-out minus check-in, capped at 16h).
 * ET-CRM is authoritative: the Task Manager **never writes attendance back**. Actual hours are **not** used as productivity capacity.
