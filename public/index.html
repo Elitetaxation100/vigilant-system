@@ -3025,6 +3025,13 @@ function accessLabel(r){
   if(r === 'admin') return 'Admin';
   return 'Employee';
 }
+// Keep inactive people available to historical task/audit rendering, but never
+// offer them as the destination for new or reassigned work.
+function canReceiveNewWork(e){
+  const status = String((e && e.employmentStatus) || '').toLowerCase();
+  return !!e && !e.accessDisabled && e.crmActive !== false
+    && !['inactive','terminated','resigned'].includes(status);
+}
 // A team is a `.team` name; an admin's TEAM roster (Manager Dashboard, Team
 // Board, the workload panel) is scoped to people who share theirs — this is
 // a VISIBILITY boundary, kept separate from who they can hand brand-new
@@ -3035,17 +3042,17 @@ function sameTeam(a, b){
 }
 function assignableEmployees(){
   if(!session) return [];
-  if(isSuperAdmin) return employees;
+  if(isSuperAdmin) return employees.filter(canReceiveNewWork);
   if(session.accessRole === 'admin'){
     const meRec = empById(session.id) || session;
-    return employees.filter(e => e.id !== session.id && sameTeam(meRec, e));
+    return employees.filter(e => e.id !== session.id && sameTeam(meRec, e) && canReceiveNewWork(e));
   }
   return [];
 }
 // Everyone — any role — can hand a brand-new task to anyone else in the firm.
 function anyEmployeeInFirm(){
   if(!session) return [];
-  return employees;
+  return employees.filter(canReceiveNewWork);
 }
 function canAssignTo(empId){ return anyEmployeeInFirm().some(e => e.id === empId); }
 // Same list as anyEmployeeInFirm, ordered for the "Assign to" picker: the

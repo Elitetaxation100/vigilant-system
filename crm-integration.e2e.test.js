@@ -121,6 +121,10 @@ test('EMPLOYEE: inactive disables login and sessions, keeps history and open wor
   const t = tasks.find(x => x.id === taskId);
   assert.ok(t, 'history is preserved'); assert.equal(t.assignedTo, ranjit.id, 'open work was NOT reassigned');
   assert.ok((await http('GET', '/api/employees', { token: SA })).j.employees.find(e => e.id === ranjit.id), 'the employee record is kept');
+  const blockedAssignment = await http('POST', '/api/tasks', { token: SA, body: { mode: 'team', name: 'Must not assign', clientId: client.id, assignedTo: ranjit.id, tat: 1, internalDeadline: tomorrow } });
+  assert.equal(blockedAssignment.status, 403, 'inactive employees cannot receive new tasks');
+  const workload = (await http('GET', '/api/workload', { token: SA })).j.workload;
+  assert.ok(!workload.some(row => row.id === ranjit.id), 'inactive employees are absent from assignment workload choices');
 
   const back = await hook('user', { crm_user_id: 'crm-u-ranjit', email: 'ranjit@elitetaxation.co.nz', full_name: 'Ranjit Choudhary', is_active: true, employment_status: 'active' }, 'UPDATE');
   assert.equal(back.status, 200);
