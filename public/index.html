@@ -5535,7 +5535,7 @@ function openUnacceptedBlockModal(list){
     return `
       <div style="background:${flagged?'var(--coral-dim)':'var(--panel-2)'}; border:1px solid ${flagged?'#F0603E4a':'var(--panel-border)'}; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
         <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)} <span style="font-weight:400;font-size:12px;color:var(--text-faint);">· ${statusLabel(t.status)}</span></div>
-        <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''}${flagged && t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}</div>
+        <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''}${flagged && t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}${flagged && (t.reviewAttachments || []).length ? ' · 📎 ' + t.reviewAttachments.length + ' file' + (t.reviewAttachments.length > 1 ? 's' : '') : ''}</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">${actions}</div>
       </div>`;
   };
@@ -11135,7 +11135,7 @@ function openReviewFormModal(id){
     showToast('error', 'Not allowed', 'Only a manager or admin responsible for this person can review their work.');
     return;
   }
-  _revState = { id, checked: [], note: '', hours: undefined, faultType: null, screenshot: null, score: undefined };
+  _revState = { id, checked: [], note: '', hours: undefined, faultType: null, screenshot: null, attachments: [], score: undefined };
   _reviewShotData = null;
   const assignee = empById(t.assignedTo);
   const cs = commitmentStatus(t);
@@ -11223,10 +11223,10 @@ function openReviewDetailFormModal(){
       <input type="number" id="reviewFormHours" min="0.05" step="0.05" placeholder="e.g. 0.5" value="${_revState.hours!=null?_revState.hours:''}">
       <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Reviewing takes time too — logging it counts toward your own hours today.</div>
     </div>
-    <div class="field"><label>Evidence of the error <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional — screenshot)</span></label>
-      <input type="file" id="reviewShot" accept="image/*">
-      <div id="reviewShotPreview" style="margin-top:8px;">${_reviewShotData ? `<img src="${_reviewShotData}" alt="screenshot preview" style="max-width:100%;max-height:180px;border:1px solid var(--panel-border);border-radius:6px;">` : ''}</div>
-      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">The employee can open this from the rework detail to see exactly what was flagged.</div>
+    <div class="field"><label>Attachments <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional — screenshot, PDF, Excel, Word…)</span></label>
+      <input type="file" id="reviewFiles" multiple accept="${ATTACH_ACCEPT}">
+      <div id="reviewFilesList" style="margin-top:8px;">${attachChipsHtml(_revState.attachments, 'removeReviewAttachment')}</div>
+      <div style="font-size:12px;color:var(--text-faint);margin-top:4px;">Up to 5 files, 15 MB each. The employee can open and download them from the rework detail.</div>
     </div>
     <div class="modal-error" id="reviewFormError"></div>
     <div class="modal-actions">
@@ -11235,15 +11235,88 @@ function openReviewDetailFormModal(){
     </div>
   `;
   openModal();
-  document.getElementById('reviewShot').addEventListener('change', e => previewReviewShot(e.target));
+  document.getElementById('reviewFiles').addEventListener('change', e => addReviewAttachments(e.target));
 }
-async function previewReviewShot(fileEl){
-  _reviewShotData = null;
-  const f = fileEl.files && fileEl.files[0];
-  const box = document.getElementById('reviewShotPreview');
-  if(!f){ box.innerHTML = ''; return; }
-  _reviewShotData = await downscaleImage(f, 1600, 0.82);
-  box.innerHTML = `<img src="${_reviewShotData}" alt="screenshot preview" style="max-width:100%;max-height:180px;border:1px solid var(--panel-border);border-radius:6px;">`;
+
+/* =========================================================================
+   FILE ATTACHMENTS — upload one file at a time, keep the small reference, and
+   download through the signed-in API (a plain link can't carry the login).
+   ========================================================================= */
+const ATTACH_ACCEPT = '.pdf,.png,.jpg,.jpeg,.gif,.webp,.xlsx,.xls,.csv,.docx,.doc,.pptx,.txt,image/*';
+const ATTACH_MAX = 5;
+function fmtBytes(n){
+  n = Number(n) || 0;
+  if(n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+  if(n >= 1024) return Math.round(n / 1024) + ' KB';
+  return n + ' B';
+}
+function fileIcon(a){
+  const m = String((a && a.mime) || '');
+  if(m === 'application/pdf') return '📕';
+  if(m.startsWith('image/')) return '🖼';
+  if(/spreadsheet|excel|csv/.test(m)) return '📊';
+  if(/word/.test(m)) return '📝';
+  return '📎';
+}
+function attachChipsHtml(list, removeFn){
+  list = list || [];
+  if(!list.length) return '';
+  return list.map((a, i) => `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;margin-bottom:6px;border:1px solid var(--panel-border);border-radius:8px;font-size:13px;background:var(--panel-bg, transparent);">
+    <span>${fileIcon(a)}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.name)}</span>
+    <span style="color:var(--text-faint);font-size:12px;">${fmtBytes(a.size)}</span>
+    <button type="button" class="btn" style="padding:2px 8px;" title="Remove" onclick="${removeFn}(${i})">✕</button></div>`).join('');
+}
+async function uploadAttachment(blob, name){
+  const res = await fetch(API_BASE + '/api/files', { method:'POST', headers: { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(name) }, body: blob });
+  let data = null; try { data = await res.json(); } catch(e){}
+  if(!res.ok) throw new Error((data && data.error) || ('Upload failed: ' + res.status));
+  return data.file;
+}
+async function addReviewAttachments(inputEl){
+  const files = Array.from(inputEl.files || []);
+  inputEl.value = '';
+  const box = document.getElementById('reviewFilesList');
+  const err = document.getElementById('reviewFormError');
+  if(err) err.style.display = 'none';
+  for(const file of files){
+    if(_revState.attachments.length >= ATTACH_MAX){ if(err){ err.textContent = 'You can attach up to ' + ATTACH_MAX + ' files.'; err.style.display = 'block'; } break; }
+    if(box) box.insertAdjacentHTML('beforeend', '<div class="uploading" style="font-size:12.5px;color:var(--text-faint);margin-bottom:6px;">Uploading ' + esc(file.name) + '…</div>');
+    try {
+      let blob = file, name = file.name;
+      // phone photos and big screenshots are shrunk first — same as the old screenshot box did
+      if(/^image\/(png|jpe?g|webp)$/.test(file.type) && file.size > 400 * 1024){
+        const url = await downscaleImage(file, 1600, 0.82);
+        blob = await (await fetch(url)).blob();
+        name = name.replace(/\.[^.]+$/, '') + '.jpg';
+      }
+      const meta = await uploadAttachment(blob, name);
+      _revState.attachments.push(meta);
+    } catch(e){
+      if(err){ err.textContent = file.name + ': ' + e.message; err.style.display = 'block'; }
+    }
+    if(box) box.innerHTML = attachChipsHtml(_revState.attachments, 'removeReviewAttachment');
+  }
+}
+function removeReviewAttachment(i){
+  _revState.attachments.splice(i, 1);
+  const box = document.getElementById('reviewFilesList');
+  if(box) box.innerHTML = attachChipsHtml(_revState.attachments, 'removeReviewAttachment');
+}
+async function downloadAttachment(id, name){
+  try {
+    const res = await fetch(API_BASE + '/api/files/' + encodeURIComponent(id), { headers: { 'Authorization': 'Bearer ' + authToken } });
+    if(!res.ok){ let d = null; try { d = await res.json(); } catch(e){} throw new Error((d && d.error) || ('Download failed: ' + res.status)); }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a'); a.href = url; a.download = name || 'file';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch(e){ showToast('error', 'Could not download', e.message); }
+}
+function downloadListHtml(list){
+  return (list || []).map(a => `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-top:6px;border:1px solid #F0603E4a;border-radius:8px;background:var(--panel-bg, rgba(255,255,255,.5));">
+    <span style="font-size:18px;">${fileIcon(a)}</span>
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#7A2A0C;">${esc(a.name)} <span style="color:var(--text-faint);font-size:12px;">· ${fmtBytes(a.size)}</span></span>
+    <button type="button" class="btn" onclick="downloadAttachment('${esc(a.id)}', '${esc(a.name).replace(/'/g, '&#39;')}')">⬇ Download</button></div>`).join('');
 }
 function reviewDetailNext(){
   const checked = Array.from(document.querySelectorAll('.reviewChecklistItem:checked')).map(cb => REVIEW_CHECKLIST[parseInt(cb.value, 10)]);
@@ -11257,7 +11330,7 @@ function reviewDetailNext(){
   _revState.note = noteInput;
   const hoursEl = document.getElementById('reviewFormHours');
   _revState.hours = hoursEl && hoursEl.value !== '' ? parseFloat(hoursEl.value) : undefined;
-  _revState.screenshot = _reviewShotData || null;
+  _revState.screenshot = null; // screenshots now travel as attachments
   openReviewScoreModal();
 }
 function openReviewScoreModal(){
@@ -11397,7 +11470,7 @@ async function submitReviewFinal(action){
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/review`, { method:'POST', body: JSON.stringify({
       status: decision, note, faultType: _revState.faultType || undefined,
-      reviewHours: _revState.hours, screenshot: _revState.screenshot || undefined, score: scoreVal,
+      reviewHours: _revState.hours, screenshot: _revState.screenshot || undefined, attachments: (decision === 'error' && (_revState.attachments || []).length) ? _revState.attachments.map(a => a.id) : undefined, score: scoreVal,
       marks: marksVal, marksReason: marksVal ? marksWhy : undefined,
     }) });
     // Sheet/Cashbook links live on this same screen now for a clean review.
@@ -11842,6 +11915,7 @@ function openReworkDetailModal(id){
       ${t.reviewScore != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Score given:</b> ${t.reviewScore}/100</div>` : ''}
       ${t.reviewMarks ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Marks:</b> ${t.reviewMarks > 0 ? '+' : ''}${t.reviewMarks}</div>` : ''}
       ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
+      ${(t.reviewAttachments || []).length ? `<div style="margin-top:10px;"><b style="color:#7A2A0C;">Attached by the reviewer:</b>${downloadListHtml(t.reviewAttachments)}</div>` : ''}
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
     <p style="font-size:13.5px; color:var(--text-dim); line-height:1.6; margin-bottom:16px;">Fix the issue above, then resubmit — this puts it back in front of a reviewer and the completion date used for commitment tracking will be updated to when you resubmit.</p>

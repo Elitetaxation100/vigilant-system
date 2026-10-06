@@ -13,6 +13,8 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const db = require('./db');
+const fileStore = require('./files');
+fileStore.init(db);
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
 const crmSync = require('./crm-sync');
@@ -511,11 +513,11 @@ function taskForClient(t) {
   // task list (fetched every few seconds by every open tab). It's pulled on
   // demand via /api/tasks/:id/hold-screenshot when someone opens the detail.
   // Same story for a review's error screenshot (/review-screenshot).
-  const { holdScreenshot, reviewScreenshot, ...rest } = t;
+  const { holdScreenshot, reviewScreenshot, holdScreenshotFile, reviewScreenshotFile, ...rest } = t;
   return {
     ...rest,
-    hasHoldScreenshot: !!holdScreenshot,
-    hasReviewScreenshot: !!reviewScreenshot,
+    hasHoldScreenshot: !!(holdScreenshot || holdScreenshotFile),
+    hasReviewScreenshot: !!(reviewScreenshot || reviewScreenshotFile),
     displayedLogged: liveElapsedHours(t),
     reworkElapsedHours: reworkElapsedHours(t),
     // query-aware commitment, computed server-side so the UI never re-derives it
@@ -1838,26 +1840,122 @@ app.get('/api/plan/dispatch-date', requireAuth, (req, res) => {
 });
 // The hold screenshot for one task — pulled only when the detail is opened.
 // Visible to the assignee, whoever put it on hold, or a manager over them.
-app.get('/api/tasks/:id/hold-screenshot', requireAuth, (req, res) => {
+// An image is either still inline (just uploaded, or not yet moved) or already in the file store.
+async function loadScreenshot(inline, fileId) {
+  if (inline) return inline;
+  if (!fileId) return null;
+  const f = await fileStore.get(fileId);
+  return f ? 'data:' + f.meta.mime + ';base64,' + f.data.toString('base64') : null;
+}
+app.get('/api/tasks/:id/hold-screenshot', requireAuth, async (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
-  if (!t || !t.holdScreenshot) return res.status(404).json({ error: 'No screenshot.' });
+  if (!t || !(t.holdScreenshot || t.holdScreenshotFile)) return res.status(404).json({ error: 'No screenshot.' });
   const allowed = t.assignedTo === req.employee.id ||
     isAdminRole(req.employee.accessRole) && (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo));
   if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
-  res.json({ screenshot: t.holdScreenshot });
+  const shot = await loadScreenshot(t.holdScreenshot, t.holdScreenshotFile);
+  if (!shot) return res.status(404).json({ error: 'No screenshot.' });
+  res.json({ screenshot: shot });
 });
 // The evidence screenshot a reviewer attached when flagging an error —
 // pulled only when the assignee (or a manager over them) opens the detail.
-app.get('/api/tasks/:id/review-screenshot', requireAuth, (req, res) => {
+app.get('/api/tasks/:id/review-screenshot', requireAuth, async (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
-  if (!t || !t.reviewScreenshot) return res.status(404).json({ error: 'No screenshot.' });
+  if (!t || !(t.reviewScreenshot || t.reviewScreenshotFile)) return res.status(404).json({ error: 'No screenshot.' });
   const allowed = t.assignedTo === req.employee.id ||
     isAdminRole(req.employee.accessRole) && (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo));
   if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
-  res.json({ screenshot: t.reviewScreenshot });
+  const shot = await loadScreenshot(t.reviewScreenshot, t.reviewScreenshotFile);
+  if (!shot) return res.status(404).json({ error: 'No screenshot.' });
+  res.json({ screenshot: shot });
 });
+
+// ---------------------------------------------------------------------------
+// FILE ATTACHMENTS — PDFs, images, Excel, Word… (see files.js). The bytes live in their own table,
+// never in the state. Upload first (it is private to the uploader), then attach it to a rework;
+// from then on the task's people can download it:
+//   the assignee, the reviewer, a manager/admin over the assignee, and a superadmin.
+// ---------------------------------------------------------------------------
+function canSeeTaskFiles(state, me, t) {
+  if (!t) return false;
+  if (t.assignedTo === me.id || t.reviewedBy === me.id || t.reviewerId === me.id) return true;
+  if (me.accessRole === 'superadmin') return true;
+  return isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo);
+}
+const fileRef = m => ({ id: m.id, name: m.name, mime: m.mime, size: m.size });
+app.post('/api/files', requireAuth, express.raw({ type: () => true, limit: '16mb' }), async (req, res) => {
+  try {
+    let name = String(req.get('x-file-name') || '');
+    try { name = decodeURIComponent(name); } catch (e) { /* keep as sent */ }
+    const buf = Buffer.isBuffer(req.body) ? req.body : null;
+    const v = fileStore.validate(name, buf);
+    if (!v.ok) return res.status(400).json({ error: v.error });
+    const meta = await fileStore.put(buf, { name: v.name, mime: v.mime, createdBy: req.employee.id });
+    res.status(201).json({ file: fileRef(meta) });
+  } catch (e) {
+    console.error('[files] upload failed:', e && e.message);
+    res.status(500).json({ error: 'Could not save that file — please try again.' });
+  }
+});
+app.get('/api/files/:id', requireAuth, async (req, res) => {
+  try {
+    const state = db.get();
+    const m = await fileStore.meta(req.params.id);
+    if (!m) return res.status(404).json({ error: 'File not found.' });
+    const allowed = m.taskId ? canSeeTaskFiles(state, req.employee, findTask(state, m.taskId))
+                             : (m.createdBy === req.employee.id || req.employee.accessRole === 'superadmin');
+    if (!allowed) return res.status(403).json({ error: 'Not allowed.' });
+    const f = await fileStore.get(req.params.id);
+    if (!f) return res.status(404).json({ error: 'File not found.' });
+    const ascii = m.name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '');
+    res.setHeader('Content-Type', m.mime);
+    res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(m.name)}`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(f.data);
+  } catch (e) {
+    console.error('[files] download failed:', e && e.message);
+    res.status(500).json({ error: 'Could not read that file.' });
+  }
+});
+
+// Move any image still stored inline in the state (older screenshots, and new ones as they arrive)
+// out into the file store, so the state stays small. Safe by construction: the file is written
+// FIRST and the inline copy is only dropped once that succeeded and nothing changed meanwhile;
+// anything that can't be moved simply stays where it is. Idempotent — it only touches inline images.
+let _externalizing = false;
+async function externalizeInlineImages() {
+  if (_externalizing) return 0;
+  _externalizing = true;
+  let moved = 0;
+  try {
+    const state = db.get();
+    const jobs = [];
+    for (const t of [...(state.tasks || []), ...(state.deletedTasks || [])]) {
+      if (typeof t.holdScreenshot === 'string' && t.holdScreenshot) jobs.push({ o: t, f: 'holdScreenshot', ff: 'holdScreenshotFile', kind: 'hold', taskId: t.id });
+      if (typeof t.reviewScreenshot === 'string' && t.reviewScreenshot) jobs.push({ o: t, f: 'reviewScreenshot', ff: 'reviewScreenshotFile', kind: 'review', taskId: t.id });
+    }
+    for (const m of state.marks || []) {
+      if (typeof m.screenshot === 'string' && m.screenshot) jobs.push({ o: m, f: 'screenshot', ff: 'screenshotFile', kind: 'mark', taskId: null });
+    }
+    for (const j of jobs) {
+      const original = j.o[j.f];
+      const parsed = fileStore.dataUrlToBuffer(original);
+      if (!parsed) continue;
+      let meta;
+      try { meta = await fileStore.put(parsed.buf, { name: 'screenshot.' + (parsed.mime.split('/')[1] === 'jpeg' ? 'jpg' : parsed.mime.split('/')[1]), mime: parsed.mime, createdBy: null, taskId: j.taskId, kind: j.kind }); }
+      catch (e) { console.error('[files] could not move an image out of the state:', e && e.message); continue; }
+      if (j.o[j.f] === original) { j.o[j.ff] = meta.id; j.o[j.f] = null; moved++; }
+      else { await fileStore.remove(meta.id).catch(() => {}); }
+    }
+    if (moved) { db.save(); console.log('[files] moved ' + moved + ' inline image(s) out of the state into the file store.'); }
+  } catch (e) {
+    console.error('[files] externalize failed:', e && e.message);
+  } finally { _externalizing = false; }
+  return moved;
+}
 
 // Has the assignee opened their in-app alerts for this task? For a manager
 // checking whether a nudge / new assignment landed. Computed on demand.
@@ -2571,7 +2669,7 @@ app.post('/api/tasks/:id/set-owner', requireAuth, requireAdmin, (req, res) => {
 // a task sitting in this pipeline no longer satisfies status==='completed',
 // so it can't be counted as "commitment met" until it's genuinely
 // redelivered.
-app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
+app.post('/api/tasks/:id/review', requireAuth, async (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
@@ -2582,7 +2680,7 @@ app.post('/api/tasks/:id/review', requireAuth, (req, res) => {
   }
 if (t.status !== 'completed') return res.status(400).json({ error: 'Only completed tasks can be reviewed.' });
   if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
-  const { status, note, faultType, reviewHours, screenshot, score, marks, marksReason } = req.body || {};
+  const { status, note, faultType, reviewHours, screenshot, score, marks, marksReason, attachments } = req.body || {};
   if (!['clean', 'error'].includes(status)) return res.status(400).json({ error: 'Review status must be clean or error.' });
   if (status === 'error' && !['processor', 'sop', 'other'].includes(faultType)) {
     return res.status(400).json({ error: 'Choose the cause: a processor fault, an SOP/manager fault, or other.' });
@@ -2602,6 +2700,26 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     if (!assigneeForMarks) return res.status(400).json({ error: 'This task has no assignee to give marks to.' });
     if (assigneeForMarks.id === req.employee.id) return res.status(400).json({ error: "You can't give marks to yourself." });
   }
+  // Files the reviewer attached to a rework (PDF, image, Excel…). Each must be one THEY uploaded and
+  // not yet used elsewhere; checked and tied to this task before anything about the review changes.
+  let attachMetas = [];
+  if (status === 'error' && Array.isArray(attachments) && attachments.length) {
+    if (attachments.length > fileStore.MAX_PER_REVIEW) return res.status(400).json({ error: `Attach at most ${fileStore.MAX_PER_REVIEW} files.` });
+    try {
+      for (const fid of [...new Set(attachments.map(String))]) {
+        const m = await fileStore.meta(fid);
+        if (!m || m.createdBy !== req.employee.id || (m.taskId && m.taskId !== t.id)) {
+          return res.status(400).json({ error: 'One of the attached files is no longer available — please attach it again.' });
+        }
+        attachMetas.push(fileRef(m));
+      }
+      for (const m of attachMetas) await fileStore.attach(m.id, t.id, 'review');
+    } catch (e) {
+      console.error('[files] attaching to review failed:', e && e.message);
+      return res.status(500).json({ error: 'Could not attach the files — please try again.' });
+    }
+    if (t.status !== 'completed' || t.reviewStatus === 'done') return res.status(409).json({ error: 'This task changed while you were reviewing it — reload and try again.' });
+  }
   const rh = Number(reviewHours);
   t.reviewStatus = status;
   t.reviewedBy = req.employee.id;
@@ -2620,9 +2738,12 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
   if (status === 'error' && typeof screenshot === 'string' && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(screenshot) && screenshot.length <= 6_000_000) {
     t.reviewScreenshot = screenshot;
   } else if (status === 'clean') {
-    t.reviewScreenshot = null;
+    t.reviewScreenshot = null; t.reviewScreenshotFile = null;
   }
+  // this round's files (earlier rounds stay on the task's rework history)
+  t.reviewAttachments = status === 'error' ? attachMetas : [];
   if (status === 'error') {
+    if (t.reviewScreenshot) t.reviewScreenshotFile = null; // a fresh inline screenshot replaces an older stored one
     t.status = 'awaiting_acceptance';
     t.reworkCount = (t.reworkCount || 0) + 1;
     t.faultType = faultType;
@@ -3027,8 +3148,8 @@ function markVisibleTo(state, me, m) {
   return me.accessRole === 'admin' && teamRoster(state, me).some(e => e.id === m.toId);
 }
 function markForClient(m) {
-  const { screenshot, ...rest } = m;
-  return { ...rest, hasScreenshot: !!screenshot };
+  const { screenshot, screenshotFile, ...rest } = m;
+  return { ...rest, hasScreenshot: !!(screenshot || screenshotFile) };
 }
 app.get('/api/marks', requireAuth, (req, res) => {
   const state = db.get();
@@ -3036,11 +3157,13 @@ app.get('/api/marks', requireAuth, (req, res) => {
   const list = (state.marks || []).filter(m => markVisibleTo(state, me, m));
   res.json({ marks: list.map(markForClient).sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')) });
 });
-app.get('/api/marks/:id/screenshot', requireAuth, (req, res) => {
+app.get('/api/marks/:id/screenshot', requireAuth, async (req, res) => {
   const state = db.get();
   const m = (state.marks || []).find(x => x.id === req.params.id);
-  if (!m || !m.screenshot || !markVisibleTo(state, req.employee, m)) return res.status(404).json({ error: 'No screenshot.' });
-  res.json({ screenshot: m.screenshot });
+  if (!m || !(m.screenshot || m.screenshotFile) || !markVisibleTo(state, req.employee, m)) return res.status(404).json({ error: 'No screenshot.' });
+  const shot = await loadScreenshot(m.screenshot, m.screenshotFile);
+  if (!shot) return res.status(404).json({ error: 'No screenshot.' });
+  res.json({ screenshot: shot });
 });
 
 // ---------------------------------------------------------------------------
@@ -3382,7 +3505,7 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   const durationHours = startedAt ? Math.round(((new Date(endedAt) - new Date(startedAt)) / 3600000) * 100) / 100 : null;
   t.logged += durationHours || 0; // actual time spent on this rework round, added to the task's total
   t.reworkHistory = t.reworkHistory || [];
-  t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null });
+  t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: t.reviewAttachments || [] });
   t.reworkStartedAt = null;
   t.status = 'completed';
   t.completedAt = endedAt;
@@ -5335,12 +5458,13 @@ app.patch('/api/int/tasks/:id', requireIntegrationAuth, (req, res) => {
 // ---------------------------------------------------------------------------
 
 // Which store is live and how much is in it — quick post-deploy check.
-app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, (req, res) => {
+app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, async (req, res) => {
   const state = db.get();
   res.json({
     mode: db._mode(),
     rev: db._rev(),
     postgresWrites: db._pgStats(), // writes done / skipped-unchanged / failures — see db.js
+    files: await fileStore.totals().catch(() => null), // attachments + screenshots held outside the state
     employees: (state.employees || []).length,
     tasks: (state.tasks || []).length,
     clients: (state.clients || []).length,
@@ -5838,6 +5962,10 @@ const PORT = process.env.PORT || 3000;
 db.init()
   .then(() => {
     initPush();
+    // Keep images out of the state, and tidy files that were uploaded but never attached.
+    const imgTimer = setInterval(() => { externalizeInlineImages(); }, Number(process.env.FILES_MOVE_INTERVAL_MS) || 30 * 1000); if (imgTimer.unref) imgTimer.unref();
+    const firstMove = setTimeout(() => { externalizeInlineImages(); }, 5000); if (firstMove.unref) firstMove.unref();
+    const sweepTimer = setInterval(() => { fileStore.sweepOrphans(24 * 3600 * 1000).catch(() => {}); }, 6 * 3600 * 1000); if (sweepTimer.unref) sweepTimer.unref();
     app.listen(PORT, () => {
       console.log(`Elite Taxation Governance OS running at http://localhost:${PORT} — storage: ${db._mode()} — push: ${PUSH_READY ? 'on' : 'off'}`);
     });

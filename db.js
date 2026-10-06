@@ -974,6 +974,8 @@ module.exports = {
   PII_PHONE_RE,
   flush,
   replaceNow,
+  _pool: () => pool,
+  _dataDir: () => DATA_DIR,
   _pgStats: () => ({ ...pgStats, delayMs: PG_SAVE_DELAY_MS, pending: pgPending !== null }),
   _mode: () => (pgActive ? 'postgres' : 'file'),
   _rev: () => rev,
