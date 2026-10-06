@@ -5509,6 +5509,17 @@ app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, async (req,
   });
 });
 
+// Recover calls Aircall never delivered (see connector.js recoverCalls). Superadmin only. DRY RUN unless the
+// body says { "dryRun": false } — so a first look never changes anything. { "day": "YYYY-MM-DD" } is the NZ day.
+app.post('/api/admin/calls/recover', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const { recoverCalls } = require('./connector');
+    const b = req.body || {};
+    const r = await recoverCalls({ day: b.day, dryRun: b.dryRun !== false, max: b.max });
+    res.json(r);
+  } catch (e) { res.status(502).json({ error: 'Could not read the calls from Aircall: ' + (e && e.message || e) }); }
+});
+
 // What is using the database, and a safe clean-up. Superadmin only.
 app.get('/api/admin/space-report', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
