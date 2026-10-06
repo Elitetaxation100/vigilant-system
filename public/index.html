@@ -1974,6 +1974,8 @@
         </div>
         </div>
         <div class="perf-tab" id="tab-marks" style="display:none;">
+        <div class="panel" id="autoMarksPanel" style="display:none;"></div>
+
         <div class="panel" id="workshopsPanel">
           <div class="panel-head">
             <h2>Workshop pre-reading</h2>
@@ -3372,7 +3374,91 @@ function setMarkSign(s){
   document.getElementById('markSignPos').classList.toggle('on', s > 0);
   document.getElementById('markSignNeg').classList.toggle('on', s < 0);
 }
+/* ---- Automatic marks: the rules everyone is told up front, and the superadmin's settings ---- */
+let _autoRules = null;
+async function loadAutoRules(){
+  try { _autoRules = await api('/api/auto-marks/rules'); } catch(e){ /* optional — the hints just stay generic */ }
+}
+// "needed for client work — missing costs 20 marks" — only for client tasks, only while the rule is on
+function autoLinksHint(t, who){
+  const r = _autoRules && _autoRules.links;
+  if(!r || !r.enabled || !t || t.kind === 'internal') return '';
+  const full = who === 'reviewer' ? r.reviewer : r.processor;
+  return `<div style="font-size:12.5px;color:var(--amber);margin:2px 0 8px;">⚠ Client work needs <b>both</b> the Sheet and Cashbook links. ${who === 'reviewer' ? 'Passing it on without them' : 'Sending it without them'} takes <b>${full} marks</b> automatically (${full / 2} if only one is missing).</div>`;
+}
+async function renderAutoMarksPanel(){
+  const panel = document.getElementById('autoMarksPanel');
+  if(!panel) return;
+  if(!isSuperAdmin){ panel.style.display = 'none'; return; }
+  panel.style.display = '';
+  let d;
+  try { d = await api('/api/admin/auto-marks'); }
+  catch(e){ panel.innerHTML = `<div style="color:var(--coral);padding:10px;">${esc(e.message)}</div>`; return; }
+  const s = d.settings, p = s.points;
+  const num = (id, v) => `<input type="number" id="${id}" min="0" max="100" step="1" value="${v}" style="width:70px;">`;
+  const rows = d.recent.map(m => `<tr${m.voidedAt ? ' style="opacity:.55;"' : ''}>
+      <td style="white-space:nowrap;color:var(--text-faint);">${fmtDate(dayOf(m.createdAt))}</td>
+      <td>${esc(m.toName)}</td><td style="color:var(--coral);font-weight:700;${m.voidedAt ? 'text-decoration:line-through;' : ''}">${m.points}</td>
+      <td>${esc(m.reason)}</td>
+      <td>${m.voidedAt ? '<span style="color:var(--text-faint);font-size:12px;">voided</span>' : `<button class="btn small" onclick="voidMark('${esc(m.id)}')">Void</button>`}</td></tr>`).join('');
+  panel.innerHTML = `
+    <div class="panel-head"><h2>Automatic marks</h2></div>
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:10px;">
+      The system deducts marks by itself. Each one is a normal mark (the person and their manager see it, it counts in the totals) and you can void any of them.<br>
+      <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: nothing acknowledged or more than half not acknowledged → <b>−${p.ackAll}</b>; half or fewer not acknowledged → up to <b>−${p.ackHalfMax}</b>, in proportion. Judged from 08:00 NZ the next morning; leave, holidays and workshop days are skipped.<br>
+      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). Internal tasks never need links.
+    </div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">
+      <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnAck" ${s.enabled.acknowledgement ? 'checked' : ''}> Email &amp; call acknowledgement</label>
+      <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnLinks" ${s.enabled.links ? 'checked' : ''}> Missing links</label>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px;">
+      <span>Ack: all ${num('amAckAll', p.ackAll)}</span><span>half max ${num('amAckHalf', p.ackHalfMax)}</span>
+      <span>Processor links ${num('amProc', p.processorLinks)}</span><span>Reviewer links ${num('amRev', p.reviewerLinks)}</span>
+      <span>Starts from <input type="date" id="amFrom" value="${esc(s.activeFrom || '')}"></span>
+      <button class="btn small primary" onclick="saveAutoMarks()">Save</button>
+    </div>
+    <div style="font-size:12.5px;color:var(--text-faint);margin-bottom:10px;">Nothing is ever deducted for days before “Starts from”. ${d.lastRun ? 'Last check: ' + esc(new Date(d.lastRun.at).toLocaleString()) + ' — ' + d.lastRun.created + ' deduction(s); judged up to ' + esc(d.lastEvaluated || '—') + '.' : 'The daily check has not run yet.'}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+      <input type="date" id="amPreviewDay" value="${esc(addDaysISO(-1))}">
+      <button class="btn small" onclick="previewAutoMarks()">Preview that day</button>
+      <button class="btn small" onclick="runAutoMarksNow()">Run the daily check now</button>
+    </div>
+    <div id="amPreviewOut"></div>
+    <div style="font-weight:700;margin:8px 0 4px;">Recent automatic marks</div>
+    ${rows ? `<div style="overflow-x:auto;"><table><thead><tr><th>When</th><th>Who</th><th>Marks</th><th>Why</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div style="color:var(--text-faint);font-size:13px;">None yet.</div>'}`;
+}
+async function saveAutoMarks(){
+  const n = id => Number(document.getElementById(id).value);
+  try {
+    await api('/api/admin/auto-marks/settings', { method:'POST', body: JSON.stringify({
+      enabled: { acknowledgement: document.getElementById('amOnAck').checked, links: document.getElementById('amOnLinks').checked },
+      points: { ackAll: n('amAckAll'), ackHalfMax: n('amAckHalf'), processorLinks: n('amProc'), reviewerLinks: n('amRev') },
+      activeFrom: document.getElementById('amFrom').value || undefined }) });
+    showToast('success', 'Saved', 'Automatic marks settings updated.');
+    await loadAutoRules();
+  } catch(e){ showToast('error', 'Could not save', e.message); }
+  renderAutoMarksPanel();
+}
+async function previewAutoMarks(){
+  const day = document.getElementById('amPreviewDay').value;
+  const out = document.getElementById('amPreviewOut');
+  try {
+    const r = await api('/api/admin/auto-marks/preview', { method:'POST', body: JSON.stringify({ day }) });
+    out.innerHTML = r.results.length
+      ? `<div style="font-size:13px;margin-bottom:8px;"><b>${esc(fmtDate(day))}</b> — would deduct:<ul style="margin:4px 0 0 18px;">${r.results.map(x => `<li>${esc(x.name)}: <b>−${x.marks}</b> for ${esc(x.channel)} (${x.notAck} of ${x.total} not acknowledged)${x.skipped ? ' <span style="color:var(--amber);">— skipped: ' + esc(x.why) + '</span>' : ''}</li>`).join('')}</ul></div>`
+      : `<div style="font-size:13px;color:var(--text-faint);margin-bottom:8px;">${esc(fmtDate(day))}: nobody would lose marks.</div>`;
+  } catch(e){ out.innerHTML = `<div style="color:var(--coral);font-size:13px;">${esc(e.message)}</div>`; }
+}
+async function runAutoMarksNow(){
+  try {
+    const r = await api('/api/admin/auto-marks/run', { method:'POST', body: '{}' });
+    showToast('success', 'Daily check done', r.created + ' deduction(s) given' + (r.days.length ? ' for ' + r.days.map(d => d.day).join(', ') : ' — no finished day was waiting.'));
+  } catch(e){ showToast('error', 'Could not run', e.message); }
+  renderAutoMarksPanel();
+}
 async function renderMarksTab(){
+  renderAutoMarksPanel();
   await refreshWorkshops();
   renderWorkshopsPanel();
   try { _marksData = (await api('/api/marks')).marks || []; }
@@ -3427,7 +3513,7 @@ function renderMarksList(){
     return `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--panel-border);${m.voidedAt ? 'opacity:.55;' : ''}">
       <div style="min-width:64px;font-weight:700;color:${col};${m.voidedAt ? 'text-decoration:line-through;' : ''}">${fmt(m.points)}</div>
       <div style="flex:1;">
-        <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);">from ${esc(by ? by.name : '—')} · ${fmtDate(dayOf(m.createdAt))}</span>${m.type === 'pre_reading' ? ' <span class="badge awaiting dot" style="font-size:10px;">📖 Pre-reading</span>' : ''}${m.type === 'review' ? ' <span class="badge awaiting dot" style="font-size:10px;">🔍 Review' + (m.taskId ? ' ' + esc(taskNo(m.taskId)) : '') + '</span>' : ''}</div>
+        <div style="font-size:13.5px;"><b>${esc(to ? to.name : '—')}</b> <span style="color:var(--text-faint);">from ${m.auto ? 'Automatic marks' : esc(by ? by.name : '—')} · ${fmtDate(dayOf(m.createdAt))}</span>${m.auto ? ' <span class="badge awaiting dot" style="font-size:10px;">🤖 Automatic</span>' : ''}${m.type === 'pre_reading' ? ' <span class="badge awaiting dot" style="font-size:10px;">📖 Pre-reading</span>' : ''}${m.type === 'review' ? ' <span class="badge awaiting dot" style="font-size:10px;">🔍 Review' + (m.taskId ? ' ' + esc(taskNo(m.taskId)) : '') + '</span>' : ''}</div>
         ${m.reason ? `<div style="font-size:13px;color:var(--text-dim);margin-top:2px;">${esc(m.reason)}</div>` : ''}
         ${m.hasScreenshot ? `<button class="btn small" style="margin-top:6px;" onclick="viewMarkSnip('${esc(m.id)}')">📎 View snip</button>` : ''}
         ${m.voidedAt ? `<div style="font-size:12px;color:var(--text-faint);margin-top:2px;">Voided by ${esc((empById(m.voidedBy)||{}).name || '—')}, ${fmtDate(dayOf(m.voidedAt))}</div>` : ''}
@@ -7729,10 +7815,10 @@ function openCompleteModal(id){
     : `<div class="modal-error" style="display:block;">There's no one else to review this yet.</div>`;
   // Internal tasks get a Sheet link only — no client, no cashbook to
   // reconcile against.
-  const linkFields = `
-  <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+  const linkFields = `${autoLinksHint(t, 'processor')}
+  <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(${_autoRules && _autoRules.links && _autoRules.links.enabled && t.kind !== 'internal' ? 'needed' : 'optional'})</span></label>
     <input type="text" id="cmpSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
-  ${t.kind !== 'internal' ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
+  ${t.kind !== 'internal' ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(${_autoRules && _autoRules.links && _autoRules.links.enabled ? 'needed' : 'optional'})</span></label>
     <input type="text" id="cmpCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>` : ''}`;
   document.getElementById('modalBox').innerHTML = `
   <h3>Mark Complete — ${esc(t.name)}</h3>
@@ -11144,7 +11230,7 @@ function openReviewScoreModal(){
   // Score + (for a clean review) the send decision are one screen now, not
   // two in a row — scoring used to lead into a separate "Send to client?"
   // popup immediately after, which read as the same decision twice.
-  const linksBlock = isClean ? `
+  const linksBlock = isClean ? `${isInternal ? '' : autoLinksHint(t, 'reviewer')}
     <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="stcSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
     ${!isInternal ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
@@ -12732,6 +12818,7 @@ async function onLoginComplete(){
   initPushClient();
   await loadPunchState();
   await loadCrmMode();
+  await loadAutoRules();
 
   // Everyone lands on My Dashboard now, admins included — it's already
   // fully populated by refreshTasks() above regardless of role, and

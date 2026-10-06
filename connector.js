@@ -20,6 +20,7 @@ const cal = require('./calendar');
 const crmSync = require('./crm-sync');
 const emailStatus = require('./email-status');
 const crmApply = require('./crm-apply');
+const autoMarks = require('./auto-marks');
 const policyCompliance = require('./policy-compliance');
 
 const cfg = () => ({
@@ -1486,6 +1487,42 @@ function callsEmailsStats(state, from, to) {
     .sort((a, b) => a.name.localeCompare(b.name));
   return { from, to, people };
 }
+// ---------------------------------------------------------------------------
+// AUTOMATIC MARKS — the daily acknowledgement check (rules in auto-marks.js).
+// Each finished working day is judged once, from 08:00 NZ the next morning: per
+// person, emails and calls separately, using the same "acknowledged" definitions
+// as the Calls/Email pages. Leave, holiday and workshop days are skipped.
+// ---------------------------------------------------------------------------
+function autoMarksDeps(state) {
+  const server = require('./server');
+  const now = new Date();
+  return {
+    today: nzToday(now), hourNZ: nzHour(now), now: now.toISOString(),
+    isWorkingDay: d => cal.isWorkingDay(d),
+    getStats: day => callsEmailsStats(state, day, day).people,
+    skip: (empId, day) => {
+      const emp = (state.employees || []).find(e => e.id === empId);
+      return !emp || emp.accessDisabled || ['LEAVE', 'WORKSHOP', 'HOLIDAY'].includes(server.attendanceStatus(state, emp, day));
+    },
+    onCreated: row => server.announceAutoMark(state, row),
+  };
+}
+function runAutoMarks(reason) {
+  const state = db.get();
+  const res = autoMarks.runDays(state, autoMarksDeps(state));
+  db.save();
+  if (res.created) clog('info', 'automatic marks given', { reason, created: res.created, days: res.days.map(d => d.day) });
+  return res;
+}
+// What the rule WOULD do for one day — changes nothing.
+function previewAutoMarksDay(day) {
+  const state = db.get();
+  const d = autoMarksDeps(state);
+  const rows = autoMarks.evaluateAckDay(state, day, d.getStats(day), { today: d.today, skip: d.skip, dryRun: true });
+  const workday = cal.isWorkingDay(day);
+  return rows.map(r => ({ toId: r.toId, name: r.name, channel: r.channel, total: r.total, notAck: r.notAck, marks: r.marks, skipped: r.skipped || !workday, why: !workday ? 'not a working day' : (r.skipped ? 'on leave / holiday / workshop' : '') }));
+}
+
 // One person's individual calls and emails in the range, each flagged
 // acknowledged or not — the drill-down behind the Admin productivity rows
 // ("collect all data of theirs"). Headers/subject only, same as the Email
@@ -2634,6 +2671,12 @@ function startSchedulers() {
     cleanVoicemails({ days: 30, max: 150 }).catch(e => clog('error', 'voicemail cleanup threw: ' + (e && e.stack || e)));
   }, 90 * 1000).unref();
 
+  // Automatic marks — look for finished days to judge every 15 minutes (a day is only
+  // judged once, from 08:00 NZ the next morning).
+  const autoMarksTimer = setInterval(() => { try { runAutoMarks('scheduled'); } catch (e) { clog('error', 'automatic marks threw: ' + (e && e.stack || e)); } }, 15 * 60 * 1000);
+  if (autoMarksTimer.unref) autoMarksTimer.unref();
+  setTimeout(() => { try { runAutoMarks('startup'); } catch (e) { clog('error', 'automatic marks threw: ' + (e && e.stack || e)); } }, 60 * 1000).unref();
+
   // CRM client pull — every 15 min, but only once a superadmin has switched it
   // on (after reading a preview). Off by default.
   const crmPullTimer = setInterval(() => {
@@ -3260,6 +3303,6 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
+  runAutoMarks, previewAutoMarksDay, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
   callsEmailsDigestData, callsEmailsStats, callsEmailsDetail, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };

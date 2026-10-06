@@ -17,6 +17,7 @@ const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
 const crmSync = require('./crm-sync');
 const crmApply = require('./crm-apply');
+const autoMarks = require('./auto-marks');
 
 // ---------------------------------------------------------------------------
 // WEB PUSH — browser notifications that fire even when the app isn't open.
@@ -2395,6 +2396,7 @@ app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
   t.reviewerId = reviewerId;
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  giveLinkMarks(state, t, 'processor'); // client work needs both links (internal never does)
   logEvent(state, t.assignedTo, `Marked "${escHtml(t.name)}" complete — ${t.logged.toFixed(2)} hrs actual vs ${t.tat} hrs agreed.`, { points: t.points });
   logEvent(state, reviewerId, `<b>${escHtml(findEmployee(state, t.assignedTo)?.name || 'Someone')}</b> asked you to review "${escHtml(t.name)}".`);
   notify(state, reviewerId, 'review', `${findEmployee(state, t.assignedTo)?.name || 'Someone'} asked you to review "${t.name}".`, t.id);
@@ -2727,6 +2729,7 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
     t.reportDeliveryReference = reference;
     t.reportDeliveryStatus = null; // superseded by the sentToClient fact itself
     t.awaitingClientDecision = false;
+    giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent directly to the client by <b>${escHtml(req.employee.name)}</b>${channel ? ' (' + channel + ')' : ''}.`);
     managersOfEmployee(state, t.assignedTo).forEach(m => {
       logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was sent directly to the client.`);
@@ -2793,6 +2796,7 @@ app.post('/api/tasks/:id/profit-confirm', requireAuth, (req, res) => {
   t.profitConfirmRequestedAt = new Date().toISOString();
   t.profitConfirmRequestedBy = req.employee.id;
   t.awaitingClientDecision = false;
+  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
   logEvent(state, owner.id, `<b>${escHtml(req.employee.name)}</b> sent "${escHtml(t.name)}" for profit confirmation.`);
   logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
   notify(state, owner.id, 'profit_confirm', `${req.employee.name} sent "${t.name}" for profit confirmation.`, t.id);
@@ -2843,6 +2847,7 @@ app.post('/api/tasks/:id/return-to-processor', requireAuth, (req, res) => {
   t.reportSendOwner = processor.id;
   t.reportReturnedAt = new Date().toISOString();
   t.reportReturnedBy = req.employee.id;
+  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
   logEvent(state, processor.id, `<b>${escHtml(req.employee.name)}</b> reviewed "${escHtml(t.name)}" — it's clean and needs no profit confirmation. Please send the report to the client.`);
   notify(state, processor.id, 'send_report', `${req.employee.name} reviewed "${t.name}" — send the report to the client.`, t.id);
   db.save();
@@ -3025,6 +3030,78 @@ app.get('/api/marks/:id/screenshot', requireAuth, (req, res) => {
   if (!m || !m.screenshot || !markVisibleTo(state, req.employee, m)) return res.status(404).json({ error: 'No screenshot.' });
   res.json({ screenshot: m.screenshot });
 });
+
+// ---------------------------------------------------------------------------
+// AUTOMATIC MARKS (see auto-marks.js for the rules). The system deducts marks by
+// itself for unacknowledged emails/calls (a daily job in connector.js) and for
+// missing Sheet/Cashbook links on client work (right here, at the moment it
+// happens). Each one is a normal mark — tagged "automatic", visible to the person
+// and their manager, counted in the totals — and a superadmin can void it.
+// ---------------------------------------------------------------------------
+function announceAutoMark(state, row) {
+  const to = findEmployee(state, row.toId);
+  if (!to) return;
+  logEvent(state, to.id, `<b>Automatic marks</b>: <b>${row.points} marks</b> — ${escHtml(row.reason)}.`);
+  notify(state, to.id, 'mark', `${row.points} marks (automatic) — ${row.reason}`, row.taskId || null, { noDedupe: true });
+}
+// who: 'processor' (they sent it for review) or 'reviewer' (they passed it on).
+// Once per task per rework round, whichever path gets there first.
+function giveLinkMarks(state, t, who, reviewerId) {
+  const s = autoMarks.settingsOf(state, todayISO());
+  if (!s.enabled.links || !autoMarks.linksRequired(t)) return null;
+  const missing = autoMarks.missingLinks(t);
+  if (!missing.length) return null;
+  const isProc = who === 'processor';
+  const toId = isProc ? t.assignedTo : reviewerId;
+  if (!toId || (!isProc && toId === t.assignedTo)) return null;
+  const marks = autoMarks.linkMarks(missing, isProc ? s.points.processorLinks : s.points.reviewerLinks);
+  if (!marks) return null;
+  const what = missing.join(' and ') + (missing.length > 1 ? ' links' : ' link');
+  const reason = isProc
+    ? `Automatic: "${t.name}" was sent for review without the ${what}`
+    : `Automatic: "${t.name}" was passed on after review while the ${what} ${missing.length > 1 ? 'were' : 'was'} still missing`;
+  const row = autoMarks.createAutoMark(state, { toId, points: marks, reason, type: isProc ? 'auto_links_processor' : 'auto_links_reviewer', key: `links:${isProc ? 'p' : 'r'}:${t.id}:${t.reworkCount || 0}`, taskId: t.id });
+  if (row) announceAutoMark(state, row);
+  return row;
+}
+// What everyone is told up front (the Mark Complete and review screens quote these numbers).
+app.get('/api/auto-marks/rules', requireAuth, (req, res) => {
+  const s = autoMarks.settingsOf(db.get(), todayISO());
+  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, all: s.points.ackAll, halfMax: s.points.ackHalfMax } });
+});
+app.get('/api/admin/auto-marks', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const s = autoMarks.settingsOf(state, todayISO());
+  const recent = (state.marks || []).filter(m => m.auto).slice(-40).reverse().map(m => ({
+    id: m.id, toId: m.toId, toName: (findEmployee(state, m.toId) || {}).name || '—', points: m.points, reason: m.reason, type: m.type, createdAt: m.createdAt, voidedAt: m.voidedAt || null,
+  }));
+  db.save();
+  res.json({ settings: s, lastRun: (state.autoMarks || {}).lastRun || null, lastEvaluated: (state.autoMarks || {}).lastEvaluated || null, recent });
+});
+app.post('/api/admin/auto-marks/settings', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const s = autoMarks.updateSettings(state, req.body, todayISO());
+  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}; ack −${s.points.ackAll}/−${s.points.ackHalfMax}, links −${s.points.processorLinks}/−${s.points.reviewerLinks}).`);
+  db.save();
+  res.json({ settings: s });
+});
+// "What would have happened on that day?" — changes nothing.
+app.post('/api/admin/auto-marks/preview', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const day = (req.body || {}).day;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day || '')) return res.status(400).json({ error: 'Choose a day.' });
+  const { previewAutoMarksDay } = require('./connector');
+  res.json({ day, results: previewAutoMarksDay(day) });
+});
+// Run the daily check now (it also runs by itself every morning).
+app.post('/api/admin/auto-marks/run', requireAuth, (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const { runAutoMarks } = require('./connector');
+  res.json(runAutoMarks('manual'));
+});
+
 // Creates one mark and tells the person — shared by the manual "Give marks"
 // form and the workshop pre-reading penalty, so both behave identically
 // (activity-feed line, notification, same row shape).
@@ -5688,7 +5765,7 @@ require('./connector').mountConnector(app);
 // buttons to share instead of re-implementing the same transitions —
 // required lazily from there (after this file has fully loaded), same
 // pattern connector.js already uses elsewhere.
-module.exports = { resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee };
+module.exports = { resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee, attendanceStatus, announceAutoMark };
 
 // ---------------------------------------------------------------------------
 // Static frontend
