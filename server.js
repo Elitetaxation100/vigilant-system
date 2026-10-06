@@ -174,6 +174,7 @@ if (!JWT_SECRET) {
 function publicEmployee(e, viewerIsAdmin) {
   const { passwordHash, crmUserId, crmUserIdHistory, ...rest } = e;
   if (viewerIsAdmin) { rest.crmUserId = crmUserId; rest.crmUserIdHistory = crmUserIdHistory; }
+  rest.canDirectProfitConfirm = canDirectProfitConfirm(e);
   return rest;
 }
 function findEmployee(state, id) { return state.employees.find(e => e.id === id); }
@@ -294,6 +295,44 @@ function normalizeLink(raw) {
 // Profit confirmation always routes to Shubam Sharma — same "one named
 // person" pattern as FOUNDER_EMAILS in db.js.
 const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
+// Named people who can send their OWN job straight to profit confirmation,
+// skipping the separate review step (the "Profit confirm" toggle on Mark
+// Complete / Reopen for re-review). Extend via DIRECT_PROFIT_CONFIRM_EMAILS
+// (comma-separated) without a code change.
+const DIRECT_PROFIT_CONFIRM_EMAILS = (process.env.DIRECT_PROFIT_CONFIRM_EMAILS ||
+  'parvinder@elitetaxation.co.nz,simran@elitetaxation.co.nz').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+// A task stored as "internal" that nevertheless has a client attached is
+// really client work (it was set up with the wrong type) — it can be profit-
+// confirmed, and is converted to a client task when it is.
+function hasClient(t) { return !!(t && t.clientId); }
+function canDirectProfitConfirm(emp) {
+  return !!(emp && emp.email && DIRECT_PROFIT_CONFIRM_EMAILS.includes(String(emp.email).toLowerCase()));
+}
+// Review skipped: record a system "clean" review and route the task to
+// Shubam. Returns an error message, or null when it was routed. Call AFTER
+// the task's links have been saved onto it.
+function startDirectProfitConfirm(state, t, actor) {
+  if (t.kind === 'internal' && !hasClient(t)) return 'Internal tasks have no client, so there is nothing to profit-confirm.';
+  if (!hasSheetOrCashbook(t)) return 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.';
+  const owner = profitConfirmOwner(state);
+  if (!owner) return 'Profit confirmation is not set up — Shubam Sharma was not found.';
+  const now = new Date().toISOString();
+  if (t.kind === 'internal') {
+    t.kind = 'client';
+    logEvent(state, t.assignedTo || actor.id, `"${escHtml(t.name)}" has a client attached, so it was switched from an internal task to client work by <b>${escHtml(actor.name)}</b>.`);
+  }
+  t.reviewerId = null;
+  t.reviewStatus = 'clean'; t.reviewSkipped = true;
+  t.reviewedBy = null; t.reviewedAt = now;
+  t.reviewNote = 'Sent directly for profit confirmation — separate review skipped.';
+  t.awaitingClientDecision = false;
+  t.profitConfirmStatus = 'pending'; t.profitConfirmRequestedAt = now; t.profitConfirmRequestedBy = actor.id;
+  t.profitConfirmAt = null; t.profitConfirmBy = null;
+  logEvent(state, owner.id, `<b>${escHtml(actor.name)}</b> sent "${escHtml(t.name)}" for profit confirmation (no separate review).`);
+  if (t.assignedTo && t.assignedTo !== actor.id) logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
+  notify(state, owner.id, 'profit_confirm', `${actor.name} sent "${t.name}" for profit confirmation.`, t.id);
+  return null;
+}
 function profitConfirmOwner(state) {
   return (state.employees || []).find(e => (e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
 }
@@ -1878,11 +1917,52 @@ app.get('/api/tasks/:id/review-screenshot', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 function canSeeTaskFiles(state, me, t) {
   if (!t) return false;
-  if (t.assignedTo === me.id || t.reviewedBy === me.id || t.reviewerId === me.id) return true;
+  if (t.assignedTo === me.id || t.reviewedBy === me.id || t.reviewerId === me.id || t.reportSendOwner === me.id) return true;
   if (me.accessRole === 'superadmin') return true;
+  const po = profitConfirmOwner(state); // Shubam needs the files to confirm profit
+  if (po && po.id === me.id && t.profitConfirmStatus) return true;
   return isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo);
 }
 const fileRef = m => ({ id: m.id, name: m.name, mime: m.mime, size: m.size });
+// Files attached in the "Sheet" / "Cashbook" slots, as an alternative to (or as well as) a link. They count as that slot
+// being filled for every "needs a Sheet / Cashbook link" rule. Runs BEFORE the handler: it checks that each file is one the
+// caller uploaded and ties it to the task; the handler then records the references with applySlotFiles().
+async function takeSlotFiles(req, res, next) {
+  try {
+    const b = req.body || {};
+    const sIds = Array.isArray(b.sheetFileIds) ? b.sheetFileIds : [], cIds = Array.isArray(b.cashbookFileIds) ? b.cashbookFileIds : [];
+    req.slotFiles = { sheet: [], cashbook: [] };
+    if (!sIds.length && !cIds.length) return next();
+    const t = findTask(db.get(), req.params.id);
+    if (!t) return next();
+    const take = async (ids, slot, have) => {
+      have = have || [];
+      const out = [];
+      for (const fid of [...new Set(ids.map(String))]) {
+        const m = await fileStore.meta(fid);
+        if (!m || m.createdBy !== req.employee.id || (m.taskId && m.taskId !== t.id)) throw new Error('One of the attached files is no longer available — please attach it again.');
+        if (have.some(x => x.id === m.id)) continue;
+        out.push(fileRef(m));
+      }
+      if (have.length + out.length > fileStore.MAX_PER_REVIEW) throw new Error(`At most ${fileStore.MAX_PER_REVIEW} files can be attached here — ${have.length} already are.`);
+      for (const m of out) await fileStore.attach(m.id, t.id, slot);
+      return out;
+    };
+    req.slotFiles.sheet = await take(sIds, 'sheet', t.sheetFiles);
+    req.slotFiles.cashbook = await take(cIds, 'cashbook', t.cashbookFiles);
+    next();
+  } catch (e) {
+    res.status(400).json({ error: (e && e.message) || 'Could not attach the files.' });
+  }
+}
+function applySlotFiles(t, req) {
+  const sf = req.slotFiles || {};
+  if ((sf.sheet || []).length) t.sheetFiles = [...(t.sheetFiles || []), ...sf.sheet];
+  if ((sf.cashbook || []).length) t.cashbookFiles = [...(t.cashbookFiles || []), ...sf.cashbook];
+}
+// is something in the Sheet or Cashbook slot — a link or a file (counting files the caller is adding right now)?
+const hasSheetOrCashbook = (t, req) => !!(t.sheetLink || t.cashbookLink || (t.sheetFiles || []).length || (t.cashbookFiles || []).length
+  || ((req && req.slotFiles && ((req.slotFiles.sheet || []).length + (req.slotFiles.cashbook || []).length)) || 0));
 app.post('/api/files', requireAuth, express.raw({ type: () => true, limit: '16mb' }), async (req, res) => {
   try {
     let name = String(req.get('x-file-name') || '');
@@ -2519,31 +2599,45 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
 });
 
 
-app.post('/api/tasks/:id/complete', requireAuth, (req, res) => {
+app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'accepted') return res.status(400).json({ error: 'Only an accepted task can be marked complete.' });
-  const { reviewerId, sheetLink, cashbookLink } = req.body || {};
-  if (!reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
-  const reviewer = findEmployee(state, reviewerId);
-  if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
+  const { reviewerId, sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
+  const direct = directProfitConfirm === true;
+  if (direct && !canDirectProfitConfirm(req.employee)) return res.status(403).json({ error: "You can't send a job straight to profit confirmation." });
+  if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
+  const reviewer = direct ? null : findEmployee(state, reviewerId);
+  if (!direct && !reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   // You can send your work to anyone for review — just not yourself.
-  if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send your own work to yourself for review — pick someone else." });
+  if (!direct && reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send your own work to yourself for review — pick someone else." });
   const sheetLinkN = normalizeLink(sheetLink);
   const cashbookLinkN = normalizeLink(cashbookLink);
   if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
   if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
+  if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
+    return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.' });
+  }
     const elapsed = t.timerStartedAt ? (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000 : 0;
   t.logged += elapsed;
     t.timerStartedAt = null;
   t.status = 'completed';
   t.completedAt = new Date().toISOString();
-  t.reviewerId = reviewerId;
+  t.reviewerId = direct ? null : reviewerId;
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  applySlotFiles(t, req);
   giveLinkMarks(state, t, 'processor'); // client work needs both links (internal never does)
   logEvent(state, t.assignedTo, `Marked "${escHtml(t.name)}" complete — ${t.logged.toFixed(2)} hrs actual vs ${t.tat} hrs agreed.`, { points: t.points });
+  if (direct) {
+    const derr = startDirectProfitConfirm(state, t, req.employee);
+    if (derr) return res.status(400).json({ error: derr });
+    db.save();
+    return res.json({ task: taskForClient(t) });
+  }
   logEvent(state, reviewerId, `<b>${escHtml(findEmployee(state, t.assignedTo)?.name || 'Someone')}</b> asked you to review "${escHtml(t.name)}".`);
   notify(state, reviewerId, 'review', `${findEmployee(state, t.assignedTo)?.name || 'Someone'} asked you to review "${t.name}".`, t.id);
   db.save();
@@ -2598,29 +2692,56 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
 // and someone now wants a second pair of eyes on it. The assignee or an
 // admin over them can; it goes back to "completed, awaiting review" with
 // the chosen reviewer and a fresh review slate.
-app.post('/api/tasks/:id/send-for-review', requireAuth, (req, res) => {
+app.post('/api/tasks/:id/send-for-review', requireAuth, takeSlotFiles, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
   const isMine = t.assignedTo === req.employee.id;
   const isAdminOver = isAdminRole(req.employee.accessRole) &&
     (req.employee.accessRole === 'superadmin' || canManageEmployee(state, req.employee, t.assignedTo) || !t.assignedTo);
-  if (!isMine && !isAdminOver) {
-    return res.status(403).json({ error: 'Only the assignee or an admin can send this for review.' });
+  const isReviewer = t.reviewStatus === 'clean' && (t.reviewedBy === req.employee.id || canReviewWorkOf(state, req.employee, t.assignedTo, t));
+  if (!isMine && !isAdminOver && !isReviewer) {
+    return res.status(403).json({ error: 'Only the assignee, the reviewer or an admin can send this for review.' });
   }
   if (t.status !== 'completed' || !['done', 'clean'].includes(t.reviewStatus)) {
     return res.status(400).json({ error: 'Only a closed task (marked done, or reviewed clean) can be re-sent for review.' });
   }
-  const { reviewerId } = req.body || {};
-  if (!reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
-  const reviewer = findEmployee(state, reviewerId);
-  if (!reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
-  if (reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send a task to its own owner for review — pick someone else." });
+  const { reviewerId, sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
+  const direct = directProfitConfirm === true;
+  if (direct && !canDirectProfitConfirm(req.employee)) return res.status(403).json({ error: "You can't send a job straight to profit confirmation." });
+  if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
+  const reviewer = direct ? null : findEmployee(state, reviewerId);
+  if (!direct && !reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
+  if (!direct && reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send a task to its own owner for review — pick someone else." });
+  const sheetLinkN = normalizeLink(sheetLink);
+  const cashbookLinkN = normalizeLink(cashbookLink);
+  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
+  if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
+    return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.' });
+  }
+  if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
+  if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  applySlotFiles(t, req);
   t.reviewStatus = null;
   t.reviewerId = reviewerId;
   t.reviewedBy = null; t.reviewedAt = null; t.reviewNote = null;
   t.closedBy = null; t.closedAt = null;
   t.awaitingClientDecision = false;
+  // Re-review starts the post-review pipeline over (profit confirmation /
+  // report send), so a mistaken close doesn't leave stale decisions behind.
+  t.profitConfirmStatus = null; t.profitConfirmRequestedAt = null; t.profitConfirmRequestedBy = null;
+  t.profitConfirmAt = null; t.profitConfirmBy = null;
+  t.reportSendOwner = null; t.reportReturnedAt = null; t.reportReturnedBy = null;
+  t.reviewSkipped = false;
+  if (direct) {
+    const derr = startDirectProfitConfirm(state, t, req.employee);
+    if (derr) return res.status(400).json({ error: derr });
+    db.save();
+    return res.json({ task: taskForClient(t) });
+  }
   logEvent(state, reviewerId, `<b>${escHtml(req.employee.name)}</b> asked you to review "${escHtml(t.name)}" — a task that had already been closed.`);
   if (t.assignedTo && t.assignedTo !== reviewerId) {
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was re-opened and sent to <b>${escHtml(reviewer.name)}</b> for review by <b>${escHtml(req.employee.name)}</b>.`);
@@ -2838,7 +2959,7 @@ app.post('/api/tasks/:id/report-owner', requireAuth, (req, res) => {
 // client flow: the reviewer, a manager over the assignee, the report-send
 // owner, or the assignee themselves (they're the one who'd actually know
 // the link if it was missed the first time).
-app.patch('/api/tasks/:id/links', requireAuth, (req, res) => {
+app.patch('/api/tasks/:id/links', requireAuth, takeSlotFiles, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
@@ -2852,6 +2973,7 @@ app.patch('/api/tasks/:id/links', requireAuth, (req, res) => {
   if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  applySlotFiles(t, req);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -2957,8 +3079,8 @@ app.post('/api/tasks/:id/profit-confirm', requireAuth, (req, res) => {
   if (t.reviewStatus !== 'clean' || !t.awaitingClientDecision) {
     return res.status(400).json({ error: 'This task has no pending client-send decision.' });
   }
-  if (!t.sheetLink && !t.cashbookLink) {
-    return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link (from Send for Review) before requesting profit confirmation.' });
+  if (!hasSheetOrCashbook(t)) {
+    return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file (from Send for Review), before requesting profit confirmation.' });
   }
   const owner = profitConfirmOwner(state);
   if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
@@ -5546,6 +5668,17 @@ app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, async (req,
     clients: (state.clients || []).length,
     teams: (state.teams || []).length,
   });
+});
+
+// Recover calls Aircall never delivered (see connector.js recoverCalls). Superadmin only. DRY RUN unless the
+// body says { "dryRun": false } — so a first look never changes anything. { "day": "YYYY-MM-DD" } is the NZ day.
+app.post('/api/admin/calls/recover', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const { recoverCalls } = require('./connector');
+    const b = req.body || {};
+    const r = await recoverCalls({ day: b.day, dryRun: b.dryRun !== false, max: b.max });
+    res.json(r);
+  } catch (e) { res.status(502).json({ error: 'Could not read the calls from Aircall: ' + (e && e.message || e) }); }
 });
 
 // What is using the database, and a safe clean-up. Superadmin only.

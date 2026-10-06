@@ -73,8 +73,8 @@ function ackDeduction(total, notAck, pts) {
 const linksRequired = t => !!t && t.kind === 'client' && !['call', 'slack_message'].includes(t.source || '');
 function missingLinks(t) {
   const out = [];
-  if (!(t && String(t.sheetLink || '').trim())) out.push('Sheet');
-  if (!(t && String(t.cashbookLink || '').trim())) out.push('Cashbook');
+  if (!(t && (String(t.sheetLink || '').trim() || (t.sheetFiles || []).length))) out.push('Sheet');
+  if (!(t && (String(t.cashbookLink || '').trim() || (t.cashbookFiles || []).length))) out.push('Cashbook');
   return out;
 }
 const linkMarks = (missing, full) => Math.round((full * missing.length) / 2); // both missing = full, one = half

@@ -374,7 +374,7 @@ function buttonEl(text, actionId, value) {
 }
 function buildCallCard(o) {
   const blocks = [
-    { type: 'header', text: { type: 'plain_text', text: `${o.icon} ${o.statusLabel} — ${o.team}`, emoji: true } },
+    { type: 'header', text: { type: 'plain_text', text: `${o.icon} ${o.statusLabel} — ${o.team}${o.direction ? ' · ' + o.direction : ''}`, emoji: true } },
     { type: 'section', fields: [
       { type: 'mrkdwn', text: `*Agent*\n${esc(o.agent)}` },
       { type: 'mrkdwn', text: `*Client*\n${esc(o.client)}` },
@@ -393,7 +393,9 @@ function buildCallCard(o) {
   }
   return blocks;
 }
-function callCardFallback(o) { return `${o.icon} ${o.statusLabel} — ${o.team} — ${o.client} (${o.phone})`; }
+function callCardFallback(o) { return `${o.icon} ${o.statusLabel} — ${o.team}${o.direction ? ' · ' + o.direction : ''} — ${o.client} (${o.phone})`; }
+// What the card for a call would look like (used by the tests).
+function callCardPreview(state, row, stage) { const o = cardOptsFor(state, row, stage || (row.recordingUrl ? 'recording' : 'ended')); return { text: callCardFallback(o), header: buildCallCard(o)[0].text.text }; }
 
 function endedButtons(rowId) {
   return [buttonEl('📝 Log Outcome & Action Item', 'log_outcome', rowId),
@@ -409,12 +411,14 @@ function recordingButtons(rowId, resolved) {
           buttonEl('🚫 No Action Needed', 'no_action', rowId)];
 }
 
+// Which way the call went — shown on the Slack card and in the reports. Anything Aircall did not label gets no tag.
+function directionTag(d) { const v = String(d || '').toLowerCase(); return v === 'outbound' ? '↗ Outbound' : v === 'inbound' ? '↙ Inbound' : null; }
 function cardOptsFor(state, row, stage) {
   const mentions = agentSlackIds(state, row.agentAircallId).map(id => `<@${id}>`).join(' ');
   const resolved = !!row.finalOutcome || !!row.taskId || row.status === 'no_action';
   if (stage === 'ended') {
     return {
-      icon: '📞', statusLabel: 'Call Ended', team: row.team, agent: row.agentName,
+      icon: '📞', statusLabel: 'Call Ended', team: row.team, agent: row.agentName, direction: directionTag(row.direction),
       client: row.clientName || 'Unknown / not saved', phone: row.callerPhone ? '+' + row.callerPhone : '—',
       duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions, ref: row.id,
       footer: row.mandatory ? '🎙️ Recording will follow once ready.' : null,
@@ -422,7 +426,7 @@ function cardOptsFor(state, row, stage) {
     };
   }
   return {
-    icon: '🎙️', statusLabel: 'Recording Ready', team: row.team, agent: row.agentName,
+    icon: '🎙️', statusLabel: 'Recording Ready', team: row.team, agent: row.agentName, direction: directionTag(row.direction),
     client: row.clientName || 'Unknown / not saved', phone: row.callerPhone ? '+' + row.callerPhone : '—',
     duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions, ref: row.id,
     footer: resolved ? '✅ Already resolved — see the task manager.' : '👂 Please listen and note action items.',
@@ -736,7 +740,11 @@ async function syncCard(state, row) {
   if (posted && posted.ok) { row.slackChannel = posted.channel; row.slackTs = posted.ts; db.save(); }
 }
 
-async function handleCallEnded(call) {
+// opts (used only when RECOVERING a call that was missed): { occurredAt: ISO of the real call, nowMs: the call's own
+// time (so the transfer-merge window is judged as it would have been then), recovered: true }.
+async function handleCallEnded(call, opts) {
+  opts = opts || {};
+  const nowMs = opts.nowMs || Date.now();
   const state = db.get();
   const existing = findCall(state, call.id);
   if (existing && !existing.stub) { clog('info', 'call.ended dedup', { id: call.id }); return; }
@@ -753,11 +761,11 @@ async function handleCallEnded(call) {
   // was unanswered, or it landed in the last 90s — so a genuine second call
   // from the same number a few minutes later is NOT swallowed.
   if (!existing) {
-    const cutoff = Date.now() - TRANSFER_MERGE_MINUTES * 60000;
+    const cutoff = nowMs - TRANSFER_MERGE_MINUTES * 60000;
     const cand = (state.calls || []).filter(c => !c.stub && c.callerPhone === callerPhone && callerPhone &&
-      new Date(c.occurredAt).getTime() >= cutoff).sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
+      new Date(c.occurredAt).getTime() >= cutoff && new Date(c.occurredAt).getTime() <= nowMs).sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
     const looksLikeTransfer = cand && (cand.status === 'not_picked_up' ||
-      Date.now() - new Date(cand.occurredAt).getTime() < 90000);
+      nowMs - new Date(cand.occurredAt).getTime() < 90000);
     const priorLeg = looksLikeTransfer ? cand : null;
     if (priorLeg) {
       priorLeg.aircallId = String(call.id);
@@ -768,6 +776,11 @@ async function handleCallEnded(call) {
       if (vm) { priorLeg.voicemail = true; priorLeg.recordingUrl = null; }
       db.save();
       clog('info', 'call.ended merged into transfer leg', { id: call.id, into: priorLeg.id });
+      // A merged answered call used to get no card unless the recording webhook arrived. Same backstop as an unmerged call:
+      // ask Aircall for the recording a couple of minutes out, which also posts the card.
+      if (!opts.recovered && routing && !unanswered && !vm && !priorLeg.recordingUrl) {
+        const t = setTimeout(() => backfillRecording(priorLeg.id, String(call.id)), 150000); if (t.unref) t.unref();
+      }
       return;
     }
   }
@@ -791,7 +804,7 @@ async function handleCallEnded(call) {
   } else {
     state.callSeq = (state.callSeq || 0) + 1;
     row = Object.assign({
-      id: 'call' + state.callSeq, aircallId: String(call.id), occurredAt: new Date().toISOString(),
+      id: 'call' + state.callSeq, aircallId: String(call.id), occurredAt: opts.occurredAt || new Date().toISOString(), recovered: !!opts.recovered,
       recordingUrl: null, recordingFetchedAt: null, listenedBy: null, listenedAt: null,
       slackChannel: null, slackTs: null, aiOutcome: null, aiAction: null, aiDue: null,
       taskId: null, finalOutcome: null, createdVia: 'node-connector',
@@ -813,6 +826,106 @@ async function handleCallEnded(call) {
     const rowId = row.id, aid = String(call.id);
     setTimeout(() => backfillRecording(rowId, aid), 150000);
   }
+}
+
+// ---------------------------------------------------------------------------
+// RECOVER MISSED CALLS — if Aircall's webhook stops reaching us (an outage, a rotated token…), the calls made
+// meanwhile never arrive. This reads them from Aircall's own call history and feeds each one through the very same
+// handler a live webhook uses (so team routing, transfer-merging, Slack cards and voicemail rules all behave as
+// normal), but stamped with the REAL call time. Calls we already have are skipped, so it is safe to repeat.
+// A recovered call is flagged `recovered` so the automatic acknowledgement marks never penalise anyone for a call
+// Slack never showed them.
+// ---------------------------------------------------------------------------
+const sleepMs = ms => new Promise(r => setTimeout(r, ms));
+async function fetchAircallCallsPage(fromUnix, toUnix, page) {
+  const r = await httpsRequest('https://api.aircall.io/v1/calls?order=asc&per_page=50&page=' + page + '&from=' + fromUnix + '&to=' + toUnix, {
+    headers: { Authorization: aircallAuthHeader() },
+  });
+  if (r.status !== 200 || !r.json) throw new Error('Aircall answered ' + r.status + (r.json && r.json.error ? ': ' + r.json.error : ''));
+  return r.json;
+}
+// opts: { day: 'YYYY-MM-DD' NZ (default today), dryRun (default true), max (default 150), fetchPage (tests), pauseMs }
+async function recoverCalls(opts) {
+  opts = opts || {};
+  const state = db.get();
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(opts.day || '') ? opts.day : nzToday(new Date());
+  const dryRun = opts.dryRun !== false;
+  const max = Math.min(Number(opts.max) || 150, 400);
+  const fetchPage = opts.fetchPage || fetchAircallCallsPage;
+  const post = opts.syncCard || syncCard;
+  const madeThisRun = new Set(); // rows THIS run created: a second genuine call from the same person must not be taken for a leg of them
+  // An answered call that was merged into an earlier leg is stored without a Slack card (live, the card comes when the
+  // recording arrives by webhook — which recovery never gets). So give any recovered, answered, mapped call its card.
+  const fetchCall = opts.fetchCall || fetchAircallCall;
+  const mapped = r => r && r.recovered && r.status === 'ended' && r.team && r.team !== 'Unmapped' && !r.voicemail;
+  // a recovered call that still has no Slack card, or still no recording on its card
+  const needsCard = r => mapped(r) && !r.slackTs;
+  const needsRecording = r => mapped(r) && !r.recordingUrl;
+  // The recording of a LIVE call arrives by its own webhook a little after the call; recovery never gets that event,
+  // so ask Aircall for it directly, then post — or update in place — the card.
+  const giveCard = async (row, call) => {
+    let gotUrl = false;
+    if (!row.recordingUrl) {
+      let u = recordingUrlOf(call);
+      if (!u) { try { const fresh = await fetchCall(row.aircallId); u = fresh && !isVoicemail(fresh) ? recordingUrlOf(fresh) : null; } catch (e) { out.errors.push('recording ' + row.aircallId + ': ' + (e && e.message || e)); } }
+      if (u) { row.recordingUrl = u; row.recordingFetchedAt = new Date().toISOString(); gotUrl = true; out.recordingsFound++; }
+    }
+    const hadCard = !!row.slackTs;
+    if (!hadCard || gotUrl) await post(state, row);
+    if (row.slackTs && !hadCard) out.onSlack++;
+    if (row.slackTs && hadCard && gotUrl) out.cardsUpdated++;
+    if (row.slackTs && (!hadCard || gotUrl)) await sleepMs(opts.pauseMs != null ? opts.pauseMs : 1100);
+    db.save();
+  };
+  const fromUnix = Math.floor(new Date(crmSync.nzLocalToISO(day, '00:00')).getTime() / 1000);
+  const toUnix = Math.min(Math.floor(Date.now() / 1000), fromUnix + 86400);
+  const out = { day, dryRun, fromUnix, toUnix, found: 0, alreadyHad: 0, mergedLegs: 0, stillRinging: 0, wouldRecover: 0, recovered: 0, onSlack: 0, voicemails: 0, notPickedUp: 0, unmapped: 0, cardsToPost: 0, recordingsToFetch: 0, recordingsFound: 0, cardsUpdated: 0, errors: [], calls: [] };
+  const todo = [];
+  for (let page = 1; page <= 40; page++) {
+    const body = await fetchPage(fromUnix, toUnix, page);
+    (body.calls || []).forEach(c => todo.push(c));
+    if (!body.meta || !body.meta.next_page_link) break;
+  }
+  todo.sort((a, b) => (a.started_at || 0) - (b.started_at || 0));
+  out.found = todo.length;
+  for (const call of todo) {
+    if (!call || call.id == null) continue;
+    if (!call.ended_at) { out.stillRinging++; continue; }
+    const have = findCall(state, call.id);
+    if (have && !have.stub) {
+      out.alreadyHad++;
+      if (needsRecording(have) && have.slackTs) out.recordingsToFetch++;
+      if (needsCard(have) || needsRecording(have)) { if (needsCard(have)) out.cardsToPost++; if (!dryRun) { try { await giveCard(have, call); } catch (e) { out.errors.push('card ' + call.id + ': ' + (e && e.message || e)); } } }
+      continue;
+    }
+    const when = new Date((call.ended_at || call.started_at) * 1000).toISOString();
+    // A transferred / ring-group call is stored as ONE row that keeps only one of its Aircall ids (see handleCallEnded's
+    // leg-merging). So an Aircall call we have no id for may simply be another leg of a call we DO have: same caller, within
+    // the transfer window. Skip those rather than add a duplicate.
+    const phone = normalizeNumber(call.raw_digits || '');
+    const t0 = new Date(when).getTime();
+    if (phone && (state.calls || []).some(c => !c.stub && !madeThisRun.has(c.id) && c.callerPhone === phone && Math.abs(new Date(c.occurredAt).getTime() - t0) <= TRANSFER_MERGE_MINUTES * 60000)) { out.mergedLegs++; continue; }
+    const agentId = call.user ? String(call.user.id) : null;
+    const routing = agentId ? agentRouting(state, agentId) : null;
+    const vm = isVoicemail(call), unanswered = isUnanswered(call);
+    const line = { aircallId: String(call.id), at: when, caller: phone ? '…' + phone.slice(-4) : '—', agent: routing ? routing.name : (call.user ? call.user.name : 'Unknown'), team: routing ? routing.team : 'Unmapped', status: vm ? 'voicemail' : (unanswered ? 'not_picked_up' : 'ended') };
+    if (out.wouldRecover >= max) { out.errors.push('Stopped at ' + max + ' calls — run it again for the rest.'); break; }
+    out.wouldRecover++;
+    out.calls.push(line);
+    if (vm) out.voicemails++; else if (unanswered) out.notPickedUp++;
+    if (!routing) out.unmapped++;
+    if (dryRun) continue;
+    try {
+      await handleCallEnded(call, { occurredAt: when, nowMs: new Date(when).getTime(), recovered: true });
+      out.recovered++;
+      const row = findCall(state, call.id);
+      if (row) madeThisRun.add(row.id);
+      if (row && row.slackTs) { out.onSlack++; await sleepMs(opts.pauseMs != null ? opts.pauseMs : 1100); } // Slack allows about one post a second
+      else if (needsCard(row) || needsRecording(row)) { if (needsCard(row)) out.cardsToPost++; await giveCard(row, call); }
+    } catch (e) { out.errors.push(String(call.id) + ': ' + (e && e.message || e)); }
+  }
+  clog('info', 'recover calls', { day, dryRun, found: out.found, alreadyHad: out.alreadyHad, recovered: out.recovered, onSlack: out.onSlack, errors: out.errors.length });
+  return out;
 }
 
 async function backfillRecording(rowId, aircallId) {
@@ -1040,6 +1153,7 @@ function allCallsReport(state, { from, to, personId, agentId, actor } = {}) {
       team: (agent && agent.team) || null,
       clientName: c.clientName || 'Unknown / not saved',
       callerPhone: c.callerPhone,
+      direction: c.direction || null,
       status: c.status,
       listened: !!c.listenedBy,
       finalOutcome: c.finalOutcome || null,
@@ -1459,13 +1573,14 @@ function allEmailsReport(state, { from, to, personId, mailbox, actor } = {}) {
 // and the acknowledgement marks must agree with it.
 function callsEmailsStats(state, from, to, opts) {
   const until = opts && opts.until ? opts.until.getTime() : null;
+  const skipRecovered = !!(opts && opts.excludeRecovered);
   const byPerson = {};
   const row = (id, name) => {
     if (!byPerson[id]) byPerson[id] = { id, name, calls: { total: 0, ack: 0, notAck: 0 }, emails: { total: 0, ack: 0, notAck: 0 } };
     return byPerson[id];
   };
   const inRange = ts => { const d = nzToday(new Date(ts)); return d >= from && d <= to && (until == null || new Date(ts).getTime() <= until); };
-  (state.calls || []).filter(c => countsAsCall(c) && c.occurredAt && inRange(c.occurredAt))
+  (state.calls || []).filter(c => countsAsCall(c) && c.occurredAt && inRange(c.occurredAt) && !(skipRecovered && c.recovered))
     .forEach(c => {
       responsiblePeopleForCall(state, c).forEach(p => {
         const r = row(p.id, p.name);
@@ -1508,7 +1623,7 @@ function autoMarksDeps(state) {
     cutoffMinutes: CALLS_EMAILS_DIGEST_HOUR * 60 + 45,
     workingDayAfter: d => cal.addWorkingDays(d, 1),
     // what the 18:45 report counts: items received up to the report time on that day
-    getStats: day => callsEmailsStats(state, day, day, { until: new Date(crmSync.nzLocalToISO(day, String(Math.floor((CALLS_EMAILS_DIGEST_HOUR * 60 + 45) / 60)).padStart(2, '0') + ':45')) }).people,
+    getStats: day => callsEmailsStats(state, day, day, { excludeRecovered: true, until: new Date(crmSync.nzLocalToISO(day, String(Math.floor((CALLS_EMAILS_DIGEST_HOUR * 60 + 45) / 60)).padStart(2, '0') + ':45')) }).people,
     skip: (empId, day) => {
       const emp = (state.employees || []).find(e => e.id === empId);
       return !emp || emp.accessDisabled || ['LEAVE', 'WORKSHOP', 'HOLIDAY'].includes(server.attendanceStatus(state, emp, day));
@@ -3317,6 +3432,6 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  runAutoMarks, previewAutoMarksDay, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
+  runAutoMarks, previewAutoMarksDay, recoverCalls, callCardPreview, directionTag, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
   callsEmailsDigestData, callsEmailsStats, callsEmailsDetail, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };
