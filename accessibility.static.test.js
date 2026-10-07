@@ -46,3 +46,10 @@ test('form controls are labelled; link and review fields explain themselves', ()
     assert.match(html, new RegExp('<label[^>]*for="' + id + '"'), id + ' has a label');
   assert.match(html, /<label class="mt-f mt-q"><span>Search<\/span><input type="search"/, 'search is a real search field');
 });
+
+test('Performance: managers see Productivity (scoped by the server), team managers get a My team / Whole firm switch, and My Team lists productivity with report-card links', () => {
+  assert.match(html, /\['productivity', 'Productivity', 'manager'\]/);
+  assert.match(html, /gate === 'manager' \? \(isAdmin \|\| isSuperAdmin\)/);
+  assert.match(html, /setProdScope\(false\)[\s\S]{0,200}setProdScope\(true\)/);
+  assert.match(html, /function teamProductivityHtml\(\)/); assert.match(html, /openReportCardFor\(this\.dataset\.id\)/);
+});

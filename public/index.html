@@ -3473,14 +3473,16 @@ function renderMgmtTabs(activeId){
 // Analytics stay superadmin-only, exactly as they were as separate nav
 // items, just gated on the tab button instead of the sidebar row.
 let _perfTab = 'report';
+let _prodFirm = false;     // team managers on the new dashboard: false = my team, true = whole firm
+function teamManagerV2(){ return !!(session && session.dashboardV2 && isSuperAdmin && !session.isFounder); }
 const PERF_TABS = [
   ['report', 'My Report Card', false],
-  ['productivity', 'Productivity', true],
+  ['productivity', 'Productivity', 'manager'],
   ['analytics', 'Analytics', true],
   ['cards', 'Monthly Cards', false],
 ];
 function renderPerformanceView(){
-  const visible = PERF_TABS.filter(([,,superOnly]) => !superOnly || isSuperAdmin);
+  const visible = PERF_TABS.filter(([,,gate]) => !gate || (gate === 'manager' ? (isAdmin || isSuperAdmin) : isSuperAdmin));
   if(!visible.some(([id]) => id === _perfTab)) _perfTab = 'report';
   document.getElementById('perfTabs').innerHTML = visible.length < 2 ? '' : visible.map(([id,label]) =>
     `<button class="src-subtab${id===_perfTab?' on':''}" onclick="setPerfTab('${id}')">${esc(label)}</button>`
@@ -7827,7 +7829,7 @@ function mtOpenTasks(preset){
   showView('mtasks', document.querySelector('#navV2 .nav-item[data-view="mtasks"]'));
 }
 /* ---------------- My Team ---------------- */
-let _team = null, _tmType = null, _tmIds = {}, _measures = null, _msDays = 30, _msErr = null;
+let _team = null, _tmType = null, _tmIds = {}, _measures = null, _msDays = 30, _msErr = null, _teamProd = null;
 async function renderTeamView(){
   const box = document.getElementById('tmRoot'); if(!box) return;
   if(!_team) box.innerHTML = '<div class="td-empty">Loading your team…</div>';
@@ -7837,7 +7839,11 @@ async function renderTeamView(){
   loadMeasures();
 }
 async function loadMeasures(){
-  try { _measures = await api('/api/workflow/measures?days=' + _msDays); _msErr = null; } catch(e){ _msErr = e.message; }
+  try {
+    const to = todayISO(), from = new Date(Date.parse(to + 'T00:00:00Z') - (_msDays - 1) * 86400000).toISOString().slice(0, 10);
+    const [m, p] = await Promise.all([api('/api/workflow/measures?days=' + _msDays), api('/api/productivity?from=' + from + '&to=' + to).catch(() => null)]);
+    _measures = m; _teamProd = p; _msErr = null;
+  } catch(e){ _msErr = e.message; }
   const el = document.getElementById('tmMeasures'); if(el) el.innerHTML = measuresHtml();
 }
 function msSetDays(n){ _msDays = Number(n); _measures = null; const el = document.getElementById('tmMeasures'); if(el) el.innerHTML = measuresHtml(); loadMeasures(); }
@@ -7857,7 +7863,15 @@ function measuresHtml(){
     + '<div class="ms-card"><span class="l">Review turnaround</span><span class="n">' + (M.reviewerTurnaround.avgDays == null ? '—' : M.reviewerTurnaround.avgDays + ' d') + '</span><span class="s">' + M.reviewerTurnaround.count + ' reviews · ' + (M.reviewerTurnaround.within1DayPct == null ? '—' : M.reviewerTurnaround.within1DayPct + '% within a day') + '</span></div></div>';
   const emp = M.byEmployee.length ? '<div class="tm-scroll"><table class="tm-table"><thead><tr><th>Employee</th><th>Client deadline met</th><th>Own internal date met</th><th>Reports on time</th><th>Returned for correction</th></tr></thead><tbody>' + M.byEmployee.map(e => '<tr><th scope="row" data-l="Employee">' + esc(e.name) + '</th><td data-l="Client deadline met">' + p(e.clientCommitment) + ' <span class="tm-sub">' + e.clientCommitment.met + '/' + e.clientCommitment.total + '</span></td><td data-l="Own internal date met">' + p(e.internalCommitment) + ' <span class="tm-sub">' + e.internalCommitment.met + '/' + e.internalCommitment.total + '</span></td><td data-l="Reports on time">' + p(e.reportSending) + ' <span class="tm-sub">' + e.reportSending.onTime + '/' + e.reportSending.total + '</span></td><td data-l="Returned for correction">' + p(e.corrections) + ' <span class="tm-sub">' + e.corrections.returned + '/' + e.corrections.reviewed + '</span></td></tr>').join('') + '</tbody></table></div>' : '<div class="td-empty">No finished or reviewed work in this period yet.</div>';
   const rv = M.byReviewer.length ? '<h4 style="margin:16px 0 6px;">Reviewers</h4><div class="tm-scroll"><table class="tm-table"><thead><tr><th>Reviewer</th><th>Reviews</th><th>Average days</th><th>Slowest</th><th>Within a day</th></tr></thead><tbody>' + M.byReviewer.map(r => '<tr><th scope="row" data-l="Reviewer">' + esc(r.name) + '</th><td data-l="Reviews">' + r.count + '</td><td data-l="Average days">' + r.avgDays + '</td><td data-l="Slowest">' + r.maxDays + ' d</td><td data-l="Within a day">' + (r.within1DayPct == null ? '—' : r.within1DayPct + '%') + '</td></tr>').join('') + '</tbody></table></div>' : '';
-  return head + cards + emp + rv;
+  return head + cards + emp + rv + teamProductivityHtml();
+}
+function teamProductivityHtml(){
+  const P = _teamProd; if(!P || !P.people) return '';
+  const rows = P.people.filter(p => p.id !== currentViewerId).sort((a, b) => (b.productivityPct ?? -1) - (a.productivityPct ?? -1));
+  if(!rows.length) return '';
+  return '<h4 style="margin:16px 0 6px;">Productivity <span class="tm-sub" style="font-weight:400;">(hours worked against capacity — a separate score)</span></h4><div class="tm-scroll"><table class="tm-table"><thead><tr><th>Employee</th><th>Productivity</th><th>Capacity</th><th>Qualified hours</th><th>Commitment</th><th>Reports on time</th><th></th></tr></thead><tbody>'
+    + rows.map(p => '<tr><th scope="row" data-l="Employee">' + esc(p.name) + '</th><td data-l="Productivity">' + (p.notScorable || p.productivityPct == null ? '—' : '<b>' + p.productivityPct + '%</b>') + '</td><td data-l="Capacity">' + p.capacityHours.toFixed(1) + ' h</td><td data-l="Qualified hours">' + p.qualifiedHours.toFixed(1) + ' h</td><td data-l="Commitment">' + (p.commitmentPct == null ? '—' : p.commitmentPct + '%') + '</td><td data-l="Reports on time">' + p.reportsOnTime + '/' + p.reportsRequired + '</td><td><button type="button" class="btn small td-act" data-id="' + esc(p.id) + '" onclick="openReportCardFor(this.dataset.id)">Report card →</button></td></tr>').join('')
+    + '</tbody></table></div>';
 }
 function drawTeamView(){
   const box = document.getElementById('tmRoot'); if(!box || !_team) return;
@@ -10468,9 +10482,11 @@ function openProductivityCalcModal(p){
 let _prodGroup = 'processor';
 const PROD_GROUP_LABELS = { processor: 'Processors', admin: 'Admin', marketing: 'Marketing', management: 'Management' };
 function renderProdGroupTabs(){
+  const scope = teamManagerV2() ? `<span style="margin-left:14px;display:inline-flex;gap:4px;"><button class="src-subtab${!_prodFirm ? ' on' : ''}" onclick="setProdScope(false)">My team</button><button class="src-subtab${_prodFirm ? ' on' : ''}" onclick="setProdScope(true)">Whole firm</button></span>` : '';
   document.getElementById('prodGroupTabs').innerHTML = Object.entries(PROD_GROUP_LABELS)
-    .map(([k, l]) => `<button class="src-subtab${k === _prodGroup ? ' on' : ''}" onclick="setProdGroup('${k}')">${l}</button>`).join('');
+    .map(([k, l]) => `<button class="src-subtab${k === _prodGroup ? ' on' : ''}" onclick="setProdGroup('${k}')">${l}</button>`).join('') + scope;
 }
+function setProdScope(firm){ _prodFirm = !!firm; renderProductivityView(); }
 function setProdGroup(g){ _prodGroup = g; renderProductivityView(); }
 function prodGroupSelectHtml(p){
   const g = p.group || 'processor';
@@ -10811,7 +10827,7 @@ async function renderProductivityView(){
   const { from: reqFrom, to } = _prodRange();
   if(adminGroup){ await renderAdminProductivity(reqFrom, to); return; }
   let data;
-  try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&group=${_prodGroup}`); }
+  try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&group=${_prodGroup}${_prodFirm ? '&scope=firm' : ''}`); }
   catch(e){ body.innerHTML = `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
   _prodData = data;
   document.getElementById('prodTotals').innerHTML = productivityCardsHtml(data.totals, { hideCalcLink: true });
