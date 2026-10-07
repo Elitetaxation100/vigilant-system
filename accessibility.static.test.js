@@ -64,12 +64,12 @@ test('dashboard views are real tabs: tablist/tab/tabpanel, aria-selected, arrow 
 });
 test('each tile announces its name, count, scope and action; the search box has a label', () => {
   assert.match(html, /aria-label="' \+ esc\(t\.label \+ ', ' \+ n \+ \(n === 1 \? ' task' : ' tasks'\) \+ '\. Scope: ' \+ t\.scope/);
-  assert.match(html, /<label for="tdSearch"/);
+  assert.match(html, /<label class="flt-q"><span class="sr-only"[^>]*>Search<\/span><input type="search" id="flt_' \+ ns \+ '_q"/);
   assert.match(html, /\.td-acc-h\{[^}]*min-height:44px/);
 });
 test('switching view clears the old view: tile, open section, selected task and search', () => {
   const fn = html.slice(html.indexOf('function tdSetMode'), html.indexOf('function tdTabKey'));
-  for (const v of ['_tdTile = null', '_tdOpen = null', '_tdSel = null', "_tdQuery = ''"]) assert.ok(fn.includes(v), v);
+  for (const v of ['_tdTile = null', '_tdOpen = null', '_tdSel = null', "fltReset('td')"]) assert.ok(fn.includes(v), v);
 });
 test('every task list sorts newest first', () => {
   assert.match(html, /function taskNewest\(a, b\)/);

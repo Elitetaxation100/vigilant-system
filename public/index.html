@@ -212,11 +212,20 @@ body.v2-dash .clock-card{ display:none !important; }
 .td-acc-h{ display:flex; justify-content:space-between; gap:8px; width:100%; padding:12px 14px; min-height:44px; border:0; border-top:1px solid var(--panel-border); background:transparent; color:var(--text-dim); font:inherit; font-weight:700; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; cursor:pointer; text-align:left; }
 .td-acc-h:hover{ background:var(--panel-2); } .td-acc-h:focus-visible, .td-search:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
 .td-count.on{ outline:2px solid var(--purple); } .td-count.hot .n{ color:var(--coral); }
-.td-grid{ display:grid; grid-template-columns:minmax(300px,430px) 1fr; gap:14px; align-items:start; }
+.td-grid{ display:grid; grid-template-columns:minmax(380px,1.5fr) minmax(280px,1fr); gap:14px; align-items:start; }
 .td-list{ border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); max-height:calc(100vh - 250px); overflow:auto; }
 .td-sec{ padding:10px 14px 6px; font-weight:700; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); position:sticky; top:0; background:var(--panel); z-index:1; display:flex; justify-content:space-between; gap:8px; }
 .td-empty{ padding:10px 14px 14px; font-size:13.5px; color:var(--text-faint); }
 .td-card{ padding:10px 14px; border:0; border-top:1px solid var(--panel-border); cursor:pointer; display:block; width:100%; text-align:left; background:transparent; font:inherit; color:inherit; min-height:44px; }
+.td-row{ display:grid !important; grid-template-columns:minmax(0,1fr) auto auto minmax(70px,.5fr) 72px; gap:8px; align-items:center; min-height:38px; padding:4px 12px !important; font-size:13px; }
+.td-row .tr-main{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-st{ font-size:11.5px; color:var(--text-dim); white-space:nowrap; }
+.td-row .tr-who{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--text-dim); } .td-row .tr-date{ font-size:12px; color:var(--text-dim); text-align:right; white-space:nowrap; }
+.td-row .td-tag{ font-size:11px; padding:0 7px; }
+.flt-bar{ display:flex; flex-wrap:wrap; gap:8px 12px; align-items:flex-end; margin:0 0 12px; }
+.flt-q{ flex:1 1 240px; max-width:380px; } .flt-q .td-search{ max-width:none; min-height:40px; }
+.flt-f{ display:flex; flex-direction:column; gap:2px; font-size:11.5px; color:var(--text-dim); } .flt-f select, .flt-f input{ min-height:40px; padding:4px 8px; border:1px solid var(--panel-border); border-radius:8px; background:var(--panel); color:inherit; font:inherit; font-size:13px; }
+.flt-custom{ display:inline-flex; gap:8px; }
+.flt-bar .btn{ min-height:40px; }
 .td-card:hover{ background:var(--panel-2); } .td-card.sel{ background:var(--panel-2); box-shadow:inset 3px 0 0 var(--purple); }
 .td-card:focus-visible, .td-count:focus-visible, .td-seg button:focus-visible, .td-act:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
 .td-card .t1{ display:flex; justify-content:space-between; gap:8px; font-size:14px; align-items:flex-start; } .td-card .t2{ font-size:12.5px; color:var(--text-dim); margin-top:3px; line-height:1.5; }
@@ -265,7 +274,7 @@ body.v2-dash .clock-card{ display:none !important; }
 .rv2-sec{ margin:14px 0 0; padding-top:10px; border-top:1px solid var(--panel-border); }
 .rv2-sec h4{ margin:0 0 8px; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-faint); }
 .rv2-yn{ display:flex; gap:10px; flex-wrap:wrap; margin:4px 0 10px; } .rv2-yn label{ display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:0 14px; border:1px solid var(--panel-border); border-radius:10px; cursor:pointer; }
-@media (max-width:900px){ .rq-head{ display:none; } .rq-row{ grid-template-columns:28px 1fr auto; } .rq-links, .rq-own{ grid-column:2 / 3; white-space:normal; } .rq-bar{ grid-template-columns:repeat(2,1fr); } .rq-card{ grid-template-columns:1fr; } .rq-card .go{ grid-column:1; grid-row:auto; } .rv2-pick{ grid-template-columns:1fr; } }
+@media (max-width:900px){ .td-row{ grid-template-columns:minmax(0,1fr) auto; } .td-row .tr-who, .td-row .tr-date, .td-row .tr-st{ display:none; } .rq-head{ display:none; } .rq-row{ grid-template-columns:28px 1fr auto; } .rq-links, .rq-own{ grid-column:2 / 3; white-space:normal; } .rq-bar{ grid-template-columns:repeat(2,1fr); } .rq-card{ grid-template-columns:1fr; } .rq-card .go{ grid-column:1; grid-row:auto; } .rv2-pick{ grid-template-columns:1fr; } }
 /* more specific than the general .btn rule, so it only appears on phones */
 .td-detail .td-back{ display:none; }
 @media (max-width:900px){
@@ -7773,7 +7782,7 @@ function renderReassignedMail(){
 const TD_MODES = [['today', 'Today'], ['manager', 'Manager View'], ['review', 'Review View']];
 function tdLoadMode(){ try { const m = localStorage.getItem('tdMode'); return TD_MODES.some(x => x[0] === m) ? m : 'today'; } catch(e){ return 'today'; } }
 // ONE view is on screen at a time and each view owns its own tile, expanded section, selected task and search — switching clears them all.
-let _today = null, _tdMode = tdLoadMode(), _tdTile = null, _tdOpen = null, _tdSel = null, _tdQuery = '';
+let _today = null, _tdMode = tdLoadMode(), _tdTile = null, _tdOpen = null, _tdSel = null;
 function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
   document.body.classList.toggle('v2-dash', on);
@@ -7799,21 +7808,71 @@ function tdRiskTag(c){
   if(r.state === 'ok') return '<span class="td-tag blue">On track · ' + r.days + 'd</span>';
   return '<span class="td-tag grey">' + esc(c.kindLabel) + '</span>';
 }
+// One slim line per task: Client — task · status · deadline tag · who it is with · date. The detail panel opens on click.
 function tdCardHtml(id, note){
   const c = _today.cards[id]; if(!c) return '';
-  const when = c.clientDate ? 'Client ' + fmtDate(c.clientDate) : (c.internalDeadline ? 'Due ' + fmtDate(c.internalDeadline) : '');
-  const wait = c.reviewWaiting ? ' · waiting for review ' + c.reviewWaiting.days + 'd' : '';
-  return '<button type="button" class="td-card' + (_tdSel === id ? ' sel' : '') + '" data-id="' + esc(id) + '" onclick="tdSelect(\'' + esc(id) + '\')" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status) + '">'
-    + '<div class="t1"><span><b>' + esc(c.clientName || 'Admin task') + '</b> — ' + esc(c.name) + '</span>' + tdRiskTag(c) + '</div>'
-    + '<div class="t2">' + (note ? '<b>' + esc(note) + '</b><br>' : '') + esc(c.status) + (c.subState ? ' · ' + esc(c.subState) : '') + (c.taskType ? ' · ' + esc(c.taskType) : '') + (when ? ' · ' + esc(when) : '') + esc(wait)
-    + '<br>' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + ' → ' + esc(c.nextAction) + '</div></button>';
+  const when = c.clientDate ? fmtDate(c.clientDate) : (c.internalDeadline ? fmtDate(c.internalDeadline) : '');
+  const who = c.assigneeName || (c.waitingOn && c.waitingOn.ownerName) || '';   // the owner = who did / sent the work
+  const tip = (note ? note + ' · ' : '') + c.status + (c.subState ? ' · ' + c.subState : '') + ' — ' + c.waitingOn.label + (c.waitingOn.ownerName ? ' (' + c.waitingOn.ownerName + ')' : '') + ' → ' + c.nextAction;
+  return '<button type="button" class="td-card td-row' + (_tdSel === id ? ' sel' : '') + '" role="listitem" data-id="' + esc(id) + '" onclick="tdSelect(\'' + esc(id) + '\')" title="' + esc(tip) + '" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status + '. ' + tip) + '">'
+    + '<span class="tr-main"><b>' + esc(c.clientName || 'Admin task') + '</b> — ' + esc(c.name) + '</span>'
+    + '<span class="tr-st">' + esc(c.status) + '</span>' + tdRiskTag(c)
+    + '<span class="tr-who">' + esc(who) + '</span><span class="tr-date">' + esc(when) + '</span></button>';
+}
+/* ---------------- One filter bar for every list: search + Status + Date ---------------- */
+const FLT_STATUSES = ['Assigned', 'In Progress', 'On Hold', 'In Review', 'Correction Required', 'Approved', 'Completed'];
+const FLT_PRESETS = [['any', 'Any date'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['this-week', 'This week'], ['last-week', 'Last week'], ['this-month', 'This month'], ['last-month', 'Last month'], ['next7', 'Next 7 days'], ['custom', 'Pick dates…']];
+const FLT_BY = [['client', 'Client date'], ['due', 'Internal due date'], ['submitted', 'Submitted']];
+const FLT_DEFAULT = { td: { q: '', status: '', preset: 'any', from: '', to: '', by: 'client' }, rv: { q: '', status: '', preset: 'any', from: '', to: '', by: 'submitted' } };
+const _flt = { td: Object.assign({}, FLT_DEFAULT.td), rv: Object.assign({}, FLT_DEFAULT.rv) };
+const fltRedraw = {};                                           // namespace → what to redraw after a change
+function fltReset(ns){ _flt[ns] = Object.assign({}, FLT_DEFAULT[ns]); }
+function fltActive(ns){ const f = _flt[ns]; return !!(f.q.trim() || f.status || f.preset !== 'any'); }
+function fltBounds(f){
+  if(f.preset === 'any') return null;
+  if(f.preset === 'next7') return { from: todayISO(), to: addDaysISO(7) };
+  return rangeBoundsFor(f.preset, f.from, f.to);
+}
+function fltCardDate(c, by){
+  if(by === 'client') return c.clientDate || '';
+  if(by === 'due') return c.internalDeadline || '';
+  return c.submittedAt ? dayOf(c.submittedAt) : (c.sortAt ? dayOf(c.sortAt) : '');
+}
+// Does this card pass the search, the status and the date range? (The same test decides the tile numbers and the rows, so they always agree.)
+function fltMatch(ns, c){
+  const f = _flt[ns]; if(!c) return false;
+  const q = f.q.trim().toLowerCase();
+  if(q && ![c.clientName, c.name, c.assigneeName, c.reviewerName, c.status, c.subState, c.taskType, c.kindLabel, c.id, c.nextAction].filter(Boolean).join(' ').toLowerCase().includes(q)) return false;
+  if(f.status && c.status !== f.status) return false;
+  const b = fltBounds(f);
+  if(b){ const d = fltCardDate(c, f.by); if(!d || d < b.from || d > b.to) return false; }
+  return true;
+}
+function fltBarHtml(ns){
+  const f = _flt[ns], opt = (list, cur) => list.map(([v, l]) => '<option value="' + esc(v) + '"' + (cur === v ? ' selected' : '') + '>' + esc(l) + '</option>').join('');
+  return '<div class="flt-bar" role="search" aria-label="Search and filter">'
+    + '<label class="flt-q"><span class="sr-only" style="position:absolute;left:-9999px;">Search</span><input type="search" id="flt_' + ns + '_q" class="td-search" placeholder="Search client, task, employee, status…" value="' + esc(f.q) + '" oninput="fltSet(\'' + ns + '\',\'q\',this.value)" autocomplete="off"></label>'
+    + '<label class="flt-f"><span>Status</span><select id="flt_' + ns + '_status" onchange="fltSet(\'' + ns + '\',\'status\',this.value)"><option value="">All statuses</option>' + FLT_STATUSES.map(x => '<option' + (f.status === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></label>'
+    + '<label class="flt-f"><span>Date</span><select id="flt_' + ns + '_preset" onchange="fltSet(\'' + ns + '\',\'preset\',this.value)">' + opt(FLT_PRESETS, f.preset) + '</select></label>'
+    + '<label class="flt-f"><span>Date is the</span><select id="flt_' + ns + '_by" onchange="fltSet(\'' + ns + '\',\'by\',this.value)">' + opt(FLT_BY, f.by) + '</select></label>'
+    + '<span class="flt-custom" id="flt_' + ns + '_custom"' + (f.preset === 'custom' ? '' : ' style="display:none;"') + '><label class="flt-f"><span>From</span><input type="date" id="flt_' + ns + '_from" value="' + esc(f.from) + '" onchange="fltSet(\'' + ns + '\',\'from\',this.value)"></label><label class="flt-f"><span>To</span><input type="date" id="flt_' + ns + '_to" value="' + esc(f.to) + '" onchange="fltSet(\'' + ns + '\',\'to\',this.value)"></label></span>'
+    + '<button type="button" class="btn small td-act" onclick="fltClear(\'' + ns + '\')">Clear</button></div>';
+}
+function fltSet(ns, k, v){
+  _flt[ns][k] = v;
+  if(k === 'preset'){ const c = document.getElementById('flt_' + ns + '_custom'); if(c) c.style.display = v === 'custom' ? '' : 'none'; if(v === 'custom' && !_flt[ns].from){ _flt[ns].from = _flt[ns].to = todayISO(); const a = document.getElementById('flt_' + ns + '_from'), b = document.getElementById('flt_' + ns + '_to'); if(a) a.value = todayISO(); if(b) b.value = todayISO(); } }
+  if(fltRedraw[ns]) fltRedraw[ns]();
+}
+function fltClear(ns){
+  fltReset(ns);
+  const f = _flt[ns];
+  ['q', 'status', 'preset', 'by', 'from', 'to'].forEach(k => { const e = document.getElementById('flt_' + ns + '_' + k); if(e) e.value = f[k]; });
+  const c = document.getElementById('flt_' + ns + '_custom'); if(c) c.style.display = 'none';
+  if(fltRedraw[ns]) fltRedraw[ns]();
 }
 // ---- search: matches client, task, people, status, type and task number. Tiles and lists both honour it, so a tile's number is always the length of the list it opens.
-function tdMatch(id){
-  const q = _tdQuery.trim().toLowerCase(); if(!q) return true;
-  const c = _today.cards[id]; if(!c) return false;
-  return [c.clientName, c.name, c.assigneeName, c.reviewerName, c.status, c.subState, c.taskType, c.kindLabel, c.id, c.nextAction].filter(Boolean).join(' ').toLowerCase().includes(q);
-}
+function tdMatch(id){ return fltMatch('td', _today.cards[id]); }
+fltRedraw.td = () => { if(_tdSel && !tdMatch(_tdSel)) _tdSel = null; tdDrawBody(); };
 function tdModeData(){ return _today.modes[_tdMode]; }
 // What the list shows. A tile list is exactly that tile's ids. With no tile selected: one primary section + secondary sections of which only ONE is open.
 // A task appears once per screen (the first section that claims it keeps it) — the same rule the header counts use.
@@ -7836,7 +7895,7 @@ function tdListHtml(){
   const why = id => (_today.sections.needs.find(n => n.id === id) || {}).why || '';
   const done = id => (_today.sections.completed.find(d => d.id === id) || {}).action || '';
   const noteFor = x => (x.key === 'needs_now' || x.key === 'urgent' || x.key === 'risk') ? why : (x.key === 'done_today' || x.key === 'done') ? done : null;
-  let out = head(S.primary.title, S.primary.ids.length) + (S.primary.ids.length ? cards(S.primary.ids, noteFor(S.primary)) : '<div class="td-empty">' + esc(_tdQuery.trim() ? 'Nothing here matches your search.' : S.primary.empty) + '</div>');
+  let out = head(S.primary.title, S.primary.ids.length) + (S.primary.ids.length ? cards(S.primary.ids, noteFor(S.primary)) : '<div class="td-empty">' + esc(fltActive('td') ? 'Nothing here matches your search or filters.' : S.primary.empty) + '</div>');
   if(S.note) out += '<div class="td-empty" role="note">' + esc(S.note) + '</div>';
   out += S.secondary.map(x => {
     const open = _tdOpen === x.key;
@@ -7869,13 +7928,13 @@ function drawToday(){
   const tabs = TD_MODES.map(([k, l]) => '<button type="button" role="tab" id="tdTab_' + k + '" class="' + (_tdMode === k ? 'on' : '') + '" aria-selected="' + (_tdMode === k) + '" aria-controls="tdPanel" tabindex="' + (_tdMode === k ? 0 : -1) + '" onclick="tdSetMode(\'' + k + '\')">' + l + '</button>').join('');
   box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(T.greeting) + ', ' + esc(first) + '</h2><div class="td-date">' + esc(dateLabel) + ' · ' + esc(T.timezone.replace('Pacific/Auckland', 'New Zealand time')) + '</div></div>'
     + '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div></div>'
-    + '<div style="margin:0 0 12px;"><label for="tdSearch" class="sr-only" style="position:absolute;left:-9999px;">Search tasks in this view</label><input id="tdSearch" type="search" class="td-search" placeholder="Search client, task, employee, status…" value="' + esc(_tdQuery) + '" oninput="tdSearchInput(this.value)" autocomplete="off"></div>'
+    + fltBarHtml('td')
     + '<div id="tdPanel" role="tabpanel" aria-labelledby="tdTab_' + _tdMode + '"><div id="tdBody"></div></div>';
   tdDrawBody();
 }
 function tdSetMode(m, focusTab){
   if(m === _tdMode && !focusTab) return;
-  _tdMode = m; _tdTile = null; _tdOpen = null; _tdSel = null; _tdQuery = ''; window.__tdMobileOpen = false;   // the old view leaves NOTHING behind
+  _tdMode = m; _tdTile = null; _tdOpen = null; _tdSel = null; fltReset('td'); window.__tdMobileOpen = false;   // the old view leaves NOTHING behind (tile, section, task, search AND filters)
   try { localStorage.setItem('tdMode', m); } catch(e){}
   drawToday();
   if(focusTab){ const b = document.getElementById('tdTab_' + m); if(b) b.focus(); }
@@ -7888,7 +7947,6 @@ function tdTabKey(e){
 }
 function tdSetTile(k){ _tdTile = (_tdTile === k) ? null : k; _tdOpen = null; _tdSel = null; window.__tdMobileOpen = false; tdDrawBody(); }
 function tdToggleOpen(k){ _tdOpen = (_tdOpen === k) ? null : k; tdDrawBody(); }
-function tdSearchInput(v){ _tdQuery = v; if(_tdSel && !tdMatch(_tdSel)) _tdSel = null; tdDrawBody(); }
 function tdSelect(id){
   _tdSel = id; window.__tdMobileOpen = true;          // one detail panel only: this REPLACES whatever was open
   document.querySelectorAll('#tdList .td-card').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
@@ -8049,7 +8107,7 @@ function drawTeamView(){
 }
 function tmPickType(k){ _tmType = (_tmType === k) ? null : k; drawTeamView(); }
 /* ---------------- Tasks list ---------------- */
-function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', risk:'', kinds:'internal,client', ids:'', sort:'newest', page:1, pageSize:25 }; }
+function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', risk:'', kinds:'internal,client', datePreset:'any', dateFrom:'', dateTo:'', dateBy:'due', ids:'', sort:'newest', page:1, pageSize:25 }; }
 let _mt = mtDefaults(), _mtData = null, _mtTimer = null, _mtCal = null, _mtMonth = null, _mtTl = null, _mtSeq = 0;
 const MT_STATUSES = ['Assigned','In Progress','On Hold','In Review','Correction Required','Approved','Completed'];
 const MT_RISK = [['overdue','Client overdue'],['due_today','Client due today'],['at_risk','At risk'],['waiting_client','Waiting on client'],['ok','On track']];
@@ -8058,6 +8116,8 @@ const MT_WAIT = [['employee','Employee'],['reviewer','Reviewer'],['manager','Man
 function mtQuery(){
   const p = new URLSearchParams();
   ['q','employee','client','type','status','waitingOn','due','commitment','reportSent','rework','reviewer','risk','ids','sort'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
+  const b = fltBounds({ preset: _mt.datePreset || 'any', from: _mt.dateFrom, to: _mt.dateTo });
+  if(b){ p.set('dateFrom', b.from); p.set('dateTo', b.to); p.set('dateBy', _mt.dateBy || 'due'); }
   p.set('page', _mt.page); p.set('pageSize', _mt.pageSize);
   return p.toString();
 }
@@ -8102,6 +8162,9 @@ function mtDrawList(){
     + mtSel('mtf_employee', 'Employee', F.employees.map(e => [e.id, e.name]), _mt.employee)
     + mtSel('mtf_status', 'Status', MT_STATUSES.map(s => [s, s]), _mt.status)
     + mtSel('mtf_risk', 'Risk', MT_RISK, _mt.risk)
+    + '<label class="mt-f"><span>Date</span><select id="mtf_datePreset" onchange="mtDatePreset(this.value)">' + FLT_PRESETS.map(([v, l]) => '<option value="' + v + '"' + ((_mt.datePreset || 'any') === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></label>'
+    + '<label class="mt-f"><span>Date is the</span><select id="mtf_dateBy" onchange="mtSet(\'dateBy\', this.value)">' + [['due', 'Internal due date'], ['client', 'Client date'], ['created', 'Created']].map(([v, l]) => '<option value="' + v + '"' + ((_mt.dateBy || 'due') === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></label>'
+    + (_mt.datePreset === 'custom' ? '<label class="mt-f"><span>From</span><input type="date" value="' + esc(_mt.dateFrom) + '" onchange="mtSet(\'dateFrom\', this.value)"></label><label class="mt-f"><span>To</span><input type="date" value="' + esc(_mt.dateTo) + '" onchange="mtSet(\'dateTo\', this.value)"></label>' : '')
     + '<button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>';
   const more = '<details class="mt-more" id="mtMore"' + (mtMoreActive() ? ' open' : '') + '><summary>More filters' + (mtMoreActive() ? ' <span class="mt-on">on</span>' : '') + '</summary><div class="mt-filters">'
     + mtSel('mtf_client', 'Client', F.clients.map(c => [c, c]), _mt.client)
@@ -8142,6 +8205,7 @@ function mtDrawResults(){
     : '<div class="td-empty">No tasks match these filters. <button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>') + pager;
 }
 function mtSet(k, v){ _mt[k] = v; _mt.page = 1; mtLoad(); }
+function mtDatePreset(v){ _mt.datePreset = v; if(v === 'custom' && !_mt.dateFrom){ _mt.dateFrom = _mt.dateTo = todayISO(); } _mt.page = 1; _mtData = null; mtLoad(); }
 function mtSearch(v){ clearTimeout(_mtTimer); _mtTimer = setTimeout(() => { _mt.q = v.trim(); _mt.page = 1; mtLoad(); }, 300); }
 function mtPage(p){ _mt.page = p; mtLoad(); }
 function mtSetSize(n){ _mt.pageSize = Number(n); _mt.page = 1; mtLoad(); }
@@ -11546,15 +11610,24 @@ async function renderReviewsV2(quiet){
   if(!quiet && !_today) box.innerHTML = '<div class="td-empty">Loading your review queue…</div>';
   try { _today = await api('/api/workflow/today'); }
   catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not load your reviews: ' + esc(e.message) + ' <button class="btn small td-act" onclick="renderReviewsV2()">Retry</button></div>'; return; }
-  const T = _today, rc = T.reviewCounts;
-  const bar = RQ_BAR.map(([k, label]) => '<button type="button" class="td-count' + (_rvFilter === k ? ' on' : '') + (k === 'urgent' && rc[k] ? ' hot' : '') + '" onclick="_rvFilter = (_rvFilter === \'' + k + '\' ? null : \'' + k + '\'); renderReviewsV2(true)" aria-pressed="' + (_rvFilter === k) + '" aria-label="' + esc(label) + ': ' + rc[k] + '. Show these."><span class="n">' + rc[k] + '</span><span class="l">' + esc(label) + '</span></button>').join('');
+  // the search / status / date bar is drawn ONCE (so typing never loses focus); only the tiles and lists below it are redrawn
+  if(!document.getElementById('rvFilters')) box.innerHTML = '<div id="rvFilters">' + fltBarHtml('rv') + '</div><div id="rvBody"></div>';
+  drawReviewsBody();
+}
+fltRedraw.rv = () => drawReviewsBody();
+function drawReviewsBody(){
+  const body = document.getElementById('rvBody'); if(!body || !_today) return;
+  const T = _today, ok = id => T.cards[id] && fltMatch('rv', T.cards[id]);
+  const idsOf = field => (T.review[field] || []).filter(ok);
+  const FIELD = { urgent: 'urgent', newSubmissions: 'fresh', resubmitted: 'resubmitted', waitingEmployee: 'waitingEmployee', completedToday: 'completed' };
+  // the numbers on the tiles follow the filters, so a tile always equals the list it opens
+  const bar = RQ_BAR.map(([k, label]) => { const n = idsOf(FIELD[k]).length; return '<button type="button" class="td-count' + (_rvFilter === k ? ' on' : '') + (k === 'urgent' && n ? ' hot' : '') + '" onclick="_rvFilter = (_rvFilter === \'' + k + '\' ? null : \'' + k + '\'); drawReviewsBody()" aria-pressed="' + (_rvFilter === k) + '" aria-label="' + esc(label) + ': ' + n + '. Show these."><span class="n">' + n + '</span><span class="l">' + esc(label) + '</span></button>'; }).join('');
   const secs = RQ_SECTIONS.filter(x => !_rvFilter || _rvFilter === x[0]).map(([key, title, field, empty]) => {
-    const ids = (T.review[field] || []).filter(id => T.cards[id]);
-    if(!ids.length) return '<div class="rq-sec rq-sec-empty"><b>' + esc(title) + '</b><span>' + esc(empty) + '</span></div>';
-    return '<div class="rq-sec"><div class="td-sec"><span>' + esc(title) + '</span><span>' + ids.length + '</span></div>'
-      + (ids.length ? RQ_HEAD + '<div role="list">' + ids.map(id => rqCardHtml(T.cards[id], key)).join('') + '</div>' : '<div class="rq-none">' + esc(empty) + '</div>') + '</div>';
+    const ids = idsOf(field);
+    if(!ids.length) return '<div class="rq-sec rq-sec-empty"><b>' + esc(title) + '</b><span>' + esc(fltActive('rv') ? 'Nothing matches your search or filters.' : empty) + '</span></div>';
+    return '<div class="rq-sec"><div class="td-sec"><span>' + esc(title) + '</span><span>' + ids.length + '</span></div>' + RQ_HEAD + '<div role="list">' + ids.map(id => rqCardHtml(T.cards[id], key)).join('') + '</div></div>';
   }).join('');
-  box.innerHTML = '<div class="rq-bar">' + bar + '</div>' + (_rvFilter ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(RQ_BAR.find(x => x[0] === _rvFilter)[1]) + '</b> <button class="btn small td-act" onclick="_rvFilter=null;renderReviewsV2(true)">Clear filter</button></div>' : '') + secs;
+  body.innerHTML = '<div class="rq-bar">' + bar + '</div>' + (_rvFilter ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(RQ_BAR.find(x => x[0] === _rvFilter)[1]) + '</b> <button class="btn small td-act" onclick="_rvFilter=null;drawReviewsBody()">Clear filter</button></div>' : '') + secs;
 }
 function renderReviewsView(){
   const v2 = !!(session && session.dashboardV2);
