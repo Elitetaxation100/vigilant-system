@@ -60,56 +60,56 @@ test('only managers reach the manager views — an employee is refused everywher
     assert.equal((await wf(RJ, p)).status, 403, p + ' for an employee');
     assert.equal((await http('GET', '/api/workflow/' + p)).status, 401, p + ' without sign-in');
   }
-  const t = (await wf(PK, 'tasks?pageSize=25')).j.rows[0];
+  const t = (await wf(SH, 'tasks?pageSize=25')).j.rows[0];
   assert.equal((await http('POST', `/api/tasks/${enc(t.id)}/manager-change`, { token: RJ, body: { action: 'change_due', reason: 'x y z', internalDeadline: day(5) } })).status, 403);
 });
 
 test('Tasks list: server-side pages never repeat or skip a task, totals are exact, page numbers are clamped', async () => {
-  const p1 = (await wf(PK, 'tasks?pageSize=25&sort=internal&page=1')).j;
+  const p1 = (await wf(SH, 'tasks?pageSize=25&sort=internal&page=1')).j;
   assert.equal(p1.pageSize, 25); assert.equal(p1.rows.length, 25); assert.ok(p1.total >= 30); assert.equal(p1.pages, Math.ceil(p1.total / 25));
   const seen = new Set(p1.rows.map(r => r.id));
-  for (let p = 2; p <= p1.pages; p++) { const r = (await wf(PK, `tasks?pageSize=25&sort=internal&page=${p}`)).j; r.rows.forEach(x => { assert.ok(!seen.has(x.id), 'duplicate across pages'); seen.add(x.id); }); }
+  for (let p = 2; p <= p1.pages; p++) { const r = (await wf(SH, `tasks?pageSize=25&sort=internal&page=${p}`)).j; r.rows.forEach(x => { assert.ok(!seen.has(x.id), 'duplicate across pages'); seen.add(x.id); }); }
   assert.equal(seen.size, p1.total, 'every task appears on exactly one page');
-  assert.equal((await wf(PK, 'tasks?page=999')).j.page, p1.pages, 'a page beyond the end lands on the last');
-  assert.equal((await wf(PK, 'tasks?page=-4')).j.page, 1);
-  assert.equal((await wf(PK, 'tasks?pageSize=7')).j.pageSize, 25, 'only 25 / 50 / 100 are allowed');
-  assert.equal((await wf(PK, 'tasks?pageSize=100')).j.pageSize, 100);
-  const sorted = (await wf(PK, 'tasks?pageSize=100&sort=internal')).j.rows.map(r => r.internalDeadline || '9999');
+  assert.equal((await wf(SH, 'tasks?page=999')).j.page, p1.pages, 'a page beyond the end lands on the last');
+  assert.equal((await wf(SH, 'tasks?page=-4')).j.page, 1);
+  assert.equal((await wf(SH, 'tasks?pageSize=7')).j.pageSize, 25, 'only 25 / 50 / 100 are allowed');
+  assert.equal((await wf(SH, 'tasks?pageSize=100')).j.pageSize, 100);
+  const sorted = (await wf(SH, 'tasks?pageSize=100&sort=internal')).j.rows.map(r => r.internalDeadline || '9999');
   assert.deepEqual(sorted, [...sorted].sort(), 'sorted by internal due date');
 });
 
 test('Tasks list: every filter narrows to exactly what it says, and filters combine', async () => {
   const rj = emp('ranjit');
-  const byEmp = (await wf(PK, `tasks?employee=${enc(rj.id)}&pageSize=100`)).j;
+  const byEmp = (await wf(SH, `tasks?employee=${enc(rj.id)}&pageSize=100`)).j;
   assert.ok(byEmp.total > 0 && byEmp.rows.every(r => r.assigneeId === rj.id));
-  const st = (await wf(PK, 'tasks?status=Assigned&pageSize=100')).j;
+  const st = (await wf(SH, 'tasks?status=Assigned&pageSize=100')).j;
   assert.ok(st.total > 0 && st.rows.every(r => r.status === 'Assigned'));
-  const both = (await wf(PK, `tasks?status=Assigned&employee=${enc(rj.id)}&pageSize=100`)).j;
+  const both = (await wf(SH, `tasks?status=Assigned&employee=${enc(rj.id)}&pageSize=100`)).j;
   assert.ok(both.total > 0 && both.total <= Math.min(st.total, byEmp.total) && both.rows.every(r => r.status === 'Assigned' && r.assigneeId === rj.id));
-  assert.equal((await wf(PK, 'tasks?q=' + enc('bulk 07'))).j.rows[0].name, 'Bulk 07', 'search by name');
-  assert.equal((await wf(PK, 'tasks?q=' + enc('nothing-matches-this'))).j.total, 0);
-  const cl = (await wf(PK, 'tasks?client=' + enc('Mgr Ltd') + '&pageSize=100')).j;
+  assert.equal((await wf(SH, 'tasks?q=' + enc('bulk 07'))).j.rows[0].name, 'Bulk 07', 'search by name');
+  assert.equal((await wf(SH, 'tasks?q=' + enc('nothing-matches-this'))).j.total, 0);
+  const cl = (await wf(SH, 'tasks?client=' + enc('Mgr Ltd') + '&pageSize=100')).j;
   assert.ok(cl.total >= 30 && cl.rows.every(r => r.clientName === 'Mgr Ltd'));
-  assert.ok((await wf(PK, 'tasks?type=admin&pageSize=100')).j.rows.every(r => r.kindLabel === 'Admin Task'));
-  assert.ok((await wf(PK, 'tasks?waitingOn=employee&pageSize=100')).j.rows.every(r => r.waitingOn.kind === 'employee'));
-  assert.equal((await wf(PK, 'tasks?due=overdue')).j.rows.filter(r => r.internalDeadline >= day(0)).length, 0);
+  assert.ok((await wf(SH, 'tasks?type=admin&pageSize=100')).j.rows.every(r => r.kindLabel === 'Admin Task'));
+  assert.ok((await wf(SH, 'tasks?waitingOn=employee&pageSize=100')).j.rows.every(r => r.waitingOn.kind === 'employee'));
+  assert.equal((await wf(SH, 'tasks?due=overdue')).j.rows.filter(r => r.internalDeadline >= day(0)).length, 0);
   const ids = byEmp.rows.slice(0, 3).map(r => r.id);
-  const exact = (await wf(PK, 'tasks?pageSize=25&ids=' + enc(ids.join('|')))).j;
+  const exact = (await wf(SH, 'tasks?pageSize=25&ids=' + enc(ids.join('|')))).j;
   assert.deepEqual(exact.rows.map(r => r.id).sort(), [...ids].sort(), 'the exact records behind a count');
-  const f = (await wf(PK, 'tasks')).j.facets;
+  const f = (await wf(SH, 'tasks')).j.facets;
   assert.ok(f.employees.length > 3 && f.clients.includes('Mgr Ltd'));
 });
 
 test('My Team: each number is exactly the list it opens, and the oldest task is real', async () => {
-  const T = (await wf(PK, 'team')).j;
+  const T = (await wf(SH, 'team')).j;
   const rj = T.team.find(p => p.id === emp('ranjit').id);
   assert.ok(rj && rj.openActionable > 0);
   assert.equal(rj.ids.open.length, rj.openActionable);
-  const open = (await wf(PK, `tasks?pageSize=100&ids=${enc(rj.ids.open.join('|'))}`)).j;
+  const open = (await wf(SH, `tasks?pageSize=100&ids=${enc(rj.ids.open.join('|'))}`)).j;
   assert.equal(open.total, rj.openActionable);
   assert.ok(open.rows.every(r => r.assigneeId === rj.id && r.waitingOn.kind === 'employee'));
   assert.ok(rj.allocatedOpenHours > 0 && rj.oldest && rj.oldest.ageDays >= 0);
-  assert.ok(!T.team.some(p => p.id === PK_ID()), 'the manager is not listed as their own report');
+  assert.ok(!T.team.some(p => p.id === emp('shubham').id), 'the manager is not listed as their own report');
   const none = T.team.find(p => p.ids.open.length === 0);
   if (none) assert.equal(none.openActionable, 0);
 });
@@ -118,10 +118,10 @@ const PK_ID = () => emp('parvinder').id;
 test('Needs Manager Attention lists only real exceptions (never healthy work) and each carries what is wrong', async () => {
   let A;
   const healthy = (await mk('Healthy one', emp('disha'))).id;
-  A = (await wf(PK, 'team')).j.attention;
+  A = (await wf(SH, 'team')).j.attention;
   assert.equal(A.filter(a => a.id === healthy).length, 0, 'a healthy task is never an exception');
   const un = (await http('POST', '/api/tasks', { token: SH, body: { mode: 'team', name: 'Nobody owns me', clientId: client.id, tat: 1, internalDeadline: day(3), clientDate: day(9) } }));
-  if (un.status === 201) assert.ok((await wf(PK, 'team')).j.attention.some(a => a.id === un.j.task.id && a.type === 'unassigned'));
+  if (un.status === 201) assert.ok((await wf(SH, 'team')).j.attention.some(a => a.id === un.j.task.id && a.type === 'unassigned'));
   A.forEach(a => { assert.ok(a.label && a.type && a.id); });
 });
 
@@ -130,11 +130,11 @@ test('repeated returns become an exception once a task has been returned twice',
   await submit(t, RJ, emp('parvinder'));
   const ret = n => http('POST', `/api/tasks/${enc(t.id)}/review`, { token: PK, body: { status: 'error', note: 'fix it ' + n, faultType: 'processor' } });
   assert.equal((await ret(1)).status, 200);
-  assert.ok(!(await wf(PK, 'team')).j.attention.some(a => a.id === t.id && a.type === 'repeated_return'), 'once is not repeated');
+  assert.ok(!(await wf(SH, 'team')).j.attention.some(a => a.id === t.id && a.type === 'repeated_return'), 'once is not repeated');
   assert.equal((await http('POST', `/api/tasks/${enc(t.id)}/accept`, { token: RJ })).status, 200);
   assert.equal((await http('POST', `/api/tasks/${enc(t.id)}/resubmit`, { token: RJ })).status, 200);
   assert.equal((await ret(2)).status, 200);
-  assert.ok((await wf(PK, 'team')).j.attention.some(a => a.id === t.id && a.type === 'repeated_return'));
+  assert.ok((await wf(SH, 'team')).j.attention.some(a => a.id === t.id && a.type === 'repeated_return'));
 });
 
 test('manager-change: a reason is mandatory, every change is audited and the people affected are told', async () => {
@@ -162,9 +162,9 @@ test('manager-change: a reason is mandatory, every change is audited and the peo
   const notes = (await http('GET', '/api/notifications', { token: RJ })).j.notifications || [];
   assert.ok(notes.some(n => /changed the dates/.test(n.text) && /Move my dates/.test(n.text)), 'assignee notified');
   // the manager list shows the change
-  const row = (await wf(PK, `tasks?ids=${enc(t.id)}`)).j.rows[0];
+  const row = (await wf(SH, `tasks?ids=${enc(t.id)}`)).j.rows[0];
   assert.equal(row.dateChanged, true); assert.equal(row.originalInternal, day(3));
-  assert.ok((await wf(PK, 'team')).j.attention.some(a => a.id === t.id && a.type === 'date_changed'));
+  assert.ok((await wf(SH, 'team')).j.attention.some(a => a.id === t.id && a.type === 'date_changed'));
 });
 
 test('manager-change: reassign and change reviewer follow the same boundaries as the existing actions', async () => {
@@ -185,23 +185,46 @@ test('manager-change: reassign and change reviewer follow the same boundaries as
 });
 
 test('Calendar and Timeline: internal and client dates appear, filter by employee and range, finished work is left out', async () => {
-  const C = (await wf(PK, 'calendar')).j;
+  const C = (await wf(SH, 'calendar')).j;
   assert.ok(C.events.length > 30 && C.legend.red && C.today);
   assert.ok(C.events.some(e => e.kind === 'internal') && C.events.some(e => e.kind === 'client'));
   const ordered = C.events.map(e => e.date); assert.deepEqual(ordered, [...ordered].sort());
   const rj = emp('ranjit');
-  const mine = (await wf(PK, `calendar?employee=${enc(rj.id)}`)).j.events;
+  const mine = (await wf(SH, `calendar?employee=${enc(rj.id)}`)).j.events;
   assert.ok(mine.length > 0 && mine.length < C.events.length);
-  const range = (await wf(PK, `calendar?from=${day(2)}&to=${day(3)}`)).j.events;
+  const range = (await wf(SH, `calendar?from=${day(2)}&to=${day(3)}`)).j.events;
   assert.ok(range.length > 0 && range.every(e => e.date >= day(2) && e.date <= day(3)));
   C.events.forEach(e => assert.ok(['red', 'amber', 'blue', 'purple', 'green', 'grey'].includes(e.tone)));
-  const T = (await wf(PK, 'timeline')).j;
+  const T = (await wf(SH, 'timeline')).j;
   assert.ok(T.rows.length > 20); T.rows.forEach(r => { assert.ok(r.start <= r.end, 'a bar never runs backwards'); });
-  assert.ok((await wf(PK, `timeline?employee=${enc(rj.id)}`)).j.rows.length < T.rows.length);
+  assert.ok((await wf(SH, `timeline?employee=${enc(rj.id)}`)).j.rows.length < T.rows.length);
 });
 
 test('the manager views change nothing: reading them leaves every task exactly as it was', async () => {
   const before = JSON.stringify((await http('GET', '/api/tasks', { token: SH })).j.tasks);
-  for (const p of ['team', 'tasks?pageSize=100', 'calendar', 'timeline']) await wf(PK, p);
+  for (const p of ['team', 'tasks?pageSize=100', 'calendar', 'timeline']) await wf(SH, p);
   assert.equal(JSON.stringify((await http('GET', '/api/tasks', { token: SH })).j.tasks), before);
+});
+
+test('a manager sees ONLY their own team — Parvinder (a superadmin but not the founder) is not given the whole firm', async () => {
+  const gst = ['suneha', 'khushi'].map(emp), rental = emp('anjana');
+  for (const p of [...gst, rental]) await mk('Scope ' + p.name, p);
+  const founder = (await wf(SH, 'team')).j.team.map(p => p.id);
+  assert.ok(founder.includes(rental.id) && founder.includes(gst[0].id), 'the founder sees everyone');
+  // Disha manages the GST team
+  const di = (await wf(DI, 'team')).j.team.map(p => p.id);
+  assert.ok(di.includes(gst[0].id) && di.includes(gst[1].id), 'her own team is listed');
+  assert.ok(!di.includes(rental.id) && !di.includes(emp('ranjit').id), 'another team is not');
+  const diTasks = (await wf(DI, 'tasks?pageSize=100')).j.rows;
+  assert.ok(diTasks.some(r => r.assigneeId === gst[0].id), 'her teams tasks are in her list');
+  assert.ok(diTasks.every(r => !r.assigneeId || [...gst.map(g => g.id), emp('disha').id, emp('diksha').id, emp('nitish').id].includes(r.assigneeId) || r.reviewerId === emp('disha').id || r.assignedBy === emp('disha').id), 'and nothing from another team');
+  // Parvinder is alone in the Rideshare Team: his people list is NOT the whole firm
+  const pk = (await wf(PK, 'team')).j;
+  assert.ok(pk.team.length < founder.length, 'a non-founder superadmin sees fewer people than the founder');
+  assert.ok(!pk.team.some(p => p.id === rental.id || p.id === gst[0].id), 'other teams are not shown to him');
+  const pkTasks = (await wf(PK, 'tasks?pageSize=100')).j.rows;
+  assert.ok(!pkTasks.some(r => r.assigneeId === rental.id || r.assigneeId === gst[0].id), 'nor their tasks');
+  assert.ok(pkTasks.length < (await wf(SH, 'tasks?pageSize=100')).j.total, 'the list is smaller than the firm');
+  const m = (await http('GET', '/api/workflow/measures', { token: PK })).j;
+  assert.ok(m.byEmployee.every(e => e.id !== rental.id && e.id !== gst[0].id), 'the measures too');
 });

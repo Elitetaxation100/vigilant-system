@@ -81,7 +81,7 @@ test('closing a required-review client task without review: an employee is refus
   assert.equal(after.status, 'accepted', 'still open'); assert.equal(after.noReviewAttempts.length, 1); assert.equal(after.noReviewAttempts[0].by, emp('ranjit').id);
   const notes = (await http('GET', '/api/notifications', { token: PK })).j.notifications;
   assert.ok(notes.some(n => /without a review/.test(n.text) && n.taskId === t.id), 'the manager was told');
-  const team = (await http('GET', '/api/workflow/team', { token: PK })).j;
+  const team = (await http('GET', '/api/workflow/team', { token: SH })).j;
   assert.ok(team.attention.some(a => a.id === t.id && a.type === 'no_review_attempt'), 'and it shows under Needs Manager Attention');
   assert.equal((await http('POST', T(t.id) + '/done', { token: PK, body: {} })).status, 403, 'even a manager needs a reason');
   assert.equal((await http('POST', T(t.id) + '/done', { token: PK, body: { noReviewReason: 'hi' } })).status, 403);

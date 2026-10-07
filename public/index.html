@@ -1211,7 +1211,11 @@ body.v2-dash .clock-card{ display:none !important; }
       <div class="nav-item" data-view="emails" onclick="showView('emails', this)"><span class="nav-icon">✉</span> Email</div>
       <div class="nv2-label">Me</div>
       <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
-      <div class="nav-item" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
+      <details class="nav-drop" id="v2PerfGroup">
+        <summary class="nav-item"><span class="nav-icon">◈</span> Performance <span style="margin-left:auto;">▾</span></summary>
+        <div class="nav-item nav-sub" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> My Performance</div>
+        <div class="nav-item nav-sub" data-view="kudos" onclick="showView('kudos', this)"><span class="nav-icon">🏆</span> Kudos · Points · Marks</div>
+      </details>
       <details class="nav-drop" id="v2AdminGroup" style="display:none;margin-top:10px;">
         <summary class="nav-item nav-sub"><span class="nav-icon">▾</span> Admin</summary>
         <div class="nav-item nav-sub" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
@@ -4664,6 +4668,8 @@ function showView(id, el, classic){
   if(['performance','kudos'].includes(id)){
     const perfGrp = document.getElementById('perfNavGroup');
     if(perfGrp) perfGrp.open = true;
+    const perfGrp2 = document.getElementById('v2PerfGroup');
+    if(perfGrp2) perfGrp2.open = true;
   }
   window.scrollTo({top:0, behavior:'smooth'});
 }
