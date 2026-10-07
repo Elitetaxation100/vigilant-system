@@ -238,6 +238,13 @@ body.v2-dash .clock-card{ display:none !important; }
 .td-step{ padding:6px 12px; border-radius:999px; font-size:12.5px; border:1px solid var(--panel-border); color:var(--text-dim); }
 .td-step.done{ border-color:var(--teal); color:var(--teal); } .td-step.current{ background:var(--purple); color:#fff; border-color:var(--purple); } .td-step.attention{ border-color:var(--coral); color:var(--coral); font-weight:700; }
 .td-facts{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px 18px; font-size:13.5px; margin-bottom:14px; }
+.td-card{ border:1px solid var(--panel-border); border-radius:10px; margin:0 0 10px; overflow:hidden; }
+.td-card > h5{ margin:0; padding:7px 12px; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-faint); background:var(--panel-2); font-weight:700; }
+.td-rows > div{ display:grid; grid-template-columns:150px 1fr; gap:10px; padding:7px 12px; border-top:1px solid var(--panel-border); font-size:13.5px; align-items:baseline; }
+.td-rows > div:first-child{ border-top:0; }
+.td-rows > div > b{ text-transform:none; letter-spacing:0; font-size:12.5px; color:var(--text-dim); font-weight:600; }
+.td-rows .sub{ display:block; color:var(--text-dim); font-size:12.5px; }
+@media(max-width:520px){ .td-rows > div{ grid-template-columns:1fr; gap:2px; } }
 .td-facts b{ display:block; font-size:11.5px; color:var(--text-faint); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
 .td-act{ min-height:44px; }
 /* ---- Reviews queue (v2) and the review screen ---- */
@@ -7981,7 +7988,8 @@ function tdDetailHtml(id, given){
   if(!id || !(given || (_today && _today.cards[id]))) return '<div class="td-empty" style="padding:30px 10px;">Select a task on the left to see everything about it here — no new page needed.</div>';
   const c = given || _today.cards[id], t = findTask(id);
   const dt = iso => { const d = new Date(iso); return d.toLocaleDateString('en-NZ', { day:'2-digit', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }); };
-  const fact = (label, val) => '<div><b>' + label + '</b>' + (val || '<span style="color:var(--text-faint);">—</span>') + '</div>';
+  const fact = (label, val) => '<div><b>' + label + '</b><span>' + (val || '<span style="color:var(--text-faint);">—</span>') + '</span></div>';
+  const grp = (title, ...rows) => { const r = rows.join(''); return r ? '<div class="td-card"><h5>' + title + '</h5><div class="td-rows">' + r + '</div></div>' : ''; };
   const track = c.tracker.applicable ? '<div class="td-track" role="list" aria-label="Delivery progress">' + c.tracker.steps.map(st => '<span class="td-step ' + st.state + '" role="listitem">' + (st.state === 'done' ? '✓ ' : st.state === 'attention' ? '⚠ ' : '') + esc(st.label) + '</span>').join('') + '</div>'
     : '<div style="font-size:13px;color:var(--text-dim);margin:8px 0 12px;">Admin task — no client report to send.</div>';
   const mode = given ? 'today' : _tdMode;          // the panel emphasises what THIS view is for
@@ -7995,26 +8003,26 @@ function tdDetailHtml(id, given){
   if(!t){ return body + '<div class="td-empty">Loading the task details…</div>'; }
   const sheet = fact('Google Sheet', (t.sheetLink || (t.sheetFiles || []).length) ? slotCell(t.sheetLink, 'Open Sheet', t.sheetFiles) : '');
   const cash = fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '');
-  const client = fact('Client commitment', c.clientDate ? esc(fmtDate(c.clientDate)) + '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : '');
+  const client = fact('Client commitment', c.clientDate ? esc(fmtDate(c.clientDate)) + '<span class="sub">' + esc(c.clientRisk.label) + '</span>' : '');
   const internal = fact('Internal submission date', c.internalDeadline ? esc(fmtDate(c.internalDeadline)) : '');
-  const waitFact = c.reviewWaiting ? fact('Waiting for review', c.reviewWaiting.days + (c.reviewWaiting.days === 1 ? ' day' : ' days') + (c.reviewWaiting.hours > slaH ? ' <b style="color:var(--coral);">· past the ' + slaH + ' h review SLA</b>' : '') + '<br><span style="color:var(--text-dim);">since ' + esc(dt(c.reviewWaiting.since)) + '</span>') : '';
+  const waitFact = c.reviewWaiting ? fact('Waiting for review', c.reviewWaiting.days + (c.reviewWaiting.days === 1 ? ' day' : ' days') + (c.reviewWaiting.hours > slaH ? ' <b style="color:var(--coral);display:inline;font-size:inherit;">· past the ' + slaH + ' h review SLA</b>' : '') + '<span class="sub">since ' + esc(dt(c.reviewWaiting.since)) + '</span>') : '';
   const dh = (t.dateHistory || []).map(h => esc(dt(h.at)) + ' — ' + esc(h.note || 'changed')).join('<br>');
   let facts;
   if(mode === 'manager'){
-    facts = fact('Assigned employee', esc(c.assigneeName || '')) + fact('Reviewer', esc(c.reviewerName || ''))
-      + fact('Owner of the next action', esc(c.waitingOn.ownerName || c.waitingOn.label)) + internal + client
-      + fact('Date changes', dh) + fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : '')
-      + fact('Rework cycles', c.reworkCount ? String(c.reworkCount) : '0') + fact('Escalation', c.escalation ? 'Open — ' + esc(c.escalation.toName || '') + (c.escalation.decisionDate ? ' by ' + esc(c.escalation.decisionDate) : '') : 'None');
+    facts = grp('People', fact('Assigned employee', esc(c.assigneeName || '')), fact('Reviewer', esc(c.reviewerName || '')), fact('Next action by', esc(c.waitingOn.ownerName || c.waitingOn.label)))
+      + grp('Dates', internal, client, fact('Date changes', dh))
+      + grp('Work', fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), fact('Rework cycles', c.reworkCount ? String(c.reworkCount) : '0'), fact('Escalation', c.escalation ? 'Open — ' + esc(c.escalation.toName || '') + (c.escalation.decisionDate ? ' by ' + esc(c.escalation.decisionDate) : '') : 'None'));
   } else if(mode === 'review'){
-    facts = fact('Employee submission', c.submittedAt ? esc(dt(c.submittedAt)) + (c.assigneeName ? '<br><span style="color:var(--text-dim);">by ' + esc(c.assigneeName) + '</span>' : '') : '') + waitFact + client
-      + fact('Internal commitment', esc(c.commitment.label)) + sheet + cash
-      + fact('Previous corrections', c.reworkCount ? c.reworkCount + (c.correction ? ' · last: ' + esc(c.correction.category || '') : '') : 'None');
+    facts = grp('Submission', fact('Submitted', c.submittedAt ? esc(dt(c.submittedAt)) + (c.assigneeName ? '<span class="sub">by ' + esc(c.assigneeName) + '</span>' : '') : ''), waitFact, fact('Previous corrections', c.reworkCount ? c.reworkCount + (c.correction ? ' · last: ' + esc(c.correction.category || '') : '') : 'None'))
+      + grp('Dates', client, fact('Internal commitment', esc(c.commitment.label)))
+      + grp('Links', sheet, cash);
   } else {
-    facts = fact('Task type', esc(c.taskType || c.kindLabel)) + fact('Assigned employee', esc(c.assigneeName || '')) + fact('Reviewer', esc(c.reviewerName || ''))
-      + fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : '') + internal + client
-      + fact('Employee\'s commitment', esc(c.commitment.label)) + waitFact + fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : '') + sheet + cash;
+    facts = grp('People', fact('Assigned employee', esc(c.assigneeName || '')), fact('Reviewer', esc(c.reviewerName || '')))
+      + grp('Dates', internal, client, fact('Employee\'s commitment', esc(c.commitment.label)))
+      + grp('Work', fact('Task type', esc(c.taskType || c.kindLabel)), fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), waitFact, fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : 'None'))
+      + grp('Links', sheet, cash);
   }
-  body += '<div class="td-facts">' + facts + '</div>'
+  body += facts
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
     + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '');
   const prim = given ? '' : tdPrimary(id);
