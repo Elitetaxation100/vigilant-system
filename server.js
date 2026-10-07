@@ -17,6 +17,7 @@ const fileStore = require('./files');
 fileStore.init(db);
 const archive = require('./archive');
 const spaceWatch = require('./space-watch');
+const prodRules = require('./productivity-rules');
 const workflow = require('./workflow');
 const mgr = require('./manager-views');
 const crmHealth = require('./crm-health');
@@ -103,6 +104,11 @@ const DISPATCH_BUFFER_WD = 3;
 // through 27 Sept. A task completed before this counts under the lenient
 // historical rule; on/after it, the new Clean-review rule applies.
 const PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT = '2026-09-27T11:00:00.000Z';
+// V3 (prospective only): for work completed on/after this moment, Productivity credits a reviewed-clean task at the day it was
+// REVIEWED CLEAN — whether or not, and whenever, the report is later sent. Before V3 a dispatched report moved its credit to the
+// dispatch date, which let Report Sent steer WHEN hours counted. A FIXED literal like V2: 8 Oct 2026 00:00 NZDT (UTC+13). Nothing
+// completed before it is recalculated, and finalised months are stored snapshots that this never touches.
+const PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT = (process.env.NODE_ENV === 'test' && process.env.PRODUCTIVITY_V3_AT_TEST) || '2026-10-07T11:00:00.000Z';   // the override exists for the test suite only
 
 const app = express();
 // By default CORS is wide open (any origin) so the app works out of the box
@@ -576,6 +582,10 @@ function productivityQualifies(state, t, v2At, reportInfo) {
   // the report actually reaching the client (real-world proof of
   // completion, independent of whether it was formally reviewed first).
   if (t.reviewStatus === 'error') return exclude('Review contains errors');
+  // V3: reviewed clean is THE event; Report Sent neither unlocks nor moves it.
+  if (prodRules.v3Applies(completedMs, state.productivityV3EffectiveAt || PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT) && t.reviewStatus === 'clean') {
+    return qualify('v3', 'clean_review', t.reviewedAt);
+  }
   if (t.sentToClient === true) return qualify('v2', 'report_dispatched', t.sentToClientAt);
   if (t.reviewStatus === 'clean') return qualify('v2', 'clean_review', t.reviewedAt);
   if (t.reviewStatus === 'done') {
@@ -4490,7 +4500,36 @@ function productivityOpenRow(state, t) {
     nextAction: OPEN_STATUS_REASONS[t.status] || t.status,
   };
 }
+// Shared / test / placeholder logins are not productive employees: they never add capacity or output to Productivity — unless a
+// superadmin has explicitly marked them (countsInProductivity === true) or explicitly excluded a real person (=== false).
+// Walks the period day by day and reports exactly what was removed from capacity, using the same rules as dayCapacity():
+//   scheduled working days (every day the firm's week includes) − public holidays = working days
+//   − approved leave (a half day counts 0.5) − workshop days (never also counted as leave) − custom-hours reductions = final eligible days
+//   capacity hours = final eligible days × the working day (7 h).  A deduction is shown only if it was actually made.
+function capacityBreakdownOf(state, emp, fromISO, toISO, capacityHours) {
+  const base = baseHoursOf(emp), days = [];
+  if (fromISO && toISO && toISO >= fromISO) {
+    let cur = new Date(fromISO + 'T00:00:00Z');
+    const end = new Date(toISO + 'T00:00:00Z').getTime();
+    while (cur.getTime() <= end) {
+      const iso = cur.toISOString().slice(0, 10), scheduled = cur.getUTCDay() !== 0;   // Sunday is the firm's weekly off
+      const holiday = scheduled && !cal.isWorkingDay(iso);
+      const status = scheduled && !holiday ? attendanceStatus(state, emp, iso) : 'PRESENT';
+      days.push({ scheduled, holiday, status, customHours: status === 'CUSTOM' ? Number((approvedLeaveOn(state, emp.id, iso) || {}).hours || 0) : 0 });
+      cur = new Date(cur.getTime() + 86400000);
+    }
+  }
+  const b = prodRules.capacityDays(days, base);
+  return { ...b, reconciles: Math.abs(b.capacityHours - capacityHours) < 0.011 };
+}
+function isNonProductiveAccount(emp) {
+  if (!emp) return true;
+  if (emp.countsInProductivity === true) return false;
+  if (emp.countsInProductivity === false) return true;
+  return isSystemAccount(emp) || String(emp.email || '').toLowerCase() === 'hr@elitetaxation.co.nz';
+}
 function productivityFor(state, empIds, fromISO, toISO) {
+  empIds = empIds.filter(id => !isNonProductiveAccount(findEmployee(state, id)));
   const from = fromISO, to = toISO;
   const inRange = d => d && nzDay(d) >= from && nzDay(d) <= to;
   const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
@@ -4594,7 +4633,14 @@ function productivityFor(state, empIds, fromISO, toISO) {
     // and the completed-but-excluded tasks (frozen snapshot) due in period.
     const capacityNotConverted = r2(Math.max(0, capacityHours - qualifiedHours));
     const assignedOpenHours = r2(excludedRows.reduce((s, r) => s + (r.allocatedHours || 0), 0));
-    const trulyUnallocatedHours = r2(Math.max(0, capacityNotConverted - assignedOpenHours));
+    // The breakdown must ADD UP to the total — no overlap, nothing invented. Fill in order: still-open work, then completed work that
+    // did not qualify, then whatever is left is genuinely unallocated capacity. (Open work larger than the gap just fills it.)
+    const nc = prodRules.splitNotConverted(capacityNotConverted,
+      excludedRows.filter(r => r.status !== 'completed').reduce((n, r) => n + (r.allocatedHours || 0), 0),
+      excludedRows.filter(r => r.status === 'completed').reduce((n, r) => n + (r.allocatedHours || 0), 0));
+    const openPart = nc.openAllocated, trulyUnallocatedHours = nc.unallocated, notConvertedBreakdown = nc;
+    // The capacity days, shown in full: scheduled → holidays → leave → workshop → final eligible days → hours (days × the 7 h day).
+    const capacityBreakdown = capacityBreakdownOf(state, emp, from, to, capacityHours);
 
     return {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '', group: prodGroupOf(emp),
@@ -4607,7 +4653,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
       reportSentRate: reportMaxPoints > 0 ? Math.round((reportPoints / reportMaxPoints) * 1000) / 10 : null,
       outstandingReports: reportsReadyNotSent + reportsLate,
       qualifiedTasks: qualified, excludedTasks: excludedRows, openWork: openWork.map(t => productivityOpenRow(state, t)),
-      capacityNotConverted, assignedOpenHours, trulyUnallocatedHours,
+      capacityNotConverted, assignedOpenHours: openPart, trulyUnallocatedHours, notConvertedBreakdown, capacityBreakdown,
     };
   });
 }
@@ -4662,6 +4708,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
     goLiveApplied: from !== requestedFrom,
     fiscalYearStart: floorAtGoLive(fiscalYearStart(to), to),
     v2EffectiveAt: state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT,
+    v3EffectiveAt: state.productivityV3EffectiveAt || PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT,
     scope: scopeLabel,
     // Show everyone in scope, including zero-output people, with a plain
     // reason rather than hiding them.
@@ -4685,6 +4732,11 @@ app.get('/api/productivity', requireAuth, (req, res) => {
       capacityNotConverted: Math.round(sum('capacityNotConverted') * 100) / 100,
       assignedOpenHours: Math.round(sum('assignedOpenHours') * 100) / 100,
       trulyUnallocatedHours: Math.round(sum('trulyUnallocatedHours') * 100) / 100,
+      notConvertedBreakdown: (() => {
+        const k = f => Math.round(people.reduce((n, p) => n + ((p.notConvertedBreakdown || {})[f] || 0), 0) * 100) / 100;
+        const b = { total: k('total'), openAllocated: k('openAllocated'), nonQualifyingCompleted: k('nonQualifyingCompleted'), unallocated: k('unallocated') };
+        return { ...b, reconciles: people.every(p => (p.notConvertedBreakdown || {}).reconciles !== false) && Math.abs(b.openAllocated + b.nonQualifyingCompleted + b.unallocated - b.total) < 0.05 };
+      })(),
     },
   });
 });
@@ -6938,6 +6990,15 @@ const PORT = process.env.PORT || 3000;
 // JSON file) and runs migrations before the first request can arrive.
 db.init()
   .then(() => {
+    // Audit trail for the Productivity V3 rule (prospective only — nothing completed before the cutoff is recalculated).
+    try {
+      const st = db.get();
+      if (!st.productivityV3History) {
+        st.productivityV3History = [{ introducedAt: new Date().toISOString(), effectiveAt: st.productivityV3EffectiveAt || PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT, by: 'system',
+          change: 'A reviewed-clean task credits at its clean-review date; Report Sent no longer moves or unlocks Productivity. Applies to work completed on/after effectiveAt; earlier work and finalised months are unchanged.' }];
+        db.save();
+      }
+    } catch (e) { console.error('[productivity-v3] audit seed failed:', e.message); }
     initPush();
     // Keep images out of the state, and tidy files that were uploaded but never attached.
     const crmAlertTimer = setInterval(() => { crmAlertsTick(); }, 15 * 60 * 1000); if (crmAlertTimer.unref) crmAlertTimer.unref();

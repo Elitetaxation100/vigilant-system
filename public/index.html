@@ -2117,7 +2117,7 @@ body.v2-dash .clock-card{ display:none !important; }
           </div>
           <div class="src-subtabs" id="prodGroupTabs" style="margin:0 0 12px;"></div>
           <div id="prodHoursWrap">
-            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Qualified delivered allocated hours ÷ adjusted capacity — a task counts only once it's final-sendable, met the internal milestone, and (for client work) was actually sent to the client by the external date. Click anyone's row for the full calculation.</p>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Productivity = qualifying allocated hours ÷ eligible capacity hours × 100. Productivity measures reviewed-clean completed output using the task's allocated hours against eligible capacity. Client report dispatch is measured separately under Report Sent. Click anyone's row for the full calculation.</p>
             <div id="prodTotals"></div>
             <div style="max-height:60vh;overflow-y:auto;margin-top:16px;">
               <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -2245,13 +2245,13 @@ body.v2-dash .clock-card{ display:none !important; }
 
         <div class="panel" style="margin-top:16px;">
           <div class="panel-head"><h2 style="font-size:15.5px;">Report Sent</h2></div>
-          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">A separate, per-report count of on-time client dispatch — the same dispatch fact also decides whether a task's hours qualify for Productivity above, by design, not double-counted.</p>
+          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">A separate, per-report count of on-time client dispatch. Productivity measures reviewed-clean completed output using the task's allocated hours against eligible capacity; client report dispatch is measured here, separately, under Report Sent.</p>
           <div id="rcReportSent"></div>
         </div>
 
         <div class="panel" style="margin-top:16px;">
           <div class="panel-head"><h2 style="font-size:15.5px;">Exceptions — open work</h2></div>
-          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">Not yet delivered — zero productivity credit until it clears all three gates. Shown regardless of the period selected above.</p>
+          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">Work not yet completed and reviewed clean earns no Productivity credit yet. Shown regardless of the period selected above.</p>
           <div id="rcOpenWork"></div>
         </div>
         </div>
@@ -10472,8 +10472,8 @@ function productivityCardsHtml(p, opts){
   return `<div class="top-grid">
     ${card('Productivity', pctBig, p.notScorable ? 'No available capacity in this period' : null, pctColor)}
     ${card('Qualifying Completed Allocated Hours', p.qualifiedHours.toFixed(1)+'h', null)}
-    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays?` − ${p.leaveDays} leave`:''}${p.workshopDays?` − ${p.workshopDays} workshop Sat${p.workshopDays===1?'':'s'}`:''}`)}
-    ${card('Capacity Not Converted Into Completed Output', p.capacityNotConverted.toFixed(1)+'h', `${p.assignedOpenHours.toFixed(1)}h assigned &amp; open · ${p.trulyUnallocatedHours.toFixed(1)}h truly unallocated`)}
+    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', capacitySubHtml(p))}
+    ${card('Capacity Not Converted Into Completed Output', p.capacityNotConverted.toFixed(1)+'h', notConvertedSubHtml(p))}
     ${card('Internal Commitment Met', commitmentPct, commitmentSub, p.commitmentPct==null?null:scoreColor(p.commitmentPct))}
   </div>
   <p style="font-size:12px;color:var(--text-faint);margin:10px 0 0;max-width:70ch;line-height:1.5;">Productivity shows completed allocated hours as a percentage of adjusted capacity. A lower percentage does not automatically mean poor employee performance — capacity not yet converted into completed output may include work still in progress, work awaiting review, or capacity management hasn't allocated. Not an employee penalty.</p>
@@ -10576,7 +10576,7 @@ function openProductivityCalcModal(p){
     <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Internal Commitment — missed (${missedCommitment.length})</div>
     ${taskCalcTableHtml(missedCommitment, false)}
     <div style="margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:12.5px;color:var(--text-dim);">
-      Capacity ${p.capacityHours.toFixed(1)}h · Capacity not converted ${p.capacityNotConverted.toFixed(1)}h (${p.assignedOpenHours.toFixed(1)}h assigned &amp; open · ${p.trulyUnallocatedHours.toFixed(1)}h truly unallocated) — not an employee penalty
+      Capacity ${p.capacityHours.toFixed(1)}h · Capacity not converted ${p.capacityNotConverted.toFixed(1)}h (${notConvertedSubHtml(p)}) — not an employee penalty
     </div>
     <div class="modal-actions" style="margin-top:16px;">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -13125,6 +13125,28 @@ async function savePcSettings(){
   const teams = {}; document.querySelectorAll('#pcBody select[data-team]').forEach(s => { if(s.value) teams[s.dataset.team] = s.value; });
   try { _pcCfg = await api('/api/admin/profit-confirmers', { method:'POST', body: JSON.stringify({ default: v('pcDefault') || null, backup: v('pcBackup') || null, teams }) }); err.style.display = 'none'; showToast('success', 'Saved', 'The change is recorded.'); renderPcSettings(); }
   catch(e){ err.textContent = e.message; err.style.display = 'block'; }
+}
+// Capacity, shown so every deduction can be checked: scheduled days − holidays − leave − workshop = eligible days × the 7 h day.
+// A deduction appears ONLY if it was really made, and the line is shown only when the numbers add up.
+function capacitySubHtml(p){
+  const b = p.capacityBreakdown;
+  if(!b || !b.reconciles) return `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays?` − ${p.leaveDays} leave`:''}${p.workshopDays?` − ${p.workshopDays} workshop day${p.workshopDays===1?'':'s'}`:''}`;
+  const parts = [`${b.scheduledDays} scheduled day${b.scheduledDays===1?'':'s'}`];
+  if(b.publicHolidays) parts.push(`− ${b.publicHolidays} public holiday${b.publicHolidays===1?'':'s'}`);
+  if(b.leaveDays) parts.push(`− ${b.leaveDays} leave`);
+  if(b.workshopDays) parts.push(`− ${b.workshopDays} workshop day${b.workshopDays===1?'':'s'}`);
+  if(b.customHoursOff) parts.push(`− ${b.customHoursOff} h reduced hours`);
+  return parts.join(' ') + ` = ${b.finalEligibleDays} eligible day${b.finalEligibleDays===1?'':'s'} × ${b.dayHours} h`;
+}
+// The "not converted" total split into parts that add up to it exactly — or just the total, never a split that does not add up.
+function notConvertedSubHtml(p){
+  const b = p.notConvertedBreakdown;
+  if(!b || !b.reconciles) return 'the split is not shown because its parts do not add up to the total';
+  const bits = [];
+  if(b.openAllocated) bits.push(`${b.openAllocated.toFixed(1)}h assigned &amp; still open`);
+  if(b.nonQualifyingCompleted) bits.push(`${b.nonQualifyingCompleted.toFixed(1)}h completed but not yet qualifying`);
+  bits.push(`${b.unallocated.toFixed(1)}h unallocated`);
+  return bits.join(' · ');
 }
 function openTaskTrailModal(id){
   const t = findTask(id);
