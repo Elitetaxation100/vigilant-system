@@ -66,7 +66,7 @@ test('setup', async () => {
 
 test('everyone can read the rules; only a superadmin can change them', async () => {
   const r = await http('GET', '/api/auto-marks/rules', { token: RJ });
-  assert.deepEqual(r.j, { links: { enabled: true, processor: 20, reviewer: 30 }, acknowledgement: { enabled: true, all: 10, halfMax: 5 }, reports: { enabled: true, late: 10 }, mailReply: { enabled: true, late: 10 } });
+  assert.deepEqual(r.j, { links: { enabled: true, processor: 20, reviewer: 30 }, acknowledgement: { enabled: true, perItem: 10 }, reports: { enabled: true, late: 10 }, mailReply: { enabled: true, late: 10 } });
   assert.equal((await http('GET', '/api/admin/auto-marks', { token: RJ })).status, 403);
   assert.equal((await http('POST', '/api/admin/auto-marks/settings', { token: DI, body: { enabled: { links: false } } })).status, 403);
   assert.equal((await http('POST', '/api/admin/auto-marks/run', { token: RJ })).status, 403);
@@ -166,7 +166,7 @@ test('ACKNOWLEDGEMENT: preview shows who would lose marks, leave days are skippe
   const pv = (await http('POST', '/api/admin/auto-marks/preview', { token: SA, body: { day } })).j.results;
   const k = pv.find(r => r.toId === emp('khushi').id && r.channel === 'emails');
   assert.ok(k, JSON.stringify(pv));
-  assert.equal(k.total, 3); assert.equal(k.notAck, 1); assert.equal(k.marks, 3, '1 of 3 unacknowledged → under half → 3 marks'); assert.equal(k.skipped, false);
+  assert.equal(k.total, 3); assert.equal(k.notAck, 1); assert.equal(k.marks, 10, '1 unacknowledged mail × 10 marks'); assert.equal(k.skipped, false);
   assert.equal((await myMarks(KH)).filter(m => m.auto).length, 0, 'a preview changes nothing');
 
   // on approved leave that day → skipped
@@ -181,7 +181,7 @@ test('ACKNOWLEDGEMENT: preview shows who would lose marks, leave days are skippe
   const run = await http('POST', '/api/admin/auto-marks/run', { token: SA });
   assert.equal(run.status, 200); assert.ok(run.j.days.some(d => d.day === day));
   const got = (await myMarks(KH)).filter(m => m.auto && m.type === 'auto_ack' && !m.voidedAt);
-  assert.equal(got.length, 1); assert.equal(got[0].points, -3); assert.match(got[0].reason, /1 of 3 emails on .* not acknowledged/);
+  assert.equal(got.length, 1); assert.equal(got[0].points, -10); assert.match(got[0].reason, /1 of 3 emails on .* not acknowledged/);
   // judging the same day again never doubles it
   await http('POST', '/api/admin/auto-marks/settings', { token: SA, body: { activeFrom: day } });
   await http('POST', '/api/admin/auto-marks/run', { token: SA });

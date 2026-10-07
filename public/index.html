@@ -3579,13 +3579,14 @@ async function renderAutoMarksPanel(){
       <td>${m.voidedAt ? '<span style="color:var(--text-faint);font-size:12px;">voided</span>' : `<button class="btn small" onclick="voidMark('${esc(m.id)}')">Void</button>`}</td></tr>`).join('');
   panel.innerHTML = `
     <div class="panel-head"><h2>Automatic marks</h2></div>
-    <div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:10px;">
+    <details style="margin-bottom:10px;"><summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--purple);">How the automatic marks work</summary>
+    <div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-top:8px;">
       The system deducts marks by itself. Each one is a normal mark (the person and their manager see it, it counts in the totals) and you can void any of them.<br>
-      <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: nothing acknowledged or more than half not acknowledged → <b>−${p.ackAll}</b>; half or fewer not acknowledged → up to <b>−${p.ackHalfMax}</b>, in proportion. Judged at <b>6:45 pm NZ the same day</b> — when the daily Calls &amp; Email report goes to the admins — on exactly what that report counts; leave, holidays and workshop days are skipped.<br>
+      <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: <b>−${p.ackPerItem} for every call or email not acknowledged</b>. Judged at <b>6:45 pm NZ the same day</b> — when the daily Calls &amp; Email report goes to the admins — on exactly what that report counts; leave, holidays and workshop days are skipped.<br>
       <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). Internal tasks never need links.<br>
       <b>Reports</b> — a client report not sent to the client by its committed date (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever is sending it, once per task. Only dates after “Starts from” count.<br>
       <b>Reassigned mail</b> — a mail reassigned to someone must be replied to (or marked “no reply needed”) <b>the same working day, before the daily Calls &amp; Email report goes to the admins (6:45 pm NZ)</b>; handed over after that report, or on a day off, it is due before the next working day's report. Otherwise <b>−${p.mailReplyLate}</b> to that person, once per hand-off. Leave days push the deadline on. The mail shows on their dashboard until it is handled.
-    </div>
+    </div></details>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnAck" ${s.enabled.acknowledgement ? 'checked' : ''}> Email &amp; call acknowledgement</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnLinks" ${s.enabled.links ? 'checked' : ''}> Missing links</label>
@@ -3593,7 +3594,7 @@ async function renderAutoMarksPanel(){
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnMail" ${s.enabled.mailReply ? 'checked' : ''}> Reassigned mail not replied</label>
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px;">
-      <span>Ack: all ${num('amAckAll', p.ackAll)}</span><span>half max ${num('amAckHalf', p.ackHalfMax)}</span>
+      <span>Per call / email not acknowledged ${num('amAckItem', p.ackPerItem)}</span>
       <span>Processor links ${num('amProc', p.processorLinks)}</span><span>Reviewer links ${num('amRev', p.reviewerLinks)}</span><span>Late report ${num('amLate', p.reportLate)}</span><span>Unreplied mail ${num('amMail', p.mailReplyLate)}</span>
       <span>Starts from <input type="date" id="amFrom" value="${esc(s.activeFrom || '')}"></span>
       <button class="btn small primary" onclick="saveAutoMarks()">Save</button>
@@ -3613,7 +3614,7 @@ async function saveAutoMarks(){
   try {
     await api('/api/admin/auto-marks/settings', { method:'POST', body: JSON.stringify({
       enabled: { acknowledgement: document.getElementById('amOnAck').checked, links: document.getElementById('amOnLinks').checked, reports: document.getElementById('amOnReports').checked, mailReply: document.getElementById('amOnMail').checked },
-      points: { ackAll: n('amAckAll'), ackHalfMax: n('amAckHalf'), processorLinks: n('amProc'), reviewerLinks: n('amRev'), reportLate: n('amLate'), mailReplyLate: n('amMail') },
+      points: { ackPerItem: n('amAckItem'), processorLinks: n('amProc'), reviewerLinks: n('amRev'), reportLate: n('amLate'), mailReplyLate: n('amMail') },
       activeFrom: document.getElementById('amFrom').value || undefined }) });
     showToast('success', 'Saved', 'Automatic marks settings updated.');
     await loadAutoRules();

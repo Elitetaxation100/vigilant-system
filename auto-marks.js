@@ -6,9 +6,7 @@
 // Rules (defaults, all adjustable by a superadmin):
 //  1. ACKNOWLEDGEMENT — per person, per channel (emails and calls separately),
 //     per finished working day. Of the items they were responsible for:
-//       nothing acknowledged, or MORE than half unacknowledged  → −10
-//       half or fewer unacknowledged (but some)                 → −5 or less,
-//                                                                 in proportion
+//       every call / email NOT acknowledged                      → −10 EACH (adjustable)
 //     Judged at 18:45 NZ the SAME day — the moment the daily Calls & Email report goes
 //     to the admins — using exactly what that report counts (items received up to then).
 //     A person on leave / a holiday / a workshop day is skipped.
@@ -29,7 +27,7 @@
 // ---------------------------------------------------------------------------
 const DEFAULTS = {
   enabled: { acknowledgement: true, links: true, reports: true, mailReply: true },
-  points: { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30, reportLate: 10, mailReplyLate: 10 },
+  points: { ackPerItem: 10, processorLinks: 20, reviewerLinks: 30, reportLate: 10, mailReplyLate: 10 },
 };
 const isDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 const clampInt = (v, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : d; };
@@ -62,9 +60,7 @@ function updateSettings(state, input, today) {
 function ackDeduction(total, notAck, pts) {
   const p = { ...DEFAULTS.points, ...(pts || {}) };
   if (!(total > 0) || !(notAck > 0)) return 0;
-  const ratio = notAck / total;
-  if (ratio > 0.5) return p.ackAll;                                         // none acknowledged, or more than half not
-  return Math.min(p.ackHalfMax, Math.max(1, Math.round(ratio * p.ackAll))); // half or fewer: 5 or less, in proportion
+  return Math.round(notAck) * p.ackPerItem;                                 // a flat amount for EVERY call / email left unacknowledged
 }
 
 // ---- rule 2: links -----------------------------------------------------------
@@ -173,7 +169,7 @@ function evaluateAckDay(state, day, people, ctx) {
       if (!skipped && !ctx.dryRun) {
         const row = createAutoMark(state, {
           toId: p.id, points: marks, type: 'auto_ack', key: `ack:${day}:${channel}:${p.id}`,
-          reason: `Automatic: ${c.notAck} of ${c.total} ${noun}${c.total === 1 ? '' : 's'} on ${dayLabel(day)} not acknowledged`,
+          reason: `Automatic: ${c.notAck} of ${c.total} ${noun}${c.total === 1 ? '' : 's'} on ${dayLabel(day)} not acknowledged (−${settings.points.ackPerItem} each)`,
         });
         if (row) { r.created = true; r.row = row; if (ctx.onCreated) ctx.onCreated(row); }
       }

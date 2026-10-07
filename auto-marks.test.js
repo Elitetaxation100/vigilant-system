@@ -3,26 +3,17 @@ const assert = require('node:assert/strict');
 const am = require('./auto-marks');
 
 /* ---------------- rule 1: acknowledgement ---------------- */
-test('ack: nothing acknowledged, or more than half unacknowledged → −10', () => {
-  assert.equal(am.ackDeduction(5, 5), 10);   // nothing acknowledged
+test('ack: −10 for EVERY call or email left unacknowledged, nothing when all are acknowledged', () => {
+  assert.equal(am.ackDeduction(5, 5), 50);   // five unacknowledged = five lots of 10
   assert.equal(am.ackDeduction(1, 1), 10);
-  assert.equal(am.ackDeduction(10, 6), 10);  // 60% — more than half
-  assert.equal(am.ackDeduction(3, 2), 10);   // 67%
-});
-test('ack: half or fewer unacknowledged → 5 or less, in proportion; none → nothing', () => {
-  assert.equal(am.ackDeduction(10, 5), 5);   // exactly half
-  assert.equal(am.ackDeduction(10, 4), 4);
-  assert.equal(am.ackDeduction(10, 3), 3);
-  assert.equal(am.ackDeduction(10, 2), 2);
-  assert.equal(am.ackDeduction(10, 1), 1);
-  assert.equal(am.ackDeduction(40, 1), 1, 'never rounds down to nothing while something is unacknowledged');
-  assert.equal(am.ackDeduction(4, 1), 3);    // 25% → 2.5 → 3
+  assert.equal(am.ackDeduction(10, 3), 30);
+  assert.equal(am.ackDeduction(40, 1), 10, 'one missed item among many is still −10');
   assert.equal(am.ackDeduction(10, 0), 0);   // all acknowledged
   assert.equal(am.ackDeduction(0, 0), 0);    // nothing came in
 });
-test('ack: the amounts are adjustable', () => {
-  assert.equal(am.ackDeduction(5, 5, { ackAll: 20, ackHalfMax: 8 }), 20);
-  assert.equal(am.ackDeduction(10, 5, { ackAll: 20, ackHalfMax: 8 }), 8); // capped at the half-max
+test('ack: the amount per item is adjustable', () => {
+  assert.equal(am.ackDeduction(5, 5, { ackPerItem: 2 }), 10);
+  assert.equal(am.ackDeduction(3, 2, { ackPerItem: 15 }), 30);
 });
 
 /* ---------------- rule 2: links ---------------- */
@@ -151,8 +142,8 @@ test('an automatic mark is negative, tagged, and can never be given twice for th
 /* ---------------- evaluating a day ---------------- */
 const staff = [{ id: 'e1' }, { id: 'e2' }, { id: 'e3' }];
 const people = [
-  { id: 'e1', name: 'Ann', emails: { total: 4, ack: 0, notAck: 4 }, calls: { total: 2, ack: 2, notAck: 0 } },   // emails −10, calls none
-  { id: 'e2', name: 'Bob', emails: { total: 10, ack: 7, notAck: 3 }, calls: { total: 5, ack: 1, notAck: 4 } },  // emails −3, calls −10
+  { id: 'e1', name: 'Ann', emails: { total: 4, ack: 0, notAck: 4 }, calls: { total: 2, ack: 2, notAck: 0 } },   // emails −40 (4 × 10), calls none
+  { id: 'e2', name: 'Bob', emails: { total: 10, ack: 7, notAck: 3 }, calls: { total: 5, ack: 1, notAck: 4 } },  // emails −30 (3 × 10), calls −40 (4 × 10)
   { id: 'e3', name: 'Cy', emails: { total: 6, ack: 6, notAck: 0 }, calls: { total: 0, ack: 0, notAck: 0 } },    // nothing
   { id: 'mailbox@x', name: 'Unowned', emails: { total: 3, ack: 0, notAck: 3 }, calls: { total: 0, ack: 0, notAck: 0 } }, // not a person
 ];
@@ -161,13 +152,13 @@ test('a day: emails and calls are judged separately; unowned mailboxes are ignor
   const created = [];
   const r = am.evaluateAckDay(s, '2026-10-12', people, { today: '2026-10-13', onCreated: row => created.push(row) });
   const by = (id, ch) => r.find(x => x.toId === id && x.channel === ch);
-  assert.equal(by('e1', 'emails').marks, 10); assert.equal(by('e1', 'calls'), undefined);
-  assert.equal(by('e2', 'emails').marks, 3); assert.equal(by('e2', 'calls').marks, 10);
+  assert.equal(by('e1', 'emails').marks, 40); assert.equal(by('e1', 'calls'), undefined);
+  assert.equal(by('e2', 'emails').marks, 30); assert.equal(by('e2', 'calls').marks, 40);
   assert.equal(r.filter(x => x.toId === 'e3').length, 0);
   assert.equal(r.filter(x => x.toId === 'mailbox@x').length, 0);
   assert.equal(created.length, 3);
-  assert.deepEqual(s.marks.map(m => [m.toId, m.points]).sort(), [['e1', -10], ['e2', -10], ['e2', -3]].sort());
-  assert.match(s.marks.find(m => m.toId === 'e2' && m.points === -3).reason, /3 of 10 emails on .* not acknowledged/);
+  assert.deepEqual(s.marks.map(m => [m.toId, m.points]).sort(), [['e1', -40], ['e2', -40], ['e2', -30]].sort());
+  assert.match(s.marks.find(m => m.toId === 'e2' && m.points === -30).reason, /3 of 10 emails on .* not acknowledged \(−10 each\)/);
 });
 test('a day: running it again never doubles up; a dry run changes nothing', () => {
   const s = { employees: staff, marks: [] };
@@ -230,14 +221,14 @@ test('runDays: switched off, it does not catch up when switched back on', () => 
 test('settings: defaults, validation, and activeFrom stays put', () => {
   const s = {};
   const d = am.settingsOf(s, '2026-10-12');
-  assert.deepEqual(d.points, { ackAll: 10, ackHalfMax: 5, processorLinks: 20, reviewerLinks: 30, reportLate: 10, mailReplyLate: 10 });
+  assert.deepEqual(d.points, { ackPerItem: 10, processorLinks: 20, reviewerLinks: 30, reportLate: 10, mailReplyLate: 10 });
   assert.deepEqual(d.enabled, { acknowledgement: true, links: true, reports: true, mailReply: true });
   assert.equal(d.activeFrom, '2026-10-12');
   assert.equal(am.settingsOf(s, '2026-11-01').activeFrom, '2026-10-12');
-  am.updateSettings(s, { enabled: { links: false, nonsense: true }, points: { processorLinks: '15', reviewerLinks: -5, ackAll: 'abc' }, activeFrom: 'tomorrow' }, '2026-10-12');
+  am.updateSettings(s, { enabled: { links: false, nonsense: true }, points: { processorLinks: '15', reviewerLinks: -5, ackPerItem: 'abc' }, activeFrom: 'tomorrow' }, '2026-10-12');
   assert.equal(s.autoMarks.settings.enabled.links, false); assert.equal(s.autoMarks.settings.enabled.acknowledgement, true);
   assert.equal(s.autoMarks.settings.points.processorLinks, 15);
   assert.equal(s.autoMarks.settings.points.reviewerLinks, 30, 'a negative number is ignored');
-  assert.equal(s.autoMarks.settings.points.ackAll, 10, 'a non-number is ignored');
+  assert.equal(s.autoMarks.settings.points.ackPerItem, 10, 'a non-number is ignored');
   assert.equal(s.autoMarks.settings.activeFrom, '2026-10-12', 'an invalid date is ignored');
 });
