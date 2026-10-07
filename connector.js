@@ -734,8 +734,6 @@ function recordingUrlOf(call) {
 // derived from whether we have a recording yet.
 // What the Aircall hook and the Slack cards have done since this server started — shown (counts only) on /webhooks/health so
 // "no cards" can be told apart: nothing arriving, arriving but rejected, arriving but not routable, or Slack refusing the post.
-const _events = [];   // the last 12 Aircall events and what we did with each (no names or numbers)
-function noteEvent(ev) { _events.unshift({ at: new Date().toISOString(), ...ev }); if (_events.length > 12) _events.pop(); }
 const _diag = { since: new Date().toISOString(), accepted: 0, rejected: 0, lastInAt: null, lastEvent: null, lastRejectedAt: null, lastRejectWhy: null, cardsPosted: 0, cardFails: 0, lastCardOkAt: null, lastCardFailAt: null, lastCardError: null };
 // EVERY outbound call gets a card — answered or not (we called them: the team should always see it). Inbound calls nobody
 // answered, and voicemails, stay silent. An unanswered outbound card is informational: it is never "listened to", never
@@ -775,7 +773,7 @@ async function handleCallEnded(call, opts) {
   const nowMs = opts.nowMs || Date.now();
   const state = db.get();
   const existing = findCall(state, call.id);
-  if (existing && !existing.stub) { clog('info', 'call.ended dedup', { id: call.id }); return 'duplicate (already saved)'; }
+  if (existing && !existing.stub) { clog('info', 'call.ended dedup', { id: call.id }); return; }
 
   const agentId = call.user ? String(call.user.id) : null;
   const routing = agentId ? agentRouting(state, agentId) : null;
@@ -809,13 +807,11 @@ async function handleCallEnded(call, opts) {
       if (!opts.recovered && routing && !unanswered && !vm && !priorLeg.recordingUrl) {
         const t = setTimeout(() => backfillRecording(priorLeg.id, String(call.id)), 150000); if (t.unref) t.unref();
       }
-      return 'merged into an earlier call from the same number (' + priorLeg.id + ')';
+      return;
     }
   }
 
-  // Looking the caller up must never stop the call being saved: if Aircall's contact search is slow or down, keep the number.
-  let caller;
-  try { caller = await resolveCaller(state, call); } catch (e) { clog('warn', 'caller lookup failed — saving the call with the number only: ' + (e && e.message || e)); const rd = call.raw_digits || ''; caller = { name: rd ? ('+' + String(rd).replace(/^[+]/, '')) : 'Unknown / not saved', clientId: null }; }
+  const caller = await resolveCaller(state, call);
   const base = {
     direction: call.direction || null, durationSec: call.duration || null, callerPhone,
     contactName: caller.name, clientId: caller.clientId, clientName: caller.name,
@@ -856,7 +852,6 @@ async function handleCallEnded(call, opts) {
     const rowId = row.id, aid = String(call.id);
     setTimeout(() => backfillRecording(rowId, aid), 150000);
   }
-  return 'saved as ' + row.id + ' (' + row.status + (routing ? '' : ', agent not mapped') + (row.slackTs ? ', card posted' : ', no card') + ')';
 }
 
 // ---------------------------------------------------------------------------
@@ -3232,7 +3227,6 @@ function callDelivery(state) {
       })),
     },
     // the 8 newest calls, with no names or numbers — enough to see what really happened to each
-    events: _events,
     latest: (state.calls || []).filter(c => !c.stub).slice(-8).reverse().map(c => ({ at: c.occurredAt, direction: c.direction || null, status: c.status, mapped: !!(c.team && c.team !== 'Unmapped'), card: !!c.slackTs, recovered: !!c.recovered, seconds: c.durationSec || null })),
   };
 }
@@ -3404,14 +3398,13 @@ function mountConnector(app) {
     _diag.accepted++; _diag.lastInAt = new Date().toISOString(); _diag.lastEvent = (req.body && req.body.event) || null;
     const event = req.body && req.body.event;
     const call = (req.body && req.body.data) || {};
-    const evInfo = { event: event || null, callId: call && call.id != null ? String(call.id) : null, direction: call.direction || null, answered: !!call.answered_at, missedReason: call.missed_call_reason || null, seconds: call.duration != null ? call.duration : null, agentMapped: call.user ? !!agentRouting(db.get(), String(call.user.id)) : false };
     clog('info', 'aircall webhook in', { event, callId: call && call.id, hasRecording: !!(call && (call.recording || (call.asset && call.asset.url) || call.voicemail)) });
     (async () => {
       try {
-        if (event === 'call.ended') noteEvent({ ...evInfo, result: await handleCallEnded(call) });
-        else if (event === 'call.comm_assets_generated' || event === 'call.recording_generated') { await handleRecordingReady(call); noteEvent({ ...evInfo, result: 'recording handled' }); }
-        else { clog('info', 'aircall event ignored', { event }); noteEvent({ ...evInfo, result: 'ignored (not an event we use)' }); }
-      } catch (e) { clog('error', 'aircall handler threw: ' + (e && e.stack || e)); noteEvent({ ...evInfo, result: 'FAILED: ' + String(e && e.message || e).slice(0, 120) }); _diag.handlerErrors = (_diag.handlerErrors || 0) + 1; }
+        if (event === 'call.ended') await handleCallEnded(call);
+        else if (event === 'call.comm_assets_generated' || event === 'call.recording_generated') await handleRecordingReady(call);
+        else clog('info', 'aircall event ignored', { event });
+      } catch (e) { clog('error', 'aircall handler threw: ' + (e && e.stack || e)); }
     })();
   });
 
