@@ -723,6 +723,9 @@ function recordingUrlOf(call) {
 
 // Post the card, or update it in place if we've posted before. Stage is
 // derived from whether we have a recording yet.
+// What the Aircall hook and the Slack cards have done since this server started — shown (counts only) on /webhooks/health so
+// "no cards" can be told apart: nothing arriving, arriving but rejected, arriving but not routable, or Slack refusing the post.
+const _diag = { since: new Date().toISOString(), accepted: 0, rejected: 0, lastInAt: null, lastEvent: null, lastRejectedAt: null, lastRejectWhy: null, cardsPosted: 0, cardFails: 0, lastCardOkAt: null, lastCardFailAt: null, lastCardError: null };
 async function syncCard(state, row) {
   if (row.team === 'Unmapped' || row.status === 'not_picked_up' || row.status === 'voicemail') return;
   const stage = row.recordingUrl ? 'recording' : 'ended';
@@ -737,7 +740,14 @@ async function syncCard(state, row) {
   const posted = await slack('chat.postMessage', {
     channel: cfg().slackChannel, text: callCardFallback(opts), blocks: buildCallCard(opts),
   });
-  if (posted && posted.ok) { row.slackChannel = posted.channel; row.slackTs = posted.ts; db.save(); }
+  if (posted && posted.ok) { row.slackChannel = posted.channel; row.slackTs = posted.ts; db.save(); _diag.cardsPosted++; _diag.lastCardOkAt = new Date().toISOString(); }
+  else {
+    // Slack refused the card (bad/revoked token, bot removed from the channel, channel archived…). Say so out loud, once in a while.
+    const why = (posted && posted.error) || 'no answer from Slack';
+    _diag.cardFails++; _diag.lastCardFailAt = new Date().toISOString(); _diag.lastCardError = String(why).slice(0, 80);
+    clog('error', 'slack call card FAILED', { error: why, call: row.id });
+    if (_alertSink) _alertSink('slack_card_failed', 'A call card could not be posted to Slack (' + why + '). Calls are still saved in the Task Manager. Check the Slack bot token, that the bot is still in the call channel, and that the channel exists.');
+  }
 }
 
 // opts (used only when RECOVERING a call that was missed): { occurredAt: ISO of the real call, nowMs: the call's own
@@ -3177,6 +3187,24 @@ async function reconcileCrm(kind, opts) {
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
+// Counts only (this is on the public health page): what happened to the calls of the last 24 hours, and what the hook has done
+// since the server started.
+function callDelivery(state) {
+  const since = Date.now() - 24 * 3600e3;
+  const recent = (state.calls || []).filter(c => !c.stub && new Date(c.occurredAt).getTime() >= since);
+  const answered = recent.filter(c => c.status === 'ended');
+  const mapped = answered.filter(c => c.team && c.team !== 'Unmapped');
+  return {
+    sinceBoot: { ..._diag },
+    last24h: {
+      calls: recent.length, answered: answered.length, voicemail: recent.filter(c => c.status === 'voicemail').length,
+      notPickedUp: recent.filter(c => c.status === 'not_picked_up').length,
+      answeredButAgentNotMapped: answered.length - mapped.length,
+      cardsPosted: mapped.filter(c => c.slackTs).length, cardsMissing: mapped.filter(c => !c.slackTs).length,
+      lastCallAt: recent.reduce((m, c) => (c.occurredAt > m ? c.occurredAt : m), '') || null,
+    },
+  };
+}
 function mountConnector(app) {
   app.get('/webhooks/health', (req, res) => {
     const c = cfg();
@@ -3210,6 +3238,7 @@ function mountConnector(app) {
       callsEmailDigestLastDaySent: (db.get().callsEmailsDigest || {}).lastDay || null,
       crmPolicyCompliance: { webhookConfigured: !!c.crmWebhookSecret, apiFallbackConfigured: !!(process.env.CRM_API_URL && process.env.CRM_API_KEY) },
       calls: (db.get().calls || []).length,
+      aircallDelivery: callDelivery(db.get()),
       waContacts: Object.keys(db.get().waContacts || {}).length,
       waAwaiting: Object.values(db.get().waContacts || {}).filter(c => c.status === 'awaiting').length,
       digestHoursNZ: DIGEST_HOURS,
@@ -3334,8 +3363,14 @@ function mountConnector(app) {
 
   app.post('/webhooks/aircall', (req, res) => {
     const v = verifyAircall(req);
-    if (!v.ok) { clog('warn', 'aircall rejected', { why: v.why }); return res.status(401).send('unauthorized'); }
+    if (!v.ok) {
+      clog('warn', 'aircall rejected', { why: v.why });
+      _diag.rejected++; _diag.lastRejectedAt = new Date().toISOString(); _diag.lastRejectWhy = v.why;
+      if (_alertSink) _alertSink('aircall_rejected', 'Aircall is calling the webhook but it is being REJECTED (' + v.why + '), so no call cards or tasks are being created. Make the Token box in Aircall → Integrations → Webhook identical to AIRCALL_WEBHOOK_TOKEN in Railway.');
+      return res.status(401).send('unauthorized');
+    }
     res.status(200).send('ok'); // ack immediately; process after
+    _diag.accepted++; _diag.lastInAt = new Date().toISOString(); _diag.lastEvent = (req.body && req.body.event) || null;
     const event = req.body && req.body.event;
     const call = (req.body && req.body.data) || {};
     clog('info', 'aircall webhook in', { event, callId: call && call.id, hasRecording: !!(call && (call.recording || (call.asset && call.asset.url) || call.voicemail)) });
