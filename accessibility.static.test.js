@@ -53,3 +53,25 @@ test('Performance: managers see Productivity (scoped by the server), team manage
   assert.match(html, /setProdScope\(false\)[\s\S]{0,200}setProdScope\(true\)/);
   assert.match(html, /function teamProductivityHtml\(\)/); assert.match(html, /openReportCardFor\(this\.dataset\.id\)/);
 });
+
+test('dashboard views are real tabs: tablist/tab/tabpanel, aria-selected, arrow keys, no checkboxes', () => {
+  assert.match(html, /role="tablist" aria-label="Dashboard view"/);
+  assert.match(html, /role="tab" id="tdTab_'/);
+  assert.match(html, /aria-selected="' \+ \(_tdMode === k\)/);
+  assert.match(html, /role="tabpanel" aria-labelledby="tdTab_'/);
+  assert.match(html, /function tdTabKey\(e\)[\s\S]*ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/);
+  assert.doesNotMatch(html.slice(html.indexOf('function drawToday')), /^[\s\S]{0,2500}type="checkbox"/, 'the view switcher is not a checkbox');
+});
+test('each tile announces its name, count, scope and action; the search box has a label', () => {
+  assert.match(html, /aria-label="' \+ esc\(t\.label \+ ', ' \+ n \+ \(n === 1 \? ' task' : ' tasks'\) \+ '\. Scope: ' \+ t\.scope/);
+  assert.match(html, /<label for="tdSearch"/);
+  assert.match(html, /\.td-acc-h\{[^}]*min-height:44px/);
+});
+test('switching view clears the old view: tile, open section, selected task and search', () => {
+  const fn = html.slice(html.indexOf('function tdSetMode'), html.indexOf('function tdTabKey'));
+  for (const v of ['_tdTile = null', '_tdOpen = null', '_tdSel = null', "_tdQuery = ''"]) assert.ok(fn.includes(v), v);
+});
+test('every task list sorts newest first', () => {
+  assert.match(html, /function taskNewest\(a, b\)/);
+  assert.equal((html.match(/\.sort\(taskNewest\)/g) || []).length >= 8, true);
+});

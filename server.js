@@ -330,10 +330,14 @@ const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
 // (comma-separated) without a code change.
 const DIRECT_PROFIT_CONFIRM_EMAILS = (process.env.DIRECT_PROFIT_CONFIRM_EMAILS ||
   'parvinder@elitetaxation.co.nz,simran@elitetaxation.co.nz').split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
-// A task stored as "internal" that nevertheless has a client attached is
+// A task stored as "internal" that nevertheless names a client (or has a Sheet/Cashbook link) is
 // really client work (it was set up with the wrong type) — it can be profit-
 // confirmed, and is converted to a client task when it is.
-function hasClient(t) { return !!(t && t.clientId); }
+function hasClient(t) {
+  if (!t) return false;
+  const name = String(t.clientName || '').trim();
+  return !!(t.clientId || (name && name.toLowerCase() !== 'internal') || t.sheetLink || t.cashbookLink);
+}
 function canDirectProfitConfirm(emp) {
   return !!(emp && emp.email && DIRECT_PROFIT_CONFIRM_EMAILS.includes(String(emp.email).toLowerCase()));
 }
@@ -6012,7 +6016,16 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
     return !finished || todayTouched(t, today);
   });
   const po = profitConfirmOwner(state);
+  // Manager exceptions for the Manager view's "Needs Manager Attention" tile — the same rule the Manager attention page uses.
+  let attentionIds = [];
+  if (isAdminRole(me.accessRole)) {
+    const wdeps = workflowDeps(state, me), byId = {}, rows = [];
+    for (const t of scoped) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, wdeps), t, wdeps)); }
+    const ws = workflowSettings(state);
+    attentionIds = [...new Set(mgr.exceptions(rows, byId, { today, nowMs, enforceDomains: !!ws.linkDomainsEnforced, allowedDomains: ws.linkDomains }).map(a => a.id))];
+  }
   const payload = workflow.buildToday(scoped, me, {
+    attentionIds, reviewSlaHours: Number((workflowSettings(state) || {}).reviewSlaHours) || undefined,
     today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),

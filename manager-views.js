@@ -68,13 +68,15 @@ function applyFilters(rows, f) {
 const RISK_ORDER = { overdue: 0, due_today: 1, at_risk: 2, waiting_client: 3, ok: 4, na: 5, done: 6 };
 function sortRows(rows, sort) {
   const by = {
+    // newest first: the latest-assigned task on top; task numbers rise with every new task, so they break ties
+    newest: (a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')) || String(b.id).localeCompare(String(a.id)),
     risk: (a, b) => (RISK_ORDER[a.clientRisk.state] - RISK_ORDER[b.clientRisk.state]) || String(a.internalDeadline || '9999').localeCompare(String(b.internalDeadline || '9999')) || String(a.id).localeCompare(String(b.id)),
     internal: (a, b) => String(a.internalDeadline || '9999').localeCompare(String(b.internalDeadline || '9999')) || String(a.id).localeCompare(String(b.id)),
     client: (a, b) => String(a.clientDate || '9999').localeCompare(String(b.clientDate || '9999')) || String(a.id).localeCompare(String(b.id)),
     employee: (a, b) => String(a.assigneeName || '~').localeCompare(String(b.assigneeName || '~')) || String(a.id).localeCompare(String(b.id)),
     hours: (a, b) => (Number(b.allocatedHours) || 0) - (Number(a.allocatedHours) || 0) || String(a.id).localeCompare(String(b.id)),
   };
-  return rows.slice().sort(by[sort] || by.risk);
+  return rows.slice().sort(by[sort] || by.newest);
 }
 function paginate(rows, page, size) {
   const pageSize = PAGE_SIZES.includes(Number(size)) ? Number(size) : PAGE_SIZES[0];

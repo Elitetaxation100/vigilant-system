@@ -161,8 +161,12 @@ function card(t, deps) {
     tracker: tracker(t, st), nextAction: nextAction(t, st, w, deps),
     hasSheet: !!(t.sheetLink || (t.sheetFiles || []).length), hasCashbook: !!(t.cashbookLink || (t.cashbookFiles || []).length),
     attachmentCount: (t.reviewAttachments || []).length + (t.sheetFiles || []).length + (t.cashbookFiles || []).length,
+    holdStart: t.heldAt || null, holdFollowUp: t.holdFollowUp || null, submittedAt: t.completedAt || null,
+    sortAt: latestOf([t.createdAt, t.assignedAt, t.completedAt, t.reviewedAt, t.heldAt, t.escalation && t.escalation.at, t.sentToClientAt]),
   };
 }
+// The most recent of several ISO timestamps — what "newest first" sorts on (latest activity on the task).
+function latestOf(list) { return list.filter(Boolean).sort().pop() || null; }
 
 const RISK_RANK = { overdue: 0, due_today: 1, at_risk: 2 };
 const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, normal: 2, low: 3 };
@@ -250,10 +254,106 @@ function buildToday(tasks, me, deps) {
   // only ship the cards the page will actually show
   const used = new Set([...Object.values(review).flat(), ...needs.map(n => n.id), ...waiting.flatMap(g => g.ids), ...doneToday.map(d => d.id), ...Object.values(filters).flat()]);
   const outCards = Object.fromEntries([...used].map(id => [id, cards[id]]));
-  return { counts, filters, review, reviewCounts, sections: { needs: needs.map(({ id, type, why }) => ({ id, type, why })), waiting, completed: doneToday }, cards: outCards };
+  const modes = buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, finishedIds });
+  const modeIds = new Set(['today', 'manager', 'review'].flatMap(k => [...modes[k].tiles.flatMap(x => x.ids), ...modes[k].default.primary.ids, ...modes[k].default.secondary.flatMap(x => x.ids)]));
+  modeIds.forEach(id => { if (cards[id]) outCards[id] = cards[id]; });
+  return { counts, filters, review, reviewCounts, modes, sections: { needs: needs.map(({ id, type, why }) => ({ id, type, why })), waiting, completed: doneToday }, cards: outCards };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// THE THREE DASHBOARD VIEWS. Each view owns its OWN tiles and each tile is nothing but a list of task ids: the number on the
+// tile IS ids.length (unique), and the list it opens IS those ids — so a tile and its list can never disagree. Nothing here is
+// stored; it is derived from the same cards as everything else. deps adds: reviewSlaHours (default 48), attentionIds (the
+// manager exceptions, computed by the caller), and a task lookup via `tasks`.
+// ---------------------------------------------------------------------------------------------------------------------------
+const RISK_STATES = ['overdue', 'due_today', 'at_risk'];
+const DEFAULT_REVIEW_SLA_HOURS = 48;
+const uniq = a => [...new Set(a)];
+const byNewest = cards => ids => uniq(ids).sort((a, b) => String((cards[b] || {}).sortAt || '').localeCompare(String((cards[a] || {}).sortAt || '')));
+
+function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, finishedIds }) {
+  const sla = Number(deps.reviewSlaHours) > 0 ? Number(deps.reviewSlaHours) : DEFAULT_REVIEW_SLA_HOURS;
+  const newest = byNewest(cards);
+  const tileOf = (key, label, scope, ids, empty, extra) => { const u = newest(ids); return Object.assign({ key, label, scope, count: u.length, ids: u, empty }, extra || {}); };
+  const inRisk = id => RISK_STATES.includes(cards[id].clientRisk.state);
+  const slaBreached = id => !!(cards[id].reviewWaiting && cards[id].reviewWaiting.hours > sla);
+  const needsIds = new Set(needs.map(n => n.id));
+  const taskOf = id => tasks.find(t => t.id === id) || {};
+
+  // ---- reviews that are MINE (named reviewer = me)
+  const myReviews = open.filter(t => cards[t.id].status === 'In Review' && !cards[t.id].escalation && t.reviewerId === me.id).map(t => t.id);
+  const myResubmitted = myReviews.filter(id => cards[id].subState === 'Correction resubmitted');
+  const myNew = myReviews.filter(id => cards[id].subState !== 'Correction resubmitted');
+  const ownsNext = id => cards[id].waitingOn.ownerId === me.id || needsIds.has(id);
+
+  // ================= TODAY — only what I personally must act on
+  const todayTiles = [
+    tileOf('needs_review', 'Needs My Review', 'Personal', myReviews, 'No reviews are waiting for you.'),
+    tileOf('risk_mine', 'Client Delivery at Risk', 'Where I own the next action', open.map(t => t.id).filter(id => inRisk(id) && ownsNext(id)), 'No client deadlines at risk on your side.'),
+    tileOf('decisions', 'Waiting for My Decision', 'Personal', needs.filter(n => ['decision', 'escalation', 'profit_confirm', 'unassigned'].includes(n.type)).map(n => n.id), 'Nothing is waiting for your decision.'),
+    tileOf('reports_mine', 'Reports I Must Send', 'Personal', open.filter(t => cards[t.id].status === 'Approved' && isClientTask(t) && t.awaitingClientDecision && t.profitConfirmStatus !== 'pending' && (t.reportSendOwner || t.assignedTo) === me.id).map(t => t.id), 'No reports are waiting for you to send.'),
+    tileOf('overdue_mine', 'My Overdue Actions', 'Where I own the next action', open.map(t => t.id).filter(id => {
+      const c = cards[id], t = taskOf(id);
+      if (!ownsNext(id) || ['client', 'external', 'profit'].includes(c.waitingOn.kind)) return false;
+      if (c.waitingOn.kind === 'employee' && t.internalDeadline && t.internalDeadline < deps.today && c.waitingOn.ownerId === me.id) return true;
+      return c.clientRisk.state === 'overdue' || slaBreached(id);
+    }), 'You have no overdue actions.'),
+    tileOf('actions_done', 'Actions Completed Today', 'Actions, not tasks', doneToday.map(d => d.id), 'No actions completed yet today.'),
+  ];
+  const mkDefault = (primary, secondary) => ({ primary, secondary });
+  const sec = (key, title, ids, empty) => ({ key, title, ids: newest(ids), empty: empty || '' });
+  const waitSecs = waiting.map(g => sec('wait_' + g.kind, 'Waiting on ' + g.label.toLowerCase(), g.ids));
+  const todayDefault = mkDefault(
+    sec('needs_now', 'Needs your action now', needs.map(n => n.id), 'Nothing requires your action right now.'),
+    [...waitSecs, sec('done_today', 'Actions completed today', doneToday.map(d => d.id), 'Nothing completed yet today.')]);
+
+  // ================= MANAGER — the team's delivery picture
+  const reportsOpen = open.filter(t => cards[t.id].status === 'Approved' && isClientTask(t));
+  const rState = t => { const c = cards[t.id]; if (t.profitConfirmStatus === 'pending') return 'profit'; if (!t.clientDate) return 'later'; return c.clientRisk.state === 'overdue' ? 'overdue' : c.clientRisk.state === 'due_today' ? 'today' : 'later'; };
+  const reportBreakdown = { overdue: 0, today: 0, later: 0, profit: 0 };
+  reportsOpen.forEach(t => { reportBreakdown[rState(t)]++; });
+  const managerTiles = [
+    tileOf('team_risk', 'Team Delivery at Risk', 'Whole team', open.map(t => t.id).filter(inRisk), 'No client deadlines are currently at risk.'),
+    tileOf('team_overdue', 'Team Overdue', 'Employee-owned only', open.filter(t => { const c = cards[t.id]; return c.waitingOn.kind === 'employee' && ['Assigned', 'In Progress'].includes(c.status) && t.internalDeadline && t.internalDeadline < deps.today; }).map(t => t.id), 'No team tasks are overdue.'),
+    tileOf('reviews_blocking', 'Reviews Blocking Delivery', 'Reviewer owns the next action', open.map(t => t.id).filter(id => cards[id].status === 'In Review' && cards[id].waitingOn.kind === 'reviewer' && (inRisk(id) || slaBreached(id))), 'No reviews are blocking delivery.'),
+    tileOf('reports_team', 'Reports Not Sent', 'Whole team', reportsOpen.map(t => t.id), 'All approved reports have been sent.', { breakdown: reportBreakdown }),
+    tileOf('waiting_client', 'Waiting on Client', 'Authorised holds', open.map(t => t.id).filter(id => cards[id].waitingOn.kind === 'client'), 'Nothing is waiting on a client.'),
+    tileOf('needs_attention', 'Needs Manager Attention', 'Open exceptions', (deps.attentionIds || []).filter(id => cards[id]), 'No exceptions need attention.'),
+  ];
+  const managerDefault = mkDefault(
+    sec('risk', 'Client delivery at risk', managerTiles[0].ids, 'No client deadlines are currently at risk.'),
+    waitSecs);
+
+  // ================= REVIEW — my reviewing queue
+  const urgentRv = myReviews.filter(id => inRisk(id) || slaBreached(id));
+  const returnedByMe = open.filter(t => cards[t.id].status === 'Correction Required' && (t.reviewedBy === me.id || t.reviewerId === me.id)).map(t => t.id);
+  const completedReviews = doneToday.filter(d => /approved|Returned|scalated/.test(d.action)).map(d => d.id);
+  const reviewTiles = [
+    tileOf('urgent', 'Urgent Reviews', 'Personal', urgentRv, 'No urgent reviews.'),
+    tileOf('new_sub', 'New Submissions', 'Personal', myNew, 'No new submissions are waiting.'),
+    tileOf('resubmitted', 'Corrections Resubmitted', 'Personal', myResubmitted, 'No corrections have come back.'),
+    tileOf('waiting_corr', 'Waiting on Employee Correction', 'Returned by me', returnedByMe, 'No corrections are waiting on employees.'),
+    tileOf('rv_done', 'Reviews Completed Today', 'Review actions, not tasks', completedReviews, 'No reviews completed yet today.'),
+    tileOf('sla', 'Review SLA Breached', 'Waiting over ' + sla + ' h', myReviews.filter(slaBreached), 'No reviews are past the review SLA.'),
+  ];
+  const shownUnderUrgent = myResubmitted.filter(id => urgentRv.includes(id)).length;
+  const reviewDefault = mkDefault(
+    sec('urgent', 'Urgent — client deadline at risk or review SLA breached', urgentRv, 'No urgent reviews.'),
+    [sec('new', 'New submissions', myNew, 'No new submissions are waiting.'),
+     sec('resub', 'Corrections resubmitted', myResubmitted, 'No corrections have come back.'),
+     sec('corr', 'Waiting on employee correction', returnedByMe),
+     sec('done', 'Reviews completed today', completedReviews)]);
+  reviewDefault.note = shownUnderUrgent ? shownUnderUrgent + (shownUnderUrgent === 1 ? ' resubmission is' : ' resubmissions are') + ' displayed under Urgent.' : '';
+
+  return {
+    sla,
+    today: { tiles: todayTiles, default: todayDefault },
+    manager: { tiles: managerTiles, default: managerDefault },
+    review: { tiles: reviewTiles, default: reviewDefault },
+  };
 }
 
 // "Good morning / afternoon / evening" from the BUSINESS clock (hour 0–23 in the company timezone).
 function greetingFor(hour) { return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'; }
 
-module.exports = { status, subState, waitingOn, clientRisk, commitmentTag, reviewWaiting, tracker, nextAction, card, buildToday, greetingFor, daysBetween, taskKindLabel, isClientTask, needsOrder, EXEMPT_HOLDS };
+module.exports = { buildModes, DEFAULT_REVIEW_SLA_HOURS, status, subState, waitingOn, clientRisk, commitmentTag, reviewWaiting, tracker, nextAction, card, buildToday, greetingFor, daysBetween, taskKindLabel, isClientTask, needsOrder, EXEMPT_HOLDS };
