@@ -221,6 +221,8 @@ body.v2-dash .clock-card{ display:none !important; }
 .td-row .tr-main{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-st{ font-size:11.5px; color:var(--text-dim); white-space:nowrap; }
 .td-row .tr-who{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--text-dim); } .td-row .tr-date{ font-size:12px; color:var(--text-dim); text-align:right; white-space:nowrap; }
 .td-row .td-tag{ font-size:11px; padding:0 7px; }
+.td-own{ margin:6px 0 12px; padding:10px 12px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel-2); } .td-own > b{ display:block; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-faint); margin-bottom:6px; }
+.td-own .action-stack{ display:flex; flex-wrap:wrap; gap:6px; }
 .flt-bar{ display:flex; flex-wrap:wrap; gap:8px 12px; align-items:flex-end; margin:0 0 12px; }
 .flt-q{ flex:1 1 240px; max-width:380px; } .flt-q .td-search{ max-width:none; min-height:40px; }
 .flt-f{ display:flex; flex-direction:column; gap:2px; font-size:11.5px; color:var(--text-dim); } .flt-f select, .flt-f input{ min-height:40px; padding:4px 8px; border:1px solid var(--panel-border); border-radius:8px; background:var(--panel); color:inherit; font:inherit; font-size:13px; }
@@ -7783,6 +7785,8 @@ const TD_MODES = [['today', 'Today'], ['manager', 'Manager View'], ['review', 'R
 function tdLoadMode(){ try { const m = localStorage.getItem('tdMode'); return TD_MODES.some(x => x[0] === m) ? m : 'today'; } catch(e){ return 'today'; } }
 // ONE view is on screen at a time and each view owns its own tile, expanded section, selected task and search — switching clears them all.
 let _today = null, _tdMode = tdLoadMode(), _tdTile = null, _tdOpen = null, _tdSel = null;
+const tdDefaultOpen = () => _tdMode === 'today' ? 'my_work' : null;      // on Today, "My work" is the one section that starts open
+_tdOpen = tdDefaultOpen();
 function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
   document.body.classList.toggle('v2-dash', on);
@@ -7894,7 +7898,7 @@ function tdListHtml(){
   const cards = (ids, noteFor) => ids.map(id => tdCardHtml(id, noteFor ? noteFor(id) : '')).join('');
   const why = id => (_today.sections.needs.find(n => n.id === id) || {}).why || '';
   const done = id => (_today.sections.completed.find(d => d.id === id) || {}).action || '';
-  const noteFor = x => (x.key === 'needs_now' || x.key === 'urgent' || x.key === 'risk') ? why : (x.key === 'done_today' || x.key === 'done') ? done : null;
+  const noteFor = x => (x.key === 'needs_now' || x.key === 'urgent' || x.key === 'risk') ? why : (x.key === 'done_today' || x.key === 'done') ? done : null;   // (my_work rows explain themselves in the status and the tooltip)
   let out = head(S.primary.title, S.primary.ids.length) + (S.primary.ids.length ? cards(S.primary.ids, noteFor(S.primary)) : '<div class="td-empty">' + esc(fltActive('td') ? 'Nothing here matches your search or filters.' : S.primary.empty) + '</div>');
   if(S.note) out += '<div class="td-empty" role="note">' + esc(S.note) + '</div>';
   out += S.secondary.map(x => {
@@ -7934,7 +7938,7 @@ function drawToday(){
 }
 function tdSetMode(m, focusTab){
   if(m === _tdMode && !focusTab) return;
-  _tdMode = m; _tdTile = null; _tdOpen = null; _tdSel = null; fltReset('td'); window.__tdMobileOpen = false;   // the old view leaves NOTHING behind (tile, section, task, search AND filters)
+  _tdMode = m; _tdTile = null; _tdOpen = tdDefaultOpen(); _tdSel = null; fltReset('td'); window.__tdMobileOpen = false;   // the old view leaves NOTHING behind (tile, section, task, search AND filters)
   try { localStorage.setItem('tdMode', m); } catch(e){}
   drawToday();
   if(focusTab){ const b = document.getElementById('tdTab_' + m); if(b) b.focus(); }
@@ -7945,7 +7949,7 @@ function tdTabKey(e){
   if(to < 0) return;
   e.preventDefault(); tdSetMode(TD_MODES[to][0], true);
 }
-function tdSetTile(k){ _tdTile = (_tdTile === k) ? null : k; _tdOpen = null; _tdSel = null; window.__tdMobileOpen = false; tdDrawBody(); }
+function tdSetTile(k){ _tdTile = (_tdTile === k) ? null : k; _tdOpen = tdDefaultOpen(); _tdSel = null; window.__tdMobileOpen = false; tdDrawBody(); }
 function tdToggleOpen(k){ _tdOpen = (_tdOpen === k) ? null : k; tdDrawBody(); }
 function tdSelect(id){
   _tdSel = id; window.__tdMobileOpen = true;          // one detail panel only: this REPLACES whatever was open
@@ -7966,6 +7970,7 @@ function tdPrimary(id){
   if(n.type === 'review' || n.type === 'correction_resubmitted') return btn('Open review', "openReviewV2('" + esc(id) + "')");
   if(n.type === 'escalation') return btn('Make the decision', "openEscalationDecision('" + esc(id) + "')");
   if(n.type === 'send_report') return btn('Send to client…', "openSendToClientModal('" + esc(id) + "')");
+  if(n.type === 'accept') return btn(c.status === 'Correction Required' ? 'Accept — start the correction' : 'Accept task', "acceptTask('" + esc(id) + "')") + '<button type="button" class="btn td-act" onclick="openProposeModal(\'' + esc(id) + '\')">Propose a new date</button>';
   if(n.type === 'profit_confirm') return btn('Profit confirmed', "submitProfitConfirmDone('" + esc(id) + "')");
   if(n.type === 'decision') return c.status === 'Assigned' && findTask(id) && findTask(id).status === 'pending_approval' ? btn('Approve assignment', "approveAssignment('" + esc(id) + "')") : btn('Decide the new date', 'openProposedWindows()');
   if(n.type === 'unassigned') return btn('Assign an owner', "openReassignModal('" + esc(id) + "')");
@@ -8013,6 +8018,9 @@ function tdDetailHtml(id, given){
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
     + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '');
   const prim = given ? '' : tdPrimary(id);
+  // Work assigned to ME: every action that belongs to it — accept, start, mark done, send for review, hold / client query, resume, dates
+  const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
+  if(mineOpen) body += '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>';
   const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
   body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px;">' + prim + mgrBtns + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>';
   const { ev } = taskTimelineEvents(t);
@@ -8191,7 +8199,8 @@ function mtDrawResults(){
   const rows = D.rows.map(r => '<tr oncontextmenu="mtMenu(event,\'' + esc(r.id) + '\');return false;">'
     + '<td data-l="Task"><button type="button" class="tm-link" onclick="mtOpenDetail(\'' + esc(r.id) + '\')"><b>' + esc(r.clientName || 'Admin task') + '</b> — ' + esc(r.name) + '</button><div class="tm-sub">' + esc(r.kindLabel) + ' · ' + esc(taskNo(r.id)) + '</div></td>'
     + '<td data-l="Employee">' + esc(r.assigneeName || 'Unassigned') + '<div class="tm-sub">Reviewer: ' + esc(r.reviewerName || '—') + '</div></td>'
-    + '<td data-l="Status"><b>' + esc(r.status) + '</b><div class="tm-sub">' + esc(r.waitingOn.label) + (r.waitingOn.ownerName ? ' · ' + esc(r.waitingOn.ownerName) : '') + '</div></td>'
+    + '<td data-l="Status"><b>' + esc(r.status) + '</b><div class="tm-sub">' + esc(r.waitingOn.label) + (r.waitingOn.ownerName ? ' · ' + esc(r.waitingOn.ownerName) : '') + '</div>'
+    + (r.assigneeId === currentViewerId && (findTask(r.id) || {}).status === 'awaiting_acceptance' ? '<button type="button" class="btn small primary td-act" style="margin-top:4px;" onclick="acceptTask(\'' + esc(r.id) + '\')">Accept</button>' : '') + '</td>'
     + '<td data-l="Internal due">' + (r.internalDeadline ? esc(fmtDate(r.internalDeadline)) : '—') + '<div class="tm-sub">' + esc(r.commitment.label) + '</div></td>'
     + '<td data-l="Client date">' + (r.clientDate ? esc(fmtDate(r.clientDate)) : '—') + '<div>' + mtTag(r) + '</div></td>'
     + '<td data-l="Hours">' + (r.allocatedHours != null ? esc(String(r.allocatedHours)) + ' h' : '—') + '</td>'
@@ -8220,16 +8229,28 @@ async function mtOpenDetail(id){
 }
 /* ---- the ⋯ menu: manager actions. Every one needs a reason and is written to the task's history. */
 function mtMenuClose(){ const m = document.getElementById('mtMenu'); if(m) m.remove(); }
+// The actions a person has on work assigned to THEM (the same ones the classic list gives): accept, start, done, review, hold / query, resume.
+function myTaskMenuItems(t){
+  if(!t || t.assignedTo !== currentViewerId) return [];
+  const id = t.id, s = t.status, out = [];
+  const hold = iCanHold(t) ? [['Put on hold / client query…', "openHoldModal('" + id + "')"]] : [];
+  if(s === 'awaiting_acceptance'){ out.push([isReworkFlagged(t) ? 'Accept — start the correction' : 'Accept this task', "acceptTask('" + id + "')"], ['Propose a new date…', "openProposeModal('" + id + "')"]); }
+  else if(s === 'accepted'){ out.push([t.timerStartedAt ? 'Pause the clock' : (t.startedAt ? 'Resume the clock' : 'Start work'), (t.timerStartedAt ? 'pauseTask' : 'resumeTask') + "('" + id + "')"], ['Mark done (no review)', "markDoneNoReview('" + id + "')"], ['Send for review…', "openCompleteModal('" + id + "')"], ...hold); }
+  else if(s === 'rework'){ out.push(['See what to fix', "openReworkDetailModal('" + id + "')"], ...hold); }
+  else if(s === 'on_hold' && iCanHold(t)){ const q = openQuery(t); out.push(['Resume', q ? "openResumeReplyModal('" + id + "','" + q.id + "')" : "unholdTask('" + id + "')"]); if(q) out.push(['Log the client\'s reply…', "openLogReplyModal('" + id + "','" + q.id + "')"]); out.push(['Add time…', "openAddHoursModal('" + id + "')"], ['Why it is on hold', "openHoldDetailModal('" + id + "')"]); }
+  return out;
+}
 function mtMenu(ev, id){
   ev.preventDefault && ev.preventDefault(); ev.stopPropagation && ev.stopPropagation();
   mtMenuClose();
   const c = ((_mtData || {}).rows || []).find(r => r.id === id); if(!c) return;
   const open = c.status !== 'Completed';
-  const items = [['Open details', "mtOpenDetail('" + id + "')", true], ['Full history', "openTaskTrailModal('" + id + "')", true],
+  const mine = myTaskMenuItems(findTask(id)).map(x => [x[0], x[1], true]);
+  const items = [...mine, ['Open details', "mtOpenDetail('" + id + "')", true], ['Full history', "openTaskTrailModal('" + id + "')", true],
     ['Reassign…', "mtAction('reassign','" + id + "')", open], ['Change due date…', "mtAction('change_due','" + id + "')", open],
     ['Change reviewer…', "mtAction('change_reviewer','" + id + "')", open],
     ['Waive the review…', "mtAction('waive_review','" + id + "')", open && c.kindLabel === 'Client Task' && c.reviewRequired === true],
-    ['Nudge employee…', "nudgeTask('" + id + "')", open && !!c.assigneeId], ['Put on hold…', "openHoldModal('" + id + "')", ['Assigned','In Progress'].includes(c.status)],
+    ['Nudge employee…', "nudgeTask('" + id + "')", open && !!c.assigneeId], ['Put on hold…', "openHoldModal('" + id + "')", ['Assigned','In Progress'].includes(c.status) && c.assigneeId !== currentViewerId],
     ['Resume from hold', "mtResume('" + id + "')", c.status === 'On Hold']].filter(x => x[2]);
   const m = document.createElement('div'); m.id = 'mtMenu'; m.className = 'mt-menu'; m.setAttribute('role', 'menu');
   m.innerHTML = items.map(x => '<button type="button" role="menuitem" onclick="mtMenuClose();' + x[1] + '">' + esc(x[0]) + '</button>').join('');

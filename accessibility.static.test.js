@@ -69,7 +69,7 @@ test('each tile announces its name, count, scope and action; the search box has 
 });
 test('switching view clears the old view: tile, open section, selected task and search', () => {
   const fn = html.slice(html.indexOf('function tdSetMode'), html.indexOf('function tdTabKey'));
-  for (const v of ['_tdTile = null', '_tdOpen = null', '_tdSel = null', "fltReset('td')"]) assert.ok(fn.includes(v), v);
+  for (const v of ['_tdTile = null', '_tdOpen = tdDefaultOpen()', '_tdSel = null', "fltReset('td')"]) assert.ok(fn.includes(v), v);
 });
 test('every task list sorts newest first', () => {
   assert.match(html, /function taskNewest\(a, b\)/);
