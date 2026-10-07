@@ -57,3 +57,19 @@ test('outbound calls are recorded like inbound ones and shown separately; the ne
   assert.ok(D.latest.some(x => x.direction === 'outbound' && x.status === 'ended' && x.mapped === false), 'an answered outbound call from an unmapped agent is saved, with no card');
   assert.doesNotMatch(JSON.stringify(D), /Unmapped|64219998888|64217776666/);
 });
+
+test('every Aircall event leaves a line in the event log saying what we did with it — saved, duplicate, merged, ignored or failed', async () => {
+  const D = (await health()).aircallDelivery;
+  assert.ok(Array.isArray(D.events) && D.events.length >= 3, 'events are listed');
+  const results = D.events.map(e => e.result);
+  assert.ok(results.some(r => /^saved as call\d+ \(ended, agent not mapped, no card\)/.test(r)), JSON.stringify(results));
+  assert.ok(results.some(r => /not_picked_up/.test(r)), 'a missed call says so');
+  assert.ok(D.events.every(e => e.at && 'event' in e && 'direction' in e && 'answered' in e && 'agentMapped' in e));
+  await hook(TOKEN, { event: 'call.ended', data: { id: 2, direction: 'outbound', raw_digits: '+64211234567', duration: 30, answered_at: 1, user: { id: 99999, name: 'Nobody Mapped' } } });
+  await new Promise(r => setTimeout(r, 500));
+  assert.match((await health()).aircallDelivery.events[0].result, /duplicate/, 'a call we already have is reported as a duplicate, not silently dropped');
+  await hook(TOKEN, { event: 'call.something_else', data: { id: 77 } });
+  await new Promise(r => setTimeout(r, 400));
+  assert.match((await health()).aircallDelivery.events[0].result, /ignored/);
+  assert.doesNotMatch(JSON.stringify((await health()).aircallDelivery.events), /Nobody Mapped|64211234567/);
+});
