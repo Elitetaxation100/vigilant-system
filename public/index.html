@@ -8015,23 +8015,24 @@ function tdDetailHtml(id, given){
   } else if(mode === 'review'){
     facts = grp('Submission', fact('Submitted', c.submittedAt ? esc(dt(c.submittedAt)) + (c.assigneeName ? '<span class="sub">by ' + esc(c.assigneeName) + '</span>' : '') : ''), waitFact, fact('Previous corrections', c.reworkCount ? c.reworkCount + (c.correction ? ' · last: ' + esc(c.correction.category || '') : '') : 'None'))
       + grp('Dates', client, fact('Internal commitment', esc(c.commitment.label)))
-      + grp('Links', sheet, cash);
+      ;
   } else {
     facts = grp('People', fact('Assigned employee', esc(c.assigneeName || '')), fact('Reviewer', esc(c.reviewerName || '')))
       + grp('Dates', internal, client, fact('Employee\'s commitment', esc(c.commitment.label)))
-      + grp('Work', fact('Task type', esc(c.taskType || c.kindLabel)), fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), waitFact, fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : 'None'))
-      + grp('Links', sheet, cash);
+      + grp('Work', fact('Task type', esc(c.taskType || c.kindLabel)), fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), waitFact, fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : 'None'));
   }
-  // Attachments and the latest note come first — they are what the reviewer reads before the details
-  body += ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
-    + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '')
-    + facts;
+  const links = grp('Links', sheet, cash);
   const prim = given ? '' : tdPrimary(id);
   // Work assigned to ME: every action that belongs to it — accept, start, mark done, send for review, hold / client query, resume, dates
   const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
-  if(mineOpen) body += '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>';
   const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
-  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px;">' + prim + mgrBtns + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>';
+  // Order: actions (Open review / Full history) → My actions → Links → attachments + latest note → People / Dates / Work
+  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
+    + (mineOpen ? '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>' : '')
+    + links
+    + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
+    + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '')
+    + facts + '<div style="height:6px;"></div>';
   const { ev } = taskTimelineEvents(t);
   body += '<div style="font-weight:700;margin:6px 0 4px;">Timeline <span style="font-weight:400;color:var(--text-faint);font-size:12px;">(New Zealand time)</span></div>'
     + (ev.length ? ev.map(e => '<div style="display:grid;grid-template-columns:26px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--panel-border);"><div>' + e.icon + '</div><div><div style="font-size:13.5px;color:var(--text-dim);line-height:1.5;">' + e.text + '</div>' + (e.extra || '') + '<div style="font-size:11.5px;color:var(--text-faint);font-family:var(--font-mono);">' + (e.at ? esc(dt(e.at)) : '—') + '</div></div></div>').join('')
