@@ -416,6 +416,15 @@ function directionTag(d) { const v = String(d || '').toLowerCase(); return v ===
 function cardOptsFor(state, row, stage) {
   const mentions = agentSlackIds(state, row.agentAircallId).map(id => `<@${id}>`).join(' ');
   const resolved = !!row.finalOutcome || !!row.taskId || row.status === 'no_action';
+  if (unansweredOutbound(row)) {
+    return {
+      icon: '📵', statusLabel: row.status === 'voicemail' ? 'Outbound — Went to Voicemail' : 'Outbound — Not Answered', team: row.team, agent: row.agentName, direction: directionTag(row.direction),
+      client: row.clientName || 'Unknown / not saved', phone: row.callerPhone ? '+' + row.callerPhone : '—',
+      duration: row.durationSec ? row.durationSec + 's' : '—', assignedLine: mentions, ref: row.id,
+      footer: resolved ? '✅ Already resolved — see the task manager.' : '📵 We called and nobody picked up — follow up if needed.',
+      buttons: resolved ? [] : endedButtons(row.id),
+    };
+  }
   if (stage === 'ended') {
     return {
       icon: '📞', statusLabel: 'Call Ended', team: row.team, agent: row.agentName, direction: directionTag(row.direction),
@@ -726,8 +735,15 @@ function recordingUrlOf(call) {
 // What the Aircall hook and the Slack cards have done since this server started — shown (counts only) on /webhooks/health so
 // "no cards" can be told apart: nothing arriving, arriving but rejected, arriving but not routable, or Slack refusing the post.
 const _diag = { since: new Date().toISOString(), accepted: 0, rejected: 0, lastInAt: null, lastEvent: null, lastRejectedAt: null, lastRejectWhy: null, cardsPosted: 0, cardFails: 0, lastCardOkAt: null, lastCardFailAt: null, lastCardError: null };
+// EVERY outbound call gets a card — answered or not (we called them: the team should always see it). Inbound calls nobody
+// answered, and voicemails, stay silent. An unanswered outbound card is informational: it is never "listened to", never
+// counts toward the acknowledgement marks (status stays not_picked_up / voicemail), it just shows who we tried and lets
+// someone log a follow-up.
+const isOutboundRow = r => String((r && r.direction) || '').toLowerCase() === 'outbound';
+const unansweredOutbound = r => isOutboundRow(r) && (r.status === 'not_picked_up' || r.status === 'voicemail');
 async function syncCard(state, row) {
-  if (row.team === 'Unmapped' || row.status === 'not_picked_up' || row.status === 'voicemail') return;
+  if (row.team === 'Unmapped') return;
+  if ((row.status === 'not_picked_up' || row.status === 'voicemail') && !isOutboundRow(row)) return;
   const stage = row.recordingUrl ? 'recording' : 'ended';
   const opts = cardOptsFor(state, row, stage);
   if (row.slackTs) {
@@ -770,7 +786,7 @@ async function handleCallEnded(call, opts) {
   // agent. Only merge when it really looks like a transfer — the prior leg
   // was unanswered, or it landed in the last 90s — so a genuine second call
   // from the same number a few minutes later is NOT swallowed.
-  if (!existing) {
+  if (!existing && String(call.direction || '').toLowerCase() !== 'outbound') {   // a transfer is an INBOUND idea — calling the same customer twice is two calls
     const cutoff = nowMs - TRANSFER_MERGE_MINUTES * 60000;
     const cand = (state.calls || []).filter(c => !c.stub && c.callerPhone === callerPhone && callerPhone &&
       new Date(c.occurredAt).getTime() >= cutoff && new Date(c.occurredAt).getTime() <= nowMs).sort((a, b) => new Date(b.occurredAt) - new Date(a.occurredAt))[0];
@@ -827,7 +843,7 @@ async function handleCallEnded(call, opts) {
   if (row.recordingUrl && !vm && cfg().geminiApiKey && !row.aiOutcome) {
     generateAiDraft(row.id).catch(e => clog('error', 'gemini draft threw: ' + (e && e.stack || e)));
   }
-  if (routing && !unanswered && !vm) await syncCard(state, row);
+  if (routing && ((!unanswered && !vm) || isOutboundRow(row))) await syncCard(state, row);
   clog('info', 'call.ended', { id: call.id, team: row.team, status: row.status, posted: !!row.slackTs, hadRecording: !!row.recordingUrl });
 
   // Backstop: if the recording-ready webhook never arrives (or was missed),
@@ -869,7 +885,7 @@ async function recoverCalls(opts) {
   const fetchCall = opts.fetchCall || fetchAircallCall;
   const mapped = r => r && r.recovered && r.status === 'ended' && r.team && r.team !== 'Unmapped' && !r.voicemail;
   // a recovered call that still has no Slack card, or still no recording on its card
-  const needsCard = r => mapped(r) && !r.slackTs;
+  const needsCard = r => (mapped(r) || (r && r.recovered && unansweredOutbound(r) && r.team && r.team !== 'Unmapped')) && !r.slackTs;
   const needsRecording = r => mapped(r) && !r.recordingUrl;
   // The recording of a LIVE call arrives by its own webhook a little after the call; recovery never gets that event,
   // so ask Aircall for it directly, then post — or update in place — the card.
@@ -3201,6 +3217,7 @@ function callDelivery(state) {
       notPickedUp: recent.filter(c => c.status === 'not_picked_up').length,
       answeredButAgentNotMapped: answered.length - mapped.length,
       cardsPosted: mapped.filter(c => c.slackTs).length, cardsMissing: mapped.filter(c => !c.slackTs).length,
+      outboundUnansweredCardsPosted: recent.filter(c => unansweredOutbound(c) && c.team !== 'Unmapped' && c.slackTs).length, outboundUnansweredCardsMissing: recent.filter(c => unansweredOutbound(c) && c.team && c.team !== 'Unmapped' && !c.slackTs).length,
       lastCallAt: recent.reduce((m, c) => (c.occurredAt > m ? c.occurredAt : m), '') || null,
       // inbound vs outbound — an outbound call the customer did not pick up is "not picked up" and, like any missed call, has no card
       byDirection: Object.fromEntries(['inbound', 'outbound', 'unknown'].map(d => {
