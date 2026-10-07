@@ -17,6 +17,8 @@ const fileStore = require('./files');
 fileStore.init(db);
 const archive = require('./archive');
 const spaceWatch = require('./space-watch');
+const workflow = require('./workflow');
+const mgr = require('./manager-views');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
 const crmSync = require('./crm-sync');
@@ -293,6 +295,30 @@ function normalizeLink(raw) {
     return { ok: false };
   }
   return { ok: true, value: s };
+}
+// A link a person typed is checked properly: a real web address with a host, no embedded password, and — only when the founder has
+// switched the policy on — on an approved site. (Default OFF so existing data and habits keep working.)
+function workflowSettings(state) { return state.workflowSettings || {}; }
+function checkLink(state, raw, label) {
+  const n = normalizeLink(raw);
+  if (!n.ok) return { ok: false, error: label + ' must be a valid URL starting with http:// or https://' };
+  if (!n.value) return n;
+  let u; try { u = new URL(n.value); } catch (e) { return { ok: false, error: label + ' is not a valid link.' }; }
+  if (u.username || u.password) return { ok: false, error: label + ' must not contain a username or password.' };
+  if (!u.hostname.includes('.')) return { ok: false, error: label + ' needs a real website address.' };
+  const ws = workflowSettings(state);
+  if (ws.linkDomainsEnforced && !mgr.domainAllowed(n.value, ws.linkDomains)) return { ok: false, error: label + ' must be on an approved site (' + (ws.linkDomains || mgr.clientLinkDomains).join(', ') + ').' };
+  return n;
+}
+// Every change to a task's Sheet / Cashbook link is kept: who, when, from what, to what, and through which door.
+function snapLinks(t) { return { sheet: t.sheetLink || null, cashbook: t.cashbookLink || null }; }
+function recordLinkChange(t, actor, before, via) {
+  const now = snapLinks(t);
+  [['sheet', 'Google Sheet'], ['cashbook', 'Cashbook']].forEach(([k, label]) => {
+    if (before[k] === now[k]) return;
+    t.linkHistory = t.linkHistory || [];
+    t.linkHistory.push({ at: new Date().toISOString(), by: actor.name, byId: actor.id, slot: k, label, from: before[k], to: now[k], via: via || null });
+  });
 }
 // Profit confirmation always routes to Shubam Sharma — same "one named
 // person" pattern as FOUNDER_EMAILS in db.js.
@@ -1033,7 +1059,7 @@ function notify(state, empId, type, text, taskId, opts) {
   const emp = findEmployee(state, empId);
   const titles = { assigned: 'New task for you', nudge: 'You\'ve been nudged', review: 'Review requested',
     rework: 'Task sent back', due: 'Task due', window: 'New date decision', profit_confirm: 'Profit confirmation',
-    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send', system: 'System alert' };
+    kudos: 'You got Kudos!', points: 'You got Points!', mark: 'Performance mark', comment: 'New comment', card: 'Monthly card ready', workshop: 'Workshop pre-reading', send_report: 'Report ready to send', system: 'System alert', escalation: 'Decision requested', attention: 'Needs your attention' };
   setImmediate(() => sendPush(state, empId, {
     title: (titles[type] || 'Task alert') + (emp ? '' : ''),
     body: String(text).slice(0, 180),
@@ -1305,6 +1331,8 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   if (typeof req.body.isHr === 'boolean' && emp.email !== 'hr@elitetaxation.co.nz') emp.isHr = req.body.isHr;
   // Read-only firm-wide Commitment Dashboard observer — no other powers.
   if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
+  // The new Today dashboard (master-detail, combined Manager + Review actions). Off unless switched on for that person.
+  if (typeof req.body.dashboardV2 === 'boolean') emp.dashboardV2 = req.body.dashboardV2;
   // Time-boxed self-edit grant (estimate, due date & client date on their own tasks).
   if (req.body.selfEditUntil !== undefined) {
     const v = req.body.selfEditUntil;
@@ -1920,6 +1948,7 @@ app.get('/api/tasks/:id/review-screenshot', requireAuth, async (req, res) => {
 function canSeeTaskFiles(state, me, t) {
   if (!t) return false;
   if (t.assignedTo === me.id || t.reviewedBy === me.id || t.reviewerId === me.id || t.reportSendOwner === me.id) return true;
+  if (t.escalation && t.escalation.toId === me.id) return true;
   if (me.accessRole === 'superadmin') return true;
   const po = profitConfirmOwner(state); // Shubam needs the files to confirm profit
   if (po && po.id === me.id && t.profitConfirmStatus) return true;
@@ -2032,7 +2061,7 @@ app.post('/api/tasks/:id/review-files', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Could not attach the files — please try again.' });
   }
   if (t.reviewStatus !== 'error') return res.status(409).json({ error: 'This task changed while you were attaching — reload and try again.' });
-  t.reviewAttachments = [...(t.reviewAttachments || []), ...metas];
+  t.reviewAttachments = [...(t.reviewAttachments || []), ...metas.map(m => ({ ...m, eventId: null, uploaderId: req.employee.id, uploaderRole: req.employee.accessRole, uploadedAt: new Date().toISOString(), stage: 'review_return', cycle: t.reworkCount || 0 }))];
   const what = metas.length === 1 ? '1 file' : metas.length + ' files';
   logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> attached ${what} to the rework of "${escHtml(t.name)}".`);
   notify(state, t.assignedTo, 'rework', `${req.employee.name} attached ${what} to "${t.name}" — open it to see and download.`, t.id);
@@ -2090,8 +2119,11 @@ app.get('/api/tasks/:id/notify-status', requireAuth, (req, res) => {
 
 app.post('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
-  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, kind, internalRef, department, departmentOther, service } = req.body || {};
+  const { mode, name, scope, assignedTo, clientId, clientDate, tat, points, team, internalRef, department, departmentOther, service } = req.body || {};
   let { internalDeadline } = req.body || {};
+  // The new form says Client Task / Admin Task (taskKind); older callers still send kind. "Admin" is the same as the stored "internal".
+  const body0 = req.body || {};
+  const kind = body0.taskKind === 'admin' ? 'internal' : body0.taskKind === 'client' ? 'client' : body0.kind;
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'Task name is required.' });
   // Optional, controlled department + service (IA Phase 6) — free-text
   // `team` above is untouched either way. "Other" always requires a
@@ -2201,6 +2233,31 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     }
   }
 
+  // ---- V2 form extras: the reviewer chosen up front, whether review is required, and links typed at creation
+  const v2Form = body0.taskKind === 'client' || body0.taskKind === 'admin';
+  let assignedReviewerId = null, reviewRequired = null, noReviewAuth = null;
+  if (v2Form) {
+    if (body0.reviewerId) {
+      const rv = findEmployee(state, body0.reviewerId);
+      if (!rv || !isAdminRole(rv.accessRole)) return res.status(400).json({ error: 'The reviewer must be a manager or the founder.' });
+      if (rv.id === assignee) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
+      assignedReviewerId = rv.id;
+    }
+    reviewRequired = isInternal ? body0.reviewRequired === true : body0.reviewRequired !== false;   // client work is reviewed unless a manager says otherwise
+    if (!isInternal && body0.reviewRequired === false) {
+      if (!isAdminRole(req.employee.accessRole)) return res.status(403).json({ error: 'Only a manager or the founder can waive the review on client work.', code: 'REVIEW_REQUIRED' });
+      const why = String(body0.noReviewReason || '').trim();
+      if (why.length < 5) return res.status(400).json({ error: 'Say why this client task needs no review — it is kept on the record.', code: 'REVIEW_REASON' });
+      noReviewAuth = { by: req.employee.id, at: new Date().toISOString(), reason: why };
+    }
+    if (reviewRequired && !assignedReviewerId && !isInternal) {
+      /* a reviewer is picked when the work is submitted if none was chosen now */
+    }
+  }
+  const linkSheet = checkLink(state, body0.sheetLink, 'Google Sheet link'), linkCash = checkLink(state, body0.cashbookLink, 'Cashbook link');
+  if (!linkSheet.ok) return res.status(400).json({ error: linkSheet.error });
+  if (!linkCash.ok) return res.status(400).json({ error: linkCash.error });
+
   // No daily-hours cap and no self-assignment approval — anyone can hand
   // themselves (or someone they manage) work, whatever the day already holds.
   const status = mode === 'team' ? 'awaiting_acceptance' : 'accepted';
@@ -2220,6 +2277,9 @@ app.post('/api/tasks', requireAuth, (req, res) => {
       : (clientDate || (internalDeadline ? cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD) : null)),
     clientDateOverride: !isInternal && !!clientDate,
     internalDeadline: internalDeadline || null,
+    // the dates the task STARTED with are kept forever; every later change is a dateHistory row
+    originalInternalDeadline: internalDeadline || null,
+    originalClientDate: isInternal ? null : (clientDate || (internalDeadline ? cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD) : null)),
     points: parseInt(points, 10) || 0, assignedTo: assignee, assignedBy: req.employee.id,
     assignedAt: new Date().toISOString(), reassignHistory: [], status,
     // logged accumulates ACTUAL delivery time — the wall-clock gap between
@@ -2248,7 +2308,15 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     // app are 'manual'; the Slack connector will send 'call' / 'slack' later.
     source: 'manual', sourceRef: null,
   };
+  if (v2Form) {
+    task.assignedReviewerId = assignedReviewerId; task.reviewRequired = reviewRequired;
+    if (noReviewAuth) { task.noReviewAuthorizedBy = noReviewAuth.by; task.noReviewAuthorizedAt = noReviewAuth.at; task.noReviewAuthorizedReason = noReviewAuth.reason; }
+  }
+  if (linkSheet.value) task.sheetLink = linkSheet.value;
+  if (linkCash.value) task.cashbookLink = linkCash.value;
+  recordLinkChange(task, req.employee, { sheet: null, cashbook: null }, 'created');
   state.tasks.unshift(task);
+  if (noReviewAuth) logEvent(state, assignee, '<b>' + escHtml(req.employee.name) + '</b> waived the review on "' + escHtml(task.name) + '" — ' + escHtml(noReviewAuth.reason));
   if (mode === 'team') {
     const assigneeEmp = findEmployee(state, assignee);
     logEvent(state, assignee, `New task assigned — <b>${assigneeEmp ? escHtml(assigneeEmp.name) : '—'}</b>, awaiting acceptance.`, {
@@ -2390,6 +2458,17 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     if (meta.needsDetail && !detail) {
       return res.status(400).json({ error: 'This reason needs a short note — what exactly are you waiting on?' });
     }
+    // Hold record: WHO is responsible for the next step, WHEN to follow up, and exactly which clocks stopped.
+    const HOLD_RESP = ['client', 'employee', 'reviewer', 'manager', 'third_party', 'capacity'];
+    const respDefault = { CLIENT_QUERY: 'client', CLIENT_DOCS: 'client', THIRD_PARTY: 'third_party', INTERNAL_REVIEW: 'reviewer', CAPACITY: 'manager', BLOCKED_OTHER: 'employee' }[reasonCode];
+    const responsibility = body.responsibility ? String(body.responsibility) : respDefault;
+    if (!HOLD_RESP.includes(responsibility)) return res.status(400).json({ error: 'Say who is responsible for the next step.' });
+    let followUp = null;
+    if (body.followUpDate || body.responsibility) {
+      followUp = /^\d{4}-\d{2}-\d{2}/.test(String(body.followUpDate || '')) ? String(body.followUpDate).slice(0, 10) : null;
+      if (!followUp) return res.status(400).json({ error: 'Pick the date you will follow this up.' });
+      if (followUp < todayISO()) return res.status(400).json({ error: "The follow-up date can't be in the past." });
+    }
     let shot = body.screenshot || null;
     if (shot && (typeof shot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(shot) || shot.length > 6_000_000)) {
       shot = null; // ignore anything that isn't a reasonably-sized inline image
@@ -2419,6 +2498,9 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       t.queries.push(q);
       hh.queryId = q.id;
     }
+    t.holdResponsibility = responsibility; t.holdFollowUp = followUp;
+    hh.responsibility = responsibility; hh.followUp = followUp;
+    hh.clocksStopped = { workTimer: true, clientCommitment: !!hh.queryId };   // the work timer always stops; the client's clock only for a client wait
     t.holdHistory.push(hh);
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}${hh.queryId ? ' · client clock paused' : ''}`, { hold: true });
     db.save();
@@ -2449,7 +2531,7 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       const q = (t.queries || []).find(x => x.id === last.queryId);
       if (q && !q.resumedAt) q.resumedAt = resumeDay;
     }
-    t.heldAt = null;
+    t.heldAt = null; t.holdFollowUp = null; t.holdResponsibility = null;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
     db.save();
     res.json({ task: taskForClient(t) });
@@ -2606,7 +2688,8 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'accepted') return res.status(400).json({ error: 'Only an accepted task can be marked complete.' });
-  const { reviewerId, sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
+  const { sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
+  const reviewerId = (req.body || {}).reviewerId || t.assignedReviewerId || null;   // the reviewer picked when the task was created is the default
   const direct = directProfitConfirm === true;
   if (direct && !canDirectProfitConfirm(req.employee)) return res.status(403).json({ error: "You can't send a job straight to profit confirmation." });
   if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
@@ -2614,10 +2697,10 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   if (!direct && !reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   // You can send your work to anyone for review — just not yourself.
   if (!direct && reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send your own work to yourself for review — pick someone else." });
-  const sheetLinkN = normalizeLink(sheetLink);
-  const cashbookLinkN = normalizeLink(cashbookLink);
-  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
-  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  const sheetLinkN = checkLink(state, sheetLink, 'Google Sheet link');
+  const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
+  if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
   if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
   if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
@@ -2629,8 +2712,10 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   t.status = 'completed';
   t.completedAt = new Date().toISOString();
   t.reviewerId = direct ? null : reviewerId;
+  const linksBefore = snapLinks(t);
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  recordLinkChange(t, req.employee, linksBefore, 'complete');
   applySlotFiles(t, req);
   giveLinkMarks(state, t, 'processor'); // client work needs both links (internal never does)
   logEvent(state, t.assignedTo, `Marked "${escHtml(t.name)}" complete — ${t.logged.toFixed(2)} hrs actual vs ${t.tat} hrs agreed.`, { points: t.points });
@@ -2666,6 +2751,20 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
     return res.status(403).json({ error: 'Only the assignee or an admin can mark this done.' });
   }
   if (t.status === 'completed') return res.status(400).json({ error: 'Already done.' });
+  // Review rule (new-form client tasks): finishing without a review is a manager/founder decision, with a reason, kept on the record.
+  if (t.reviewRequired === true && workflow.isClientTask(t) && !t.noReviewAuthorizedAt) {
+    const why = String((req.body || {}).noReviewReason || '').trim();
+    if (isAdminOver && why.length >= 5) {
+      t.noReviewAuthorizedBy = req.employee.id; t.noReviewAuthorizedAt = new Date().toISOString(); t.noReviewAuthorizedReason = why; t.reviewRequired = false;
+      logEvent(state, t.assignedTo || req.employee.id, '<b>' + escHtml(req.employee.name) + '</b> waived the review on "' + escHtml(t.name) + '" — ' + escHtml(why));
+    } else {
+      t.noReviewAttempts = t.noReviewAttempts || [];
+      t.noReviewAttempts.push({ at: new Date().toISOString(), by: req.employee.id, byName: req.employee.name, reasonGiven: why || null });
+      raiseAlert(state, 'no_review_attempt', t, req.employee.name + ' tried to close client task "' + t.name + '" without a review.', alertRecipients(state, 'no_review_attempt', t, req.employee.id));
+      db.save();
+      return res.status(403).json({ error: isAdminOver ? 'Client work needs a review. To close it without one, give the reason (at least a few words) — it is kept on the record.' : 'Client work must be reviewed. Send it for review — only a manager or the founder can waive that, with a reason.', code: 'REVIEW_REQUIRED' });
+    }
+  }
   if (!['accepted', 'rework', 'on_hold', 'awaiting_acceptance', 'window_proposed', 'pending'].includes(t.status)) {
     return res.status(400).json({ error: 'This task can\'t be marked done from its current state.' });
   }
@@ -2715,10 +2814,10 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, takeSlotFiles, (req, res
   const reviewer = direct ? null : findEmployee(state, reviewerId);
   if (!direct && !reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
   if (!direct && reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send a task to its own owner for review — pick someone else." });
-  const sheetLinkN = normalizeLink(sheetLink);
-  const cashbookLinkN = normalizeLink(cashbookLink);
-  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
-  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  const sheetLinkN = checkLink(state, sheetLink, 'Google Sheet link');
+  const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
+  if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
   if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
   if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
@@ -2901,7 +3000,10 @@ if (t.status !== 'completed') return res.status(400).json({ error: 'Only complet
     t.reviewScreenshot = null; t.reviewScreenshotFile = null;
   }
   // this round's files (earlier rounds stay on the task's rework history)
-  t.reviewAttachments = status === 'error' ? attachMetas : [];
+  // every round's files are kept (earlier rounds stay visible after a resubmission), each tagged with who / when / which stage
+  const tagged = attachMetas.map(m => ({ ...m, eventId: null, uploaderId: req.employee.id, uploaderRole: req.employee.accessRole, uploadedAt: t.reviewedAt, stage: 'review_return', cycle: (t.reworkCount || 0) + 1 }));
+  if (status === 'error') t.reviewAttachments = [...(t.reviewAttachments || []), ...tagged];
+  else if (!Array.isArray(t.reviewAttachments)) t.reviewAttachments = [];
   if (status === 'error') {
     if (t.reviewScreenshot) t.reviewScreenshotFile = null; // a fresh inline screenshot replaces an older stored one
     t.status = 'awaiting_acceptance';
@@ -2969,12 +3071,14 @@ app.patch('/api/tasks/:id/links', requireAuth, takeSlotFiles, (req, res) => {
     req.employee.id === t.assignedTo || req.employee.accessRole === 'superadmin';
   if (!allowed) return res.status(403).json({ error: "You can't edit this task's links." });
   const { sheetLink, cashbookLink } = req.body || {};
-  const sheetLinkN = normalizeLink(sheetLink);
-  const cashbookLinkN = normalizeLink(cashbookLink);
-  if (!sheetLinkN.ok) return res.status(400).json({ error: 'Google Sheet link must be a valid URL starting with http:// or https://' });
-  if (!cashbookLinkN.ok) return res.status(400).json({ error: 'Cashbook link must be a valid URL starting with http:// or https://' });
+  const sheetLinkN = checkLink(state, sheetLink, 'Google Sheet link');
+  const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
+  if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
+  if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
+  const linksBefore = snapLinks(t);
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
+  recordLinkChange(t, req.employee, linksBefore, 'links');
   applySlotFiles(t, req);
   db.save();
   res.json({ task: taskForClient(t) });
@@ -3086,17 +3190,21 @@ app.post('/api/tasks/:id/profit-confirm', requireAuth, (req, res) => {
   }
   const owner = profitConfirmOwner(state);
   if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
-  t.profitConfirmStatus = 'pending';
-  t.profitConfirmRequestedAt = new Date().toISOString();
-  t.profitConfirmRequestedBy = req.employee.id;
-  t.awaitingClientDecision = false;
-  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
-  logEvent(state, owner.id, `<b>${escHtml(req.employee.name)}</b> sent "${escHtml(t.name)}" for profit confirmation.`);
-  logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
-  notify(state, owner.id, 'profit_confirm', `${req.employee.name} sent "${t.name}" for profit confirmation.`, t.id);
+  applyProfitRequest(state, t, req.employee, owner);
   db.save();
   res.json({ task: taskForClient(t) });
 });
+// Clean, and profit confirmation is required: it goes to Shubam. Shared by /profit-confirm and Approve.
+function applyProfitRequest(state, t, actor, owner) {
+  t.profitConfirmStatus = 'pending';
+  t.profitConfirmRequestedAt = new Date().toISOString();
+  t.profitConfirmRequestedBy = actor.id;
+  t.awaitingClientDecision = false;
+  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || actor.id);
+  logEvent(state, owner.id, `<b>${escHtml(actor.name)}</b> sent "${escHtml(t.name)}" for profit confirmation.`);
+  logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
+  notify(state, owner.id, 'profit_confirm', `${actor.name} sent "${t.name}" for profit confirmation.`, t.id);
+}
 // Shubam confirms the profit — hands the report-send job back to whoever it
 // belonged to (unchanged throughout: the original assignee, unless
 // reassigned via /report-owner). Superadmin can also confirm, as a backup.
@@ -3177,12 +3285,156 @@ app.post('/api/tasks/:id/return-to-processor', requireAuth, (req, res) => {
   }
   const processor = findEmployee(state, t.assignedTo);
   if (!processor) return res.status(400).json({ error: 'The processor for this task no longer exists.' });
+  applyReturnToProcessor(state, t, req.employee, processor);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+// Clean and needs no profit confirmation: the report goes to the processor to send. Shared by /return-to-processor and Approve.
+function applyReturnToProcessor(state, t, actor, processor) {
   t.reportSendOwner = processor.id;
   t.reportReturnedAt = new Date().toISOString();
-  t.reportReturnedBy = req.employee.id;
-  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
-  logEvent(state, processor.id, `<b>${escHtml(req.employee.name)}</b> reviewed "${escHtml(t.name)}" — it's clean and needs no profit confirmation. Please send the report to the client.`);
-  notify(state, processor.id, 'send_report', `${req.employee.name} reviewed "${t.name}" — send the report to the client.`, t.id);
+  t.reportReturnedBy = actor.id;
+  giveLinkMarks(state, t, 'reviewer', t.reviewedBy || actor.id);
+  logEvent(state, processor.id, `<b>${escHtml(actor.name)}</b> reviewed "${escHtml(t.name)}" — it's clean and needs no profit confirmation. Please send the report to the client.`);
+  notify(state, processor.id, 'send_report', `${actor.name} reviewed "${t.name}" — send the report to the client.`, t.id);
+}
+
+// ---------------------------------------------------------------------------
+// REVIEW DECISIONS — the simple review screen: Approve, Return for Correction, or Escalate. One endpoint, one atomic step, and
+// safe to double-click (a repeated requestId — or a task that is no longer awaiting review — never creates a second event).
+// Everything is written to t.reviewEvents, an append-only ledger; earlier notes, reasons and files are never overwritten or removed.
+// ---------------------------------------------------------------------------
+const CORRECTION_CATEGORIES = ['Calculation error', 'Missing information', 'Incorrect classification', 'Missing supporting document', 'Formatting or presentation issue', 'Client requirement not followed', 'Other'];
+const RESPONSIBILITY_CATEGORIES = ['Employee', 'Reviewer', 'Manager', 'Client dependency', 'System/data issue', 'Shared responsibility'];
+const FAULT_FOR_RESPONSIBILITY = { Employee: 'processor', Manager: 'sop' };   // everything else is "other" for the existing quality reports
+const validDay = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && d >= todayISO();
+function newReviewEvent(t, actor, type, extra) {
+  return { id: 'rv-' + ((t.reviewEvents || []).length + 1), type, at: new Date().toISOString(), byId: actor.id, byRole: actor.accessRole, cycle: t.reworkCount || 0, ...(extra || {}) };
+}
+// The reviewer's files for one decision: each must be one THEY uploaded; each is tied to the task and carries who / when / which stage.
+async function claimReviewFiles(actor, t, ids, ev, stage) {
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map(String))];
+  if (list.length > fileStore.MAX_PER_REVIEW) return { ok: false, error: `Attach at most ${fileStore.MAX_PER_REVIEW} files.` };
+  const refs = [];
+  for (const fid of list) {
+    const m = await fileStore.meta(fid);
+    if (!m || m.createdBy !== actor.id || (m.taskId && m.taskId !== t.id)) return { ok: false, error: 'One of the attached files is no longer available — please attach it again.' };
+    refs.push({ ...fileRef(m), eventId: ev.id, uploaderId: actor.id, uploaderRole: actor.accessRole, uploadedAt: new Date().toISOString(), stage, cycle: ev.cycle });
+  }
+  for (const r of refs) await fileStore.attach(r.id, t.id, 'review');
+  return { ok: true, refs };
+}
+const openEscalation = t => (t.escalation && t.escalation.status === 'open') ? t.escalation : null;
+app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
+  try {
+    const state = db.get(), me = req.employee;
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (!canReviewWorkOf(state, me, t.assignedTo, t)) return res.status(403).json({ error: "You can't review this task — it wasn't sent to you, and it isn't your report's work." });
+    const b = req.body || {};
+    const decision = String(b.decision || '');
+    if (!['approve', 'return', 'escalate'].includes(decision)) return res.status(400).json({ error: 'Choose Approve, Return for Correction or Escalate.' });
+    // double-click / retry: the same requestId has already been recorded → say so, change nothing
+    const requestId = b.requestId ? String(b.requestId).slice(0, 64) : null;
+    if (requestId && (t.reviewEvents || []).some(e => e.requestId === requestId)) return res.json({ task: taskForClient(t), duplicate: true });
+    if (t.status !== 'completed') return res.status(400).json({ error: 'Only work that has been submitted for review can be reviewed.' });
+    if (t.reviewStatus === 'done') return res.status(400).json({ error: 'This task was closed without review.' });
+    if (t.reviewStatus) return res.status(409).json({ error: 'This task has already been reviewed — reload to see its current state.', code: 'ALREADY_DECIDED' });
+    if (openEscalation(t)) return res.status(409).json({ error: 'This task is waiting on an escalated decision. It returns to you once that is made.', code: 'ESCALATED' });
+    const note = String(b.note == null ? '' : b.note).trim().slice(0, 2000);
+    const assignee = findEmployee(state, t.assignedTo);
+    const isClient = t.kind !== 'internal' || !!t.clientId;
+
+    // ---------- validate EVERYTHING first, so a refused decision changes nothing ----------
+    let owner = null, to = null;
+    if (decision === 'approve') {
+      if (b.clean === false) return res.status(400).json({ error: 'If the work is not clean and ready, use Return for Correction.' });
+      if (b.profitRequired === true && isClient) {
+        if (!hasSheetOrCashbook(t)) return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before asking for profit confirmation.' });
+        owner = profitConfirmOwner(state);
+        if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+      }
+      if (isClient && b.profitRequired !== true && !assignee) return res.status(400).json({ error: 'The processor for this task no longer exists.' });
+    } else if (decision === 'return') {
+      if (!CORRECTION_CATEGORIES.includes(b.category)) return res.status(400).json({ error: 'Choose the correction category.' });
+      if (!RESPONSIBILITY_CATEGORIES.includes(b.responsibility)) return res.status(400).json({ error: 'Choose who is responsible for the correction.' });
+      if (note.length < 3) return res.status(400).json({ error: 'Write a correction note so the employee knows what to fix.' });
+      if (!validDay(b.dueDate)) return res.status(400).json({ error: 'Choose a correction due date (today or later).' });
+      if (!assignee) return res.status(400).json({ error: 'This task has no assignee to send the correction to.' });
+    } else {
+      const reason = String(b.reason || '').trim();
+      if (reason.length < 3) return res.status(400).json({ error: 'Give the reason for escalating.' });
+      to = findEmployee(state, b.assignTo);
+      if (!to || !isAdminRole(to.accessRole) || !canReceiveNewWork(to)) return res.status(400).json({ error: 'Choose an active manager or founder to decide.' });
+      if (to.id === me.id) return res.status(400).json({ error: 'Escalate to someone other than yourself.' });
+      if (!validDay(b.decisionDate)) return res.status(400).json({ error: 'Choose the date a decision is needed by (today or later).' });
+    }
+    const ev = newReviewEvent(t, me, decision === 'approve' ? 'approved' : decision === 'return' ? 'returned' : 'escalated', { requestId, note: note || null });
+    if (decision === 'return') ev.cycle = (t.reworkCount || 0) + 1;
+    let files = [];
+    if (decision !== 'approve') {
+      const c = await claimReviewFiles(me, t, b.attachments, ev, decision === 'return' ? 'review_return' : 'review_escalation');
+      if (!c.ok) return res.status(400).json({ error: c.error });
+      files = c.refs;
+      if (requestId && (t.reviewEvents || []).some(e => e.requestId === requestId)) return res.json({ task: taskForClient(t), duplicate: true }); // the same click, answered twice
+      if (t.status !== 'completed' || t.reviewStatus || openEscalation(t)) return res.status(409).json({ error: 'This task changed while you were deciding — reload and try again.' });
+    }
+
+    // ---------- apply (synchronous from here) ----------
+    const now = ev.at;
+    if (decision === 'approve') {
+      t.reviewStatus = 'clean'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note || null;
+      t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
+      ev.profitRequired = !!owner;
+      t.awaitingClientDecision = isClient;
+      if (isClient) t.reportSendOwner = t.assignedTo;
+      logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
+      managersOfEmployee(state, t.assignedTo).forEach(m => logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml((assignee || {}).name || '—')}</b> was reviewed clean by <b>${escHtml(me.name)}</b>.`));
+      if (isClient) { if (owner) applyProfitRequest(state, t, me, owner); else applyReturnToProcessor(state, t, me, assignee); }
+    } else if (decision === 'return') {
+      t.reviewStatus = 'error'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note;
+      t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
+      t.faultType = FAULT_FOR_RESPONSIBILITY[b.responsibility] || 'other';
+      t.status = 'awaiting_acceptance';                      // "Correction required — waiting for your correction", never "not started"
+      t.reworkCount = (t.reworkCount || 0) + 1;
+      t.correction = { category: b.category, responsibility: b.responsibility, dueDate: b.dueDate, eventId: ev.id, cycle: t.reworkCount };
+      Object.assign(ev, { category: b.category, responsibility: b.responsibility, dueDate: b.dueDate, attachmentIds: files.map(f => f.id) });
+      t.reviewAttachments = [...(t.reviewAttachments || []), ...files];   // earlier files are kept; this round's are added
+      logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for correction (${escHtml(b.category)}) — due ${escHtml(b.dueDate)}. Note: ${escHtml(note)}`);
+      notify(state, t.assignedTo, 'rework', `"${t.name}" needs a correction: ${b.category} — due ${b.dueDate}${files.length ? ' · ' + files.length + ' file' + (files.length > 1 ? 's' : '') + ' attached' : ''}. ${note}`, t.id);
+    } else {
+      const reason = String(b.reason).trim().slice(0, 1000);
+      t.escalation = { id: ev.id, status: 'open', byId: me.id, toId: to.id, reason, note: note || null, decisionDate: b.decisionDate, at: now, attachments: files };
+      Object.assign(ev, { reason, toId: to.id, decisionDate: b.decisionDate, attachmentIds: files.map(f => f.id) });
+      t.reviewAttachments = [...(t.reviewAttachments || []), ...files];
+      logEvent(state, to.id, `<b>${escHtml(me.name)}</b> escalated "${escHtml(t.name)}" to you — decision needed by ${escHtml(b.decisionDate)}: ${escHtml(reason)}`);
+      logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was escalated by <b>${escHtml(me.name)}</b> to <b>${escHtml(to.name)}</b> for a decision.`);
+      notify(state, to.id, 'escalation', `${me.name} escalated "${t.name}" to you — decision needed by ${b.decisionDate}: ${reason}`, t.id);
+    }
+    t.reviewEvents = [...(t.reviewEvents || []), ev];
+    db.save();
+    res.json({ task: taskForClient(t) });
+  } catch (e) {
+    console.error('[review-decision] failed:', e && e.stack || e);
+    res.status(500).json({ error: 'Could not record that decision — please try again.' });
+  }
+});
+// The person it was escalated to makes the call; the task goes straight back to its reviewer.
+app.post('/api/tasks/:id/escalation/resolve', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const requestId = (req.body || {}).requestId ? String(req.body.requestId).slice(0, 64) : null;
+  if (requestId && (t.reviewEvents || []).some(e => e.requestId === requestId)) return res.json({ task: taskForClient(t), duplicate: true });   // the same click twice
+  const esc = openEscalation(t);
+  if (!esc) return res.status(409).json({ error: 'There is no open escalation on this task.' });
+  if (esc.toId !== me.id && me.accessRole !== 'superadmin') return res.status(403).json({ error: 'Only the person it was escalated to can decide.' });
+  const decision = String((req.body || {}).decision || '').trim().slice(0, 2000);
+  if (decision.length < 3) return res.status(400).json({ error: 'Write the decision so the reviewer knows what to do.' });
+  esc.status = 'resolved'; esc.resolvedAt = new Date().toISOString(); esc.resolvedBy = me.id; esc.decision = decision;
+  t.reviewEvents = [...(t.reviewEvents || []), newReviewEvent(t, me, 'escalation_resolved', { requestId, note: decision, escalationId: esc.id })];
+  logEvent(state, esc.byId, `<b>${escHtml(me.name)}</b> decided on "${escHtml(t.name)}": ${escHtml(decision)}`);
+  notify(state, esc.byId, 'escalation', `${me.name} made a decision on "${t.name}": ${decision} — it is back in your review queue.`, t.id);
   db.save();
   res.json({ task: taskForClient(t) });
 });
@@ -3705,7 +3957,7 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   const durationHours = startedAt ? Math.round(((new Date(endedAt) - new Date(startedAt)) / 3600000) * 100) / 100 : null;
   t.logged += durationHours || 0; // actual time spent on this rework round, added to the task's total
   t.reworkHistory = t.reworkHistory || [];
-  t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: t.reviewAttachments || [] });
+  t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: (t.reviewAttachments || []).filter(a => a.cycle == null || a.cycle === t.reworkCount) });
   t.reworkStartedAt = null;
   t.status = 'completed';
   t.completedAt = endedAt;
@@ -3784,6 +4036,22 @@ app.post('/api/tasks/:id/reject-window', requireAuth, (req, res) => {
   res.json({ task: taskForClient(t) });
 });
 
+// Record a commitment-date change. The FIRST dates a task ever had are kept forever (originalInternalDeadline / originalClientDate)
+// and every change adds a dateHistory row with who, when, why, old and new — nothing is overwritten silently. The assignee and
+// the reviewer are told. Returns true if anything actually changed.
+function recordDateChange(state, t, actor, before, note, category) {
+  const after = { internal: t.internalDeadline, client: t.clientDate };
+  if (before.internal === after.internal && before.client === after.client) return false;
+  if (t.originalInternalDeadline === undefined) t.originalInternalDeadline = before.internal || null;
+  if (t.originalClientDate === undefined) t.originalClientDate = before.client || null;
+  t.dateHistory = t.dateHistory || [];
+  t.dateHistory.push({ at: new Date().toISOString(), by: actor.name, byId: actor.id, from: before, to: after, note: note || null, category: category || null });
+  const what = 'internal ' + (after.internal || '—') + (after.client ? ', client ' + after.client : '');
+  [t.assignedTo, t.reviewerId].filter((id, i, a) => id && id !== actor.id && a.indexOf(id) === i).forEach(id =>
+    notify(state, id, 'dates', actor.name + ' changed the dates on "' + t.name + '" — ' + what + (note ? ' (' + note + ')' : ''), t.id));
+  return true;
+}
+
 // Manager edits the dates directly — no propose/approve round trip (Phase 1).
 // Sets the internal due date; the client commitment date recalculates as
 // internal + 3 working days unless the manager passes an explicit clientDate
@@ -3842,13 +4110,8 @@ app.post('/api/tasks/:id/set-dates', requireAuth, (req, res) => {
     t.clientDateOverride = false;
   }
 
-  const dateChanged = before.internal !== t.internalDeadline || before.client !== t.clientDate;
+  const dateChanged = recordDateChange(state, t, req.employee, before, note, asSelf ? 'self_edit' : 'manager_edit');
   if (dateChanged) {
-    t.dateHistory = t.dateHistory || [];
-    t.dateHistory.push({
-      at: new Date().toISOString(), by: req.employee.name,
-      from: before, to: { internal: t.internalDeadline, client: t.clientDate }, note: note || null,
-    });
     logEvent(state, t.assignedTo, `Dates on "${escHtml(t.name)}" changed by <b>${escHtml(req.employee.name)}</b>${asSelf ? ' (self-edit)' : ''} — internal ${escHtml(t.internalDeadline)}${t.clientDate ? ', client ' + escHtml(t.clientDate) : ''}${note ? ' (' + escHtml(note) + ')' : ''}.`);
   }
   if (tatChanged) {
@@ -3930,22 +4193,26 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  if (t.status === 'completed') return res.status(400).json({ error: 'Completed tasks cannot be reassigned.' });
+  const r = applyReassign(state, t, req.employee, (req.body || {}).newAssigneeId, (req.body || {}).reason);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.json({ task: taskForClient(t) });
+});
+function applyReassign(state, t, actor, newAssigneeId, reason) {
+  const req = { employee: actor };
+  const fail = (status, error) => ({ status, error });
+  if (t.status === 'completed') return fail(400, 'Completed tasks cannot be reassigned.');
   // Both ends of a reassignment go through the same managesIds boundary
   // assignableEmployees() already enforces for brand-new assignments: the
   // acting admin must manage the CURRENT assignee (or be superadmin) as
   // well as the new one — otherwise any admin could pull a task out of a
   // team they have no authority over just because the destination is on
   // their own team.
-  if (!canManageEmployee(state, req.employee, t.assignedTo)) {
-    return res.status(403).json({ error: "You're not authorized to reassign this employee's task." });
-  }
-  const { newAssigneeId, reason } = req.body || {};
+  if (!canManageEmployee(state, req.employee, t.assignedTo)) return fail(403, "You're not authorized to reassign this employee's task.");
   const newEmp = findEmployee(state, newAssigneeId);
-  if (!newEmp) return res.status(400).json({ error: 'Employee not found.' });
-  if (newAssigneeId === t.assignedTo) return res.status(400).json({ error: 'Task is already assigned to this person.' });
+  if (!newEmp) return fail(400, 'Employee not found.');
+  if (newAssigneeId === t.assignedTo) return fail(400, 'Task is already assigned to this person.');
   const allowed = assignableEmployees(state, req.employee).some(e => e.id === newAssigneeId);
-  if (!allowed) return res.status(403).json({ error: "You're not authorized to reassign to this person." });
+  if (!allowed) return fail(403, "You're not authorized to reassign to this person.");
   const fromEmp = findEmployee(state, t.assignedTo);
   // Any actual delivery time already run up under the PREVIOUS assignee
   // is flushed into t.logged before handing the task off, same idea as
@@ -3975,8 +4242,8 @@ app.post('/api/tasks/:id/reassign', requireAuth, requireAdmin, (req, res) => {
     client: t.clientName, clientDate: t.clientDate, internalDeadline: t.internalDeadline, reassignReason: reason || null
   });
   db.save();
-  res.json({ task: taskForClient(t) });
-});
+  return { ok: true };
+}
 
 // ---------------------------------------------------------------------------
 // REPORTS — superadmin-only oversight: who assigned what to whom, delivered
@@ -4747,6 +5014,7 @@ function notificationResolved(state, n) {
     case 'rework': return t.assignedTo !== n.empId || t.status !== 'awaiting_acceptance';
     case 'send_report': return !t.awaitingClientDecision || t.reportSendOwner !== n.empId;
     case 'profit_confirm': return t.profitConfirmStatus !== 'pending' && !t.awaitingClientDecision;
+    case 'attention': { const ak = String(n.alertKey || ''), i = ak.lastIndexOf('|'); const a = (state.managerAlerts || {})[ak.slice(0, i)]; return !a || !!a.resolvedAt || String(a.episodes) !== ak.slice(i + 1); }   // (task ids contain '#', so '|' separates the episode)   // resolved, or superseded by a newer episode
     default: return false;
   }
 }
@@ -5670,6 +5938,247 @@ app.get('/api/admin/storage-health', requireAuth, requireSuperAdmin, async (req,
     clients: (state.clients || []).length,
     teams: (state.teams || []).length,
   });
+});
+
+// ---------------------------------------------------------------------------
+// TODAY (GET /api/workflow/today — the older /api/today feeds the current dashboard) — the personal command centre (see workflow.js). Read-only: it derives a picture of the tasks the caller may see and
+// scopes it to THEIR work — their team, tasks they review, tasks whose report they send, tasks they assigned. Everything is
+// computed on the company clock (Pacific/Auckland), so the greeting, the date and "overdue" always agree.
+// ---------------------------------------------------------------------------
+const BUSINESS_TZ = 'Pacific/Auckland';
+function todayTouched(t, day) {
+  return [t.reviewedAt, t.sentToClientAt, t.assignedAt].some(x => x && nzDay(x) === day) || (t.reassignHistory || []).some(h => h.at && nzDay(h.at) === day);
+}
+app.get('/api/workflow/today', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const nowMs = Date.now(), today = todayISO();
+  const roster = new Set(teamRoster(state, me).map(e => e.id)); roster.add(me.id);
+  const visible = visibleTasks(state, me);
+  const scoped = visible.filter(t => {
+    const mine = !t.assignedTo || roster.has(t.assignedTo) || t.reviewerId === me.id || t.reportSendOwner === me.id || t.reviewedBy === me.id || t.assignedBy === me.id;
+    if (!mine) return false;
+    // long-finished work only matters if I touched it today (it feeds "Completed today")
+    const finished = t.status === 'completed' && (t.reviewStatus === 'done' || (t.reviewStatus === 'clean' && t.sentToClient !== null && t.sentToClient !== undefined));
+    return !finished || todayTouched(t, today);
+  });
+  const po = profitConfirmOwner(state);
+  const payload = workflow.buildToday(scoped, me, {
+    today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
+    canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
+    roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
+  });
+  const hour = Math.floor(nzMinutesOfDay(nowMs) / 60);
+  res.json({ ...payload, today, timezone: BUSINESS_TZ, hour, greeting: workflow.greetingFor(hour), name: me.name });
+});
+
+// ---------------------------------------------------------------------------
+// MANAGER VIEWS (Phase 5) — My Team, Needs Manager Attention, the paginated Tasks list, Calendar and Timeline. All derived from the
+// same cards as Today (see manager-views.js); the only write is POST /api/tasks/:id/manager-change, which needs a reason and is audited.
+// ---------------------------------------------------------------------------
+function workflowDeps(state, me, extra) {
+  const po = profitConfirmOwner(state);
+  return {
+    today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
+    canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
+    roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
+    reportInfo: reportSentFor, ...(extra || {}),
+  };
+}
+// Every task in the manager's world, as enriched cards. Only managers/founders reach this (requireAdmin).
+function managerRows(state, me) {
+  const deps = workflowDeps(state, me);
+  const roster = new Set(teamRoster(state, me).map(e => e.id)); roster.add(me.id);
+  const tasks = visibleTasks(state, me).filter(t => me.accessRole === 'superadmin' || me.dashObserver || !t.assignedTo || roster.has(t.assignedTo) || t.reviewerId === me.id || t.reportSendOwner === me.id || t.assignedBy === me.id);
+  const byId = {}, rows = [];
+  for (const t of tasks) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, deps), t, deps)); }
+  return { rows, byId, deps };
+}
+function teamPeople(state, me) {
+  const list = me.accessRole === 'superadmin' ? state.employees.filter(canReceiveNewWork) : teamRoster(state, me).filter(canReceiveNewWork);
+  return list.filter(e => e.id !== me.id).map(e => ({ id: e.id, name: e.name }));
+}
+app.get('/api/workflow/team', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const { rows, byId, deps } = managerRows(state, me);
+  const people = teamPeople(state, me);
+  const team = mgr.teamSummary(rows, people, { today: deps.today, workloadOf: id => availabilityOf(state, findEmployee(state, id)) });
+  const attention = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs, enforceDomains: !!workflowSettings(state).linkDomainsEnforced, allowedDomains: workflowSettings(state).linkDomains });
+  const byType = {};
+  attention.forEach(a => { (byType[a.type] = byType[a.type] || []).push(a); });
+  res.json({ today: deps.today, team, attention, attentionCounts: Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, v.length])) });
+});
+app.get('/api/workflow/tasks', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), q = req.query || {};
+  const { rows, deps } = managerRows(state, req.employee);
+  const filtered = mgr.applyFilters(rows, { ...q, today: deps.today });
+  const page = mgr.paginate(mgr.sortRows(filtered, q.sort), q.page, q.pageSize);
+  // facets so the filter bar offers only real options
+  const facet = f => [...new Set(rows.map(f).filter(Boolean))].sort();
+  res.json({
+    ...page, today: deps.today,
+    facets: { employees: teamPeople(state, req.employee), clients: facet(r => r.clientName), types: facet(r => r.taskType), reviewers: [...new Map(rows.filter(r => r.reviewerId).map(r => [r.reviewerId, r.reviewerName])).entries()].map(([id, name]) => ({ id, name })) },
+  });
+});
+app.get('/api/workflow/calendar', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), q = req.query || {};
+  const { rows, byId, deps } = managerRows(state, req.employee);
+  const open = rows.filter(r => r.status !== 'Completed');
+  let ev = mgr.calendarEvents(open, deps);
+  if (q.employee) ev = ev.filter(e => (rows.find(r => r.id === e.id) || {}).assigneeId === q.employee);
+  if (q.from) ev = ev.filter(e => e.date >= String(q.from).slice(0, 10));
+  if (q.to) ev = ev.filter(e => e.date <= String(q.to).slice(0, 10));
+  res.json({ today: deps.today, events: ev, legend: mgr.TONE_LABEL });
+});
+app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), q = req.query || {};
+  const { rows, byId, deps } = managerRows(state, req.employee);
+  const open = rows.filter(r => r.status !== 'Completed' && (!q.employee || r.assigneeId === q.employee));
+  res.json({ today: deps.today, rows: mgr.timelineRows(open, byId, deps).slice(0, 300) });
+});
+
+app.get('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, res) => {
+  const ws = workflowSettings(db.get());
+  res.json({ settings: { linkDomainsEnforced: !!ws.linkDomainsEnforced, linkDomains: ws.linkDomains || mgr.clientLinkDomains }, defaultDomains: mgr.clientLinkDomains });
+});
+app.post('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get(), b = req.body || {};
+  state.workflowSettings = state.workflowSettings || {};
+  if (typeof b.linkDomainsEnforced === 'boolean') state.workflowSettings.linkDomainsEnforced = b.linkDomainsEnforced;
+  if (Array.isArray(b.linkDomains)) {
+    const list = b.linkDomains.map(d => String(d).trim().toLowerCase()).filter(d => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(d));
+    if (!list.length) return res.status(400).json({ error: 'Give at least one valid website, like docs.google.com.' });
+    state.workflowSettings.linkDomains = list;
+  }
+  logEvent(state, req.employee.id, 'Changed the link policy (approved sites ' + (state.workflowSettings.linkDomainsEnforced ? 'on' : 'off') + ').');
+  db.save();
+  const ws = workflowSettings(state);
+  res.json({ settings: { linkDomainsEnforced: !!ws.linkDomainsEnforced, linkDomains: ws.linkDomains || mgr.clientLinkDomains } });
+});
+
+// ---------------------------------------------------------------------------
+// MANAGER ALERTS (Phase 7). A problem raises ONE notification per episode (never a flood), is tracked in state.managerAlerts, and is
+// resolved automatically — the notification drops out of the inbox — as soon as the problem is gone. A problem that comes back
+// after being resolved is a new episode and is raised again.
+// ---------------------------------------------------------------------------
+const ALERT_TYPES = new Set(['blocked_long', 'followup_due', 'report_unsent', 'profit_overdue', 'repeated_return', 'no_review_attempt']);
+function alertRecipients(state, type, t, exceptId) {
+  const to = new Set();
+  const founders = state.employees.filter(e => e.accessRole === 'superadmin' && !e.accessDisabled);
+  if (t.assignedTo) managersOfEmployee(state, t.assignedTo).forEach(m => to.add(m.id));
+  if (t.assignedBy) { const a = findEmployee(state, t.assignedBy); if (a && isAdminRole(a.accessRole)) to.add(a.id); }
+  if (type === 'followup_due' && t.assignedTo) to.add(t.assignedTo);
+  if (type === 'report_unsent') { to.add(t.reportSendOwner || t.assignedTo); }
+  if (type === 'profit_overdue') { const po = profitConfirmOwner(state); if (po) to.add(po.id); founders.forEach(f => to.add(f.id)); }
+  if (!t.assignedTo) founders.forEach(f => to.add(f.id));
+  to.delete(exceptId); to.delete(null); to.delete(undefined);
+  return [...to];
+}
+function raiseAlert(state, type, t, text, recipients) {
+  state.managerAlerts = state.managerAlerts || {};
+  const key = type + ':' + t.id, prev = state.managerAlerts[key];
+  if (prev && !prev.resolvedAt) return false;                       // already raised and still open — say it once
+  state.managerAlerts[key] = { key, type, taskId: t.id, raisedAt: new Date().toISOString(), resolvedAt: null, to: recipients, episodes: ((prev && prev.episodes) || 0) + 1 };
+  const episode = state.managerAlerts[key].episodes;
+  recipients.forEach(id => { const row = notify(state, id, 'attention', text, t.id, { noDedupe: true }); if (row) row.alertKey = key + '|' + episode; });
+  return true;
+}
+function sweepManagerAlerts(state) {
+  const me = { id: '_sweep', accessRole: 'superadmin', name: 'System' };
+  const deps = workflowDeps(state, me);
+  const byId = {}, rows = [];
+  for (const t of state.tasks) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, deps), t, deps)); }
+  const found = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs }).filter(a => ALERT_TYPES.has(a.type));
+  const open = new Set();
+  let raised = 0, resolved = 0;
+  for (const a of found) {
+    const t = byId[a.id], key = a.type + ':' + a.id;
+    open.add(key);
+    const who = a.assigneeName ? ' (' + a.assigneeName + ')' : '';
+    if (raiseAlert(state, a.type, t, a.label + ' — ' + (a.clientName || 'Admin task') + ' · ' + a.name + who + (a.detail ? ': ' + a.detail : ''), alertRecipients(state, a.type, t))) raised++;
+  }
+  for (const [key, al] of Object.entries(state.managerAlerts || {})) {
+    if (al.resolvedAt || open.has(key)) continue;
+    al.resolvedAt = new Date().toISOString(); resolved++;
+  }
+  if (raised || resolved) db.save();
+  return { raised, resolved, open: open.size };
+}
+app.post('/api/admin/manager-alerts/run', requireAuth, requireSuperAdmin, (req, res) => res.json(sweepManagerAlerts(db.get())));
+if (process.env.NODE_ENV !== 'test') {
+  setInterval(() => { try { sweepManagerAlerts(db.get()); } catch (e) { console.error('[alerts] sweep failed:', e && e.message); } }, 30 * 60 * 1000).unref();
+  setTimeout(() => { try { sweepManagerAlerts(db.get()); } catch (e) { /* first sweep is best-effort */ } }, 60 * 1000).unref();
+}
+
+// The reporting measures — each one separate (see manager-views.js measures).
+app.get('/api/workflow/measures', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const deps = workflowDeps(state, me, { commitmentOutcome });
+  const roster = new Set(teamRoster(state, me).map(e => e.id));
+  const tasks = visibleTasks(state, me).filter(t => me.accessRole === 'superadmin' || me.dashObserver || (t.assignedTo && roster.has(t.assignedTo)));
+  res.json(mgr.measures(tasks, deps, req.query.days));
+});
+
+// A manager's one-off change to someone's task. Always needs a reason; every change is written to t.managerActions (who, when, why,
+// before → after) and the people affected are told.
+app.post('/api/tasks/:id/manager-change', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const b = req.body || {};
+  const reason = String(b.reason || '').trim();
+  if (reason.length < 3) return res.status(400).json({ error: 'Give a short reason — it is kept in the task history.' });
+  if (b.requestId) { const dup = (t.managerActions || []).find(a => a.requestId === b.requestId); if (dup) return res.json({ task: taskForClient(t), duplicate: true }); }
+  if (t.assignedTo ? !canManageEmployee(state, me, t.assignedTo) : false) return res.status(403).json({ error: "You're not authorized to change this employee's task." });
+  const log = (action, from, to) => {
+    t.managerActions = t.managerActions || [];
+    t.managerActions.push({ id: crypto.randomUUID(), requestId: b.requestId || null, at: new Date().toISOString(), by: me.id, byName: me.name, action, reason, from, to });
+  };
+  switch (b.action) {
+    case 'reassign': {
+      const from = t.assignedTo || null;
+      const r = applyReassign(state, t, me, b.newAssigneeId, reason);
+      if (r.error) return res.status(r.status).json({ error: r.error });
+      log('reassign', from, b.newAssigneeId);
+      break;
+    }
+    case 'change_due': {
+      const iso = x => (typeof x === 'string' && /^\d{4}-\d{2}-\d{2}/.test(x)) ? x.slice(0, 10) : null;
+      const internal = iso(b.internalDeadline);
+      if (!internal) return res.status(400).json({ error: 'Give a valid internal due date.' });
+      if (t.status === 'completed') return res.status(400).json({ error: 'A finished task has no due date to change.' });
+      if (internal < todayISO() && internal !== t.internalDeadline) return res.status(400).json({ error: "You can't set the due date in the past." });
+      const before = { internal: t.internalDeadline, client: t.clientDate };
+      t.internalDeadline = internal;
+      const cd = iso(b.clientDate);
+      if (cd) { t.clientDate = cd; t.clientDateOverride = true; }
+      recordDateChange(state, t, me, before, reason, 'manager_change');
+      log('change_due', before, { internal: t.internalDeadline, client: t.clientDate });
+      break;
+    }
+    case 'change_reviewer': {
+      const rv = findEmployee(state, b.reviewerId);
+      if (!rv || !isAdminRole(rv.accessRole)) return res.status(400).json({ error: 'Pick a manager or founder as reviewer.' });
+      if (rv.id === t.assignedTo) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
+      if (t.status === 'completed' && t.reviewStatus !== 'done' && t.reviewStatus !== 'clean' && t.reviewStatus !== 'error') { /* in review: allowed */ }
+      const from = t.reviewerId || null;
+      t.reviewerId = rv.id;
+      notify(state, rv.id, 'review', me.name + ' made you the reviewer of "' + t.name + '" — ' + reason, t.id);
+      log('change_reviewer', from, rv.id);
+      break;
+    }
+    case 'waive_review': {
+      if (!workflow.isClientTask(t)) return res.status(400).json({ error: 'Admin tasks do not need a review waiver.' });
+      if (t.status === 'completed') return res.status(400).json({ error: 'This task is already finished.' });
+      if (reason.length < 5) return res.status(400).json({ error: 'Say why this client task needs no review.' });
+      t.reviewRequired = false; t.noReviewAuthorizedBy = me.id; t.noReviewAuthorizedAt = new Date().toISOString(); t.noReviewAuthorizedReason = reason;
+      log('waive_review', true, false);
+      break;
+    }
+    default: return res.status(400).json({ error: 'Unknown action.' });
+  }
+  logEvent(state, t.assignedTo || me.id, '<b>' + escHtml(me.name) + '</b> changed "' + escHtml(t.name) + '" (' + escHtml(b.action) + '): ' + escHtml(reason));
+  db.save();
+  res.json({ task: taskForClient(t) });
 });
 
 // Recover calls Aircall never delivered (see connector.js recoverCalls). Superadmin only. DRY RUN unless the

@@ -351,6 +351,13 @@ function rebuildOrgChart(state) {
 // stores share exactly one migration path.
 function runMigrations(state) {
   if (!state.clients) state.clients = [];
+  // Today dashboard (v2): switched on once for Parvinder; everyone else is untouched, and a superadmin can switch anyone on or off.
+  state.migrationFlags = state.migrationFlags || {};
+  if (!state.migrationFlags.dashboardV2ForParvinder) {
+    const p = (state.employees || []).find(e => String(e.email || '').toLowerCase() === 'parvinder@elitetaxation.co.nz');
+    if (p && p.dashboardV2 === undefined) p.dashboardV2 = true;
+    state.migrationFlags.dashboardV2ForParvinder = true;
+  }
   // Clients can carry a contact email now, and remember who added them.
   (state.clients || []).forEach(c => {
     if (c.email === undefined) c.email = null;
