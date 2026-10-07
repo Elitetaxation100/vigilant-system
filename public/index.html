@@ -169,11 +169,16 @@ i.cal-ev{ display:inline-block; width:12px; height:12px; padding:0; vertical-ali
 .cal-ev.red{ background:var(--coral); } .cal-ev.amber{ background:#B45309; } .cal-ev.blue{ background:#2563EB; } .cal-ev.purple{ background:var(--purple); } .cal-ev.green{ background:var(--teal); } .cal-ev.grey{ background:#6B7280; }
 .cal-more{ background:none; border:0; color:var(--purple); font:inherit; font-size:11.5px; cursor:pointer; padding:2px 4px; }
 .cal-legend{ display:flex; flex-wrap:wrap; gap:14px; margin:12px 0; font-size:12.5px; color:var(--text-dim); } .cal-key{ display:inline-flex; align-items:center; }
-.tl{ position:relative; min-width:720px; } .tl-today{ position:absolute; top:0; bottom:0; left:calc(260px + (100% - 260px) * var(--today) / 100); width:2px; background:var(--coral); opacity:.7; pointer-events:none; }
+.tl{ position:relative; min-width:720px; } .tl-today{ position:absolute; top:0; bottom:0; left:calc(270px + (100% - 270px) * var(--today) / 100); width:2px; background:var(--coral); opacity:.7; pointer-events:none; }
 .tl-row{ display:grid; grid-template-columns:260px 1fr; gap:10px; align-items:center; border-bottom:1px solid var(--panel-border); }
 .tl-name{ text-align:left; background:none; border:0; padding:8px 4px; font:inherit; color:var(--text); cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-height:44px; }
 .tl-name .tm-sub{ display:block; }
 .tl-track{ position:relative; height:24px; } .tl-bar{ position:absolute; top:6px; height:12px !important; padding:0 !important; border-radius:6px; margin:0 !important; width:auto; }
+.tl-axis{ display:grid; grid-template-columns:260px 1fr; gap:10px; border-bottom:1px solid var(--panel-border); } .tl-ticks{ position:relative; height:22px; } .tl-tick{ position:absolute; top:2px; font-size:11px; color:var(--text-dim); transform:translateX(-50%); white-space:nowrap; }
+.tl-late{ position:absolute; top:9px; height:6px; border-radius:3px; background:repeating-linear-gradient(45deg, var(--coral) 0 4px, transparent 4px 8px); opacity:.85; }
+.tl-mark.tl-client{ background:var(--purple); width:0; height:0; top:5px; border-radius:0; border-left:6px solid transparent; border-right:6px solid transparent; border-top:0; border-bottom:12px solid var(--purple); transform:translateX(-6px); }
+.cal-week .cal-cell{ min-height:150px; }
+.mt-more{ margin:8px 0 12px; } .mt-more summary{ cursor:pointer; font-weight:600; padding:8px 0; min-height:44px; display:flex; align-items:center; gap:8px; } .mt-more summary:focus-visible{ outline:3px solid var(--purple); outline-offset:2px; } .mt-on{ font-size:11px; padding:1px 6px; border-radius:8px; background:var(--purple); color:#fff; }
 .tl-mark{ position:absolute; top:2px; width:3px; height:20px; background:var(--text); border-radius:2px; }
 @media (max-width: 760px){
   .tm-table thead{ display:none; } .tm-table, .tm-table tbody, .tm-table tr, .tm-table th, .tm-table td{ display:block; width:100%; }
@@ -199,6 +204,9 @@ body.v2-dash .clock-card{ display:none !important; }
 .pg-search input{ width:100%; max-width:380px; min-height:44px; padding:8px 12px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel); color:inherit; font:inherit; }
 .pg-search input:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
 .pg-search .pg-count{ font-size:12.5px; color:var(--text-dim); }
+.nav-item:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
+.linkbtn{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-decoration:underline; cursor:pointer; text-align:inherit; }
+.linkbtn:focus-visible{ outline:3px solid var(--purple); outline-offset:2px; }
 .td-count .sc{ display:block; font-size:11px; color:var(--text-faint); margin-top:2px; }
 .td-search{ width:100%; max-width:420px; min-height:44px; padding:8px 12px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel); color:inherit; font:inherit; }
 .td-acc-h{ display:flex; justify-content:space-between; gap:8px; width:100%; padding:12px 14px; min-height:44px; border:0; border-top:1px solid var(--panel-border); background:transparent; color:var(--text-dim); font:inherit; font-weight:700; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; cursor:pointer; text-align:left; }
@@ -232,6 +240,10 @@ body.v2-dash .clock-card{ display:none !important; }
 .rv2-pick button{ min-height:64px; border:2px solid var(--panel-border); border-radius:12px; background:var(--panel); font:inherit; font-weight:700; font-size:15px; cursor:pointer; color:inherit; }
 .rv2-pick button[aria-pressed="true"]{ border-color:var(--purple); background:var(--purple); color:#fff; }
 .rv2-pick button:focus-visible{ outline:3px solid var(--purple); outline-offset:2px; }
+.rv2-card{ position:relative; display:flex; align-items:center; justify-content:center; text-align:center; min-height:64px; padding:8px; border:2px solid var(--panel-border); border-radius:12px; background:var(--panel); font-weight:700; font-size:15px; cursor:pointer; }
+.rv2-card input{ position:absolute; opacity:0; inset:0; width:100%; height:100%; margin:0; cursor:pointer; }
+.rv2-card:has(input:checked){ border-color:var(--purple); background:var(--purple); color:#fff; }
+.rv2-card:has(input:focus-visible){ outline:3px solid var(--purple); outline-offset:2px; }
 .rv2-sec{ margin:14px 0 0; padding-top:10px; border-top:1px solid var(--panel-border); }
 .rv2-sec h4{ margin:0 0 8px; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-faint); }
 .rv2-yn{ display:flex; gap:10px; flex-wrap:wrap; margin:4px 0 10px; } .rv2-yn label{ display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:0 14px; border:1px solid var(--panel-border); border-radius:10px; cursor:pointer; }
@@ -728,7 +740,7 @@ body.v2-dash .clock-card{ display:none !important; }
   .hold-reason[open] > summary::after{ content:' ▾'; }
   .hold-reason > div{ margin-top:4px; color:var(--text-dim); line-height:1.5; }
   .hold-reason:not([open]) > div{ display:none; }
-  .hold-reason a{ color:var(--purple); }
+  .hold-reason a, .hold-reason .linkbtn{ color:var(--purple); }
 
   .action-stack{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .verify-btn{ background:var(--panel-2); border:1px solid var(--panel-border); color:var(--text-dim); font-size:13px; padding:6px 10px; border-radius:7px; transition:.15s; }
@@ -1566,6 +1578,16 @@ body.v2-dash .clock-card{ display:none !important; }
           </table>
         </div>
 
+        <div class="panel" id="dqPanel" style="display:none;">
+          <div class="panel-head"><h2>Data quality</h2><div class="panel-head-actions"><button class="btn small" onclick="openDataQuality()">Open the report</button><button class="btn small" onclick="downloadDataQuality()">Download CSV</button></div></div>
+          <div style="padding:4px 2px;font-size:13px;color:var(--text-dim);">A read-only check of duplicate or test logins, missing clients, zero hours, personal details in task titles and mixed-up Client/Admin tasks. It changes nothing — you decide each item.</div>
+        </div>
+
+        <div class="panel" id="pcPanel" style="display:none;">
+          <div class="panel-head"><h2>Who confirms profit</h2></div>
+          <div id="pcBody" style="padding:4px 2px;"></div>
+        </div>
+
         <div class="panel" id="crmConnPanel" style="display:none;">
           <div class="panel-head">
             <h2>ET-CRM connection</h2>
@@ -2106,7 +2128,7 @@ body.v2-dash .clock-card{ display:none !important; }
           </div>
           <div class="src-subtabs" id="prodGroupTabs" style="margin:0 0 12px;"></div>
           <div id="prodHoursWrap">
-            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Qualified delivered allocated hours ÷ adjusted capacity — a task counts only once it's final-sendable, met the internal milestone, and (for client work) was actually sent to the client by the external date. Click anyone's row for the full calculation.</p>
+            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;">Productivity = qualifying allocated hours ÷ eligible capacity hours × 100. Productivity measures reviewed-clean completed output using the task's allocated hours against eligible capacity. Client report dispatch is measured separately under Report Sent. Click anyone's row for the full calculation.</p>
             <div id="prodTotals"></div>
             <div style="max-height:60vh;overflow-y:auto;margin-top:16px;">
               <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -2234,13 +2256,13 @@ body.v2-dash .clock-card{ display:none !important; }
 
         <div class="panel" style="margin-top:16px;">
           <div class="panel-head"><h2 style="font-size:15.5px;">Report Sent</h2></div>
-          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">A separate, per-report count of on-time client dispatch — the same dispatch fact also decides whether a task's hours qualify for Productivity above, by design, not double-counted.</p>
+          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">A separate, per-report count of on-time client dispatch. Productivity measures reviewed-clean completed output using the task's allocated hours against eligible capacity; client report dispatch is measured here, separately, under Report Sent.</p>
           <div id="rcReportSent"></div>
         </div>
 
         <div class="panel" style="margin-top:16px;">
           <div class="panel-head"><h2 style="font-size:15.5px;">Exceptions — open work</h2></div>
-          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">Not yet delivered — zero productivity credit until it clears all three gates. Shown regardless of the period selected above.</p>
+          <p style="font-size:12.5px;color:var(--text-dim);margin:-6px 0 10px;">Work not yet completed and reviewed clean earns no Productivity credit yet. Shown regardless of the period selected above.</p>
           <div id="rcOpenWork"></div>
         </div>
         </div>
@@ -3195,6 +3217,16 @@ function accessLabel(r){
 }
 // Keep inactive people available to historical task/audit rendering, but never
 // offer them as the destination for new or reassigned work.
+// Placeholder / test / generic accounts are not people: never offered as an escalation recipient or counted in capacity.
+function isSystemAccount(e){
+  const n = String((e && e.name) || '').trim().toLowerCase(), em = String((e && e.email) || '').toLowerCase();
+  return !!(e && (e.isSystem || e.isTest || n === 'admin' || n === 'test user' || /^test(\b|[._-])/i.test(n) || /^(admin|test|noreply|no-reply)@/.test(em)));
+}
+// What to show where a client name goes. Admin Tasks have no client — never "Internal", never a fake client.
+function clientLabel(t){
+  const n = String((t && t.clientName) || '').trim();
+  return n && n.toLowerCase() !== 'internal' ? n : 'Admin task';
+}
 function canReceiveNewWork(e){
   const status = String((e && e.employmentStatus) || '').toLowerCase();
   return !!e && !e.accessDisabled && e.crmActive !== false
@@ -3276,9 +3308,21 @@ function reportsToSendFor(who){
 }
 // Profit confirmation always routes to Shubam Sharma — same one-person
 // routing as the AGENT_MAP pattern used for call notifications.
-const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';
-function iAmProfitConfirmOwner(){
-  return !!(session && String(session.email||'').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+const PROFIT_CONFIRM_EMAIL = 'shubham@elitetaxation.co.nz';   // legacy: still the firm-wide Kudos manager below. Profit confirmers are CONFIGURED (see pcName).
+function iAmProfitConfirmOwner(){ return !!(session && session.isProfitConfirmer); }
+// Who confirms profit — set by a superadmin (company default, team confirmers, backup) or on one task. Never typed into the screen.
+let _pcCfg = null;
+async function loadPcCfg(){ try { _pcCfg = await api('/api/workflow/profit-confirmers'); } catch(e){} }
+function pcName(t){
+  if(t && t.profitConfirmStatus && t.profitConfirmerAssignedId){ const e = empById(t.profitConfirmerAssignedId); if(e) return e.name; }
+  if(t && t.profitConfirmerId){ const e = empById(t.profitConfirmerId); if(e) return e.name; }
+  const c = _pcCfg;
+  if(c){
+    if(t && t.team){ const x = (c.teams || []).find(z => z.team === t.team); if(x && x.name) return x.name; }
+    if(c.default && c.default.name) return c.default.name;
+    if(c.effectiveDefault && c.effectiveDefault.name) return c.effectiveDefault.name;
+  }
+  return 'the profit confirmer';
 }
 // Kudos — mirrors connector.js KUDOS_MANAGERS / canAwardKudosTo exactly
 // (team substring match, or Shubam firm-wide, or superadmin). Keep these
@@ -3594,7 +3638,7 @@ async function renderAutoMarksPanel(){
     <div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-top:8px;">
       The system deducts marks by itself. Each one is a normal mark (the person and their manager see it, it counts in the totals) and you can void any of them.<br>
       <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: <b>−${p.ackPerItem} for every call or email not acknowledged</b>. Judged at <b>6:45 pm NZ the same day</b> — when the daily Calls &amp; Email report goes to the admins — on exactly what that report counts; leave, holidays and workshop days are skipped.<br>
-      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). GST work needs only the Sheet — a missing Cashbook is never marked. Internal tasks never need links.<br>
+      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). GST work needs only the Sheet — a missing Cashbook is never marked. Admin Tasks never need links.<br>
       <b>Reports</b> — a client report not sent to the client by its committed date (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever is sending it, once per task. Only dates after “Starts from” count.<br>
       <b>Reassigned mail</b> — a mail reassigned to someone must be replied to (or marked “no reply needed”) <b>the same working day, before the daily Calls &amp; Email report goes to the admins (6:45 pm NZ)</b>; handed over after that report, or on a day off, it is due before the next working day's report. Otherwise <b>−${p.mailReplyLate}</b> to that person, once per hand-off. Leave days push the deadline on. The mail shows on their dashboard until it is handled.
     </div></details>
@@ -3781,10 +3825,10 @@ function renderWorkshopsPanel(){
     return;
   }
   const faint = 'color:var(--text-faint);';
-  const link = (fn, label) => `<a href="#" onclick="event.preventDefault();${fn}" style="font-weight:600;text-decoration:underline;">${label}</a>`;
+  const link = (fn, label) => `<button type="button" class="linkbtn" onclick="${fn}" style="font-weight:600;text-decoration:underline;">${label}</button>`;
   body.innerHTML = _workshopsData.map(w => {
     const wid = esc(w.id);
-    const change = (label, fn) => w.locked ? '' : ` <a href="#" onclick="event.preventDefault();${fn}('${wid}')" style="font-size:12px;color:var(--text-faint);text-decoration:underline;">${label}</a>`;
+    const change = (label, fn) => w.locked ? '' : ` <button type="button" class="linkbtn" onclick="${fn}('${wid}')" style="font-size:12px;color:var(--text-faint);text-decoration:underline;">${label}</button>`;
     const mine = w.myPenalised
       ? `<span style="color:var(--coral);font-weight:700;">−${w.penalty} applied</span>`
       : w.myReadAt ? `<span style="color:var(--teal);font-weight:700;">✓ Read</span>${change("I haven't", 'markWorkshopNotRead')}`
@@ -4646,6 +4690,16 @@ function installPageSearch(id){
   }
   applyPageSearch(view);
 }
+// Sidebar navigation items are buttons for the keyboard and for screen readers: focusable, announced as buttons, Enter / Space opens, and the current page is marked.
+function enhanceNavItems(){
+  document.querySelectorAll('.nav-item[onclick]').forEach(n => { if(!n.hasAttribute('role')){ n.setAttribute('role', 'button'); n.setAttribute('tabindex', '0'); } });
+  document.querySelectorAll('.nav-item[role=button]').forEach(n => { if(n.classList.contains('active')) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
+}
+document.addEventListener('keydown', e => {
+  const n = e.target && e.target.closest && e.target.closest('.nav-item[role=button]');
+  if(n && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); n.click(); }
+});
+document.addEventListener('DOMContentLoaded', enhanceNavItems);
 function showView(id, el, classic){
   closeMobileNav();
   mtMenuClose();
@@ -4670,6 +4724,7 @@ function showView(id, el, classic){
   installPageSearch(id);
   document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
   if(el) el.classList.add('active');
+  enhanceNavItems();
   document.getElementById('pageTitle').textContent = titles[id][0];
   document.getElementById('pageSub').textContent = titles[id][1];
   if(id !== 'dashboard' && _dashMirror){ _dashMirror = null; renderMirrorBanner(); }  // mirror only lives on the Commitment Dashboard
@@ -4693,7 +4748,7 @@ function showView(id, el, classic){
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
-  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); }
+  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); renderPcSettings(); { const p = document.getElementById('dqPanel'); if(p) p.style.display = isSuperAdmin ? '' : 'none'; } }
   if(id === 'teamboard') renderTeamBoard();
   if(id === 'whatsapp') renderWhatsAppView();
   if(['manager','teamboard','founder','command'].includes(id)){
@@ -5676,7 +5731,7 @@ function openLeaveConflictModal(leaveBody, conflicts){
   const rows = conflicts.map(t => `
     <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
       <div><div style="font-weight:600;color:var(--text);">${esc(t.name)}</div>
-        <div style="font-size:12px;color:var(--text-faint);">${esc(t.clientName || 'Internal')} · due ${fmtDate(t.internalDeadline)}</div></div>
+        <div style="font-size:12px;color:var(--text-faint);">${esc(clientLabel(t))} · due ${fmtDate(t.internalDeadline)}</div></div>
       <button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>
       <button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="openHoldModal('${t.id}')">Put on Hold</button>
     </div>`).join('');
@@ -5879,7 +5934,7 @@ function renderDeadlineBanner(){
   const awaitingRework = awaitingMine.filter(isReworkFlagged);
   let banners = [];
   _bannerLists = {};
-  const seeList = key => `<a href="#" onclick="event.preventDefault(); openBannerList('${key}');" style="text-decoration:underline;font-weight:600;">see list</a>`;
+  const seeList = key => `<button type="button" class="linkbtn" onclick="openBannerList('${key}');" style="text-decoration:underline;font-weight:600;">see list</button>`;
   if(awaitingNew.length > 0){
     _bannerLists.awaitingNew = { title: 'New tasks assigned to you', subtitle: 'Accept or propose a new date', list: awaitingNew };
     banners.push(`<div class="banner"><span>📥</span><span><b>${awaitingNew.length} new task${awaitingNew.length>1?'s':''}</b> assigned to you — ${bannerRef(awaitingNew)} · ${seeList('awaitingNew')}</span></div>`);
@@ -5900,22 +5955,22 @@ function renderDeadlineBanner(){
   const reportsToSend = reportsToSendFor(currentViewerId);
   if(reportsToSend.length > 0){
     const overdueN = reportsToSend.filter(t => t.reportOverdue).length;
-    banners.push(`<div class="banner ${overdueN ? 'warn' : ''}"><span>📨</span><span><b>${reportsToSend.length} report${reportsToSend.length>1?'s':''} to send</b>${overdueN ? ` — ${overdueN} overdue` : ''} — ${bannerRef(reportsToSend)} · <a href="#" onclick="event.preventDefault(); openReportsToSendModal();" style="text-decoration:underline;font-weight:600;">see list</a></span></div>`);
+    banners.push(`<div class="banner ${overdueN ? 'warn' : ''}"><span>📨</span><span><b>${reportsToSend.length} report${reportsToSend.length>1?'s':''} to send</b>${overdueN ? ` — ${overdueN} overdue` : ''} — ${bannerRef(reportsToSend)} · <button type="button" class="linkbtn" onclick="openReportsToSendModal();" style="text-decoration:underline;font-weight:600;">see list</button></span></div>`);
   }
   const profitConfirms = profitConfirmsPendingFor();
   if(profitConfirms.length > 0){
-    banners.push(`<div class="banner"><span>💰</span><span><b>${profitConfirms.length} task${profitConfirms.length>1?'s':''} awaiting profit confirmation</b> — ${bannerRef(profitConfirms)} · <a href="#" onclick="event.preventDefault(); openProfitConfirmsModal();" style="text-decoration:underline;font-weight:600;">see list</a></span></div>`);
+    banners.push(`<div class="banner"><span>💰</span><span><b>${profitConfirms.length} task${profitConfirms.length>1?'s':''} awaiting profit confirmation</b> — ${bannerRef(profitConfirms)} · <button type="button" class="linkbtn" onclick="openProfitConfirmsModal();" style="text-decoration:underline;font-weight:600;">see list</button></span></div>`);
   }
   if(isAdmin){
     const proposedOrg = tasks.filter(t => t.status === 'window_proposed');
     if(proposedOrg.length > 0){
-      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} new date${proposedOrg.length>1?'s':''} proposed</b> — <a href="#" onclick="openProposedWindows(); return false;" style="color:#6D28D9; text-decoration:underline;">review and decide</a></span></div>`);
+      banners.push(`<div class="banner"><span>🗓</span><span><b>${proposedOrg.length} new date${proposedOrg.length>1?'s':''} proposed</b> — <button type="button" class="linkbtn" onclick="openProposedWindows()" style="color:#6D28D9; text-decoration:underline;">review and decide</button></span></div>`);
     }
   }
   // Workshop pre-reading not yet confirmed (and not already marked down).
   (_workshopsData || []).filter(w => !w.myReadAt && !w.myNotReadAt && !w.myPenalised && !w.locked).forEach(w => {
     const urgent = w.date <= addDaysISO(1);
-    banners.push(`<div class="banner${urgent ? ' warn' : ''}"><span>📖</span><span><b>Pre-reading for ${esc(w.name)}</b> — read it before ${fmtDate(w.date)}; anyone who hasn't gets −${w.penalty} mark${w.penalty === 1 ? '' : 's'}. ${w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline;font-weight:600;">Open material</a> · ` : ''}<a href="#" onclick="event.preventDefault(); markWorkshopRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I've read it</a> · <a href="#" onclick="event.preventDefault(); markWorkshopNotRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I haven't</a></span></div>`);
+    banners.push(`<div class="banner${urgent ? ' warn' : ''}"><span>📖</span><span><b>Pre-reading for ${esc(w.name)}</b> — read it before ${fmtDate(w.date)}; anyone who hasn't gets −${w.penalty} mark${w.penalty === 1 ? '' : 's'}. ${w.url ? `<a href="${esc(w.url)}" target="_blank" rel="noopener noreferrer" style="text-decoration:underline;font-weight:600;">Open material</a> · ` : ''}<button type="button" class="linkbtn" onclick="markWorkshopRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I've read it</button> · <button type="button" class="linkbtn" onclick="markWorkshopNotRead('${esc(w.id)}');" style="text-decoration:underline;font-weight:600;">I haven't</button></span></div>`);
   });
   // Each banner can be dismissed with ✕. The dismissal is keyed to the banner's
   // exact text, so it comes back if the number or the tasks in it change.
@@ -6287,7 +6342,7 @@ function statusBadge(t){
       return `<span class="badge awaiting dot">Waiting · on hold</span>${waitBadge}` +
         `<details class="hold-reason"><summary>reason</summary>` +
         `<div>${esc(holdReasonLabel(t))}${ex}${extra} · ` +
-        `<a href="#" onclick="openHoldDetailModal('${t.id}');return false;">full detail ›</a></div></details>`;
+        `<button type="button" class="linkbtn" onclick="openHoldDetailModal('${t.id}')">full detail ›</button></div></details>`;
     }
     case 'pending_approval': return `<span class="badge awaiting dot">Waiting · manager OK</span>`;
     case 'pending': return `<span class="badge pending dot">To do</span>`;
@@ -6970,8 +7025,8 @@ function renderDashToday(){
   const windows = tasks.filter(t => t.status === 'window_proposed' && t.assignedTo !== currentViewerId).length;
   const toSend = reportsToSendFor(currentViewerId).length;
   const notices = [
-    windows ? `<div class="banner"><span>🗓</span><span><b>${windows} new date${windows === 1 ? '' : 's'} proposed</b> by your team — <a href="#" onclick="event.preventDefault();openProposedWindows();" style="text-decoration:underline;font-weight:600;">review and decide</a></span></div>` : '',
-    toSend ? `<div class="banner"><span>📨</span><span><b>${toSend} report${toSend === 1 ? '' : 's'} to send</b> to clients — <a href="#" onclick="event.preventDefault();openReviewsPage();" style="text-decoration:underline;font-weight:600;">open Reviews</a></span></div>` : '',
+    windows ? `<div class="banner"><span>🗓</span><span><b>${windows} new date${windows === 1 ? '' : 's'} proposed</b> by your team — <button type="button" class="linkbtn" onclick="openProposedWindows();" style="text-decoration:underline;font-weight:600;">review and decide</button></span></div>` : '',
+    toSend ? `<div class="banner"><span>📨</span><span><b>${toSend} report${toSend === 1 ? '' : 's'} to send</b> to clients — <button type="button" class="linkbtn" onclick="openReviewsPage();" style="text-decoration:underline;font-weight:600;">open Reviews</button></span></div>` : '',
   ].join('');
   const mineRows = mineList.slice().sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999')).slice(0, 6).map(t => `<div class="to-row" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
       <div class="to-main"><b>${esc(t.name)}</b>${t.clientName ? ` <span style="color:var(--text-faint);">— ${esc(t.clientName)}</span>` : ''}
@@ -6996,7 +7051,7 @@ function renderDashToday(){
         ${teamRows || '<div style="font-size:13.5px;color:var(--text-faint);">No one on your team yet.</div>'}</div>
       <div class="panel"><div class="panel-head"><h2>${isToday ? 'My to-do today' : 'My work — ' + esc(label)}</h2><button class="btn small" onclick="setDashTab('work')">Open My work</button></div>
         ${mineRows || `<div style="font-size:13.5px;color:var(--text-faint);">${isToday ? 'Nothing due today — all clear.' : 'Nothing in this range.'}</div>`}
-        ${mineList.length > 6 ? `<div style="padding-top:8px;font-size:12.5px;"><a href="#" onclick="event.preventDefault();setDashTab('work');" style="color:var(--purple);font-weight:600;">+${mineList.length - 6} more in My work →</a></div>` : ''}
+        ${mineList.length > 6 ? `<div style="padding-top:8px;font-size:12.5px;"><button type="button" class="linkbtn" onclick="setDashTab('work');" style="color:var(--purple);font-weight:600;">+${mineList.length - 6} more in My work →</button></div>` : ''}
       </div>
     </div>`;
 }
@@ -7088,7 +7143,7 @@ function renderDashTeam(){
     const open = _teamOpen.has(p.id) || !!_teamPerson;
     const groupsHtml = DASH_CATS.filter(([k]) => b.groups[k]).map(([k, label]) => `<div class="tm-group c-${k}"><span>${label}</span><b>${b.groups[k].length}</b></div>
       ${b.groups[k].map(t => `<div class="tm-task" onclick="openTaskTrailModal('${t.id}')">
-        <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(t.clientName || 'Internal')}${dashNoteHtml(t)}</small></span>
+        <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(clientLabel(t))}${dashNoteHtml(t)}</small></span>
         <span class="tm-task-meta">${isOverdueNow(t) ? '<span class="dash-bad">overdue · </span>' : ''}${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
         <span class="wk-act" onclick="event.stopPropagation()">${isOverdueNow(t) ? `<button class="verify-btn" style="border-color:var(--coral);color:var(--coral);" onclick="nudgeTask('${t.id}')">Nudge</button>` : ''}<button class="verify-btn" title="Nudge, reassign, edit dates, remove…" onclick="openTaskActions('${t.id}')">⋯ More</button></span>
       </div>`).join('')}`).join('');
@@ -7116,7 +7171,7 @@ function onWorkFilter(){
 function openTaskActions(id){
   const t = findTask(id); if(!t) return;
   document.getElementById('modalBox').innerHTML = `<h3>${esc(t.name || 'Task')}</h3>
-    <div class="modal-sub">${esc(t.clientName || 'Internal')}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}${t.assignedTo !== currentViewerId ? ' · with ' + esc((empById(t.assignedTo) || {}).name || '—') : ''}</div>
+    <div class="modal-sub">${esc(clientLabel(t))}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}${t.assignedTo !== currentViewerId ? ' · with ' + esc((empById(t.assignedTo) || {}).name || '—') : ''}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px;">
       ${t.assignedTo !== currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval' ? `<button class="verify-btn" style="border-color:var(--coral);color:var(--coral);" onclick="closeModal();nudgeTask('${t.id}')">Nudge ${esc(((empById(t.assignedTo) || {}).name || 'them').split(' ')[0])}</button>` : ''}
       <button class="verify-btn" onclick="closeModal();openTaskTrailModal('${t.id}')">View history</button>
@@ -7167,7 +7222,7 @@ function renderDashWork(){
   const groups = {};
   rows.forEach(t => { (groups[dashCat(t)] = groups[dashCat(t)] || []).push(t); });
   const row = t => `<div class="wk-task" onclick="openTaskTrailModal('${t.id}')">
-      <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(t.clientName || 'Internal')}${dashNoteHtml(t)}</small></span>
+      <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(clientLabel(t))}${dashNoteHtml(t)}</small></span>
       <span class="tm-task-meta">${isOverdueNow(t) ? '<span class="dash-bad">overdue · </span>' : ''}${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
       <span class="wk-act" onclick="event.stopPropagation()">${actionButtonHtml(t)}<button class="verify-btn" title="More actions — hold, reassign, edit dates, remove" onclick="openTaskActions('${t.id}')">⋯ More</button></span>
     </div>`;
@@ -7320,7 +7375,7 @@ function renderMyDay(){
         ${hrsBadge}
         <div style="min-width:0;">
           <div class="today-row-title">${esc(t.clientName ? t.clientName + ' — ' : '')}${esc(t.name || '')}${t.overAllocated ? ' <span title="Assigned over capacity for '+fmtDate(t.overAllocated.dueDate)+' — counts as extra hours" style="color:var(--flag);font-weight:700;">⚡+'+t.overAllocated.overBy+'h</span>' : ''}</div>
-          <div class="today-row-sub">${miniState(t)} &middot; due ${t.internalDeadline ? fmtDate(t.internalDeadline) : 'no date'}${od ? ' <b style="color:var(--coral);">&middot; overdue</b>' : ''}${t.clientDate ? ' &middot; client ' + fmtDate(t.clientDate) : ''}${editable ? ` &middot; <a href="#" onclick="event.stopPropagation(); openSetDatesModal('${t.id}'); return false;" style="color:var(--purple);">edit estimate</a>` : ''}</div>
+          <div class="today-row-sub">${miniState(t)} &middot; due ${t.internalDeadline ? fmtDate(t.internalDeadline) : 'no date'}${od ? ' <b style="color:var(--coral);">&middot; overdue</b>' : ''}${t.clientDate ? ' &middot; client ' + fmtDate(t.clientDate) : ''}${editable ? ` &middot; <button type="button" class="linkbtn" onclick="event.stopPropagation(); openSetDatesModal('${t.id}')" style="color:var(--purple);">edit estimate</button>` : ''}</div>
         </div>
       </div>
       <div class="today-row-right">${actionButtonHtml(t)}</div>
@@ -7336,7 +7391,7 @@ function renderMyDay(){
     html += `<div class="working-card">
       <div class="working-top">
         <div>
-          <span class="pill pill-purple">${esc(running.kind === 'internal' ? 'Internal' : 'Client work')}</span>
+          <span class="pill pill-purple">${esc(running.kind === 'internal' ? 'Admin task' : 'Client work')}</span>
           <span class="working-client">${esc(running.clientName || '')}</span>
           <div class="working-title">${esc(running.name || '')}</div>
         </div>
@@ -7365,7 +7420,7 @@ function renderMyDay(){
     listHtml += `<div class="todo-group-hd${key === 'overdue' ? ' is-overdue' : ''}">${label} <span>${items.length}</span></div>`;
     listHtml += `<div class="today-list">${items.map(row).join('')}</div>`;
   });
-  html += listHtml || `<div class="myday-empty">Nothing in this view. ${_todoFilter !== 'all' ? '<a href="#" onclick="setTodoFilter(\'all\');return false;">See everything</a>' : "You're all clear. 🎉"}</div>`;
+  html += listHtml || `<div class="myday-empty">Nothing in this view. ${_todoFilter !== 'all' ? '<button type="button" class="linkbtn" onclick="setTodoFilter(\'all\')">See everything</button>' : "You're all clear. 🎉"}</div>`;
 
   if(needsResponse.length){
     html += `<div class="todo-group-hd">Needs your response <span>${needsResponse.length}</span></div>`;
@@ -7619,7 +7674,7 @@ function renderNeedsAttention(){
   // Overdue number tile above (openMgTileList('overdue')).
   const shown = overdue.slice(0, 3);
   const viewAll = overdue.length > shown.length
-    ? `<a href="#" onclick="event.preventDefault();openMgTileList('overdue');" style="display:block;text-align:center;padding-top:8px;font-size:12.5px;color:var(--purple);font-weight:600;">View all ${overdue.length} →</a>` : '';
+    ? `<button type="button" class="linkbtn" onclick="openMgTileList('overdue');" style="display:block;text-align:center;padding-top:8px;font-size:12.5px;color:var(--purple);font-weight:600;">View all ${overdue.length} →</button>` : '';
   wrap.innerHTML = shown.map(t => {
     const emp = empById(t.assignedTo);
     const days = Math.max(1, Math.round((new Date(today) - new Date(t.internalDeadline)) / 86400000));
@@ -7976,13 +8031,15 @@ function drawTeamView(){
 }
 function tmPickType(k){ _tmType = (_tmType === k) ? null : k; drawTeamView(); }
 /* ---------------- Tasks list ---------------- */
-function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', ids:'', sort:'newest', page:1, pageSize:25 }; }
+function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', risk:'', kinds:'internal,client', ids:'', sort:'newest', page:1, pageSize:25 }; }
 let _mt = mtDefaults(), _mtData = null, _mtTimer = null, _mtCal = null, _mtMonth = null, _mtTl = null, _mtSeq = 0;
 const MT_STATUSES = ['Assigned','In Progress','On Hold','In Review','Correction Required','Approved','Completed'];
+const MT_RISK = [['overdue','Client overdue'],['due_today','Client due today'],['at_risk','At risk'],['waiting_client','Waiting on client'],['ok','On track']];
+function mtMoreActive(){ return ['client','type','waitingOn','reviewer','due','commitment','reportSent','rework'].some(k => _mt[k]) || (_mt.sort && _mt.sort !== 'newest'); }
 const MT_WAIT = [['employee','Employee'],['reviewer','Reviewer'],['manager','Manager'],['founder','Founder'],['client','Client'],['external','External authority'],['profit','Profit confirmation'],['ready_to_send','Ready to send']];
 function mtQuery(){
   const p = new URLSearchParams();
-  ['q','employee','client','type','status','waitingOn','due','commitment','reportSent','rework','reviewer','ids','sort'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
+  ['q','employee','client','type','status','waitingOn','due','commitment','reportSent','rework','reviewer','risk','ids','sort'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
   p.set('page', _mt.page); p.set('pageSize', _mt.pageSize);
   return p.toString();
 }
@@ -7994,12 +8051,17 @@ async function renderMTasks(){
 }
 function mtBuildShell(){
   const box = document.getElementById('mtRoot'); box.dataset.built = '1';
-  box.innerHTML = '<div class="tm-head"><h2 class="td-greet">Tasks</h2><div class="td-date">Everything in your team, filtered and paged on the server. <a href="#" class="tm-link" onclick="event.preventDefault();showView(\'tasks\', document.querySelector(\'#navV2 .nav-item[data-view=&quot;mtasks&quot;]\'), true)">Open the classic task list</a></div></div>'
-    + '<div class="td-seg" id="mtTabs" role="group" aria-label="Task views"></div>'
+  box.innerHTML = '<div class="tm-head"><h2 class="td-greet">Tasks</h2><div class="td-date">Everything in your team, filtered and paged on the server. <button type="button" class="linkbtn tm-link" onclick="showView(\'tasks\', document.querySelector(\'#navV2 .nav-item[data-view=&quot;mtasks&quot;]\'), true)">Open the classic task list</button></div></div>'
+    + '<div class="td-seg" id="mtTabs" role="tablist" aria-label="Task views" onkeydown="mtTabKey(event)"></div>'
     + '<div id="mtBody"></div>';
 }
 function mtDrawTabs(){
-  document.getElementById('mtTabs').innerHTML = [['list','List'],['calendar','Calendar'],['timeline','Timeline']].map(([k,l]) => '<button type="button" class="' + (_mt.tab === k ? 'on' : '') + '" onclick="mtTab(\'' + k + '\')" aria-pressed="' + (_mt.tab === k) + '">' + l + '</button>').join('');
+  document.getElementById('mtTabs').innerHTML = [['list','List'],['calendar','Calendar'],['timeline','Timeline']].map(([k,l]) => '<button type="button" role="tab" id="mtTab_' + k + '" class="' + (_mt.tab === k ? 'on' : '') + '" onclick="mtTab(\'' + k + '\')" aria-selected="' + (_mt.tab === k) + '" tabindex="' + (_mt.tab === k ? 0 : -1) + '">' + l + '</button>').join('');
+}
+function mtTabKey(e){
+  const keys = ['list', 'calendar', 'timeline'], i = keys.indexOf(_mt.tab);
+  const to = e.key === 'ArrowRight' ? (i + 1) % 3 : e.key === 'ArrowLeft' ? (i + 2) % 3 : e.key === 'Home' ? 0 : e.key === 'End' ? 2 : -1;
+  if(to < 0) return; e.preventDefault(); mtTab(keys[to]); setTimeout(() => { const b = document.getElementById('mtTab_' + keys[to]); if(b) b.focus(); }, 0);
 }
 function mtTab(k){ _mt.tab = k; renderMTasks(); }
 function mtSel(id, label, opts, val){ return '<label class="mt-f"><span>' + label + '</span><select id="' + id + '" onchange="mtSet(\'' + id.replace('mtf_', '') + '\', this.value)"><option value="">All</option>' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>'; }
@@ -8017,20 +8079,24 @@ async function mtLoad(){
 }
 function mtDrawList(){
   const body = document.getElementById('mtBody'), D = _mtData, F = D.facets;
-  const f = '<div class="mt-filters" role="search">'
+  const primary = '<div class="mt-filters" role="search">'
     + '<label class="mt-f mt-q"><span>Search</span><input type="search" id="mtf_q" value="' + esc(_mt.q) + '" placeholder="Task, client, number or employee" oninput="mtSearch(this.value)"></label>'
     + mtSel('mtf_employee', 'Employee', F.employees.map(e => [e.id, e.name]), _mt.employee)
+    + mtSel('mtf_status', 'Status', MT_STATUSES.map(s => [s, s]), _mt.status)
+    + mtSel('mtf_risk', 'Risk', MT_RISK, _mt.risk)
+    + '<button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>';
+  const more = '<details class="mt-more" id="mtMore"' + (mtMoreActive() ? ' open' : '') + '><summary>More filters' + (mtMoreActive() ? ' <span class="mt-on">on</span>' : '') + '</summary><div class="mt-filters">'
     + mtSel('mtf_client', 'Client', F.clients.map(c => [c, c]), _mt.client)
     + mtSel('mtf_type', 'Task type', [['client','Client Task'],['admin','Admin Task']].concat(F.types.map(t => [t, t])), _mt.type)
-    + mtSel('mtf_status', 'Status', MT_STATUSES.map(s => [s, s]), _mt.status)
     + mtSel('mtf_waitingOn', 'Waiting on', MT_WAIT, _mt.waitingOn)
     + mtSel('mtf_reviewer', 'Reviewer', F.reviewers.map(r => [r.id, r.name]), _mt.reviewer)
-    + mtSel('mtf_due', 'Internal due', [['overdue','Overdue'],['today','Today'],['week','Next 7 days'],['none','No date']], _mt.due)
-    + mtSel('mtf_commitment', 'Commitment', [['met','Met'],['breached','Breached'],['due_today','Due today'],['at_risk','At risk'],['on_track','On track'],['waiting_client','Waiting on client']], _mt.commitment)
+    + mtSel('mtf_due', 'Internal due date', [['overdue','Overdue'],['today','Today'],['week','Next 7 days'],['none','No date']], _mt.due)
+    + mtSel('mtf_commitment', 'Client commitment', [['met','Met'],['breached','Breached'],['due_today','Due today'],['at_risk','At risk'],['on_track','On track'],['waiting_client','Waiting on client']], _mt.commitment)
     + mtSel('mtf_reportSent', 'Report sent', [['sent_on_time','Sent on time'],['sent_late','Sent late'],['not_sent','Not sent'],['pending','Not yet due']], _mt.reportSent)
     + mtSel('mtf_rework', 'Correction rounds', [['0','None'],['1','1'],['2+','2 or more']], _mt.rework)
-    + mtSel('mtf_sort', 'Sort by', [['newest','Newest first'],['risk','Most at risk'],['internal','Internal due date'],['client','Client date'],['employee','Employee'],['hours','Hours']], _mt.sort).replace('<option value="">All</option>', '')
-    + '<button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>'
+    + mtSel('mtf_sort', 'Sort order', [['newest','Newest first'],['risk','Most at risk'],['internal','Internal due date'],['client','Client date'],['employee','Employee'],['hours','Hours']], _mt.sort).replace('<option value="">All</option>', '')
+    + '</div></details>';
+  const f = primary + more
     + (_mt.ids ? '<div class="mt-banner">Showing the exact tasks behind a count. <button type="button" class="btn small td-act" onclick="mtSet(\'ids\',\'\')">Show everything</button></div>' : '');
   body.innerHTML = f + '<div id="mtResults"></div>';
   mtDrawResults();
@@ -8137,54 +8203,125 @@ async function mtSubmitAction(kind, id){
   try { await api('/api/tasks/' + encodeURIComponent(id) + '/manager-change', { method:'POST', body: JSON.stringify(body) }); closeModal(); showToast('success', 'Saved', 'The change is in the task history.'); await refreshTasks(); if(viewActive('mtasks')) mtLoad(); }
   catch(e){ go.disabled = false; bad(e.message); }
 }
-/* ---------------- Calendar ---------------- */
+/* ---------------- Calendar + Timeline: shared filters ---------------- */
+let _mtCalView = 'month', _mtWeek = null, _mtAgendaN = 30, _mtDayOpen = null, _mtTlPage = 1, _mtTlSize = 25;
+function mtViewQuery(extra){
+  const p = new URLSearchParams();
+  ['employee', 'client', 'reviewer', 'status', 'type', 'risk'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
+  Object.entries(extra || {}).forEach(([k, v]) => { if(v != null && v !== '') p.set(k, v); });
+  const q = p.toString(); return q ? '?' + q : '';
+}
+function mtViewFilters(F, withRisk){
+  const sel = (id, label, opts, val) => '<label class="mt-f"><span>' + label + '</span><select id="mtv_' + id + '" onchange="mtViewSet(\'' + id + '\', this.value)"><option value="">All</option>' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>';
+  return '<div class="mt-filters" role="group" aria-label="Filters">'
+    + sel('employee', 'Employee', F.employees.map(e => [e.id, e.name]), _mt.employee) + sel('client', 'Client', F.clients.map(c => [c, c]), _mt.client)
+    + sel('reviewer', 'Reviewer', F.reviewers.map(r => [r.id, r.name]), _mt.reviewer) + sel('status', 'Status', MT_STATUSES.map(x => [x, x]), _mt.status)
+    + sel('type', 'Task type', [['client', 'Client Task'], ['admin', 'Admin Task']], _mt.type) + (withRisk ? sel('risk', 'Risk', MT_RISK, _mt.risk) : '')
+    + '<button type="button" class="btn small td-act" onclick="mtViewClear()">Clear filters</button></div>';
+}
+function mtViewSet(k, v){ _mt[k] = v; _mtTlPage = 1; _mtDayOpen = null; if(_mt.tab === 'calendar') mtLoadCalendar(); else mtLoadTimeline(); }
+function mtViewClear(){ ['employee', 'client', 'reviewer', 'status', 'type', 'risk'].forEach(k => _mt[k] = ''); _mtTlPage = 1; _mtDayOpen = null; if(_mt.tab === 'calendar') mtLoadCalendar(); else mtLoadTimeline(); }
+/* ---------------- Calendar: Month · Week · Agenda ---------------- */
 async function mtLoadCalendar(){
-  const body = document.getElementById('mtBody'); body.innerHTML = '<div class="td-empty">Loading the calendar…</div>';
-  try { _mtCal = await api('/api/workflow/calendar' + (_mt.employee ? '?employee=' + encodeURIComponent(_mt.employee) : '')); }
+  const body = document.getElementById('mtBody'); if(!_mtCal) body.innerHTML = '<div class="td-empty">Loading the calendar…</div>';
+  try { _mtCal = await api('/api/workflow/calendar' + mtViewQuery({ kinds: _mt.kinds })); }
   catch(e){ body.innerHTML = '<div class="td-empty" role="alert">Could not load the calendar: ' + esc(e.message) + ' <button class="btn small td-act" onclick="mtLoadCalendar()">Retry</button></div>'; return; }
   if(!_mtMonth) _mtMonth = _mtCal.today.slice(0, 7);
+  if(!_mtWeek) _mtWeek = mtMonday(_mtCal.today);
   mtDrawCalendar();
 }
-function mtShiftMonth(n){ const [y, m] = _mtMonth.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); _mtMonth = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); mtDrawCalendar(); }
+function mtMonday(iso){ const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); }
+function mtAddDays(iso, n){ const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function mtShiftMonth(n){ const [y, m] = _mtMonth.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); _mtMonth = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); _mtDayOpen = null; mtDrawCalendar(); }
+function mtShiftWeek(n){ _mtWeek = mtAddDays(_mtWeek, n * 7); _mtDayOpen = null; mtDrawCalendar(); }
+function mtCalView(v){ _mtCalView = v; _mtDayOpen = null; mtDrawCalendar(); }
+function mtCalKinds(){
+  const k = []; if((document.getElementById('mtk_internal') || {}).checked) k.push('internal'); if((document.getElementById('mtk_client') || {}).checked) k.push('client');
+  _mt.kinds = k.length ? k.join(',') : 'internal,client'; _mtDayOpen = null; mtLoadCalendar();
+}
+function mtEvBtn(e){
+  return '<button type="button" class="cal-ev ' + e.tone + '" onclick="mtOpenDetail(\'' + esc(e.id) + '\')" title="' + esc(e.label + ' — ' + (e.clientName || 'Admin task') + ' — ' + e.name + ' — ' + (e.assigneeName || 'Unassigned')) + '">' + esc((e.kind === 'client' ? '◆ ' : '') + (e.clientName || 'Admin') + ' · ' + e.name) + '</button>';
+}
+function mtDayCell(iso, byDay, today, label){
+  const ev = byDay[iso] || [];
+  return '<div class="cal-cell' + (iso === today ? ' today' : '') + '"><div class="cal-d">' + label + '</div>' + ev.slice(0, 3).map(mtEvBtn).join('')
+    + (ev.length > 3 ? '<button type="button" class="cal-more" aria-label="Show the other ' + (ev.length - 3) + ' on ' + esc(fmtDate(iso)) + '" onclick="mtDay(\'' + iso + '\')">+' + (ev.length - 3) + ' more</button>' : '') + '</div>';
+}
 function mtDrawCalendar(){
-  const body = document.getElementById('mtBody'), C = _mtCal, [y, m] = _mtMonth.split('-').map(Number);
-  const first = new Date(Date.UTC(y, m - 1, 1)), startDow = (first.getUTCDay() + 6) % 7, days = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const byDay = {}; C.events.forEach(e => { if(e.date.slice(0, 7) === _mtMonth) (byDay[e.date] = byDay[e.date] || []).push(e); });
-  let cells = ''; for(let i = 0; i < startDow; i++) cells += '<div class="cal-cell empty"></div>';
-  for(let d = 1; d <= days; d++){
-    const iso = _mtMonth + '-' + String(d).padStart(2, '0'), ev = byDay[iso] || [];
-    cells += '<div class="cal-cell' + (iso === C.today ? ' today' : '') + '"><div class="cal-d">' + d + '</div>'
-      + ev.slice(0, 3).map(e => '<button type="button" class="cal-ev ' + e.tone + '" onclick="mtOpenDetail(\'' + esc(e.id) + '\')" title="' + esc(e.label + ' — ' + (e.clientName || 'Admin') + ' — ' + e.name + ' — ' + (e.assigneeName || 'Unassigned')) + '">' + esc((e.kind === 'client' ? '◆ ' : '') + (e.clientName || e.name)) + '</button>').join('')
-      + (ev.length > 3 ? '<button type="button" class="cal-more" onclick="mtDay(\'' + iso + '\')">+' + (ev.length - 3) + ' more</button>' : '') + '</div>';
+  const body = document.getElementById('mtBody'), C = _mtCal, F = C.facets, today = C.today, ev = C.events;
+  const byDay = {}; ev.forEach(e => (byDay[e.date] = byDay[e.date] || []).push(e));
+  const kinds = String(_mt.kinds || 'internal,client').split(',');
+  const views = [['month', 'Month'], ['week', 'Week'], ['agenda', 'Agenda']].map(([k, l]) => '<button type="button" role="tab" class="' + (_mtCalView === k ? 'on' : '') + '" aria-selected="' + (_mtCalView === k) + '" onclick="mtCalView(\'' + k + '\')">' + l + '</button>').join('');
+  let nav = '', grid = '';
+  if(_mtCalView === 'month'){
+    const [y, m] = _mtMonth.split('-').map(Number), first = new Date(Date.UTC(y, m - 1, 1)), startDow = (first.getUTCDay() + 6) % 7, days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    nav = '<button type="button" class="btn small td-act" onclick="mtShiftMonth(-1)" aria-label="Previous month">←</button><b>' + esc(first.toLocaleDateString('en-NZ', { month:'long', year:'numeric', timeZone:'UTC' })) + '</b><button type="button" class="btn small td-act" onclick="mtShiftMonth(1)" aria-label="Next month">→</button><button type="button" class="btn small td-act" onclick="_mtMonth=null;_mtDayOpen=null;mtLoadCalendar()">This month</button>';
+    let cells = ''; for(let i = 0; i < startDow; i++) cells += '<div class="cal-cell empty"></div>';
+    for(let d = 1; d <= days; d++) cells += mtDayCell(_mtMonth + '-' + String(d).padStart(2, '0'), byDay, today, d);
+    grid = '<div class="cal-grid" role="grid">' + ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => '<div class="cal-h" role="columnheader">' + d + '</div>').join('') + cells + '</div>';
+  } else if(_mtCalView === 'week'){
+    const end = mtAddDays(_mtWeek, 6);
+    nav = '<button type="button" class="btn small td-act" onclick="mtShiftWeek(-1)" aria-label="Previous week">←</button><b>' + esc(fmtDate(_mtWeek)) + ' – ' + esc(fmtDate(end)) + '</b><button type="button" class="btn small td-act" onclick="mtShiftWeek(1)" aria-label="Next week">→</button><button type="button" class="btn small td-act" onclick="_mtWeek=mtMonday(_mtCal.today);_mtDayOpen=null;mtDrawCalendar()">This week</button>';
+    let cells = ''; for(let i = 0; i < 7; i++){ const iso = mtAddDays(_mtWeek, i); cells += mtDayCell(iso, byDay, today, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i] + ' ' + Number(iso.slice(8))); }
+    grid = '<div class="cal-grid cal-week" role="grid">' + cells + '</div>';
+  } else {
+    const upto = mtAddDays(today, _mtAgendaN), list = ev.filter(e => e.date >= today && e.date <= upto), dates = [...new Set(list.map(e => e.date))];
+    nav = '<b>Next ' + _mtAgendaN + ' days</b>';
+    grid = dates.length ? dates.map(d => '<div class="tm-panel"><h3 style="margin:0 0 6px;">' + esc(fmtDate(d)) + (d === today ? ' · today' : '') + '</h3>' + list.filter(e => e.date === d).map(e => '<div class="tm-attn-row"><div><b>' + esc(e.clientName || 'Admin task') + ' — ' + esc(e.name) + '</b><div class="tm-sub">' + esc(e.label) + ' · ' + esc(e.assigneeName || 'Unassigned') + ' · ' + esc(e.status) + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(e.id) + '\')">Open</button></div>').join('') + '</div>').join('')
+      : '<div class="td-empty">Nothing is due in the next ' + _mtAgendaN + ' days.</div>';
+    grid += '<div style="margin:10px 0;"><button type="button" class="btn small td-act" onclick="_mtAgendaN += 30;mtDrawCalendar()">Show 30 more days</button></div>';
   }
-  const legend = Object.entries(C.legend).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + esc(l) + '</span>').join('');
-  const label = first.toLocaleDateString('en-NZ', { month:'long', year:'numeric', timeZone:'UTC' });
-  body.innerHTML = '<div class="cal-bar"><button type="button" class="btn small td-act" onclick="mtShiftMonth(-1)" aria-label="Previous month">←</button><b>' + esc(label) + '</b><button type="button" class="btn small td-act" onclick="mtShiftMonth(1)" aria-label="Next month">→</button>'
-    + '<button type="button" class="btn small td-act" onclick="_mtMonth=null;mtLoadCalendar()">This month</button></div>'
-    + '<div class="cal-grid" role="grid">' + ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => '<div class="cal-h" role="columnheader">' + d + '</div>').join('') + cells + '</div>'
-    + '<div class="cal-legend"><span class="cal-key">◆ client commitment</span>' + legend + '</div><div id="calDay"></div>';
+  body.innerHTML = mtViewFilters(F, true)
+    + '<div class="cal-bar" style="flex-wrap:wrap;"><div class="td-seg" role="tablist" aria-label="Calendar view">' + views + '</div>' + nav
+    + '<span style="flex:1;"></span><label class="at-check"><input type="checkbox" id="mtk_internal"' + (kinds.includes('internal') ? ' checked' : '') + ' onchange="mtCalKinds()"> Internal due dates</label>'
+    + '<label class="at-check"><input type="checkbox" id="mtk_client"' + (kinds.includes('client') ? ' checked' : '') + ' onchange="mtCalKinds()"> Client commitment dates</label></div>'
+    + grid + '<div class="cal-legend"><span class="cal-key">◆ client commitment</span>' + Object.entries(C.legend).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + esc(l) + '</span>').join('') + '</div><div id="calDay" aria-live="polite"></div>';
+  if(_mtDayOpen) mtDay(_mtDayOpen, true);
 }
-function mtDay(iso){
-  const ev = (_mtCal.events || []).filter(e => e.date === iso);
-  document.getElementById('calDay').innerHTML = '<div class="tm-panel"><h3>' + esc(fmtDate(iso)) + '</h3>' + ev.map(e => '<div class="tm-attn-row"><div><b>' + esc(e.clientName || 'Admin task') + ' — ' + esc(e.name) + '</b><div class="tm-sub">' + esc(e.label) + ' · ' + esc(e.assigneeName || 'Unassigned') + ' · ' + esc(e.status) + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(e.id) + '\')">Open</button></div>').join('') + '</div>';
+// ONE day drawer: opening another date replaces it; it can be closed (button or Escape).
+function mtDay(iso, keep){
+  _mtDayOpen = iso;
+  const ev = (_mtCal.events || []).filter(e => e.date === iso), box = document.getElementById('calDay'); if(!box) return;
+  box.innerHTML = '<div class="tm-panel" role="region" aria-label="Tasks on ' + esc(fmtDate(iso)) + '"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><h3 style="margin:0;">' + esc(fmtDate(iso)) + ' · ' + ev.length + (ev.length === 1 ? ' item' : ' items') + '</h3><button type="button" class="btn small td-act" onclick="mtDayClose()">Close</button></div>'
+    + ev.map(e => '<div class="tm-attn-row"><div><b>' + esc(e.clientName || 'Admin task') + ' — ' + esc(e.name) + '</b><div class="tm-sub">' + esc(e.label) + ' · ' + esc(e.assigneeName || 'Unassigned') + ' · ' + esc(e.status) + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(e.id) + '\')">Open</button></div>').join('') + '</div>';
+  if(!keep) box.scrollIntoView({ block: 'nearest' });
 }
-/* ---------------- Timeline ---------------- */
+function mtDayClose(){ _mtDayOpen = null; const box = document.getElementById('calDay'); if(box) box.innerHTML = ''; }
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && _mtDayOpen && viewActive('mtasks')){ const ov = document.getElementById('modalOverlay'); if(ov && ov.classList.contains('active')) return; mtDayClose(); } });
+/* ---------------- Timeline: a date scale, one bar per task, today, the due dates and the delayed stretch ---------------- */
 async function mtLoadTimeline(){
-  const body = document.getElementById('mtBody'); body.innerHTML = '<div class="td-empty">Loading the timeline…</div>';
-  try { _mtTl = await api('/api/workflow/timeline' + (_mt.employee ? '?employee=' + encodeURIComponent(_mt.employee) : '')); }
+  const body = document.getElementById('mtBody'); if(!_mtTl) body.innerHTML = '<div class="td-empty">Loading the timeline…</div>';
+  try { _mtTl = await api('/api/workflow/timeline' + mtViewQuery({ page: _mtTlPage, pageSize: _mtTlSize })); }
   catch(e){ body.innerHTML = '<div class="td-empty" role="alert">Could not load the timeline: ' + esc(e.message) + ' <button class="btn small td-act" onclick="mtLoadTimeline()">Retry</button></div>'; return; }
   mtDrawTimeline();
 }
+function mtTlPage(p){ _mtTlPage = p; mtLoadTimeline(); }
+function mtTlSize(n){ _mtTlSize = Number(n); _mtTlPage = 1; mtLoadTimeline(); }
 function mtDrawTimeline(){
-  const body = document.getElementById('mtBody'), R = _mtTl.rows, today = _mtTl.today;
-  if(!R.length){ body.innerHTML = '<div class="td-empty">No open tasks to show.</div>'; return; }
+  const body = document.getElementById('mtBody'), T = _mtTl, R = T.rows, today = T.today, filters = mtViewFilters(T.facets, true);
+  if(!R.length){ body.innerHTML = filters + '<div class="td-empty">No open tasks match these filters.</div>'; return; }
   const ms = s => Date.parse(s + 'T00:00:00Z'), DAY = 86400000;
-  const lo = Math.min(ms(today) - 7 * DAY, ...R.map(r => ms(r.start))), hi = Math.max(ms(today) + 21 * DAY, ...R.map(r => ms(r.end))), span = Math.max(DAY, hi - lo);
+  const lo0 = Math.min(ms(today) - 7 * DAY, ...R.map(r => ms(r.start))), hi = Math.max(ms(today) + 21 * DAY, ...R.map(r => ms(r.end)));
+  const lo = ms(mtMonday(new Date(lo0).toISOString().slice(0, 10))), span = Math.max(DAY, hi - lo);
   const pct = s => ((ms(s) - lo) / span * 100);
-  const rows = R.map(r => { const l = Math.max(0, pct(r.start)), w = Math.max(1.2, pct(r.end) - pct(r.start));
-    return '<div class="tl-row"><button type="button" class="tl-name" onclick="mtOpenDetail(\'' + esc(r.id) + '\')" title="' + esc(r.name) + '">' + esc(r.clientName || 'Admin') + ' — ' + esc(r.name) + '<span class="tm-sub">' + esc(r.assigneeName || 'Unassigned') + ' · ' + esc(r.status) + '</span></button>'
-      + '<div class="tl-track"><i class="tl-bar cal-ev ' + r.tone + '" style="left:' + l + '%;width:' + w + '%;"></i>' + (r.internalDeadline ? '<b class="tl-mark" style="left:' + pct(r.internalDeadline) + '%;" title="Internal due ' + esc(r.internalDeadline) + '"></b>' : '') + '</div></div>'; }).join('');
-  body.innerHTML = '<div class="tm-scroll"><div class="tl" style="--today:' + pct(today) + '%;"><div class="tl-today" aria-hidden="true"></div>' + rows + '</div></div><div class="cal-legend"><span class="cal-key">▮ internal due</span>' + Object.entries({red:'Overdue',amber:'At risk',blue:'In progress',purple:'In review',green:'Approved / completed',grey:'Waiting on an external dependency'}).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + l + '</span>').join('') + '</div>';
+  let ticks = '';
+  for(let t = lo; t <= hi; t += 7 * DAY){ const iso = new Date(t).toISOString().slice(0, 10); ticks += '<span class="tl-tick" style="left:' + ((t - lo) / span * 100) + '%;">' + esc(new Date(t).toLocaleDateString('en-NZ', { day:'numeric', month:'short', timeZone:'UTC' })) + '</span>'; }
+  const rows = R.map(r => {
+    const l = Math.max(0, pct(r.start)), w = Math.max(1.2, pct(r.end) - pct(r.start));
+    const late = r.delayedFrom ? '<i class="tl-late" style="left:' + Math.max(0, pct(r.delayedFrom)) + '%;width:' + Math.max(0.8, pct(today) - Math.max(0, pct(r.delayedFrom))) + '%;" title="Delayed since ' + esc(r.delayedFrom) + '"></i>' : '';
+    return '<div class="tl-row"><button type="button" class="tl-name" onclick="mtOpenDetail(\'' + esc(r.id) + '\')" title="' + esc(r.name) + '">' + esc(r.clientName || 'Admin task') + ' — ' + esc(r.name) + '<span class="tm-sub">Owner ' + esc(r.assigneeName || 'unassigned') + ' · Reviewer ' + esc(r.reviewerName || '—') + ' · ' + esc(r.status) + '</span></button>'
+      + '<div class="tl-track" role="img" aria-label="' + esc(r.name + ': ' + r.status + (r.internalDeadline ? ', internal due ' + r.internalDeadline : '') + (r.clientDate ? ', client date ' + r.clientDate : '') + (r.delayedFrom ? ', delayed since ' + r.delayedFrom : '')) + '">'
+      + '<i class="tl-bar cal-ev ' + r.tone + '" style="left:' + l + '%;width:' + w + '%;"></i>' + late
+      + (r.internalDeadline ? '<b class="tl-mark" style="left:' + pct(r.internalDeadline) + '%;" title="Internal due ' + esc(r.internalDeadline) + '"></b>' : '')
+      + (r.clientDate ? '<b class="tl-mark tl-client" style="left:' + pct(r.clientDate) + '%;" title="Client commitment ' + esc(r.clientDate) + '"></b>' : '') + '</div></div>';
+  }).join('');
+  const pages = Math.max(1, Math.ceil(T.total / T.pageSize));
+  const pager = '<div class="mt-pager"><span>' + ((T.page - 1) * T.pageSize + 1) + '–' + Math.min(T.total, T.page * T.pageSize) + ' of ' + T.total + ' open tasks</span>'
+    + '<span><button type="button" class="btn small td-act" ' + (T.page <= 1 ? 'disabled' : '') + ' onclick="mtTlPage(' + (T.page - 1) + ')">← Previous</button> Page ' + T.page + ' of ' + pages + ' <button type="button" class="btn small td-act" ' + (T.page >= pages ? 'disabled' : '') + ' onclick="mtTlPage(' + (T.page + 1) + ')">Next →</button></span>'
+    + '<label class="mt-f"><span>Per page</span><select onchange="mtTlSize(this.value)">' + [25, 50, 100].map(n => '<option' + (T.pageSize === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label></div>';
+  body.innerHTML = filters + '<div class="tm-scroll"><div class="tl" style="--today:' + pct(today) + ';"><div class="tl-axis" aria-hidden="true"><span class="tl-axis-pad"></span><div class="tl-ticks">' + ticks + '</div></div><div class="tl-today" aria-hidden="true"></div>' + rows + '</div></div>'
+    + '<div class="cal-legend"><span class="cal-key">▮ internal due</span><span class="cal-key"><i class="tl-mark tl-client" style="position:static;display:inline-block;height:12px;margin-right:4px;"></i>client commitment</span><span class="cal-key"><i class="tl-late" style="position:static;display:inline-block;width:18px;height:10px;margin-right:4px;"></i>delayed</span><span class="cal-key">│ today</span>'
+    + Object.entries({red:'Overdue',amber:'At risk',blue:'In progress',purple:'In review',green:'Approved / completed',grey:'Waiting on an external dependency'}).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + esc(l) + '</span>').join('') + '</div>' + pager;
 }
 
 async function refreshTasks(){
@@ -8440,7 +8577,7 @@ function openHoldModal(id){
     .map(([code, m]) => `<option value="${code}">${esc(m.label)}${m.exempting ? '  ·  pauses the client clock' : ''}</option>`).join('');
   document.getElementById('modalBox').innerHTML = `
     <h3>Put on hold — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(t.clientName)||'Internal'} · It stays on the list as pending. Time already logged is kept; when it resumes, new time adds on top — the agreed hours don't change.</div>
+    <div class="modal-sub">${esc(clientLabel(t))} · It stays on the list as pending. Time already logged is kept; when it resumes, new time adds on top — the agreed hours don't change.</div>
     <div class="field"><label>Reason</label>
       <select id="holdReasonCode" onchange="_holdReasonChanged()">${opts}</select></div>
     <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
@@ -8651,8 +8788,11 @@ function openCompleteModal(id){
   const reviewers = eligibleReviewersFor(t.assignedTo).slice().sort((a,b) => a.name.localeCompare(b.name));
   const options = reviewers
   .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-  const picker = reviewers.length
-    ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
+  const waitingForReviewer = !!(t.reviewerLater && !t.assignedReviewerId);
+  const picker = waitingForReviewer
+    ? `<div class="modal-error" style="display:block;">This task has no reviewer yet. Ask your manager to assign one — then you can send it for review.</div>`
+    : reviewers.length
+    ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options.replace('value="' + (t.assignedReviewerId || '') + '"', 'value="' + (t.assignedReviewerId || '') + '" selected')}</select></div>`
     : `<div class="modal-error" style="display:block;">There's no one else to review this yet.</div>`;
   // Internal tasks get a Sheet link only — no client, no cashbook to
   // reconcile against.
@@ -8673,7 +8813,7 @@ function openCompleteModal(id){
   <div class="modal-actions" style="flex-wrap:wrap;">
   <button class="btn" onclick="closeModal()">Cancel</button>
   <button class="btn" style="border-color:var(--teal,var(--teal));color:var(--teal);" onclick="doMarkDoneNoReview('${id}')" title="Close it now without a reviewer">Done — no review</button>
-  ${(reviewers.length || (currentViewer()||{}).canDirectProfitConfirm) ? `<button class="btn primary" onclick="submitComplete('${id}')">Send for Review</button>` : ''}
+  ${!waitingForReviewer && (reviewers.length || (currentViewer()||{}).canDirectProfitConfirm) ? `<button class="btn primary" onclick="submitComplete('${id}')">Send for Review</button>` : ''}
   </div>
   `;
   openModal();
@@ -8705,7 +8845,7 @@ function openSendForReviewModal(id){
   const wasClean = t.reviewStatus === 'clean';
   document.getElementById('modalBox').innerHTML = `
     <h3>Reopen for re-review — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''} · currently <b>${wasClean ? 'reviewed clean' : 'marked done, no review'}</b></div>
+    <div class="modal-sub">${esc(clientLabel(t))} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''} · currently <b>${wasClean ? 'reviewed clean' : 'marked done, no review'}</b></div>
     <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:10px 0 4px;">This re-opens the task and puts it in front of a reviewer${wasClean ? ' for another look' : ''}. Any earlier profit-confirmation / report-send decision is cleared, so it can be reviewed and sent for profit confirmation again. It stays counted as delivered.</p>
     <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span></label>
       <input type="text" id="sfrSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
@@ -8904,7 +9044,7 @@ function openRecurringFormModal(){
       </select></div>` : ''}
     <div class="field"><label>Kind of task</label>
       <div style="display:flex; gap:8px;">
-        <button type="button" class="btn small rtKindBtn primary" data-kind="internal" onclick="setRecurringKind('internal')">Internal task</button>
+        <button type="button" class="btn small rtKindBtn primary" data-kind="internal" onclick="setRecurringKind('internal')">Admin Task</button>
         <button type="button" class="btn small rtKindBtn" data-kind="client" onclick="setRecurringKind('client')"${noClients ? ' disabled title="Add a client first"' : ''}>Client work</button>
       </div>
     </div>
@@ -8973,7 +9113,7 @@ function openSetDatesModal(id){
     ? `<div class="modal-sub" style="color:var(--purple);margin-top:2px;">Self-edit access — expires ${fmtDate(me.selfEditUntil.slice(0,10))}.</div>` : '';
   document.getElementById('modalBox').innerHTML = `
     <h3>${isSelfEdit ? 'Edit my estimate &amp; due date' : 'Edit dates &amp; estimate'} — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(t.clientName)||'Internal'} · ${esc(empById(t.assignedTo)?.name || '—')}</div>
+    <div class="modal-sub">${esc(clientLabel(t))} · ${esc(empById(t.assignedTo)?.name || '—')}</div>
     ${expiryNote}
     <div class="field"><label>Internal due date <span style="color:var(--text-faint);">— ${isSelfEdit ? 'when you plan to have it done' : 'what you hold ' + esc((empById(t.assignedTo)?.name||'the assignee').split(' ')[0]) + ' to'}</span></label>
       <input type="date" id="sdInternal" value="${esc(t.internalDeadline || todayISO())}" onchange="_sdRecalc()"></div>
@@ -9137,7 +9277,7 @@ function openNewTask(who){
     <div class="field"><label>Kind of task</label>
       <div style="display:flex; gap:8px;">
         <button type="button" class="btn small atKindBtn primary" data-kind="client" onclick="setAssignKind('client')"${noClients ? ' disabled title="Add a client first"' : ''}>Client work</button>
-        <button type="button" class="btn small atKindBtn" data-kind="internal" onclick="setAssignKind('internal')">Internal task</button>
+        <button type="button" class="btn small atKindBtn" data-kind="internal" onclick="setAssignKind('internal')">Admin Task</button>
       </div>
     </div>
     <div class="field"><label>What needs doing? <span class="req-mark">*</span></label><input type="text" id="atName" placeholder="e.g. GST Return / Train new hire on cashbook" autocomplete="off"></div>
@@ -9155,12 +9295,23 @@ function openNewTask(who){
         <div id="atClientErr" style="font-size:12px;color:var(--coral);margin-top:4px;display:none;">Pick a client from the list (or add it first in Clients).</div>
       </div>
     </div>
+    <div class="field" id="atJobTypeWrap" style="display:none;"><label for="atJobType">Job type</label>
+      <select id="atJobType"><option value="">— Choose —</option>${(taxonomyDepartments || []).map(d => '<optgroup label="' + esc(d.name) + '">' + (d.services || []).map(sv => '<option value="' + esc(d.name + '||' + sv) + '">' + esc(sv) + '</option>').join('') + '</optgroup>').join('')}</select></div>
     <div class="at-row2">
       <div class="field"><label id="atTatLabel">Hours <span class="req-mark">*</span></label><input type="number" id="atTat" value="1" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
       <div class="field"><label id="atDeadlineLabel">Due date <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}" onchange="atPlanPreview(); atSyncClientDate()"></div>
     </div>
+    <div class="field" id="atClientDateWrap"><label for="atClientDate">Client commitment date <span class="at-hint">auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
+    <div id="atV2Basics" style="display:none;">
+      <div class="field"><label for="atPriority">Priority</label><select id="atPriority"><option value="normal" selected>Normal</option><option value="low">Low</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
+      <div class="field"><label for="atInstructions">Instructions <span class="at-hint">optional — what the person needs to know</span></label><textarea id="atInstructions" rows="3" placeholder="e.g. Use the 2025 workbook; client prefers PDF"></textarea></div>
+    </div>
     <div id="atV2Review" style="display:none;">
-      <div class="field"><label for="atReviewer">Reviewer <span class="at-hint">who checks this before it goes to the client</span></label><select id="atReviewer"></select></div>
+      <div id="atReviewerBlock">
+        <div class="field"><label for="atReviewer">Reviewer <span class="at-hint">who checks this before it goes to the client</span></label><select id="atReviewer"></select></div>
+        <div class="field"><label class="at-check"><input type="checkbox" id="atReviewerLater" onchange="atReviewerLaterToggle()"> <span>Assign the reviewer later</span></label>
+          <div id="atReviewerLaterWhy" style="display:none;margin-top:6px;"><label for="atReviewerLaterReason">Why later? <span class="req-mark">*</span> <span class="at-hint">kept on the record — your manager is alerted before the due date</span></label><textarea id="atReviewerLaterReason" rows="2"></textarea></div></div>
+      </div>
       <div class="field"><label class="at-check"><input type="checkbox" id="atReviewReq" checked onchange="atReviewToggle()"> <span id="atReviewReqLabel">Review required before this goes to the client</span></label>
         <div id="atReviewNote" class="at-note"></div></div>
       <div class="field" id="atNoReviewWhy" style="display:none;"><label for="atNoReviewReason">Why does this client task need no review? <span class="req-mark">*</span> <span class="at-hint">kept on the record</span></label><textarea id="atNoReviewReason" rows="2" placeholder="e.g. Repeat of last month's return, already reviewed by the founder"></textarea></div>
@@ -9174,21 +9325,27 @@ function openNewTask(who){
         <span>Assign anyway — push the task(s) above out to make room.</span>
       </label>
     </div>
+    <div id="atV2Delivery" style="display:none;">
+      <div class="field"><label>Report required</label><div class="rv2-yn"><label><input type="radio" name="atReportReq" value="yes" checked onchange="atDeliveryChanged()"> Yes</label><label><input type="radio" name="atReportReq" value="no" onchange="atDeliveryChanged()"> No</label></div></div>
+      <div id="atDeliveryMore">
+        <div class="field"><label for="atReportSender">Report sender <span class="at-hint">who sends it to the client once it is approved</span></label><select id="atReportSender"></select></div>
+        <div class="field"><label>Profit confirmation required</label><div class="rv2-yn"><label><input type="radio" name="atProfitReq" value="yes"> Yes</label><label><input type="radio" name="atProfitReq" value="no" checked> No</label></div></div>
+      </div>
+    </div>
     <details class="at-more">
-      <summary>More options <span>client date, links, group</span></summary>
+      <summary>Supporting work <span>Google Sheet, Cashbook</span></summary>
       <div id="atV2Links" style="display:none;">
         <div class="field"><label for="atSheet">Google Sheet link <span class="at-hint">optional — you can add it when you submit the work</span></label><input type="url" id="atSheet" placeholder="https://docs.google.com/spreadsheets/…" autocomplete="off" oninput="atLinkCheck(this)"><div class="at-linkmsg" id="atSheetMsg"></div></div>
-        <div class="field"><label for="atCash">Cashbook link <span class="at-hint">optional</span></label><input type="url" id="atCash" placeholder="https://…" autocomplete="off" oninput="atLinkCheck(this)"><div class="at-linkmsg" id="atCashMsg"></div></div>
+        <div class="field" id="atCashWrap"><label for="atCash">Cashbook link <span class="at-hint">optional</span></label><input type="url" id="atCash" placeholder="https://…" autocomplete="off" oninput="atLinkCheck(this)"><div class="at-linkmsg" id="atCashMsg"></div></div>
       </div>
       <div id="atInternalRefWrap" class="field" style="display:none;">
         <label>Client or group <span class="at-hint">optional, e.g. a client name for a payment task, or "Payroll"</span></label>
         <input type="text" id="atInternalRef" list="atClientList" placeholder="e.g. City Cabs Ltd · Payroll · Admin" autocomplete="off">
       </div>
-      <div class="field" id="atClientDateWrap"><label>Client commitment date <span class="at-hint">auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
     </details>
     <div class="modal-error" id="assignError">Please enter a task name.</div>
     <div class="modal-actions" style="align-items:center;">
-      <a href="#" class="at-bulk" onclick="closeModal();openBulkAssignModal();return false;">Many tasks at once? Bulk import</a>
+      <button type="button" class="linkbtn at-bulk" onclick="closeModal();openBulkAssignModal()">Many tasks at once? Bulk import</button>
       <span style="flex:1;"></span>
       <button class="btn" onclick="closeModal()">Cancel</button>
       <button class="btn primary" id="atSubmitBtn" data-base="${choose ? 'Send for acceptance' : 'Create task'}" onclick="submitNewTask()">${choose ? 'Send for acceptance' : 'Create task'}</button>
@@ -9210,7 +9367,9 @@ function atV2On(){ return !!(session && session.dashboardV2); }
 function atV2Setup(){
   if(!atV2On()) return;
   const set = (id, show) => { const el = document.getElementById(id); if(el) el.style.display = show ? '' : 'none'; };
-  set('atV2Links', true); set('atV2Review', true);
+  set('atV2Links', true); set('atV2Review', true); set('atV2Basics', true);
+  set('atJobTypeWrap', (taxonomyDepartments || []).length > 0);
+  atReportSenders();
   document.querySelectorAll('.atKindBtn').forEach(b => { b.textContent = b.dataset.kind === 'client' ? 'Client Task' : 'Admin Task'; });
   atReviewers();
   atReviewKindChanged();
@@ -9223,9 +9382,27 @@ function atReviewers(){
   const mgrs = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && !e.accessDisabled && e.id !== who);
   sel.innerHTML = '<option value="">Choose when the work is submitted</option>' + mgrs.map(e => '<option value="' + esc(e.id) + '"' + (e.id === keep ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('');
 }
+// The person who will send the report: defaults to whoever does the work; anyone active can be named.
+function atReportSenders(){
+  const sel = document.getElementById('atReportSender'); if(!sel) return;
+  const who = (document.getElementById('atAssignee') || {}).value || currentViewerId, keep = sel.value;
+  sel.innerHTML = '<option value="">The person doing the work</option>' + employees.filter(e => canReceiveNewWork(e) && !isSystemAccount(e) && e.id !== who).sort((a, b) => a.name.localeCompare(b.name)).map(e => '<option value="' + esc(e.id) + '"' + (e.id === keep ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('');
+}
+function atDeliveryChanged(){
+  const no = ((document.querySelector('input[name="atReportReq"]:checked') || {}).value) === 'no';
+  const more = document.getElementById('atDeliveryMore'); if(more) more.style.display = no ? 'none' : '';
+}
+function atReviewerLaterToggle(){
+  const on = !!(document.getElementById('atReviewerLater') || {}).checked;
+  const sel = document.getElementById('atReviewer'), why = document.getElementById('atReviewerLaterWhy');
+  if(sel){ sel.disabled = on; if(on) sel.value = ''; }
+  if(why) why.style.display = on ? '' : 'none';
+}
 function atReviewKindChanged(){
   if(!atV2On()) return;
   const internal = _assignKind === 'internal', box = document.getElementById('atReviewReq'); if(!box) return;
+  ['atV2Delivery', 'atCashWrap'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = internal ? 'none' : ''; });
+  const refw = document.getElementById('atInternalRefWrap'); if(refw) refw.style.display = 'none';   // an Admin Task never takes a client name
   const canWaive = isAdmin;
   box.checked = !internal;
   box.disabled = !internal && !canWaive;
@@ -9236,6 +9413,7 @@ function atReviewKindChanged(){
 function atReviewToggle(){
   const box = document.getElementById('atReviewReq'), why = document.getElementById('atNoReviewWhy'); if(!box || !why) return;
   why.style.display = (_assignKind !== 'internal' && !box.checked) ? '' : 'none';
+  const rb = document.getElementById('atReviewerBlock'); if(rb) rb.style.display = box.checked ? '' : 'none';   // no review → no reviewer to name
 }
 function atLinkCheck(input){
   const msg = document.getElementById(input.id + 'Msg'); if(!msg) return;
@@ -9255,6 +9433,7 @@ function atAssigneeChanged(){
   atPlanPreview();
   atSyncClientDate();
   atReviewers();
+  atReportSenders();
 }
 function submitNewTask(){
   const sel = document.getElementById('atAssignee');
@@ -9335,7 +9514,7 @@ function renderGuide(){
       <div class="guide-n">${i + 1}</div>
       <div class="guide-t"><b>${esc(s[0])}</b><span>${esc(s[1])}</span><button class="btn small" onclick="${s[2]}">${esc(s[3])}</button></div>
     </div>`).join('')}</div>
-    <div class="guide-foot">Not sure what a status means? <a href="#" onclick="event.preventDefault();openStatusHelp()">See the five statuses</a></div>
+    <div class="guide-foot">Not sure what a status means? <button type="button" class="linkbtn" onclick="openStatusHelp()">See the five statuses</button></div>
   </div>`;
 }
 
@@ -9409,7 +9588,7 @@ function _openAssignModalOld(mode){
     <div class="field"><label>Kind of task</label>
       <div style="display:flex; gap:8px;">
         <button type="button" class="btn small atKindBtn primary" data-kind="client" onclick="setAssignKind('client')"${noClients ? ' disabled title="Add a client first"' : ''}>Client work</button>
-        <button type="button" class="btn small atKindBtn" data-kind="internal" onclick="setAssignKind('internal')">Internal task</button>
+        <button type="button" class="btn small atKindBtn" data-kind="internal" onclick="setAssignKind('internal')">Admin Task</button>
       </div>
     </div>
     <div id="atClientOnly"${noClients ? ' style="display:none;"' : ''}>
@@ -9520,7 +9699,7 @@ function atPlanPreview(){
     const cap = `${p.effectiveCapacity}h/day${p.capacityAuto ? ' (measured)' : ''}`;
     const busy = p.committedThrough > todayISO() ? `committed through <b>${fmtDate(p.committedThrough)}</b>` : 'queue is clear';
     hint.innerHTML = `${esc(p.assignee.split(' ')[0])}: ${busy} · ${cap}. A ${hours}h task lands internally <b>${fmtDate(p.internalDeadline)}</b>, client <b>${fmtDate(p.clientDate)}</b>.
-      <a href="#" onclick="atUseComputedDates('${p.internalDeadline}','${p.clientDate}');return false;" style="color:var(--purple);">Use these dates</a>`;
+      <button type="button" class="linkbtn" onclick="atUseComputedDates('${p.internalDeadline}','${p.clientDate}')" style="color:var(--purple);">Use these dates</button>`;
     const first = esc(p.assignee.split(' ')[0]);
     const impossibleWarn = document.getElementById('atImpossibleWarn');
     const warn = document.getElementById('atOverloadWarn');
@@ -9580,7 +9759,7 @@ function setAssignKind(kind){
     const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
   });
   const iref = document.getElementById('atInternalRefWrap');
-  if(iref) iref.style.display = isInternal ? '' : 'none';
+  if(iref) iref.style.display = (isInternal && !atV2On()) ? '' : 'none';   // the new form never asks an Admin Task for a client name
   const dl = document.getElementById('atDeadlineLabel');
   if(dl) dl.innerHTML = (isInternal ? 'Due date' : 'Manager due date (internal)') + ' <span class="req-mark">*</span>';
   const tl = document.getElementById('atTatLabel');
@@ -9640,9 +9819,29 @@ async function submitAssign(mode){
       if(why.length < 5){ showErr('Say why this client task needs no review — it is kept on the record.'); return; }
       payload.noReviewReason = why;
     }
-    const sh = ((document.getElementById('atSheet') || {}).value || '').trim(), cb = ((document.getElementById('atCash') || {}).value || '').trim();
+    const sh = ((document.getElementById('atSheet') || {}).value || '').trim(), cb = isInternal ? '' : ((document.getElementById('atCash') || {}).value || '').trim();
     if(sh) payload.sheetLink = sh;
     if(cb) payload.cashbookLink = cb;
+    // a review-required task names its reviewer now, or says "later" with a reason
+    if(payload.reviewRequired && !rv){
+      const later = (document.getElementById('atReviewerLater') || {}).checked;
+      const why = ((document.getElementById('atReviewerLaterReason') || {}).value || '').trim();
+      if(!later){ showErr('Choose the reviewer — or tick "Assign the reviewer later" and say why.'); return; }
+      if(why.length < 5){ showErr('Say why the reviewer will be assigned later.'); return; }
+      payload.reviewerLater = true; payload.reviewerLaterReason = why;
+    }
+    payload.priority = (document.getElementById('atPriority') || {}).value || 'normal';
+    const instr = ((document.getElementById('atInstructions') || {}).value || '').trim(); if(instr) payload.instructions = instr;
+    const jt = (document.getElementById('atJobType') || {}).value || '';
+    if(jt && !payload.department){ const [d, sv] = jt.split('||'); payload.department = d; if(sv) payload.service = sv; }
+    if(!isInternal){
+      const rr = (document.querySelector('input[name="atReportReq"]:checked') || {}).value !== 'no';
+      payload.reportRequired = rr;
+      if(rr){
+        const rs = (document.getElementById('atReportSender') || {}).value || ''; if(rs) payload.reportSenderId = rs;
+        payload.profitRequired = ((document.querySelector('input[name="atProfitReq"]:checked') || {}).value) === 'yes';
+      }
+    }
   }
   await submitTaskPayload(payload);
 }
@@ -9766,7 +9965,7 @@ function openBulkAssignModal(){
     <div class="field"><label>Kind</label>
       <div style="display:flex;gap:8px;">
         <button type="button" class="btn small bkKindBtn primary" data-k="client" onclick="setBulkKind('client')"${cs.length?'':' disabled title="Add a client first"'}>Client work</button>
-        <button type="button" class="btn small bkKindBtn" data-k="internal" onclick="setBulkKind('internal')">Internal</button>
+        <button type="button" class="btn small bkKindBtn" data-k="internal" onclick="setBulkKind('internal')">Admin Task</button>
       </div>
     </div>
     <div class="field" id="bkClientWrap"${cs.length?'':' style="display:none;"'}><label>Default client <span style="font-weight:400;color:var(--text-faint);">— used for any line that doesn't name its own</span></label>
@@ -10158,7 +10357,7 @@ async function renderTrash(){
   let html = '';
   if(tasks.length){
     html += `<div class="label" style="margin:6px 0;">Tasks (${tasks.length})</div>`;
-    html += tasks.map(t => row(t.name, `${t.clientName || 'Internal'} · ${t.id}`,
+    html += tasks.map(t => row(t.name, `${clientLabel(t)} · ${t.id}`,
       fmtDate(dayOf(t.deletedAt)), t.deletedByName, `restoreTask('${t.id}')`)).join('');
   }
   if(clients.length){
@@ -10203,7 +10402,7 @@ async function openTrashModal(){
     body = '';
     if(tasks.length){
       body += `<div class="label" style="margin:6px 0;">Tasks (${tasks.length})</div>`;
-      body += tasks.map(t => row(t.name, `${t.clientName || 'Internal'} · ${t.id}`,
+      body += tasks.map(t => row(t.name, `${clientLabel(t)} · ${t.id}`,
         fmtDate(dayOf(t.deletedAt)), t.deletedByName, `restoreTaskFromModal('${t.id}')`)).join('');
     }
     if(clients.length){
@@ -10439,13 +10638,13 @@ function productivityCardsHtml(p, opts){
   return `<div class="top-grid">
     ${card('Productivity', pctBig, p.notScorable ? 'No available capacity in this period' : null, pctColor)}
     ${card('Qualifying Completed Allocated Hours', p.qualifiedHours.toFixed(1)+'h', null)}
-    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays?` − ${p.leaveDays} leave`:''}${p.workshopDays?` − ${p.workshopDays} workshop Sat${p.workshopDays===1?'':'s'}`:''}`)}
-    ${card('Capacity Not Converted Into Completed Output', p.capacityNotConverted.toFixed(1)+'h', `${p.assignedOpenHours.toFixed(1)}h assigned &amp; open · ${p.trulyUnallocatedHours.toFixed(1)}h truly unallocated`)}
+    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', capacitySubHtml(p))}
+    ${card('Capacity Not Converted Into Completed Output', p.capacityNotConverted.toFixed(1)+'h', notConvertedSubHtml(p))}
     ${card('Internal Commitment Met', commitmentPct, commitmentSub, p.commitmentPct==null?null:scoreColor(p.commitmentPct))}
   </div>
   <p style="font-size:12px;color:var(--text-faint);margin:10px 0 0;max-width:70ch;line-height:1.5;">Productivity shows completed allocated hours as a percentage of adjusted capacity. A lower percentage does not automatically mean poor employee performance — capacity not yet converted into completed output may include work still in progress, work awaiting review, or capacity management hasn't allocated. Not an employee penalty.</p>
   ${p.additionalHours>0 ? `<p style="font-size:12px;color:var(--text-dim);margin:6px 0 0;">Raw capacity utilisation: <b>${p.rawUtilisationPct}%</b> — additional qualifying output: <b>${p.additionalHours.toFixed(1)}h</b> beyond the 100% cap.</p>` : ''}
-  ${!opts.hideCalcLink ? `<div style="margin-top:10px;"><a href="#" onclick="event.preventDefault(); ${opts.calcOnclick}" style="font-size:12.5px;color:var(--purple);font-weight:600;">View calculation →</a></div>` : ''}`;
+  ${!opts.hideCalcLink ? `<div style="margin-top:10px;"><button type="button" class="linkbtn" onclick="${opts.calcOnclick}" style="font-size:12.5px;color:var(--purple);font-weight:600;">View calculation →</button></div>` : ''}`;
 }
 // Jump straight to that person's Report Card.
 function openReportCardFor(id){
@@ -10543,7 +10742,7 @@ function openProductivityCalcModal(p){
     <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Internal Commitment — missed (${missedCommitment.length})</div>
     ${taskCalcTableHtml(missedCommitment, false)}
     <div style="margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:12.5px;color:var(--text-dim);">
-      Capacity ${p.capacityHours.toFixed(1)}h · Capacity not converted ${p.capacityNotConverted.toFixed(1)}h (${p.assignedOpenHours.toFixed(1)}h assigned &amp; open · ${p.trulyUnallocatedHours.toFixed(1)}h truly unallocated) — not an employee penalty
+      Capacity ${p.capacityHours.toFixed(1)}h · Capacity not converted ${p.capacityNotConverted.toFixed(1)}h (${notConvertedSubHtml(p)}) — not an employee penalty
     </div>
     <div class="modal-actions" style="margin-top:16px;">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -10679,7 +10878,7 @@ async function renderMonthEndBody(){
   document.getElementById('meHold').innerHTML = `<h4 style="margin:12px 0 6px;">Tasks on hold (${held.length})</h4>` + (held.length ? `<div style="max-height:36vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead><tr><th style="text-align:left;">Task</th><th style="text-align:left;">Person</th><th style="text-align:right;">Logged</th><th style="text-align:right;">Banked</th><th style="text-align:right;">Add hours</th></tr></thead>
       <tbody>${held.map(t => `<tr>
-        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}</div></td>
+        <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div><div class="tl-sub">${esc(clientLabel(t))}</div></td>
         <td>${esc((empById(t.assignedTo) || {}).name || '—')}</td>
         <td style="text-align:right;font-family:var(--font-mono);">${t.logged.toFixed(2)}h</td>
         <td style="text-align:right;font-family:var(--font-mono);color:var(--text-faint);">${banked(t) ? banked(t).toFixed(2) + 'h' : '—'}</td>
@@ -11148,7 +11347,7 @@ function openMyAllTasks(){
 function openMyExtraHours(){
   const total = _myExtra.reduce((s,x) => s + x.extra, 0);
   const rows = _myExtra.map(x => `<tr>
-    <td><div class="tl-name">${esc(x.t.name)}</div><div class="tl-sub">${esc(x.t.clientName || 'Internal')} · ${x.t.id}${x.t.completedAt ? ' · ' + fmtDate(dayOf(x.t.completedAt)) : ''}</div></td>
+    <td><div class="tl-name">${esc(x.t.name)}</div><div class="tl-sub">${esc(clientLabel(x.t))} · ${x.t.id}${x.t.completedAt ? ' · ' + fmtDate(dayOf(x.t.completedAt)) : ''}</div></td>
     <td style="font-family:var(--font-mono);">${x.est.toFixed(1)}h</td>
     <td style="font-family:var(--font-mono);">${x.actual.toFixed(1)}h</td>
     <td style="font-family:var(--font-mono);color:#C2410C;font-weight:600;">+${x.extra.toFixed(1)}h</td>
@@ -11242,7 +11441,7 @@ function renderTasksPage(resetTabs){
     const overdue = (t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today) || t.reviewOverdue || t.reportOverdue;
     return `<tr style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
       <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(t.clientName || 'Internal')}</td>
+      <td class="tl-sub">${esc(clientLabel(t))}</td>
       <td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>
       <td style="font-family:var(--font-mono);">${t.tat}h</td>
       <td style="${overdue?'color:#C2410C;font-weight:600;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${overdue?' · overdue':''}</td>
@@ -11349,7 +11548,7 @@ function renderReviewsView(){
     if(hideWhenEmpty && !total){ el.innerHTML = ''; return; }
     const count = rvFiltersOn() && total !== n ? `<b>${n}</b> of ${total}` : `<b>${n}</b>`;
     el.innerHTML = `<div class="tm-list"><div class="wk-list-head"><span class="wk-count">${count} ${title}</span></div>
-      <div class="wk-body">${n ? (head ? `<div class="rv-row rv-head">${head.map(h => `<span>${h}</span>`).join('')}</div>` : '') + rows : `<div class="tm-empty">${total ? 'Nothing matches these filters. <a href="#" onclick="event.preventDefault();clearRvFilters()" style="color:var(--purple);">Clear filters</a>' : empty}</div>`}</div></div>`;
+      <div class="wk-body">${n ? (head ? `<div class="rv-row rv-head">${head.map(h => `<span>${h}</span>`).join('')}</div>` : '') + rows : `<div class="tm-empty">${total ? 'Nothing matches these filters. <button type="button" class="linkbtn" onclick="clearRvFilters()" style="color:var(--purple);">Clear filters</button>' : empty}</div>`}</div></div>`;
   };
   // a row with Sheet and Cashbook in columns of their own
   const grow = (t, sub, c2, c3, btn) => `<div class="rv-row">
@@ -11396,7 +11595,7 @@ function renderReviewsView(){
   });
   sec('rvAwaiting', 'waiting for your review', awaiting.length, awaitingAll.length, awaiting.map(t => {
     const o = empById(t.assignedTo);
-    return grow(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)}`, o ? esc(o.name) : '—',
+    return grow(t, `${esc(clientLabel(t))} · ${taskNo(t.id)}`, o ? esc(o.name) : '—',
       `${t.reviewOverdue ? '<span class="dash-bad">overdue · </span>' : ''}${daysWaiting(t)}d · client date ${t.clientDate ? fmtDate(t.clientDate) : '—'}`,
       `<button class="verify-btn" style="border-color:var(--purple);color:var(--purple);" onclick="openReviewFormModal('${t.id}')">📝 Review</button>`);
   }).join(''), 'Nothing waiting for your review — all clear.', false, ['Task', 'From', 'Waiting', 'Sheet', 'Cashbook', '']);
@@ -11404,7 +11603,7 @@ function renderReviewsView(){
   const rework = reworkAll.filter(t => match(t, t.reviewedAt));
   sec('rvRework', 'sent back to you to fix', rework.length, reworkAll.length, rework.map(t => {
     const r = empById(t.reviewedBy);
-    return row(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)} · flagged by ${r ? esc(r.name) : '—'}${t.reviewNote ? ' — ' + esc(t.reviewNote) : ''}`,
+    return row(t, `${esc(clientLabel(t))} · ${taskNo(t.id)} · flagged by ${r ? esc(r.name) : '—'}${t.reviewNote ? ' — ' + esc(t.reviewNote) : ''}`,
       `${t.reviewedAt ? 'flagged ' + fmtDate(dayOf(t.reviewedAt)) : ''}`,
       `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTask('${t.id}')">Start fixing</button>`);
   }).join(''), '', true);
@@ -11417,7 +11616,7 @@ function renderReviewsView(){
   sec('rvSentBack', 'sent back by you — still being fixed', sentBack.length, sentBackAll.length, sentBack.map(t => {
     const e = empById(t.assignedTo);
     const n = (t.reviewAttachments || []).length + (t.hasReviewScreenshot ? 1 : 0);
-    return row(t, `${esc(t.clientName || 'Internal')} · ${taskNo(t.id)} · with ${e ? esc(e.name) : '—'} · ${t.status === 'rework' ? 'being fixed' : 'not started yet'}${t.reworkCount > 1 ? ' · round ' + t.reworkCount : ''}`,
+    return row(t, `${esc(clientLabel(t))} · ${taskNo(t.id)} · with ${e ? esc(e.name) : '—'} · ${t.status === 'rework' ? 'being fixed' : 'not started yet'}${t.reworkCount > 1 ? ' · round ' + t.reworkCount : ''}`,
       `${t.reviewedAt ? 'sent back ' + fmtDate(dayOf(t.reviewedAt)) : ''} · ${n ? '📎 ' + n + ' file' + (n > 1 ? 's' : '') : 'no file'}`,
       `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="openAddReviewFilesModal('${t.id}')">📎 Add files</button> <button class="verify-btn" onclick="openTaskTrailModal('${t.id}')">History</button>`);
   }).join(''), '', true);
@@ -11436,7 +11635,7 @@ function renderReviewsView(){
   sec('rvProfitSent', 'sent for profit confirmation', profitSent.length, profitSentAll.length, profitSent.map(t => {
     const waitedD = t.profitConfirmRequestedAt ? Math.floor((Date.now() - new Date(t.profitConfirmRequestedAt).getTime()) / 86400000) : 0;
     const state = t.profitConfirmStatus === 'pending'
-      ? `<b style="color:#B45309;">waiting on Shubam</b> · sent ${t.profitConfirmRequestedAt ? fmtDate(dayOf(t.profitConfirmRequestedAt)) : '—'}${waitedD >= 1 ? ' (' + waitedD + 'd)' : ''}`
+      ? `<b style="color:#B45309;">waiting on ${esc(pcName(t))}</b> · sent ${t.profitConfirmRequestedAt ? fmtDate(dayOf(t.profitConfirmRequestedAt)) : '—'}${waitedD >= 1 ? ' (' + waitedD + 'd)' : ''}`
       : `<b style="color:var(--teal);">✓ confirmed</b> by ${esc((empById(t.profitConfirmBy) || {}).name || 'Shubam')} · ${fmtDate(dayOf(t.profitConfirmAt))}`;
     const o = empById(t.assignedTo);
     return row(t, `${esc(t.clientName || '—')} · ${taskNo(t.id)} · ${o ? esc(o.name) : '—'}${t.profitConfirmStatus === 'confirmed' ? ' · ' + esc((empById(t.reportSendOwner || t.assignedTo) || {}).name || 'the sender') + ' to send the report' : ''}`,
@@ -11460,7 +11659,7 @@ function renderProfitStats(force){
   if(!(isSuperAdmin || iAmProfitConfirmOwner())){ box.innerHTML = ''; return; }
   const draw = s => {
     if(!s){ box.innerHTML = ''; return; }
-    const c = s.confirmedByOwner, who = esc(s.owner ? s.owner.name : 'Shubam Sharma');
+    const c = s.confirmedByOwner, who = esc(s.owner ? s.owner.name : 'the profit confirmer');
     const tile = (n, l) => `<div style="flex:1;min-width:92px;padding:10px 12px;border:1px solid var(--panel-border);border-radius:10px;"><div style="font-size:22px;font-weight:700;">${n}</div><div style="font-size:12px;color:var(--text-faint);">${l}</div></div>`;
     const rows = (s.recent || []).slice(0, 10).map(r => `<tr><td><b>${esc(r.name)}</b><div style="font-size:12px;color:var(--text-faint);">${esc(r.clientName || '—')} · ${taskNo(r.id)}</div></td><td>${esc(r.requestedBy)}</td><td>${esc(r.confirmedBy)}</td><td style="font-family:var(--font-mono);font-size:12px;">${fmtDate(dayOf(r.confirmedAt))}</td><td>${r.hours != null ? (r.hours < 1 ? '< 1 h' : r.hours < 48 ? r.hours + ' h' : Math.round(r.hours / 24) + ' d') : '—'}</td></tr>`).join('');
     box.innerHTML = `<div class="tm-list"><div class="wk-list-head"><span class="wk-count">💰 Profit confirmations by <b>${who}</b></span></div>
@@ -11489,7 +11688,7 @@ function openMyReviewQueue(){
     const hay = (t.name + ' ' + (t.clientName||'') + ' ' + (o?o.name:'') + ' ' + t.id).toLowerCase();
     const overdue = t.reviewOverdue;
     return `<tr data-hay="${esc(hay)}">
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')}${t.id ? ' · ' + taskNo(t.id) : ''}</div></td>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(clientLabel(t))}${t.id ? ' · ' + taskNo(t.id) : ''}</div></td>
       <td style="font-family:var(--font-mono);">⏱ ${t.tat}h</td>
       <td>${o ? esc(o.name) : '—'}</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
@@ -11541,7 +11740,7 @@ function openWorkLog(empId, startISO, endISO){
     return `<tr class="wl-datehdr"><td colspan="4">${fmtDate(d)} &middot; ${items.length} task${items.length === 1 ? '' : 's'} &middot; ${hrs.toFixed(1)}h</td></tr>` +
       items.map(t => `<tr>
         <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${taskNo(t.id)}</div></td>
-        <td>${esc(t.clientName || (t.kind === 'internal' ? 'Internal' : '—'))}</td>
+        <td>${esc(t.kind === 'internal' ? clientLabel(t) : (t.clientName || '—'))}</td>
         <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
         <td>${resultLabel(t)}</td>
       </tr>`).join('');
@@ -11571,7 +11770,7 @@ function openMyInReview(q){
   const rows = list.map(t => {
     const r = empById(t.reviewerId);
     return `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || 'Internal')} · ${taskNo(t.id)}</div></td>
+      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(clientLabel(t))} · ${taskNo(t.id)}</div></td>
       <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
       <td class="tl-sub">${r ? esc(r.name) : 'unassigned'}</td>
@@ -11687,7 +11886,7 @@ function renderFvSearch(){
       const a = empById(t.assignedTo);
       const overdue = t.internalDeadline && t.internalDeadline < todayISO() && t.status !== 'completed';
       return `<div class="fv-hit" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
-        <span class="g"><b>${esc(t.name)}</b><div class="m">${esc(t.clientName||'Internal')} · ${a ? esc(a.name) : 'Unassigned'} · due ${fmtDate(t.internalDeadline)}${overdue ? ' · <span style="color:#C2410C;font-weight:700;">overdue</span>' : ''}</div></span>
+        <span class="g"><b>${esc(t.name)}</b><div class="m">${esc(clientLabel(t))} · ${a ? esc(a.name) : 'Unassigned'} · due ${fmtDate(t.internalDeadline)}${overdue ? ' · <span style="color:#C2410C;font-weight:700;">overdue</span>' : ''}</div></span>
         ${statusBadge(t)}</div>`;
     }).join('') + `</div>`;
   }
@@ -12289,10 +12488,10 @@ function openReviewV2(id){
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 8px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Earlier files from reviews</b>' + reviewFilesByRoundHtml(t) + '</div>' : '')
     + (hist.length ? '<div style="margin:8px 0 0;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Previous review history</b>' + hist.map(h => '<div style="font-size:13px;color:var(--text-dim);padding:3px 0;">' + h.text + '</div>').join('') + '</div>' : '')
     + '</div>'
-    + '<div class="rv2-sec"><h4>B · Your decision</h4><div class="rv2-pick" role="group" aria-label="Review decision">'
-    + '<button type="button" onclick="rv2Pick(\'approve\')" aria-pressed="false" id="rv2Approve">✓ Approve</button>'
-    + '<button type="button" onclick="rv2Pick(\'return\')" aria-pressed="false" id="rv2Return">↩ Return for Correction</button>'
-    + '<button type="button" onclick="rv2Pick(\'escalate\')" aria-pressed="false" id="rv2Escalate">⚖ Escalate</button></div></div>'
+    + '<div class="rv2-sec"><h4>B · Your decision</h4><div class="rv2-pick" role="radiogroup" aria-label="Review decision — choose one">'
+    + '<label class="rv2-card"><input type="radio" name="rv2Decision" value="approve" id="rv2Approve" onchange="rv2Pick(\'approve\')"><span>✓ Approve</span></label>'
+    + '<label class="rv2-card"><input type="radio" name="rv2Decision" value="return" id="rv2Return" onchange="rv2Pick(\'return\')"><span>↩ Return for Correction</span></label>'
+    + '<label class="rv2-card"><input type="radio" name="rv2Decision" value="escalate" id="rv2Escalate" onchange="rv2Pick(\'escalate\')"><span>⚖ Escalate</span></label></div></div>'
     + '<div class="rv2-sec" id="rv2Fields" style="display:none;"></div>'
     + '<div class="modal-error" id="rv2Err" role="alert"></div>'
     + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="rv2Submit" onclick="rv2Submit()" disabled>Choose a decision</button></div>';
@@ -12300,7 +12499,6 @@ function openReviewV2(id){
 }
 function rv2Pick(d){
   _rv2.decision = d;
-  ['approve', 'return', 'escalate'].forEach(k => { const b = document.getElementById('rv2' + k[0].toUpperCase() + k.slice(1)); if(b) b.setAttribute('aria-pressed', String(k === d)); });
   const t = findTask(_rv2.id), isClient = t.kind !== 'internal' || !!t.clientId;
   const box = document.getElementById('rv2Fields'); box.style.display = '';
   const sub = document.getElementById('rv2Submit'); sub.disabled = false;
@@ -12308,8 +12506,8 @@ function rv2Pick(d){
   const yn = (name, yes) => '<div class="rv2-yn"><label><input type="radio" name="' + name + '" value="yes"' + (yes ? ' checked' : '') + '> Yes</label><label><input type="radio" name="' + name + '" value="no"' + (yes ? '' : ' checked') + '> No</label></div>';
   const opts = arr => '<option value="">— Choose —</option>' + arr.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('');
   if(d === 'approve'){
-    box.innerHTML = '<h4>C · Approve</h4><div class="field"><label>Is this work clean and ready for the next stage?</label>' + yn('rv2Clean', true) + '</div>'
-      + (isClient ? '<div class="field"><label>Is profit confirmation required?</label>' + yn('rv2Profit', false) + '<div style="font-size:12.5px;color:var(--text-faint);">If yes it goes to Shubam Sharma; if no it goes to the report sender, ready to send. Approving never marks the report as sent.</div></div>' : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
+    box.innerHTML = '<h4>C · Approve</h4><div style="font-size:13px;color:var(--text-dim);margin:0 0 8px;">Approving means the work is clean and ready for the next stage. If it is not, choose Return for Correction.</div>'
+      + (isClient && t.reportRequired === false ? '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">This task was set up with no client report, so approving it completes it.</div>' : isClient ? '<div class="field"><label>Is profit confirmation required?</label>' + yn('rv2Profit', !!t.profitRequiredDefault) + '<div style="font-size:12.5px;color:var(--text-faint);">If yes it goes to ' + esc(pcName(t)) + '; if no it goes to the report sender, ready to send. Approving never marks the report as sent.</div></div>' : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
       + note('Reviewer note', false);
     sub.textContent = 'Approve';
   } else if(d === 'return'){
@@ -12321,7 +12519,7 @@ function rv2Pick(d){
       + '<div class="field"><label>Attachment <span style="color:var(--text-faint);font-weight:400;">(optional — the employee sees and can download it)</span></label></div>' + slotHtml('rv2File', []);
     sub.textContent = 'Return for correction';
   } else {
-    const people = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && canReceiveNewWork(e) && e.id !== currentViewerId).sort((a, b) => a.name.localeCompare(b.name));
+    const people = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && canReceiveNewWork(e) && !isSystemAccount(e) && e.id !== currentViewerId).sort((a, b) => a.name.localeCompare(b.name));
     box.innerHTML = '<h4>C · Escalate</h4>'
       + '<div class="field"><label>Why are you escalating? <span class="req-mark">*</span></label><textarea id="rv2Reason" rows="3"></textarea></div>'
       + '<div class="field"><label>Who should decide? <span class="req-mark">*</span></label><select id="rv2To"><option value="">— Choose —</option>' + people.map(p => '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>').join('') + '</select></div>'
@@ -12339,8 +12537,6 @@ async function rv2Submit(){
   const fail = m => { err.textContent = m; err.style.display = 'block'; };
   const body = { decision: d, requestId: _rv2.requestId, note: v('rv2Note').trim() };
   if(d === 'approve'){
-    const clean = document.querySelector('input[name="rv2Clean"]:checked');
-    if(clean && clean.value === 'no') return fail('If the work is not clean and ready, choose Return for Correction instead.');
     body.clean = true;
     const p = document.querySelector('input[name="rv2Profit"]:checked'); body.profitRequired = !!(p && p.value === 'yes');
   } else if(d === 'return'){
@@ -12423,7 +12619,7 @@ document.addEventListener('change', e => {
 function slotBits(url, label, files, cls){
   const bits = [];
   if(url) bits.push(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer"${cls ? ` class="${cls}"` : ' style="color:var(--purple);"'}>${label}</a>`);
-  (files || []).forEach(f => bits.push(`<a href="#" onclick="event.preventDefault();downloadAttachment('${esc(f.id)}','${esc(f.name).replace(/'/g, '&#39;')}')" title="Download ${esc(f.name)}" style="color:var(--purple);white-space:nowrap;">📎 ${esc(f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name)}</a>`));
+  (files || []).forEach(f => bits.push(`<button type="button" class="linkbtn" onclick="downloadAttachment('${esc(f.id)}','${esc(f.name).replace(/'/g, '&#39;')}')" title="Download ${esc(f.name)}" style="color:var(--purple);white-space:nowrap;">📎 ${esc(f.name.length > 22 ? f.name.slice(0, 20) + '…' : f.name)}</button>`));
   return bits;
 }
 function slotCell(url, label, files, cls){
@@ -12624,13 +12820,13 @@ function openReviewScoreModal(){
     <div class="modal-error" id="reviewScoreErr"></div>
     ${isClean && !isInternal ? `<div class="rv-choices">
       <button class="btn primary" onclick="submitReviewFinal('return')" title="No profit confirmation needed — the processor sends the report and it leaves your list">↩ Send back to ${procFirst} to send the report</button>
-      <button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitReviewFinal('profit')" title="Needs the sheet or cashbook link; goes to Shubam, then back to ${procFirst} to send">💰 Send for profit confirmation</button>
+      <button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitReviewFinal('profit')" title="Needs the sheet or cashbook link; goes to ${esc(pcName(t))}, then back to ${procFirst} to send">💰 Send for profit confirmation</button>
       <button class="btn" style="border-color:var(--coral);color:var(--coral);" onclick="reviewReworkInstead()" title="Record whose fault it was and send it back to fix">⚠ Rework needed</button>
     </div>` : ''}
     <div class="modal-actions" style="flex-wrap:wrap;align-items:center;">
       <button class="btn" onclick="reviewScoreGoBack(${isClean})">← Back</button>
       <span style="flex:1;"></span>
-      ${isClean && !isInternal ? `<a href="#" onclick="event.preventDefault();submitReviewFinal('send')" style="font-size:12.5px;color:var(--text-faint);text-decoration:underline;">I've already sent it to the client myself</a>` : `<button class="btn primary" onclick="submitReviewFinal(undefined)">✓ Done</button>`}
+      ${isClean && !isInternal ? `<button type="button" class="linkbtn" onclick="submitReviewFinal('send')" style="font-size:12.5px;color:var(--text-faint);text-decoration:underline;">I've already sent it to the client myself</button>` : `<button class="btn primary" onclick="submitReviewFinal(undefined)">✓ Done</button>`}
     </div>
     ${waiveBlock}
   `;
@@ -12735,7 +12931,7 @@ async function submitReviewFinal(action){
       await api(`/api/tasks/${encodeURIComponent(id)}/profit-confirm`, { method:'POST' });
       await refreshTasks(); await refreshActivity({ silent:true });
       closeModal();
-      showToast('info', 'Sent for profit confirmation', 'Shubam Sharma will confirm before this goes out.');
+      showToast('info', 'Sent for profit confirmation', pcName(findTask(id)) + ' will confirm before this goes out.');
       return;
     }
     if(decision === 'clean' && action === 'send'){
@@ -12783,18 +12979,18 @@ async function submitReviewFinal(action){
     ${slotHtml('stcCash', t.cashbookFiles)}` : ''}`;
     document.getElementById('modalBox').innerHTML = `
     <h3>${isInternal ? '✓ Reviewed clean' : 'Send to client?'} — ${esc(t.name)}</h3>
-    <div class="modal-sub">${isInternal ? 'Internal task — no client to send to.' : `Reviewed clean — send this report directly to the client?`}</div>
+    <div class="modal-sub">${isInternal ? 'Admin task — no client to send to.' : `Reviewed clean — send this report directly to the client?`}</div>
     ${!isInternal ? `<div style="background:var(--panel-2); border:1px solid var(--panel-border); border-radius:10px; padding:12px 14px; margin:12px 0; font-size:13px; color:var(--text-dim); line-height:1.8;">
-      <div><b style="color:var(--text);">Sending it:</b> ${owner ? esc(owner.name) : '—'}${canReassign ? ` · <a href="#" onclick="event.preventDefault(); openReassignReportOwner('${id}');" style="color:var(--purple);">change</a>` : ''}</div>
+      <div><b style="color:var(--text);">Sending it:</b> ${owner ? esc(owner.name) : '—'}${canReassign ? ` · <button type="button" class="linkbtn" onclick="openReassignReportOwner('${id}');" style="color:var(--purple);">change</button>` : ''}</div>
       <div><b style="color:var(--text);">Deadline:</b> ${t.clientDate ? fmtDate(t.clientDate) : '—'}${t.reportOverdue ? ' <span style="color:#C2410C;font-weight:600;">· overdue</span>' : ''}</div>
-      ${t.profitConfirmStatus === 'pending' ? `<div><b style="color:#B45309;">💰 Awaiting profit confirmation from Shubam Sharma.</b></div>` : ''}
+      ${t.profitConfirmStatus === 'pending' ? `<div><b style="color:#B45309;">💰 Awaiting profit confirmation from ${esc(pcName(t))}.</b></div>` : ''}
       ${t.profitConfirmStatus === 'confirmed' ? `<div><b style="color:var(--text);">Profit confirmed</b> — ready to send.</div>` : ''}
     </div>` : ''}
     ${linksBlock}
     <div class="modal-error" id="stcErr"></div>
     <div class="modal-actions" style="flex-wrap:wrap;">
     <button class="btn" onclick="submitSaveLinks('${id}', true)">${isInternal ? 'Close' : 'Remind me later'}</button>
-    ${offerProfitConfirm ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitProfitConfirmRequest('${id}')" title="Send to Shubam with the sheet/cashbook links before this goes out">💰 Profit Confirm</button>` : ''}
+    ${offerProfitConfirm ? `<button class="btn" style="border-color:var(--purple);color:var(--purple);" onclick="submitProfitConfirmRequest('${id}')" title="Send to ${esc(pcName(t))} with the sheet/cashbook links before this goes out">💰 Profit Confirm</button>` : ''}
     ${!isInternal && t.profitConfirmStatus !== 'pending' ? `<button class="btn primary" onclick="submitSendToClient('${id}','yes')">✓ Sent to client</button>` : ''}
     </div>
     ${!isInternal && t.profitConfirmStatus !== 'pending' && (iCanReview(t) || isSuperAdmin) ? `
@@ -12808,7 +13004,7 @@ async function submitReviewFinal(action){
         <option value="client_instruction">Written client instruction not to proceed</option>
         <option value="admin_correction">Administrator-approved correction</option>
       </select>
-      <div><a href="#" onclick="event.preventDefault(); submitSendToClient('${id}','no')" style="font-size:12px;color:var(--text-faint);">Won't be sent — mark not required</a></div>
+      <div><button type="button" class="linkbtn" onclick="submitSendToClient('${id}','no')" style="font-size:12px;color:var(--text-faint);">Won't be sent — mark not required</button></div>
     </div>` : ''}
     `;
     openModal();
@@ -12848,7 +13044,7 @@ async function submitReviewFinal(action){
       await submitSaveLinks(id, false);
       await api(`/api/tasks/${encodeURIComponent(id)}/profit-confirm`, { method:'POST' });
       closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
-      showToast('info', 'Sent for profit confirmation', 'Shubam Sharma will confirm before this goes out.');
+      showToast('info', 'Sent for profit confirmation', pcName(findTask(id)) + ' will confirm before this goes out.');
     } catch(e){ showToast('error', 'Could not send', e.message); }
   }
   function openReassignReportOwner(id){
@@ -12951,7 +13147,7 @@ function openReviewViewModal(id){
       <div style="margin-top:8px;"><b style="color:var(--text);">Notes:</b><br>${t.reviewNote ? esc(t.reviewNote) : '<span style="color:var(--text-faint);">No notes recorded.</span>'}</div>
       ${linksLine(t)}
       <div style="margin-top:8px;"><b style="color:var(--text);">Client:</b> ${t.profitConfirmStatus === 'pending'
-        ? `<span style="color:#B45309;">💰 Awaiting profit confirmation from Shubam Sharma${t.profitConfirmRequestedAt ? ' — sent ' + fmtDate(dayOf(t.profitConfirmRequestedAt)) : ''}</span>`
+        ? `<span style="color:#B45309;">💰 Awaiting profit confirmation from ${esc(pcName(t))}${t.profitConfirmRequestedAt ? ' — sent ' + fmtDate(dayOf(t.profitConfirmRequestedAt)) : ''}</span>`
         : (t.profitConfirmStatus === 'confirmed' && t.awaitingClientDecision)
         ? `<span style="color:var(--teal);">💰 Profit confirmed by ${esc((empById(t.profitConfirmBy)||{}).name || 'Shubam Sharma')} on ${fmtDate(dayOf(t.profitConfirmAt))}</span> — ${esc((empById(t.reportSendOwner)||{}).name || 'unassigned')} to send`
         : t.awaitingClientDecision
@@ -13052,8 +13248,7 @@ function taskTimelineEvents(t){
   }
 
   if(t.profitConfirmRequestedAt){
-    const po = employees.find(e => String(e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
-    push(t.profitConfirmRequestedAt, '💰', `<b>${esc(nm(t.profitConfirmRequestedBy)||'—')}</b> sent it for profit confirmation to <b>${esc(po ? po.name : 'Shubam Sharma')}</b>.`);
+    push(t.profitConfirmRequestedAt, '💰', `<b>${esc(nm(t.profitConfirmRequestedBy)||'—')}</b> sent it for profit confirmation to <b>${esc(pcName(t))}</b>.`);
   }
   if(t.profitConfirmAt){
     const waited = t.profitConfirmRequestedAt ? Math.max(0, (new Date(t.profitConfirmAt) - new Date(t.profitConfirmRequestedAt)) / 3600000) : null;
@@ -13075,6 +13270,69 @@ function taskNewest(a, b){
   const ka = String(a.assignedAt || a.createdAt || ''), kb = String(b.assignedAt || b.createdAt || '');
   return kb.localeCompare(ka) || String(b.id || '').localeCompare(String(a.id || ''));
 }
+/* ---------------- Who confirms profit (superadmin) ---------------- */
+async function renderPcSettings(){
+  const panel = document.getElementById('pcPanel'), box = document.getElementById('pcBody'); if(!panel || !box) return;
+  panel.style.display = isSuperAdmin ? '' : 'none'; if(!isSuperAdmin) return;
+  await loadPcCfg(); const c = _pcCfg || { default:null, backup:null, teams:[] };
+  const people = employees.filter(e => isAdminRoleOf(e) && canReceiveNewWork(e)).sort((a, b) => a.name.localeCompare(b.name));
+  const sel = (id, cur, none) => '<select id="' + id + '"><option value="">' + none + '</option>' + people.map(p => '<option value="' + esc(p.id) + '"' + (cur && cur.id === p.id ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select>';
+  const teams = [...new Set(employees.map(e => e.team).filter(Boolean))].sort();
+  box.innerHTML = '<div class="modal-sub" style="margin:0 0 10px;">Profit confirmation goes to the person below. A team confirmer wins over the company default; the backup steps in when the confirmer is away or inactive. Every change is recorded.</div>'
+    + '<div class="field"><label for="pcDefault">Company default</label>' + sel('pcDefault', c.default, '— Original default (Shubam Sharma) —') + '</div>'
+    + '<div class="field"><label for="pcBackup">Backup confirmer</label>' + sel('pcBackup', c.backup, '— None —') + '</div>'
+    + '<details style="margin:6px 0 10px;"><summary style="cursor:pointer;font-weight:600;">Team confirmers (optional)</summary>' + teams.map((tm, i) => '<div class="field"><label for="pcTeam' + i + '">' + esc(tm) + '</label>' + sel('pcTeam' + i, (c.teams || []).find(x => x.team === tm), '— Use the company default —').replace('<select ', '<select data-team="' + esc(tm) + '" ') + '</div>').join('') + '</details>'
+    + '<div class="modal-error" id="pcErr" role="alert"></div><button class="btn primary" onclick="savePcSettings()">Save</button>'
+    + '<div style="margin-top:8px;font-size:12.5px;color:var(--text-faint);">Currently in use: <b>' + esc((c.effectiveDefault || {}).name || '—') + '</b>' + (c.effectiveDefault && c.effectiveDefault.source === 'legacy' ? ' (original default)' : '') + '</div>';
+}
+function isAdminRoleOf(e){ return e && (e.accessRole === 'admin' || e.accessRole === 'superadmin'); }
+async function savePcSettings(){
+  const v = id => (document.getElementById(id) || {}).value || '', err = document.getElementById('pcErr');
+  const teams = {}; document.querySelectorAll('#pcBody select[data-team]').forEach(s => { if(s.value) teams[s.dataset.team] = s.value; });
+  try { _pcCfg = await api('/api/admin/profit-confirmers', { method:'POST', body: JSON.stringify({ default: v('pcDefault') || null, backup: v('pcBackup') || null, teams }) }); err.style.display = 'none'; showToast('success', 'Saved', 'The change is recorded.'); renderPcSettings(); }
+  catch(e){ err.textContent = e.message; err.style.display = 'block'; }
+}
+// Capacity, shown so every deduction can be checked: scheduled days − holidays − leave − workshop = eligible days × the 7 h day.
+// A deduction appears ONLY if it was really made, and the line is shown only when the numbers add up.
+function capacitySubHtml(p){
+  const b = p.capacityBreakdown;
+  if(!b || !b.reconciles) return `${p.workingDays} working day${p.workingDays===1?'':'s'}${p.leaveDays?` − ${p.leaveDays} leave`:''}${p.workshopDays?` − ${p.workshopDays} workshop day${p.workshopDays===1?'':'s'}`:''}`;
+  const parts = [`${b.scheduledDays} scheduled day${b.scheduledDays===1?'':'s'}`];
+  if(b.publicHolidays) parts.push(`− ${b.publicHolidays} public holiday${b.publicHolidays===1?'':'s'}`);
+  if(b.leaveDays) parts.push(`− ${b.leaveDays} leave`);
+  if(b.workshopDays) parts.push(`− ${b.workshopDays} workshop day${b.workshopDays===1?'':'s'}`);
+  if(b.customHoursOff) parts.push(`− ${b.customHoursOff} h reduced hours`);
+  return parts.join(' ') + ` = ${b.finalEligibleDays} eligible day${b.finalEligibleDays===1?'':'s'} × ${b.dayHours} h`;
+}
+// The "not converted" total split into parts that add up to it exactly — or just the total, never a split that does not add up.
+function notConvertedSubHtml(p){
+  const b = p.notConvertedBreakdown;
+  if(!b || !b.reconciles) return 'the split is not shown because its parts do not add up to the total';
+  const bits = [];
+  if(b.openAllocated) bits.push(`${b.openAllocated.toFixed(1)}h assigned &amp; still open`);
+  if(b.nonQualifyingCompleted) bits.push(`${b.nonQualifyingCompleted.toFixed(1)}h completed but not yet qualifying`);
+  bits.push(`${b.unallocated.toFixed(1)}h unallocated`);
+  return bits.join(' · ');
+}
+/* ---------------- Data quality report (superadmin, read-only) ---------------- */
+const DQ_LABEL = { duplicate_user:'Possible duplicate people', system_or_test_user:'Test / shared logins', hr_in_productivity:'HR login in Productivity', missing_client:'Client Task with no client', fake_client_value:'Placeholder client name', wrong_classification:'Client / Admin mixed up', zero_allocated_hours:'Zero or missing hours', missing_internal_due:'No internal due date', email_in_title:'Email address in a title', phone_in_title:'Phone number in a title', possible_misspelling:'Possible misspelling', duplicate_task_type:'Duplicate task types' };
+async function openDataQuality(){
+  document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="td-empty">Checking…</div>'; openModal();
+  let r; try { r = await api('/api/admin/data-quality'); } catch(e){ document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="modal-error" style="display:block;">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>'; return; }
+  const sum = Object.entries(r.counts).map(([k, n]) => '<li><b>' + n + '</b> ' + esc(DQ_LABEL[k] || k) + '</li>').join('') || '<li>Nothing to report.</li>';
+  const rows = r.rows.slice(0, 150).map(x => '<tr><td>' + esc(DQ_LABEL[x.category] || x.category) + '</td><td>' + esc(x.label) + '</td><td>' + esc(x.detail) + '<div style="color:var(--text-faint);">' + esc(x.suggestion) + '</div></td></tr>').join('');
+  document.getElementById('modalBox').innerHTML = '<h3>Data quality — ' + r.total + ' item' + (r.total === 1 ? '' : 's') + ' to look at</h3><div class="modal-sub">Read-only. Nothing here changes, merges or deletes anything.</div><ul style="margin:8px 0 12px;padding-left:18px;font-size:13.5px;">' + sum + '</ul>'
+    + (rows ? '<div style="max-height:46vh;overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;"><thead><tr><th style="text-align:left;">Kind</th><th style="text-align:left;">Record</th><th style="text-align:left;">What we found · suggested fix</th></tr></thead><tbody>' + rows + '</tbody></table></div>' + (r.rows.length > 150 ? '<div class="td-empty">Showing the first 150 — download the CSV for all ' + r.rows.length + '.</div>' : '') : '')
+    + '<div class="modal-actions"><button class="btn" onclick="downloadDataQuality()">Download CSV</button><button class="btn primary" onclick="closeModal()">Close</button></div>';
+}
+async function downloadDataQuality(){
+  try {
+    const res = await fetch(API_BASE + '/api/admin/data-quality?format=csv', { headers: { 'Authorization': 'Bearer ' + authToken } });
+    if(!res.ok) throw new Error('Download failed: ' + res.status);
+    const url = URL.createObjectURL(await res.blob()), a = document.createElement('a'); a.href = url; a.download = 'data-quality-' + todayISO() + '.csv';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch(e){ showToast('error', 'Could not download', e.message); }
+}
 function openTaskTrailModal(id){
   const t = findTask(id);
   if(!t){ showToast('error', 'Not found', 'That task is no longer in the list.'); return; }
@@ -13093,7 +13351,7 @@ function openTaskTrailModal(id){
     : t.reviewStatus === 'error' ? 'In rework' : statusLabel(t.status);
   document.getElementById('modalBox').innerHTML = `
     <h3>Task history — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(t.clientName)||'Internal'} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${taskNo(t.id)} · now: <b>${esc(stateNow)}</b></div>
+    <div class="modal-sub">${esc(clientLabel(t))} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${taskNo(t.id)} · now: <b>${esc(stateNow)}</b></div>
     <div id="ttNotifyStatus"></div>
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions">
@@ -13754,9 +14012,9 @@ function taxRenderList(){
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;">
         ${d.services.map((s, si) => `<span style="display:inline-flex;align-items:center;gap:6px;background:var(--panel-2);border-radius:100px;padding:4px 6px 4px 12px;font-size:12.5px;">
           <input type="text" value="${esc(s)}" oninput="_taxWorking[${di}].services[${si}]=this.value" style="border:none;background:transparent;font-size:12.5px;width:${Math.max(6,s.length)}ch;padding:0;">
-          <a href="#" onclick="event.preventDefault();taxRemoveService(${di},${si})" style="color:var(--text-faint);">✕</a>
+          <button type="button" class="linkbtn" onclick="taxRemoveService(${di},${si})" style="color:var(--text-faint);">✕</button>
         </span>`).join('')}
-        <a href="#" onclick="event.preventDefault();taxAddService(${di})" style="font-size:12.5px;color:var(--purple);align-self:center;">+ service</a>
+        <button type="button" class="linkbtn" onclick="taxAddService(${di})" style="font-size:12.5px;color:var(--purple);align-self:center;">+ service</button>
       </div>
     </div>`).join('');
 }
@@ -14120,6 +14378,7 @@ async function submitLogin(){
     isAdmin = session.accessRole === 'admin' || session.accessRole === 'superadmin';
     isSuperAdmin = session.accessRole === 'superadmin';
     currentViewerId = session.id;
+    loadPcCfg();
     closeModal();
     if(session.mustChangePassword){ openForcedPasswordChangeModal(); return; }
     window.__loginGateActive = false;
@@ -14162,6 +14421,7 @@ async function submitForcedPasswordChange(){
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 async function onLoginComplete(){
+  loadPcCfg();
   if(policyPending(session)){
     showPolicyComplianceGate(session.policyCompliance.pendingCount);
     if(session.accessRole === 'employee') return;

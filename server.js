@@ -17,6 +17,8 @@ const fileStore = require('./files');
 fileStore.init(db);
 const archive = require('./archive');
 const spaceWatch = require('./space-watch');
+const prodRules = require('./productivity-rules');
+const dataQuality = require('./data-quality');
 const workflow = require('./workflow');
 const mgr = require('./manager-views');
 const crmHealth = require('./crm-health');
@@ -103,6 +105,11 @@ const DISPATCH_BUFFER_WD = 3;
 // through 27 Sept. A task completed before this counts under the lenient
 // historical rule; on/after it, the new Clean-review rule applies.
 const PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT = '2026-09-27T11:00:00.000Z';
+// V3 (prospective only): for work completed on/after this moment, Productivity credits a reviewed-clean task at the day it was
+// REVIEWED CLEAN — whether or not, and whenever, the report is later sent. Before V3 a dispatched report moved its credit to the
+// dispatch date, which let Report Sent steer WHEN hours counted. A FIXED literal like V2: 8 Oct 2026 00:00 NZDT (UTC+13). Nothing
+// completed before it is recalculated, and finalised months are stored snapshots that this never touches.
+const PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT = (process.env.NODE_ENV === 'test' && process.env.PRODUCTIVITY_V3_AT_TEST) || '2026-10-07T11:00:00.000Z';   // the override exists for the test suite only
 
 const app = express();
 // By default CORS is wide open (any origin) so the app works out of the box
@@ -179,6 +186,7 @@ if (!JWT_SECRET) {
 function publicEmployee(e, viewerIsAdmin) {
   const { passwordHash, crmUserId, crmUserIdHistory, ...rest } = e;
   if (viewerIsAdmin) { rest.crmUserId = crmUserId; rest.crmUserIdHistory = crmUserIdHistory; }
+  rest.isProfitConfirmer = isProfitConfirmer(db.get(), e);
   rest.canDirectProfitConfirm = canDirectProfitConfirm(e);
   return rest;
 }
@@ -228,6 +236,11 @@ function managersOfEmployee(state, empId) {
 }
 // Inactive employees remain in state forever so historical tasks, reviews and
 // audit trails keep their original identity. They must not receive new work.
+// Placeholder / test / generic accounts are not people: never an escalation recipient, never counted in capacity or Productivity.
+function isSystemAccount(emp) {
+  const n = String((emp && emp.name) || '').trim().toLowerCase(), em = String((emp && emp.email) || '').toLowerCase();
+  return !!(emp && (emp.isSystem || emp.isTest || n === 'admin' || n === 'test user' || /^test(\b|[._-])/i.test(n) || /^(admin|test|noreply|no-reply)@/.test(em)));
+}
 function canReceiveNewWork(emp) {
   return !!emp && !emp.accessDisabled && emp.crmActive !== false
     && !['inactive', 'terminated', 'resigned'].includes(String(emp.employmentStatus || '').toLowerCase());
@@ -345,10 +358,10 @@ function canDirectProfitConfirm(emp) {
 // Shubam. Returns an error message, or null when it was routed. Call AFTER
 // the task's links have been saved onto it.
 function startDirectProfitConfirm(state, t, actor) {
-  if (t.kind === 'internal' && !hasClient(t)) return 'Internal tasks have no client, so there is nothing to profit-confirm.';
+  if (t.kind === 'internal' && !hasClient(t)) return 'Admin Tasks have no client, so there is nothing to profit-confirm.';
   if (!hasSheetOrCashbook(t)) return 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.';
-  const owner = profitConfirmOwner(state);
-  if (!owner) return 'Profit confirmation is not set up — Shubam Sharma was not found.';
+  const owner = profitConfirmOwner(state, t);
+  if (!owner) return 'Profit confirmation is not set up — nobody is configured to confirm profit.';
   const now = new Date().toISOString();
   if (t.kind === 'internal') {
     t.kind = 'client';
@@ -359,15 +372,39 @@ function startDirectProfitConfirm(state, t, actor) {
   t.reviewedBy = null; t.reviewedAt = now;
   t.reviewNote = 'Sent directly for profit confirmation — separate review skipped.';
   t.awaitingClientDecision = false;
-  t.profitConfirmStatus = 'pending'; t.profitConfirmRequestedAt = now; t.profitConfirmRequestedBy = actor.id;
+  t.profitConfirmStatus = 'pending'; t.profitConfirmRequestedAt = now; t.profitConfirmRequestedBy = actor.id; t.profitConfirmerAssignedId = owner.id;
   t.profitConfirmAt = null; t.profitConfirmBy = null;
   logEvent(state, owner.id, `<b>${escHtml(actor.name)}</b> sent "${escHtml(t.name)}" for profit confirmation (no separate review).`);
   if (t.assignedTo && t.assignedTo !== actor.id) logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
   notify(state, owner.id, 'profit_confirm', `${actor.name} sent "${t.name}" for profit confirmation.`, t.id);
   return null;
 }
-function profitConfirmOwner(state) {
-  return (state.employees || []).find(e => (e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+// Who confirms profit for a task. Nothing is hard-coded to one person any more: a task-specific override wins, then the team's
+// confirmer, then the company default, then (only if none is configured) the original legacy default. If the chosen person can
+// no longer receive work, the configured backup steps in. Settings live in workflowSettings.profitConfirmers:
+//   { default: employeeId, teams: { "<team name>": employeeId }, backup: employeeId }
+function profitConfirmerInfo(state, t) {
+  const cfg = workflowSettings(state).profitConfirmers || {};
+  const live = id => id ? (state.employees || []).find(e => e.id === id && canReceiveNewWork(e)) : null;
+  const legacy = (state.employees || []).find(e => (e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+  let owner = null, source = null;
+  if (t && t.profitConfirmStatus === 'pending' && live(t.profitConfirmerAssignedId)) { owner = live(t.profitConfirmerAssignedId); source = 'assigned'; }   // a request already sent stays with the person it was sent to
+  else if (t && live(t.profitConfirmerId)) { owner = live(t.profitConfirmerId); source = 'task'; }
+  else if (t && t.team && live((cfg.teams || {})[t.team])) { owner = live(cfg.teams[t.team]); source = 'team'; }
+  else if (live(cfg.default)) { owner = live(cfg.default); source = 'default'; }
+  else if (legacy && canReceiveNewWork(legacy)) { owner = legacy; source = 'legacy'; }
+  if (!owner && live(cfg.backup)) { owner = live(cfg.backup); source = 'backup'; }
+  return { owner: owner || null, source, backupId: live(cfg.backup) ? cfg.backup : null };
+}
+function profitConfirmOwner(state, t) { return profitConfirmerInfo(state, t).owner; }
+// Everyone who is the profit confirmer for SOME task — the default, any team's, and the backup. Drives who sees the confirmation queue.
+function isProfitConfirmer(state, emp) {
+  if (!emp) return false;
+  const cfg = workflowSettings(state).profitConfirmers || {};
+  const ids = new Set([cfg.default, cfg.backup, ...Object.values(cfg.teams || {})].filter(Boolean));
+  const legacy = (state.employees || []).find(e => (e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+  if (!cfg.default && legacy) ids.add(legacy.id);
+  return ids.has(emp.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -546,6 +583,10 @@ function productivityQualifies(state, t, v2At, reportInfo) {
   // the report actually reaching the client (real-world proof of
   // completion, independent of whether it was formally reviewed first).
   if (t.reviewStatus === 'error') return exclude('Review contains errors');
+  // V3: reviewed clean is THE event; Report Sent neither unlocks nor moves it.
+  if (prodRules.v3Applies(completedMs, state.productivityV3EffectiveAt || PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT) && t.reviewStatus === 'clean') {
+    return qualify('v3', 'clean_review', t.reviewedAt);
+  }
   if (t.sentToClient === true) return qualify('v2', 'report_dispatched', t.sentToClientAt);
   if (t.reviewStatus === 'clean') return qualify('v2', 'clean_review', t.reviewedAt);
   if (t.reviewStatus === 'done') {
@@ -1986,7 +2027,7 @@ function canSeeTaskFiles(state, me, t) {
   if (t.assignedTo === me.id || t.reviewedBy === me.id || t.reviewerId === me.id || t.reportSendOwner === me.id) return true;
   if (t.escalation && t.escalation.toId === me.id) return true;
   if (me.accessRole === 'superadmin') return true;
-  const po = profitConfirmOwner(state); // Shubam needs the files to confirm profit
+  const po = profitConfirmOwner(state, t); // the profit confirmer needs the files to confirm profit
   if (po && po.id === me.id && t.profitConfirmStatus) return true;
   return isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo);
 }
@@ -2271,7 +2312,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
 
   // ---- V2 form extras: the reviewer chosen up front, whether review is required, and links typed at creation
   const v2Form = body0.taskKind === 'client' || body0.taskKind === 'admin';
-  let assignedReviewerId = null, reviewRequired = null, noReviewAuth = null;
+  let assignedReviewerId = null, reviewRequired = null, noReviewAuth = null, reviewerLater = null, priority = null, instructions = null, reportRequired = null, reportSenderId = null, profitRequiredDefault = false;
   if (v2Form) {
     if (body0.reviewerId) {
       const rv = findEmployee(state, body0.reviewerId);
@@ -2286,8 +2327,30 @@ app.post('/api/tasks', requireAuth, (req, res) => {
       if (why.length < 5) return res.status(400).json({ error: 'Say why this client task needs no review — it is kept on the record.', code: 'REVIEW_REASON' });
       noReviewAuth = { by: req.employee.id, at: new Date().toISOString(), reason: why };
     }
-    if (reviewRequired && !assignedReviewerId && !isInternal) {
-      /* a reviewer is picked when the work is submitted if none was chosen now */
+    // A task that needs review must name its reviewer now — or say, with a reason, that it will be assigned later. Never silently left blank.
+    if (reviewRequired && !assignedReviewerId) {
+      if (body0.reviewerLater === true) {
+        const why = String(body0.reviewerLaterReason || '').trim();
+        if (why.length < 5) return res.status(400).json({ error: 'Say why the reviewer will be assigned later — it is kept on the record.', code: 'REVIEWER_LATER_REASON' });
+        reviewerLater = { reason: why.slice(0, 500), by: req.employee.id, at: new Date().toISOString() };
+      } else {
+        return res.status(400).json({ error: 'Choose the reviewer — or tick "Assign reviewer later" and give a reason.', code: 'REVIEWER_REQUIRED' });
+      }
+    }
+    const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+    if (body0.priority !== undefined && body0.priority !== null && body0.priority !== '') {
+      if (!PRIORITIES.includes(String(body0.priority))) return res.status(400).json({ error: 'Priority must be low, normal, high or urgent.' });
+      priority = String(body0.priority);
+    }
+    if (body0.instructions !== undefined && body0.instructions !== null) instructions = String(body0.instructions).trim().slice(0, 4000) || null;
+    if (!isInternal) {
+      reportRequired = body0.reportRequired !== false;
+      if (body0.reportSenderId) {
+        const rs = findEmployee(state, body0.reportSenderId);
+        if (!rs || !canReceiveNewWork(rs)) return res.status(400).json({ error: 'The report sender must be an active person.' });
+        reportSenderId = rs.id;
+      }
+      profitRequiredDefault = reportRequired && body0.profitRequired === true;
     }
   }
   const linkSheet = checkLink(state, body0.sheetLink, 'Google Sheet link'), linkCash = checkLink(state, body0.cashbookLink, 'Cashbook link');
@@ -2345,7 +2408,9 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     source: 'manual', sourceRef: null,
   };
   if (v2Form) {
-    task.assignedReviewerId = assignedReviewerId; task.reviewRequired = reviewRequired;
+    task.assignedReviewerId = assignedReviewerId; task.reviewRequired = reviewRequired; task.reviewerLater = reviewerLater;
+    task.priority = priority; task.instructions = instructions;
+    if (!isInternal) { task.reportRequired = reportRequired; task.reportSenderId = reportSenderId; task.profitRequiredDefault = profitRequiredDefault; }
     if (noReviewAuth) { task.noReviewAuthorizedBy = noReviewAuth.by; task.noReviewAuthorizedAt = noReviewAuth.at; task.noReviewAuthorizedReason = noReviewAuth.reason; }
   }
   if (linkSheet.value) task.sheetLink = linkSheet.value;
@@ -2725,7 +2790,11 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'accepted') return res.status(400).json({ error: 'Only an accepted task can be marked complete.' });
   const { sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
-  const reviewerId = (req.body || {}).reviewerId || t.assignedReviewerId || null;   // the reviewer picked when the task was created is the default
+  // A task created with "Assign reviewer later" cannot be submitted until a manager has assigned one.
+  if (t.reviewerLater && !t.assignedReviewerId && (req.body || {}).directProfitConfirm !== true) {
+    return res.status(409).json({ error: 'This task has no reviewer yet — ask your manager to assign one before you submit it.', code: 'REVIEWER_MISSING' });
+  }
+  const reviewerId = (t.reviewerLater ? t.assignedReviewerId : ((req.body || {}).reviewerId || t.assignedReviewerId)) || null;   // the reviewer picked when the task was created is the default
   const direct = directProfitConfirm === true;
   if (direct && !canDirectProfitConfirm(req.employee)) return res.status(403).json({ error: "You can't send a job straight to profit confirmation." });
   if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
@@ -2738,8 +2807,8 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
   if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
   if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
-  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
-  if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Admin Tasks have no client, so there is nothing to profit-confirm.' });
+  if (direct && !profitConfirmOwner(state, t)) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.' });
   }
@@ -2856,8 +2925,8 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, takeSlotFiles, (req, res
   const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
   if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
   if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
-  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
-  if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Admin Tasks have no client, so there is nothing to profit-confirm.' });
+  if (direct && !profitConfirmOwner(state, t)) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.' });
   }
@@ -3226,14 +3295,15 @@ app.post('/api/tasks/:id/profit-confirm', requireAuth, (req, res) => {
   if (!hasSheetOrCashbook(t)) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file (from Send for Review), before requesting profit confirmation.' });
   }
-  const owner = profitConfirmOwner(state);
-  if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  const owner = profitConfirmOwner(state, t);
+  if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
   applyProfitRequest(state, t, req.employee, owner);
   db.save();
   res.json({ task: taskForClient(t) });
 });
 // Clean, and profit confirmation is required: it goes to Shubam. Shared by /profit-confirm and Approve.
 function applyProfitRequest(state, t, actor, owner) {
+  t.profitConfirmerAssignedId = owner.id;
   t.profitConfirmStatus = 'pending';
   t.profitConfirmRequestedAt = new Date().toISOString();
   t.profitConfirmRequestedBy = actor.id;
@@ -3250,10 +3320,11 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  const owner = profitConfirmOwner(state);
-  const isBackup = req.employee.accessRole === 'superadmin' && t.profitConfirmRequestedBy !== req.employee.id; // backup for Shubam — never for your own request
+  const owner = profitConfirmOwner(state, t);
+  const info = profitConfirmerInfo(state, t);
+  const isBackup = (req.employee.accessRole === 'superadmin' || req.employee.id === info.backupId) && t.profitConfirmRequestedBy !== req.employee.id; // backup for the confirmer — never for your own request
   const allowed = (owner && req.employee.id === owner.id) || isBackup;
-  if (!allowed) return res.status(403).json({ error: 'Only Shubam Sharma can confirm this.' });
+  if (!allowed) return res.status(403).json({ error: 'Only ' + (owner ? owner.name : 'the profit confirmer') + ' can confirm this.' });
   if (t.profitConfirmStatus !== 'pending') return res.status(400).json({ error: 'This task has no pending profit confirmation.' });
   t.profitConfirmStatus = 'confirmed';
   t.profitConfirmAt = new Date().toISOString();
@@ -3279,8 +3350,8 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
 app.get('/api/profit-confirmations/stats', requireAuth, (req, res) => {
   const state = db.get();
   const owner = profitConfirmOwner(state);
-  const isOwner = !!owner && req.employee.id === owner.id;
-  if (req.employee.accessRole !== 'superadmin' && !isOwner) return res.status(403).json({ error: 'Only a founder, or Shubam, can see this.' });
+  const isOwner = isProfitConfirmer(state, req.employee);
+  if (req.employee.accessRole !== 'superadmin' && !isOwner) return res.status(403).json({ error: 'Only a founder, or a profit confirmer, can see this.' });
   const today = todayISO();
   const d0 = new Date(today + 'T00:00:00Z');
   const weekStart = new Date(d0.getTime() - ((d0.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10); // Monday
@@ -3329,6 +3400,8 @@ app.post('/api/tasks/:id/return-to-processor', requireAuth, (req, res) => {
 });
 // Clean and needs no profit confirmation: the report goes to the processor to send. Shared by /return-to-processor and Approve.
 function applyReturnToProcessor(state, t, actor, processor) {
+  const sender = (t.reportSenderId && findEmployee(state, t.reportSenderId)) || processor;   // the sender chosen when the task was created, else the processor
+  processor = sender;
   t.reportSendOwner = processor.id;
   t.reportReturnedAt = new Date().toISOString();
   t.reportReturnedBy = actor.id;
@@ -3389,8 +3462,8 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       if (b.clean === false) return res.status(400).json({ error: 'If the work is not clean and ready, use Return for Correction.' });
       if (b.profitRequired === true && isClient) {
         if (!hasSheetOrCashbook(t)) return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before asking for profit confirmation.' });
-        owner = profitConfirmOwner(state);
-        if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+        owner = profitConfirmOwner(state, t);
+        if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
       }
       if (isClient && b.profitRequired !== true && !assignee) return res.status(400).json({ error: 'The processor for this task no longer exists.' });
     } else if (decision === 'return') {
@@ -3403,7 +3476,7 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       const reason = String(b.reason || '').trim();
       if (reason.length < 3) return res.status(400).json({ error: 'Give the reason for escalating.' });
       to = findEmployee(state, b.assignTo);
-      if (!to || !isAdminRole(to.accessRole) || !canReceiveNewWork(to)) return res.status(400).json({ error: 'Choose an active manager or founder to decide.' });
+      if (!to || !isAdminRole(to.accessRole) || !canReceiveNewWork(to) || isSystemAccount(to)) return res.status(400).json({ error: 'Choose an active manager or founder to decide.' });
       if (to.id === me.id) return res.status(400).json({ error: 'Escalate to someone other than yourself.' });
       if (!validDay(b.decisionDate)) return res.status(400).json({ error: 'Choose the date a decision is needed by (today or later).' });
     }
@@ -3425,10 +3498,14 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
       ev.profitRequired = !!owner;
       t.awaitingClientDecision = isClient;
-      if (isClient) t.reportSendOwner = t.assignedTo;
+      if (isClient) t.reportSendOwner = t.reportSenderId || t.assignedTo;
       logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
       managersOfEmployee(state, t.assignedTo).forEach(m => logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml((assignee || {}).name || '—')}</b> was reviewed clean by <b>${escHtml(me.name)}</b>.`));
-      if (isClient) { if (owner) applyProfitRequest(state, t, me, owner); else applyReturnToProcessor(state, t, me, assignee); }
+      if (isClient && t.reportRequired === false) {
+        // "No report needed" was decided when the task was created — it is closed, not left waiting to be sent.
+        t.awaitingClientDecision = false; t.sentToClient = false; t.sentToClientAt = now; t.sentToClientBy = me.id;
+        t.reportDeliveryStatus = 'sending_not_required'; t.reportDeliveryWaivedReason = 'not_required_at_creation'; t.reportDeliveryWaivedBy = t.assignedBy || me.id; t.reportDeliveryWaivedAt = now;
+      } else if (isClient) { if (owner) applyProfitRequest(state, t, me, owner); else applyReturnToProcessor(state, t, me, assignee); }
     } else if (decision === 'return') {
       t.reviewStatus = 'error'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note;
       t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
@@ -4426,7 +4503,7 @@ function floorAtGoLive(fromISO, toISO) {
 // breakdown, credited hours, and why (or why not).
 function productivityTaskRow(t, result) {
   return {
-    id: t.id, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+    id: t.id, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
     kind: t.kind, status: t.status,
     allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
     internalDeadline: t.internalDeadline, completedAt: t.completedAt,
@@ -4450,7 +4527,7 @@ function productivityTaskRow(t, result) {
 function productivityOpenRow(state, t) {
   const responsible = findEmployee(state, t.assignedTo);
   return {
-    id: t.id, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+    id: t.id, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
     allocatedHours: Number(t.tat) || 0, status: t.status,
     internalDeadline: t.internalDeadline, clientDate: t.clientDate,
     holdReason: t.holdReason || null, responsibleName: responsible ? responsible.name : '—',
@@ -4458,7 +4535,36 @@ function productivityOpenRow(state, t) {
     nextAction: OPEN_STATUS_REASONS[t.status] || t.status,
   };
 }
+// Shared / test / placeholder logins are not productive employees: they never add capacity or output to Productivity — unless a
+// superadmin has explicitly marked them (countsInProductivity === true) or explicitly excluded a real person (=== false).
+// Walks the period day by day and reports exactly what was removed from capacity, using the same rules as dayCapacity():
+//   scheduled working days (every day the firm's week includes) − public holidays = working days
+//   − approved leave (a half day counts 0.5) − workshop days (never also counted as leave) − custom-hours reductions = final eligible days
+//   capacity hours = final eligible days × the working day (7 h).  A deduction is shown only if it was actually made.
+function capacityBreakdownOf(state, emp, fromISO, toISO, capacityHours) {
+  const base = baseHoursOf(emp), days = [];
+  if (fromISO && toISO && toISO >= fromISO) {
+    let cur = new Date(fromISO + 'T00:00:00Z');
+    const end = new Date(toISO + 'T00:00:00Z').getTime();
+    while (cur.getTime() <= end) {
+      const iso = cur.toISOString().slice(0, 10), scheduled = cur.getUTCDay() !== 0;   // Sunday is the firm's weekly off
+      const holiday = scheduled && !cal.isWorkingDay(iso);
+      const status = scheduled && !holiday ? attendanceStatus(state, emp, iso) : 'PRESENT';
+      days.push({ scheduled, holiday, status, customHours: status === 'CUSTOM' ? Number((approvedLeaveOn(state, emp.id, iso) || {}).hours || 0) : 0 });
+      cur = new Date(cur.getTime() + 86400000);
+    }
+  }
+  const b = prodRules.capacityDays(days, base);
+  return { ...b, reconciles: Math.abs(b.capacityHours - capacityHours) < 0.011 };
+}
+function isNonProductiveAccount(emp) {
+  if (!emp) return true;
+  if (emp.countsInProductivity === true) return false;
+  if (emp.countsInProductivity === false) return true;
+  return isSystemAccount(emp) || String(emp.email || '').toLowerCase() === 'hr@elitetaxation.co.nz';
+}
 function productivityFor(state, empIds, fromISO, toISO) {
+  empIds = empIds.filter(id => !isNonProductiveAccount(findEmployee(state, id)));
   const from = fromISO, to = toISO;
   const inRange = d => d && nzDay(d) >= from && nzDay(d) <= to;
   const workingDays = Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to)); // inclusive of `to`
@@ -4505,7 +4611,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
         // 2 October must still land in September's numbers.
         if (!inRange(c.creditDate || c.closedAt)) return;
         qualified.push({
-          id: t.id + ':close:' + c.period, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+          id: t.id + ':close:' + c.period, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
           kind: t.kind, status: t.status,
           allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
           internalDeadline: t.internalDeadline, completedAt: null,
@@ -4562,7 +4668,14 @@ function productivityFor(state, empIds, fromISO, toISO) {
     // and the completed-but-excluded tasks (frozen snapshot) due in period.
     const capacityNotConverted = r2(Math.max(0, capacityHours - qualifiedHours));
     const assignedOpenHours = r2(excludedRows.reduce((s, r) => s + (r.allocatedHours || 0), 0));
-    const trulyUnallocatedHours = r2(Math.max(0, capacityNotConverted - assignedOpenHours));
+    // The breakdown must ADD UP to the total — no overlap, nothing invented. Fill in order: still-open work, then completed work that
+    // did not qualify, then whatever is left is genuinely unallocated capacity. (Open work larger than the gap just fills it.)
+    const nc = prodRules.splitNotConverted(capacityNotConverted,
+      excludedRows.filter(r => r.status !== 'completed').reduce((n, r) => n + (r.allocatedHours || 0), 0),
+      excludedRows.filter(r => r.status === 'completed').reduce((n, r) => n + (r.allocatedHours || 0), 0));
+    const openPart = nc.openAllocated, trulyUnallocatedHours = nc.unallocated, notConvertedBreakdown = nc;
+    // The capacity days, shown in full: scheduled → holidays → leave → workshop → final eligible days → hours (days × the 7 h day).
+    const capacityBreakdown = capacityBreakdownOf(state, emp, from, to, capacityHours);
 
     return {
       id, name: emp.name, team: emp.team || '—', jobTitle: emp.jobTitle || '', group: prodGroupOf(emp),
@@ -4575,7 +4688,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
       reportSentRate: reportMaxPoints > 0 ? Math.round((reportPoints / reportMaxPoints) * 1000) / 10 : null,
       outstandingReports: reportsReadyNotSent + reportsLate,
       qualifiedTasks: qualified, excludedTasks: excludedRows, openWork: openWork.map(t => productivityOpenRow(state, t)),
-      capacityNotConverted, assignedOpenHours, trulyUnallocatedHours,
+      capacityNotConverted, assignedOpenHours: openPart, trulyUnallocatedHours, notConvertedBreakdown, capacityBreakdown,
     };
   });
 }
@@ -4630,6 +4743,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
     goLiveApplied: from !== requestedFrom,
     fiscalYearStart: floorAtGoLive(fiscalYearStart(to), to),
     v2EffectiveAt: state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT,
+    v3EffectiveAt: state.productivityV3EffectiveAt || PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT,
     scope: scopeLabel,
     // Show everyone in scope, including zero-output people, with a plain
     // reason rather than hiding them.
@@ -4653,6 +4767,11 @@ app.get('/api/productivity', requireAuth, (req, res) => {
       capacityNotConverted: Math.round(sum('capacityNotConverted') * 100) / 100,
       assignedOpenHours: Math.round(sum('assignedOpenHours') * 100) / 100,
       trulyUnallocatedHours: Math.round(sum('trulyUnallocatedHours') * 100) / 100,
+      notConvertedBreakdown: (() => {
+        const k = f => Math.round(people.reduce((n, p) => n + ((p.notConvertedBreakdown || {})[f] || 0), 0) * 100) / 100;
+        const b = { total: k('total'), openAllocated: k('openAllocated'), nonQualifyingCompleted: k('nonQualifyingCompleted'), unallocated: k('unallocated') };
+        return { ...b, reconciles: people.every(p => (p.notConvertedBreakdown || {}).reconciles !== false) && Math.abs(b.openAllocated + b.nonQualifyingCompleted + b.unallocated - b.total) < 0.05 };
+      })(),
     },
   });
 });
@@ -6026,7 +6145,7 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
   }
   const payload = workflow.buildToday(scoped, me, {
     attentionIds, reviewSlaHours: Number((workflowSettings(state) || {}).reviewSlaHours) || undefined,
-    today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
+    today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
   });
@@ -6041,7 +6160,7 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
 function workflowDeps(state, me, extra) {
   const po = profitConfirmOwner(state);
   return {
-    today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
+    today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
     reportInfo: reportSentFor, ...(extra || {}),
@@ -6085,21 +6204,97 @@ app.get('/api/workflow/tasks', requireAuth, requireAdmin, (req, res) => {
     facets: { employees: teamPeople(state, req.employee), clients: facet(r => r.clientName), types: facet(r => r.taskType), reviewers: [...new Map(rows.filter(r => r.reviewerId).map(r => [r.reviewerId, r.reviewerName])).entries()].map(([id, name]) => ({ id, name })) },
   });
 });
+// Filter choices for the Calendar and Timeline — only real options.
+function viewFacets(state, me, rows) {
+  const facet = f => [...new Set(rows.map(f).filter(Boolean))].sort();
+  return { employees: teamPeople(state, me), clients: facet(r => r.clientName), types: facet(r => r.taskType), statuses: facet(r => r.status),
+    reviewers: [...new Map(rows.filter(r => r.reviewerId).map(r => [r.reviewerId, r.reviewerName])).entries()].map(([id, name]) => ({ id, name })) };
+}
 app.get('/api/workflow/calendar', requireAuth, requireAdmin, (req, res) => {
   const state = db.get(), q = req.query || {};
   const { rows, byId, deps } = managerRows(state, req.employee);
-  const open = rows.filter(r => r.status !== 'Completed');
+  const open = mgr.applyFilters(rows.filter(r => r.status !== 'Completed'), { ...q, today: deps.today });
   let ev = mgr.calendarEvents(open, deps);
-  if (q.employee) ev = ev.filter(e => (rows.find(r => r.id === e.id) || {}).assigneeId === q.employee);
+  // which dates to show: both by default; ?kinds=internal or ?kinds=client narrows (follow-ups and corrections always show)
+  if (q.kinds) { const k = new Set(String(q.kinds).split(',').filter(Boolean)); ev = ev.filter(e => k.has(e.kind) || !['internal', 'client'].includes(e.kind)); }
   if (q.from) ev = ev.filter(e => e.date >= String(q.from).slice(0, 10));
   if (q.to) ev = ev.filter(e => e.date <= String(q.to).slice(0, 10));
-  res.json({ today: deps.today, events: ev, legend: mgr.TONE_LABEL });
+  res.json({ today: deps.today, events: ev, legend: mgr.TONE_LABEL, facets: viewFacets(state, req.employee, rows) });
 });
 app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
   const state = db.get(), q = req.query || {};
   const { rows, byId, deps } = managerRows(state, req.employee);
-  const open = rows.filter(r => r.status !== 'Completed' && (!q.employee || r.assigneeId === q.employee));
-  res.json({ today: deps.today, rows: mgr.timelineRows(open, byId, deps).slice(0, 300) });
+  const open = mgr.applyFilters(rows.filter(r => r.status !== 'Completed'), { ...q, today: deps.today });
+  const all = mgr.timelineRows(open, byId, deps);
+  const size = [25, 50, 100].includes(Number(q.pageSize)) ? Number(q.pageSize) : 25, page = Math.max(1, Math.floor(Number(q.page)) || 1);
+  res.json({ today: deps.today, total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size), facets: viewFacets(state, req.employee, rows) });
+});
+
+
+// DATA QUALITY — a read-only report for a superadmin: duplicates, test logins, missing clients, zero hours, personal details in titles,
+// contradictory Client/Admin typing, duplicate task types. It never changes, merges or deletes anything; ?format=csv gives a list with a
+// "decision" column to review and sign off before anyone touches the data.
+app.get('/api/admin/data-quality', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const report = dataQuality.build({ employees: state.employees, tasks: [...(state.tasks || []), ...(state.deletedTasks || []).filter(() => false)], clients: state.clients, taxonomy: state.taxonomy },
+    { today: todayISO(), isSystemAccount });
+  if (req.query.format === 'csv') {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="data-quality-' + todayISO() + '.csv"');
+    return res.send(dataQuality.toCsv(report));
+  }
+  res.json(report);
+});
+
+// ---------------------------------------------------------------------------
+// PROFIT CONFIRMERS — who confirms profit: a company default, optional team confirmers, a backup, and an optional per-task override.
+// Everyone can read who the confirmer is (the approval form shows the name); only a superadmin changes it, and every change is audited.
+// ---------------------------------------------------------------------------
+const pcPerson = (state, id) => { const e = id ? findEmployee(state, id) : null; return e ? { id: e.id, name: e.name } : null; };
+function profitConfirmersView(state) {
+  const cfg = workflowSettings(state).profitConfirmers || {};
+  const info = profitConfirmerInfo(state, null);
+  return {
+    default: pcPerson(state, cfg.default), effectiveDefault: info.owner ? { id: info.owner.id, name: info.owner.name, source: info.source } : null,
+    teams: Object.entries(cfg.teams || {}).map(([team, id]) => ({ team, ...(pcPerson(state, id) || { id, name: null }) })),
+    backup: pcPerson(state, cfg.backup),
+  };
+}
+app.get('/api/workflow/profit-confirmers', requireAuth, (req, res) => res.json(profitConfirmersView(db.get())));
+app.post('/api/admin/profit-confirmers', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get(), b = req.body || {};
+  const ok = id => id && (state.employees || []).some(e => e.id === id && canReceiveNewWork(e) && isAdminRole(e.accessRole));
+  const next = { default: b.default || null, backup: b.backup || null, teams: {} };
+  if (next.default && !ok(next.default)) return res.status(400).json({ error: 'The default confirmer must be an active manager or founder.' });
+  if (next.backup && !ok(next.backup)) return res.status(400).json({ error: 'The backup confirmer must be an active manager or founder.' });
+  if (next.default && next.backup && next.default === next.backup) return res.status(400).json({ error: 'The backup must be a different person from the default.' });
+  for (const [team, id] of Object.entries(b.teams || {})) {
+    if (!id) continue;
+    if (!ok(id)) return res.status(400).json({ error: 'The confirmer for ' + team + ' must be an active manager or founder.' });
+    next.teams[String(team).slice(0, 80)] = id;
+  }
+  state.workflowSettings = state.workflowSettings || {};
+  const before = state.workflowSettings.profitConfirmers || null;
+  state.workflowSettings.profitConfirmers = next;
+  state.settingsAudit = state.settingsAudit || [];
+  state.settingsAudit.push({ at: new Date().toISOString(), by: req.employee.id, key: 'profitConfirmers', from: before, to: next });
+  logEvent(state, req.employee.id, 'Changed who confirms profit (default ' + ((pcPerson(state, next.default) || {}).name || 'unchanged legacy') + ', backup ' + ((pcPerson(state, next.backup) || {}).name || 'none') + ').');
+  db.save();
+  res.json(profitConfirmersView(state));
+});
+// A per-task override: a manager/superadmin names who confirms profit for THIS task (audited on the task).
+app.post('/api/tasks/:id/profit-confirmer', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (t.profitConfirmStatus === 'pending' || t.profitConfirmStatus === 'confirmed') return res.status(409).json({ error: 'Profit confirmation has already started on this task.' });
+  const id = (req.body || {}).confirmerId || null;
+  if (id && !(state.employees || []).some(e => e.id === id && canReceiveNewWork(e) && isAdminRole(e.accessRole))) return res.status(400).json({ error: 'Choose an active manager or founder.' });
+  const was = t.profitConfirmerId || null;
+  t.profitConfirmerId = id;
+  t.profitConfirmerHistory = [...(t.profitConfirmerHistory || []), { at: new Date().toISOString(), by: req.employee.id, from: was, to: id }];
+  logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}": profit confirmer set to <b>${escHtml((pcPerson(state, id) || { name: 'the default confirmer' }).name)}</b> by <b>${escHtml(req.employee.name)}</b>.`);
+  db.save();
+  res.json({ task: taskForClient(t) });
 });
 
 app.get('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, res) => {
@@ -6126,7 +6321,7 @@ app.post('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, r
 // resolved automatically — the notification drops out of the inbox — as soon as the problem is gone. A problem that comes back
 // after being resolved is a new episode and is raised again.
 // ---------------------------------------------------------------------------
-const ALERT_TYPES = new Set(['blocked_long', 'followup_due', 'report_unsent', 'profit_overdue', 'repeated_return', 'no_review_attempt']);
+const ALERT_TYPES = new Set(['blocked_long', 'followup_due', 'report_unsent', 'profit_overdue', 'repeated_return', 'no_review_attempt', 'missing_reviewer']);
 function alertRecipients(state, type, t, exceptId) {
   const to = new Set();
   const founders = state.employees.filter(e => e.accessRole === 'superadmin' && !e.accessDisabled);
@@ -6134,7 +6329,7 @@ function alertRecipients(state, type, t, exceptId) {
   if (t.assignedBy) { const a = findEmployee(state, t.assignedBy); if (a && isAdminRole(a.accessRole)) to.add(a.id); }
   if (type === 'followup_due' && t.assignedTo) to.add(t.assignedTo);
   if (type === 'report_unsent') { to.add(t.reportSendOwner || t.assignedTo); }
-  if (type === 'profit_overdue') { const po = profitConfirmOwner(state); if (po) to.add(po.id); founders.forEach(f => to.add(f.id)); }
+  if (type === 'profit_overdue') { const po = profitConfirmOwner(state, t); if (po) to.add(po.id); founders.forEach(f => to.add(f.id)); }
   if (!t.assignedTo) founders.forEach(f => to.add(f.id));
   to.delete(exceptId); to.delete(null); to.delete(undefined);
   return [...to];
@@ -6153,7 +6348,9 @@ function sweepManagerAlerts(state) {
   const deps = workflowDeps(state, me);
   const byId = {}, rows = [];
   for (const t of state.tasks) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, deps), t, deps)); }
-  const found = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs }).filter(a => ALERT_TYPES.has(a.type));
+  // A missing reviewer only alerts once the internal due date is within two working days — before it is, it stays on the exceptions list.
+  const soon = cal.addWorkingDays(deps.today, 2);
+  const found = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs }).filter(a => ALERT_TYPES.has(a.type) && (a.type !== 'missing_reviewer' || ((byId[a.id] || {}).internalDeadline || '9999') <= soon));
   const open = new Set();
   let raised = 0, resolved = 0;
   for (const a of found) {
@@ -6226,8 +6423,9 @@ app.post('/api/tasks/:id/manager-change', requireAuth, requireAdmin, (req, res) 
       if (!rv || !isAdminRole(rv.accessRole)) return res.status(400).json({ error: 'Pick a manager or founder as reviewer.' });
       if (rv.id === t.assignedTo) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
       if (t.status === 'completed' && t.reviewStatus !== 'done' && t.reviewStatus !== 'clean' && t.reviewStatus !== 'error') { /* in review: allowed */ }
-      const from = t.reviewerId || null;
+      const from = t.reviewerId || t.assignedReviewerId || null;
       t.reviewerId = rv.id;
+      if (t.status !== 'completed') { t.assignedReviewerId = rv.id; if (t.reviewerLater) t.reviewerLater = { ...t.reviewerLater, resolvedAt: new Date().toISOString(), resolvedBy: me.id }; }
       notify(state, rv.id, 'review', me.name + ' made you the reviewer of "' + t.name + '" — ' + reason, t.id);
       log('change_reviewer', from, rv.id);
       break;
@@ -6854,6 +7052,15 @@ const PORT = process.env.PORT || 3000;
 // JSON file) and runs migrations before the first request can arrive.
 db.init()
   .then(() => {
+    // Audit trail for the Productivity V3 rule (prospective only — nothing completed before the cutoff is recalculated).
+    try {
+      const st = db.get();
+      if (!st.productivityV3History) {
+        st.productivityV3History = [{ introducedAt: new Date().toISOString(), effectiveAt: st.productivityV3EffectiveAt || PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT, by: 'system',
+          change: 'A reviewed-clean task credits at its clean-review date; Report Sent no longer moves or unlocks Productivity. Applies to work completed on/after effectiveAt; earlier work and finalised months are unchanged.' }];
+        db.save();
+      }
+    } catch (e) { console.error('[productivity-v3] audit seed failed:', e.message); }
     initPush();
     // Keep images out of the state, and tidy files that were uploaded but never attached.
     const crmAlertTimer = setInterval(() => { crmAlertsTick(); }, 15 * 60 * 1000); if (crmAlertTimer.unref) crmAlertTimer.unref();

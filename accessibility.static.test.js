@@ -33,7 +33,7 @@ test('mobile: tables become cards that keep their labels, and the detail panel h
 test('every new screen has loading, empty and error states with a retry; live regions announce updates', () => {
   for (const [name, loading, empty, retry] of [
     ['renderToday', 'Loading your day', 'td-empty', 'renderToday()'], ['renderTeamView', 'Loading your team', 'No team members yet', 'renderTeamView()'],
-    ['mtLoad', 'Loading tasks', 'No tasks match these filters', 'mtLoad()'], ['mtLoadCalendar', 'Loading the calendar', 'cal-grid', 'mtLoadCalendar()'], ['mtLoadTimeline', 'Loading the timeline', 'No open tasks to show', 'mtLoadTimeline()'],
+    ['mtLoad', 'Loading tasks', 'No tasks match these filters', 'mtLoad()'], ['mtLoadCalendar', 'Loading the calendar', 'cal-grid', 'mtLoadCalendar()'], ['mtLoadTimeline', 'Loading the timeline', 'No open tasks match these filters', 'mtLoadTimeline()'],
   ]) { assert.ok(html.includes(loading), name + ' has a loading state'); assert.ok(html.includes(empty), name + ' has an empty state'); assert.ok(html.includes(retry), name + ' offers a retry'); }
   assert.match(html, /id="tdRoot" aria-live="polite"/);
   assert.equal((html.match(/role="alert">Could not load/g) || []).length >= 5, true, 'errors are announced');

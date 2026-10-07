@@ -164,7 +164,7 @@ test('manager-change: a reason is mandatory, every change is audited and the peo
   // the manager list shows the change
   const row = (await wf(SH, `tasks?ids=${enc(t.id)}`)).j.rows[0];
   assert.equal(row.dateChanged, true); assert.equal(row.originalInternal, day(3));
-  assert.ok((await wf(SH, 'team')).j.attention.some(a => a.id === t.id && a.type === 'date_changed'));
+  assert.ok(!(await wf(SH, 'team')).j.attention.some(a => a.id === t.id && a.type === 'date_changed'), 'a change that came with a reason is history, not an exception');
 });
 
 test('manager-change: reassign and change reviewer follow the same boundaries as the existing actions', async () => {
