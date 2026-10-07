@@ -4591,10 +4591,12 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   // scope: an employee sees only themselves; an admin their reports + self;
   // a superadmin the whole firm (or ?scope=me to narrow).
   let ids;
+  // A superadmin who runs a team on the new dashboard (Parvinder) sees HIS TEAM by default — ?scope=firm widens it to everyone.
+  const teamManager = me.accessRole === 'admin' || (me.accessRole === 'superadmin' && !!me.dashboardV2 && !firmWide(me) && req.query.scope !== 'firm');
   if (req.query.scope === 'me' || me.accessRole === 'employee') ids = [me.id];
-  else if (me.accessRole === 'admin') ids = [...new Set([me.id, ...teamRoster(state, me).map(e => e.id)])];
+  else if (teamManager) ids = [...new Set([me.id, ...teamRoster(state, me).map(e => e.id)])];
   else ids = state.employees.map(e => e.id);
-  const scopeLabel = ids.length === 1 ? 'me' : (me.accessRole === 'admin' ? 'team' : 'firm');
+  const scopeLabel = (req.query.scope === 'me' || me.accessRole === 'employee') ? 'me' : (teamManager ? 'team' : 'firm');
   // ?group=processor|marketing narrows to one productivity group (totals
   // included). Admin staff are measured by calls/emails instead — see
   // /api/admin-activity — so they're not shown on the hours-based view.

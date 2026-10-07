@@ -228,3 +228,16 @@ test('a manager sees ONLY their own team — Parvinder (a superadmin but not the
   const m = (await http('GET', '/api/workflow/measures', { token: PK })).j;
   assert.ok(m.byEmployee.every(e => e.id !== rental.id && e.id !== gst[0].id), 'the measures too');
 });
+
+test('productivity follows the same rule: a team manager sees their team by default, the whole firm only when asked; the founder and employees are unchanged', async () => {
+  const prod = (tok, q) => http('GET', '/api/productivity' + (q || ''), { token: tok });
+  const sh = (await prod(SH)).j, pk = (await prod(PK)).j, pkFirm = (await prod(PK, '?scope=firm')).j, di = (await prod(DI)).j, rj = (await prod(RJ)).j;
+  assert.equal(sh.scope, 'firm'); assert.ok(sh.people.length > 5, 'the founder sees the firm');
+  assert.equal(pk.scope, 'team'); assert.ok(pk.people.length < sh.people.length, 'Parvinder defaults to his team');
+  assert.ok(pk.people.some(p => p.id === emp('parvinder').id), 'and himself');
+  assert.equal(pkFirm.scope, 'firm'); assert.equal(pkFirm.people.length, sh.people.length, 'the whole firm is one switch away');
+  assert.equal(di.scope, 'team'); assert.ok(di.people.length < sh.people.length, 'an ordinary manager is unchanged');
+  assert.equal(rj.scope, 'me'); assert.equal(rj.people.length, 1);
+  assert.equal((await prod(RJ, '?scope=firm')).j.people.length, 1, 'an employee cannot widen it');
+  assert.equal((await prod(DI, '?scope=firm')).j.scope, 'team', 'nor can an ordinary manager');
+});
