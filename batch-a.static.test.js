@@ -47,3 +47,14 @@ test('Reviews: one slim line per task (client — task, links, owner, Review), t
   assert.match(html, /\.rq-row\{ min-height:38px;/);
   assert.match(html, /rq-sec-empty/, 'an empty section is a single line, not a box');
 });
+
+test('every list has the same search + Status + Date bar, and the tile numbers follow it', () => {
+  assert.match(html, /function fltBarHtml\(ns\)/);
+  for (const part of ['Search', 'Status', 'Date</span>', 'Date is the', 'fltClear']) assert.ok(html.slice(html.indexOf('function fltBarHtml')).includes(part), part);
+  assert.ok(html.includes("['custom', 'Pick dates…']"), 'a custom date range');
+  assert.match(html, /function tdMatch\(id\)\{ return fltMatch\('td'/);
+  assert.match(html, /const n = idsOf\(FIELD\[k\]\)\.length/, 'Reviews tiles are counted from the filtered lists');
+  assert.match(html, /fltBarHtml\('td'\)/); assert.match(html, /fltBarHtml\('rv'\)/);
+  assert.match(html, /id="mtf_datePreset"/, 'the Tasks page has a date filter too');
+  assert.match(html, /\.td-row\{ display:grid !important;/, 'dashboard rows are one slim line');
+});

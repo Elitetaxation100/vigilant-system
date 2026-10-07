@@ -77,3 +77,18 @@ test('Tasks list: the first row is Search, Employee, Status, Risk and More filte
   assert.deepEqual((await http('GET', '/api/workflow/tasks?pageSize=25', { token: PA })).j.pageSize, 25);
   assert.deepEqual((await http('GET', '/api/workflow/tasks?pageSize=7', { token: PA })).j.pageSize, 25, 'only 25 / 50 / 100');
 });
+
+test('Tasks list: a date range on the internal due date, the client date or the created date', async () => {
+  const rows = (await http('GET', '/api/workflow/tasks?pageSize=100', { token: PA })).j.rows;
+  assert.ok(rows.length >= 30);
+  const lo = day(2), hi = day(3);
+  const r = (await http(`GET`, `/api/workflow/tasks?pageSize=100&dateBy=due&dateFrom=${lo}&dateTo=${hi}`, { token: PA })).j.rows;
+  assert.ok(r.length > 0 && r.length < rows.length && r.every(x => x.internalDeadline >= lo && x.internalDeadline <= hi), 'only tasks due in the range');
+  const c = (await http('GET', `/api/workflow/tasks?pageSize=100&dateBy=client&dateFrom=${day(8)}&dateTo=${day(8)}`, { token: PA })).j.rows;
+  assert.ok(c.every(x => x.clientDate === day(8)));
+  const created = (await http('GET', `/api/workflow/tasks?pageSize=100&dateBy=created&dateFrom=${day(0)}&dateTo=${day(0)}`, { token: PA })).j.rows;
+  assert.equal(created.length, rows.length, 'everything was created today');
+  assert.equal((await http('GET', `/api/workflow/tasks?pageSize=100&dateBy=created&dateFrom=${day(-5)}&dateTo=${day(-3)}`, { token: PA })).j.rows.length, 0);
+  const both = (await http('GET', `/api/workflow/tasks?pageSize=100&status=Assigned&dateFrom=${lo}&dateTo=${hi}`, { token: PA })).j.rows;
+  assert.ok(both.every(x => x.status === 'Assigned'), 'status and date combine');
+});

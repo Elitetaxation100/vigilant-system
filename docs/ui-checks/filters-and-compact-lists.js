@@ -1,0 +1,74 @@
+const { chromium } = require('playwright');
+const { spawn } = require('child_process');
+const fs = require('fs'), os = require('os'), path = require('path');
+const ROOT = path.join(__dirname, '..', '..'), SHOTS = path.join(__dirname, 'shots');
+const port = 4700 + Math.floor(Math.random() * 200), base = 'http://127.0.0.1:' + port;
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tm-ui-'));
+const child = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), TM_DATA_DIR: dir, LOGIN_RATE_LIMIT: '10000', NODE_ENV: 'test' }, stdio: 'ignore' });
+const http = async (m, p, { token, body } = {}) => { const h = { 'Content-Type': 'application/json' }; if (token) h.Authorization = 'Bearer ' + token; const r = await fetch(base + p, { method: m, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); return { s: r.status, j: await r.json().catch(() => null) }; };
+const login = async (e, pw, tab) => (await http('POST', '/api/auth/login', { body: { email: e + '@elitetaxation.co.nz', password: pw, expectedTab: tab } })).j.token;
+let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
+(async () => {
+  for (let i = 0; i < 60; i++) { try { if ((await fetch(base + '/webhooks/health')).ok) break; } catch (e) {} await new Promise(r => setTimeout(r, 500)); }
+  const SA = await login('shubham', 'Shubham@2026', 'admin'), PA = await login('parvinder', 'Parvinder@2026', 'admin'), RJ = await login('ranjit', 'Ranjit@2026', 'employee');
+  const E = (await http('GET', '/api/employees', { token: SA })).j.employees, emp = n => E.find(e => e.email === n + '@elitetaxation.co.nz');
+  await http('PATCH', '/api/employees/' + emp('parvinder').id, { token: SA, body: { dashboardV2: true } });
+  const cl = (await http('POST', '/api/clients', { token: SA, body: { name: 'UI Test Ltd', email: 'ui@t.co' } })).j.client.id;
+  const mk = async (name, clientDate, finish) => {
+    const t = await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name, clientId: cl, assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: '2026-10-30', clientDate } });
+    const id = t.j.task.id, q = encodeURIComponent(id);
+    await http('POST', `/api/tasks/${q}/accept`, { token: RJ });
+    if (finish) await http('POST', `/api/tasks/${q}/complete`, { token: RJ, body: { reviewerId: emp('parvinder').id, sheetLink: 'https://docs.google.com/spreadsheets/d/x' } });
+    return id;
+  };
+  for (let i = 0; i < 12; i++) await mk('GST return ' + (i + 1), '2026-12-' + String(10 + i).padStart(2, '0'), true);
+  await mk('Alpha return', '2026-09-01', true); await mk('Beta return', '2026-12-30', true); await mk('Gamma open', '2026-12-30', false);
+  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' }).catch(() => chromium.launch());
+  const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
+  await page.addInitScript(t => { try { sessionStorage.setItem('governanceOsToken', t); } catch (e) {} }, PA);
+  await page.goto(base + '/');
+  await page.waitForFunction(() => typeof showView === 'function' && typeof session !== 'undefined' && !!session);
+  await page.evaluate(() => showView('today', document.querySelector('[data-view="today"]')));
+  await page.waitForSelector('[role=tablist]');
+  await new Promise(r => setTimeout(r, 1500));
+  page.on('pageerror', e => console.log('PAGEERROR', e.message));
+  // ---- DASHBOARD: compact rows + the filter bar
+  await page.setViewportSize({ width: 1400, height: 900 });
+  const tiles = async () => page.$$eval('#tdBody .td-count .n', e => e.map(x => +x.textContent));
+  await page.click('#tdBody .td-count >> nth=0');
+  const rows0 = await page.$$eval('#tdList .td-row', e => e.length);
+  const h = await page.$eval('#tdList .td-row', e => e.getBoundingClientRect().height);
+  const visible = await page.$$eval('#tdList .td-row', e => e.filter(r => { const b = r.getBoundingClientRect(); return b.top >= 0 && b.bottom <= 900; }).length);
+  ok(h <= 46, 'dashboard row is one slim line (' + Math.round(h) + 'px)'); ok(visible >= 10, 'at least 10 dashboard rows visible without scrolling (' + visible + ' of ' + rows0 + ')');
+  await page.screenshot({ path: path.join(SHOTS, 'dash-compact.png') });
+  ok(await page.$$eval('.flt-bar select', e => e.length) >= 3 && await page.$$eval('.flt-bar input[type=search]', e => e.length) === 1, 'search, Status and Date filters on the dashboard');
+  await page.fill('#flt_td_q', 'gst return 3');
+  ok(await page.$$eval('#tdList .td-row', e => e.length) >= 1 && await page.$$eval('#tdList .td-row', e => e.length) < rows0, 'search narrows the list');
+  await page.fill('#flt_td_q', '');
+  await page.selectOption('#flt_td_status', 'Approved'); ok(await page.$$eval('#tdList .td-row', e => e.length) === 0, 'a status with no tasks shows none');
+  await page.selectOption('#flt_td_status', 'In Review'); ok(await page.$$eval('#tdList .td-row', e => e.length) === rows0, 'In Review keeps them all');
+  await page.selectOption('#flt_td_by', 'client'); await page.selectOption('#flt_td_preset', 'custom');
+  ok(await page.$eval('#flt_td_custom', e => e.style.display !== 'none'), 'custom dates reveal From / To');
+  await page.fill('#flt_td_from', '2026-12-12'); await page.fill('#flt_td_to', '2026-12-13'); await page.dispatchEvent('#flt_td_to', 'change');
+  const inRange = await page.$$eval('#tdList .td-row', e => e.length); ok(inRange >= 1 && inRange < rows0, 'a date range narrows it (' + inRange + ')');
+  const t1 = await tiles(); ok(JSON.stringify(t1) !== JSON.stringify(t0), 'the tile numbers follow the filters');
+  await page.click('#tdTab_manager'); ok((await page.$eval('#flt_td_status', e => e.value)) === '' && (await page.$eval('#flt_td_preset', e => e.value)) === 'any', 'changing view clears the filters');
+  // ---- REVIEWS PAGE
+  await page.evaluate(() => showView('reviews', document.querySelector('#navV2 .nav-item[data-view="reviews"]')));
+  await page.waitForSelector('#flt_rv_q');
+  const rv0 = await page.$$eval('.rq-row', e => e.length);
+  await page.fill('#flt_rv_q', 'gst return 4'); ok(await page.$$eval('.rq-row', e => e.length) >= 1 && await page.$$eval('.rq-row', e => e.length) < rv0, 'Reviews: search narrows the queue');
+  ok((await page.evaluate(() => document.activeElement && document.activeElement.id)) === 'flt_rv_q', 'and typing keeps the cursor in the box');
+  await page.fill('#flt_rv_q', ''); await page.selectOption('#flt_rv_status', 'Approved'); ok(await page.$$eval('.rq-row', e => e.length) === 0, 'Reviews: Status filter');
+  await page.selectOption('#flt_rv_status', ''); await page.selectOption('#flt_rv_preset', 'today');
+  ok(await page.$$eval('.rq-row', e => e.length) === rv0, 'Reviews: submitted today keeps everything submitted today');
+  await page.selectOption('#flt_rv_preset', 'yesterday'); ok(await page.$$eval('.rq-row', e => e.length) === 0, 'Reviews: yesterday has none');
+  const nums = await page.$$eval('.rq-bar .n', e => e.map(x => +x.textContent)); ok(nums.every(n => n === 0), 'Reviews: the tile numbers follow the filter: ' + nums.join(','));
+  await page.screenshot({ path: path.join(SHOTS, 'reviews-filters.png') });
+  // ---- TASKS PAGE
+  await page.evaluate(() => { _mt.tab = 'list'; showView('mtasks', document.querySelector('#navV2 .nav-item[data-view="mtasks"]')); });
+  await page.waitForSelector('#mtf_datePreset');
+  ok(await page.$$eval('#mtf_status, #mtf_datePreset, #mtf_dateBy, #mtf_q', e => e.length) === 4, 'Tasks page: search, status and date filters');
+  await browser.close(); child.kill(); fs.rmSync(dir, { recursive: true, force: true });
+  console.log(fails ? fails + ' FAILED' : 'ALL PASSED'); process.exit(fails ? 1 : 0);
+})().catch(e => { console.error(e); try { child.kill(); } catch (x) {} process.exit(2); });

@@ -6195,7 +6195,7 @@ app.get('/api/workflow/team', requireAuth, requireAdmin, (req, res) => {
 app.get('/api/workflow/tasks', requireAuth, requireAdmin, (req, res) => {
   const state = db.get(), q = req.query || {};
   const { rows, deps } = managerRows(state, req.employee);
-  const filtered = mgr.applyFilters(rows, { ...q, today: deps.today });
+  const filtered = mgr.applyFilters(rows, { ...q, today: deps.today, nzDay });
   const page = mgr.paginate(mgr.sortRows(filtered, q.sort), q.page, q.pageSize);
   // facets so the filter bar offers only real options
   const facet = f => [...new Set(rows.map(f).filter(Boolean))].sort();
