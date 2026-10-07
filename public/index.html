@@ -169,11 +169,16 @@ i.cal-ev{ display:inline-block; width:12px; height:12px; padding:0; vertical-ali
 .cal-ev.red{ background:var(--coral); } .cal-ev.amber{ background:#B45309; } .cal-ev.blue{ background:#2563EB; } .cal-ev.purple{ background:var(--purple); } .cal-ev.green{ background:var(--teal); } .cal-ev.grey{ background:#6B7280; }
 .cal-more{ background:none; border:0; color:var(--purple); font:inherit; font-size:11.5px; cursor:pointer; padding:2px 4px; }
 .cal-legend{ display:flex; flex-wrap:wrap; gap:14px; margin:12px 0; font-size:12.5px; color:var(--text-dim); } .cal-key{ display:inline-flex; align-items:center; }
-.tl{ position:relative; min-width:720px; } .tl-today{ position:absolute; top:0; bottom:0; left:calc(260px + (100% - 260px) * var(--today) / 100); width:2px; background:var(--coral); opacity:.7; pointer-events:none; }
+.tl{ position:relative; min-width:720px; } .tl-today{ position:absolute; top:0; bottom:0; left:calc(270px + (100% - 270px) * var(--today) / 100); width:2px; background:var(--coral); opacity:.7; pointer-events:none; }
 .tl-row{ display:grid; grid-template-columns:260px 1fr; gap:10px; align-items:center; border-bottom:1px solid var(--panel-border); }
 .tl-name{ text-align:left; background:none; border:0; padding:8px 4px; font:inherit; color:var(--text); cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-height:44px; }
 .tl-name .tm-sub{ display:block; }
 .tl-track{ position:relative; height:24px; } .tl-bar{ position:absolute; top:6px; height:12px !important; padding:0 !important; border-radius:6px; margin:0 !important; width:auto; }
+.tl-axis{ display:grid; grid-template-columns:260px 1fr; gap:10px; border-bottom:1px solid var(--panel-border); } .tl-ticks{ position:relative; height:22px; } .tl-tick{ position:absolute; top:2px; font-size:11px; color:var(--text-dim); transform:translateX(-50%); white-space:nowrap; }
+.tl-late{ position:absolute; top:9px; height:6px; border-radius:3px; background:repeating-linear-gradient(45deg, var(--coral) 0 4px, transparent 4px 8px); opacity:.85; }
+.tl-mark.tl-client{ background:var(--purple); width:0; height:0; top:5px; border-radius:0; border-left:6px solid transparent; border-right:6px solid transparent; border-top:0; border-bottom:12px solid var(--purple); transform:translateX(-6px); }
+.cal-week .cal-cell{ min-height:150px; }
+.mt-more{ margin:8px 0 12px; } .mt-more summary{ cursor:pointer; font-weight:600; padding:8px 0; min-height:44px; display:flex; align-items:center; gap:8px; } .mt-more summary:focus-visible{ outline:3px solid var(--purple); outline-offset:2px; } .mt-on{ font-size:11px; padding:1px 6px; border-radius:8px; background:var(--purple); color:#fff; }
 .tl-mark{ position:absolute; top:2px; width:3px; height:20px; background:var(--text); border-radius:2px; }
 @media (max-width: 760px){
   .tm-table thead{ display:none; } .tm-table, .tm-table tbody, .tm-table tr, .tm-table th, .tm-table td{ display:block; width:100%; }
@@ -8009,13 +8014,15 @@ function drawTeamView(){
 }
 function tmPickType(k){ _tmType = (_tmType === k) ? null : k; drawTeamView(); }
 /* ---------------- Tasks list ---------------- */
-function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', ids:'', sort:'newest', page:1, pageSize:25 }; }
+function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', risk:'', kinds:'internal,client', ids:'', sort:'newest', page:1, pageSize:25 }; }
 let _mt = mtDefaults(), _mtData = null, _mtTimer = null, _mtCal = null, _mtMonth = null, _mtTl = null, _mtSeq = 0;
 const MT_STATUSES = ['Assigned','In Progress','On Hold','In Review','Correction Required','Approved','Completed'];
+const MT_RISK = [['overdue','Client overdue'],['due_today','Client due today'],['at_risk','At risk'],['waiting_client','Waiting on client'],['ok','On track']];
+function mtMoreActive(){ return ['client','type','waitingOn','reviewer','due','commitment','reportSent','rework'].some(k => _mt[k]) || (_mt.sort && _mt.sort !== 'newest'); }
 const MT_WAIT = [['employee','Employee'],['reviewer','Reviewer'],['manager','Manager'],['founder','Founder'],['client','Client'],['external','External authority'],['profit','Profit confirmation'],['ready_to_send','Ready to send']];
 function mtQuery(){
   const p = new URLSearchParams();
-  ['q','employee','client','type','status','waitingOn','due','commitment','reportSent','rework','reviewer','ids','sort'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
+  ['q','employee','client','type','status','waitingOn','due','commitment','reportSent','rework','reviewer','risk','ids','sort'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
   p.set('page', _mt.page); p.set('pageSize', _mt.pageSize);
   return p.toString();
 }
@@ -8028,11 +8035,16 @@ async function renderMTasks(){
 function mtBuildShell(){
   const box = document.getElementById('mtRoot'); box.dataset.built = '1';
   box.innerHTML = '<div class="tm-head"><h2 class="td-greet">Tasks</h2><div class="td-date">Everything in your team, filtered and paged on the server. <button type="button" class="linkbtn tm-link" onclick="showView(\'tasks\', document.querySelector(\'#navV2 .nav-item[data-view=&quot;mtasks&quot;]\'), true)">Open the classic task list</button></div></div>'
-    + '<div class="td-seg" id="mtTabs" role="group" aria-label="Task views"></div>'
+    + '<div class="td-seg" id="mtTabs" role="tablist" aria-label="Task views" onkeydown="mtTabKey(event)"></div>'
     + '<div id="mtBody"></div>';
 }
 function mtDrawTabs(){
-  document.getElementById('mtTabs').innerHTML = [['list','List'],['calendar','Calendar'],['timeline','Timeline']].map(([k,l]) => '<button type="button" class="' + (_mt.tab === k ? 'on' : '') + '" onclick="mtTab(\'' + k + '\')" aria-pressed="' + (_mt.tab === k) + '">' + l + '</button>').join('');
+  document.getElementById('mtTabs').innerHTML = [['list','List'],['calendar','Calendar'],['timeline','Timeline']].map(([k,l]) => '<button type="button" role="tab" id="mtTab_' + k + '" class="' + (_mt.tab === k ? 'on' : '') + '" onclick="mtTab(\'' + k + '\')" aria-selected="' + (_mt.tab === k) + '" tabindex="' + (_mt.tab === k ? 0 : -1) + '">' + l + '</button>').join('');
+}
+function mtTabKey(e){
+  const keys = ['list', 'calendar', 'timeline'], i = keys.indexOf(_mt.tab);
+  const to = e.key === 'ArrowRight' ? (i + 1) % 3 : e.key === 'ArrowLeft' ? (i + 2) % 3 : e.key === 'Home' ? 0 : e.key === 'End' ? 2 : -1;
+  if(to < 0) return; e.preventDefault(); mtTab(keys[to]); setTimeout(() => { const b = document.getElementById('mtTab_' + keys[to]); if(b) b.focus(); }, 0);
 }
 function mtTab(k){ _mt.tab = k; renderMTasks(); }
 function mtSel(id, label, opts, val){ return '<label class="mt-f"><span>' + label + '</span><select id="' + id + '" onchange="mtSet(\'' + id.replace('mtf_', '') + '\', this.value)"><option value="">All</option>' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>'; }
@@ -8050,20 +8062,24 @@ async function mtLoad(){
 }
 function mtDrawList(){
   const body = document.getElementById('mtBody'), D = _mtData, F = D.facets;
-  const f = '<div class="mt-filters" role="search">'
+  const primary = '<div class="mt-filters" role="search">'
     + '<label class="mt-f mt-q"><span>Search</span><input type="search" id="mtf_q" value="' + esc(_mt.q) + '" placeholder="Task, client, number or employee" oninput="mtSearch(this.value)"></label>'
     + mtSel('mtf_employee', 'Employee', F.employees.map(e => [e.id, e.name]), _mt.employee)
+    + mtSel('mtf_status', 'Status', MT_STATUSES.map(s => [s, s]), _mt.status)
+    + mtSel('mtf_risk', 'Risk', MT_RISK, _mt.risk)
+    + '<button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>';
+  const more = '<details class="mt-more" id="mtMore"' + (mtMoreActive() ? ' open' : '') + '><summary>More filters' + (mtMoreActive() ? ' <span class="mt-on">on</span>' : '') + '</summary><div class="mt-filters">'
     + mtSel('mtf_client', 'Client', F.clients.map(c => [c, c]), _mt.client)
     + mtSel('mtf_type', 'Task type', [['client','Client Task'],['admin','Admin Task']].concat(F.types.map(t => [t, t])), _mt.type)
-    + mtSel('mtf_status', 'Status', MT_STATUSES.map(s => [s, s]), _mt.status)
     + mtSel('mtf_waitingOn', 'Waiting on', MT_WAIT, _mt.waitingOn)
     + mtSel('mtf_reviewer', 'Reviewer', F.reviewers.map(r => [r.id, r.name]), _mt.reviewer)
-    + mtSel('mtf_due', 'Internal due', [['overdue','Overdue'],['today','Today'],['week','Next 7 days'],['none','No date']], _mt.due)
-    + mtSel('mtf_commitment', 'Commitment', [['met','Met'],['breached','Breached'],['due_today','Due today'],['at_risk','At risk'],['on_track','On track'],['waiting_client','Waiting on client']], _mt.commitment)
+    + mtSel('mtf_due', 'Internal due date', [['overdue','Overdue'],['today','Today'],['week','Next 7 days'],['none','No date']], _mt.due)
+    + mtSel('mtf_commitment', 'Client commitment', [['met','Met'],['breached','Breached'],['due_today','Due today'],['at_risk','At risk'],['on_track','On track'],['waiting_client','Waiting on client']], _mt.commitment)
     + mtSel('mtf_reportSent', 'Report sent', [['sent_on_time','Sent on time'],['sent_late','Sent late'],['not_sent','Not sent'],['pending','Not yet due']], _mt.reportSent)
     + mtSel('mtf_rework', 'Correction rounds', [['0','None'],['1','1'],['2+','2 or more']], _mt.rework)
-    + mtSel('mtf_sort', 'Sort by', [['newest','Newest first'],['risk','Most at risk'],['internal','Internal due date'],['client','Client date'],['employee','Employee'],['hours','Hours']], _mt.sort).replace('<option value="">All</option>', '')
-    + '<button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>'
+    + mtSel('mtf_sort', 'Sort order', [['newest','Newest first'],['risk','Most at risk'],['internal','Internal due date'],['client','Client date'],['employee','Employee'],['hours','Hours']], _mt.sort).replace('<option value="">All</option>', '')
+    + '</div></details>';
+  const f = primary + more
     + (_mt.ids ? '<div class="mt-banner">Showing the exact tasks behind a count. <button type="button" class="btn small td-act" onclick="mtSet(\'ids\',\'\')">Show everything</button></div>' : '');
   body.innerHTML = f + '<div id="mtResults"></div>';
   mtDrawResults();
@@ -8170,54 +8186,125 @@ async function mtSubmitAction(kind, id){
   try { await api('/api/tasks/' + encodeURIComponent(id) + '/manager-change', { method:'POST', body: JSON.stringify(body) }); closeModal(); showToast('success', 'Saved', 'The change is in the task history.'); await refreshTasks(); if(viewActive('mtasks')) mtLoad(); }
   catch(e){ go.disabled = false; bad(e.message); }
 }
-/* ---------------- Calendar ---------------- */
+/* ---------------- Calendar + Timeline: shared filters ---------------- */
+let _mtCalView = 'month', _mtWeek = null, _mtAgendaN = 30, _mtDayOpen = null, _mtTlPage = 1, _mtTlSize = 25;
+function mtViewQuery(extra){
+  const p = new URLSearchParams();
+  ['employee', 'client', 'reviewer', 'status', 'type', 'risk'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
+  Object.entries(extra || {}).forEach(([k, v]) => { if(v != null && v !== '') p.set(k, v); });
+  const q = p.toString(); return q ? '?' + q : '';
+}
+function mtViewFilters(F, withRisk){
+  const sel = (id, label, opts, val) => '<label class="mt-f"><span>' + label + '</span><select id="mtv_' + id + '" onchange="mtViewSet(\'' + id + '\', this.value)"><option value="">All</option>' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>';
+  return '<div class="mt-filters" role="group" aria-label="Filters">'
+    + sel('employee', 'Employee', F.employees.map(e => [e.id, e.name]), _mt.employee) + sel('client', 'Client', F.clients.map(c => [c, c]), _mt.client)
+    + sel('reviewer', 'Reviewer', F.reviewers.map(r => [r.id, r.name]), _mt.reviewer) + sel('status', 'Status', MT_STATUSES.map(x => [x, x]), _mt.status)
+    + sel('type', 'Task type', [['client', 'Client Task'], ['admin', 'Admin Task']], _mt.type) + (withRisk ? sel('risk', 'Risk', MT_RISK, _mt.risk) : '')
+    + '<button type="button" class="btn small td-act" onclick="mtViewClear()">Clear filters</button></div>';
+}
+function mtViewSet(k, v){ _mt[k] = v; _mtTlPage = 1; _mtDayOpen = null; if(_mt.tab === 'calendar') mtLoadCalendar(); else mtLoadTimeline(); }
+function mtViewClear(){ ['employee', 'client', 'reviewer', 'status', 'type', 'risk'].forEach(k => _mt[k] = ''); _mtTlPage = 1; _mtDayOpen = null; if(_mt.tab === 'calendar') mtLoadCalendar(); else mtLoadTimeline(); }
+/* ---------------- Calendar: Month · Week · Agenda ---------------- */
 async function mtLoadCalendar(){
-  const body = document.getElementById('mtBody'); body.innerHTML = '<div class="td-empty">Loading the calendar…</div>';
-  try { _mtCal = await api('/api/workflow/calendar' + (_mt.employee ? '?employee=' + encodeURIComponent(_mt.employee) : '')); }
+  const body = document.getElementById('mtBody'); if(!_mtCal) body.innerHTML = '<div class="td-empty">Loading the calendar…</div>';
+  try { _mtCal = await api('/api/workflow/calendar' + mtViewQuery({ kinds: _mt.kinds })); }
   catch(e){ body.innerHTML = '<div class="td-empty" role="alert">Could not load the calendar: ' + esc(e.message) + ' <button class="btn small td-act" onclick="mtLoadCalendar()">Retry</button></div>'; return; }
   if(!_mtMonth) _mtMonth = _mtCal.today.slice(0, 7);
+  if(!_mtWeek) _mtWeek = mtMonday(_mtCal.today);
   mtDrawCalendar();
 }
-function mtShiftMonth(n){ const [y, m] = _mtMonth.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); _mtMonth = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); mtDrawCalendar(); }
+function mtMonday(iso){ const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); return d.toISOString().slice(0, 10); }
+function mtAddDays(iso, n){ const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+function mtShiftMonth(n){ const [y, m] = _mtMonth.split('-').map(Number), d = new Date(Date.UTC(y, m - 1 + n, 1)); _mtMonth = d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); _mtDayOpen = null; mtDrawCalendar(); }
+function mtShiftWeek(n){ _mtWeek = mtAddDays(_mtWeek, n * 7); _mtDayOpen = null; mtDrawCalendar(); }
+function mtCalView(v){ _mtCalView = v; _mtDayOpen = null; mtDrawCalendar(); }
+function mtCalKinds(){
+  const k = []; if((document.getElementById('mtk_internal') || {}).checked) k.push('internal'); if((document.getElementById('mtk_client') || {}).checked) k.push('client');
+  _mt.kinds = k.length ? k.join(',') : 'internal,client'; _mtDayOpen = null; mtLoadCalendar();
+}
+function mtEvBtn(e){
+  return '<button type="button" class="cal-ev ' + e.tone + '" onclick="mtOpenDetail(\'' + esc(e.id) + '\')" title="' + esc(e.label + ' — ' + (e.clientName || 'Admin task') + ' — ' + e.name + ' — ' + (e.assigneeName || 'Unassigned')) + '">' + esc((e.kind === 'client' ? '◆ ' : '') + (e.clientName || 'Admin') + ' · ' + e.name) + '</button>';
+}
+function mtDayCell(iso, byDay, today, label){
+  const ev = byDay[iso] || [];
+  return '<div class="cal-cell' + (iso === today ? ' today' : '') + '"><div class="cal-d">' + label + '</div>' + ev.slice(0, 3).map(mtEvBtn).join('')
+    + (ev.length > 3 ? '<button type="button" class="cal-more" aria-label="Show the other ' + (ev.length - 3) + ' on ' + esc(fmtDate(iso)) + '" onclick="mtDay(\'' + iso + '\')">+' + (ev.length - 3) + ' more</button>' : '') + '</div>';
+}
 function mtDrawCalendar(){
-  const body = document.getElementById('mtBody'), C = _mtCal, [y, m] = _mtMonth.split('-').map(Number);
-  const first = new Date(Date.UTC(y, m - 1, 1)), startDow = (first.getUTCDay() + 6) % 7, days = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const byDay = {}; C.events.forEach(e => { if(e.date.slice(0, 7) === _mtMonth) (byDay[e.date] = byDay[e.date] || []).push(e); });
-  let cells = ''; for(let i = 0; i < startDow; i++) cells += '<div class="cal-cell empty"></div>';
-  for(let d = 1; d <= days; d++){
-    const iso = _mtMonth + '-' + String(d).padStart(2, '0'), ev = byDay[iso] || [];
-    cells += '<div class="cal-cell' + (iso === C.today ? ' today' : '') + '"><div class="cal-d">' + d + '</div>'
-      + ev.slice(0, 3).map(e => '<button type="button" class="cal-ev ' + e.tone + '" onclick="mtOpenDetail(\'' + esc(e.id) + '\')" title="' + esc(e.label + ' — ' + (e.clientName || 'Admin') + ' — ' + e.name + ' — ' + (e.assigneeName || 'Unassigned')) + '">' + esc((e.kind === 'client' ? '◆ ' : '') + (e.clientName || e.name)) + '</button>').join('')
-      + (ev.length > 3 ? '<button type="button" class="cal-more" onclick="mtDay(\'' + iso + '\')">+' + (ev.length - 3) + ' more</button>' : '') + '</div>';
+  const body = document.getElementById('mtBody'), C = _mtCal, F = C.facets, today = C.today, ev = C.events;
+  const byDay = {}; ev.forEach(e => (byDay[e.date] = byDay[e.date] || []).push(e));
+  const kinds = String(_mt.kinds || 'internal,client').split(',');
+  const views = [['month', 'Month'], ['week', 'Week'], ['agenda', 'Agenda']].map(([k, l]) => '<button type="button" role="tab" class="' + (_mtCalView === k ? 'on' : '') + '" aria-selected="' + (_mtCalView === k) + '" onclick="mtCalView(\'' + k + '\')">' + l + '</button>').join('');
+  let nav = '', grid = '';
+  if(_mtCalView === 'month'){
+    const [y, m] = _mtMonth.split('-').map(Number), first = new Date(Date.UTC(y, m - 1, 1)), startDow = (first.getUTCDay() + 6) % 7, days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    nav = '<button type="button" class="btn small td-act" onclick="mtShiftMonth(-1)" aria-label="Previous month">←</button><b>' + esc(first.toLocaleDateString('en-NZ', { month:'long', year:'numeric', timeZone:'UTC' })) + '</b><button type="button" class="btn small td-act" onclick="mtShiftMonth(1)" aria-label="Next month">→</button><button type="button" class="btn small td-act" onclick="_mtMonth=null;_mtDayOpen=null;mtLoadCalendar()">This month</button>';
+    let cells = ''; for(let i = 0; i < startDow; i++) cells += '<div class="cal-cell empty"></div>';
+    for(let d = 1; d <= days; d++) cells += mtDayCell(_mtMonth + '-' + String(d).padStart(2, '0'), byDay, today, d);
+    grid = '<div class="cal-grid" role="grid">' + ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => '<div class="cal-h" role="columnheader">' + d + '</div>').join('') + cells + '</div>';
+  } else if(_mtCalView === 'week'){
+    const end = mtAddDays(_mtWeek, 6);
+    nav = '<button type="button" class="btn small td-act" onclick="mtShiftWeek(-1)" aria-label="Previous week">←</button><b>' + esc(fmtDate(_mtWeek)) + ' – ' + esc(fmtDate(end)) + '</b><button type="button" class="btn small td-act" onclick="mtShiftWeek(1)" aria-label="Next week">→</button><button type="button" class="btn small td-act" onclick="_mtWeek=mtMonday(_mtCal.today);_mtDayOpen=null;mtDrawCalendar()">This week</button>';
+    let cells = ''; for(let i = 0; i < 7; i++){ const iso = mtAddDays(_mtWeek, i); cells += mtDayCell(iso, byDay, today, ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i] + ' ' + Number(iso.slice(8))); }
+    grid = '<div class="cal-grid cal-week" role="grid">' + cells + '</div>';
+  } else {
+    const upto = mtAddDays(today, _mtAgendaN), list = ev.filter(e => e.date >= today && e.date <= upto), dates = [...new Set(list.map(e => e.date))];
+    nav = '<b>Next ' + _mtAgendaN + ' days</b>';
+    grid = dates.length ? dates.map(d => '<div class="tm-panel"><h3 style="margin:0 0 6px;">' + esc(fmtDate(d)) + (d === today ? ' · today' : '') + '</h3>' + list.filter(e => e.date === d).map(e => '<div class="tm-attn-row"><div><b>' + esc(e.clientName || 'Admin task') + ' — ' + esc(e.name) + '</b><div class="tm-sub">' + esc(e.label) + ' · ' + esc(e.assigneeName || 'Unassigned') + ' · ' + esc(e.status) + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(e.id) + '\')">Open</button></div>').join('') + '</div>').join('')
+      : '<div class="td-empty">Nothing is due in the next ' + _mtAgendaN + ' days.</div>';
+    grid += '<div style="margin:10px 0;"><button type="button" class="btn small td-act" onclick="_mtAgendaN += 30;mtDrawCalendar()">Show 30 more days</button></div>';
   }
-  const legend = Object.entries(C.legend).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + esc(l) + '</span>').join('');
-  const label = first.toLocaleDateString('en-NZ', { month:'long', year:'numeric', timeZone:'UTC' });
-  body.innerHTML = '<div class="cal-bar"><button type="button" class="btn small td-act" onclick="mtShiftMonth(-1)" aria-label="Previous month">←</button><b>' + esc(label) + '</b><button type="button" class="btn small td-act" onclick="mtShiftMonth(1)" aria-label="Next month">→</button>'
-    + '<button type="button" class="btn small td-act" onclick="_mtMonth=null;mtLoadCalendar()">This month</button></div>'
-    + '<div class="cal-grid" role="grid">' + ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d => '<div class="cal-h" role="columnheader">' + d + '</div>').join('') + cells + '</div>'
-    + '<div class="cal-legend"><span class="cal-key">◆ client commitment</span>' + legend + '</div><div id="calDay"></div>';
+  body.innerHTML = mtViewFilters(F, true)
+    + '<div class="cal-bar" style="flex-wrap:wrap;"><div class="td-seg" role="tablist" aria-label="Calendar view">' + views + '</div>' + nav
+    + '<span style="flex:1;"></span><label class="at-check"><input type="checkbox" id="mtk_internal"' + (kinds.includes('internal') ? ' checked' : '') + ' onchange="mtCalKinds()"> Internal due dates</label>'
+    + '<label class="at-check"><input type="checkbox" id="mtk_client"' + (kinds.includes('client') ? ' checked' : '') + ' onchange="mtCalKinds()"> Client commitment dates</label></div>'
+    + grid + '<div class="cal-legend"><span class="cal-key">◆ client commitment</span>' + Object.entries(C.legend).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + esc(l) + '</span>').join('') + '</div><div id="calDay" aria-live="polite"></div>';
+  if(_mtDayOpen) mtDay(_mtDayOpen, true);
 }
-function mtDay(iso){
-  const ev = (_mtCal.events || []).filter(e => e.date === iso);
-  document.getElementById('calDay').innerHTML = '<div class="tm-panel"><h3>' + esc(fmtDate(iso)) + '</h3>' + ev.map(e => '<div class="tm-attn-row"><div><b>' + esc(e.clientName || 'Admin task') + ' — ' + esc(e.name) + '</b><div class="tm-sub">' + esc(e.label) + ' · ' + esc(e.assigneeName || 'Unassigned') + ' · ' + esc(e.status) + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(e.id) + '\')">Open</button></div>').join('') + '</div>';
+// ONE day drawer: opening another date replaces it; it can be closed (button or Escape).
+function mtDay(iso, keep){
+  _mtDayOpen = iso;
+  const ev = (_mtCal.events || []).filter(e => e.date === iso), box = document.getElementById('calDay'); if(!box) return;
+  box.innerHTML = '<div class="tm-panel" role="region" aria-label="Tasks on ' + esc(fmtDate(iso)) + '"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><h3 style="margin:0;">' + esc(fmtDate(iso)) + ' · ' + ev.length + (ev.length === 1 ? ' item' : ' items') + '</h3><button type="button" class="btn small td-act" onclick="mtDayClose()">Close</button></div>'
+    + ev.map(e => '<div class="tm-attn-row"><div><b>' + esc(e.clientName || 'Admin task') + ' — ' + esc(e.name) + '</b><div class="tm-sub">' + esc(e.label) + ' · ' + esc(e.assigneeName || 'Unassigned') + ' · ' + esc(e.status) + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(e.id) + '\')">Open</button></div>').join('') + '</div>';
+  if(!keep) box.scrollIntoView({ block: 'nearest' });
 }
-/* ---------------- Timeline ---------------- */
+function mtDayClose(){ _mtDayOpen = null; const box = document.getElementById('calDay'); if(box) box.innerHTML = ''; }
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && _mtDayOpen && viewActive('mtasks')){ const ov = document.getElementById('modalOverlay'); if(ov && ov.classList.contains('active')) return; mtDayClose(); } });
+/* ---------------- Timeline: a date scale, one bar per task, today, the due dates and the delayed stretch ---------------- */
 async function mtLoadTimeline(){
-  const body = document.getElementById('mtBody'); body.innerHTML = '<div class="td-empty">Loading the timeline…</div>';
-  try { _mtTl = await api('/api/workflow/timeline' + (_mt.employee ? '?employee=' + encodeURIComponent(_mt.employee) : '')); }
+  const body = document.getElementById('mtBody'); if(!_mtTl) body.innerHTML = '<div class="td-empty">Loading the timeline…</div>';
+  try { _mtTl = await api('/api/workflow/timeline' + mtViewQuery({ page: _mtTlPage, pageSize: _mtTlSize })); }
   catch(e){ body.innerHTML = '<div class="td-empty" role="alert">Could not load the timeline: ' + esc(e.message) + ' <button class="btn small td-act" onclick="mtLoadTimeline()">Retry</button></div>'; return; }
   mtDrawTimeline();
 }
+function mtTlPage(p){ _mtTlPage = p; mtLoadTimeline(); }
+function mtTlSize(n){ _mtTlSize = Number(n); _mtTlPage = 1; mtLoadTimeline(); }
 function mtDrawTimeline(){
-  const body = document.getElementById('mtBody'), R = _mtTl.rows, today = _mtTl.today;
-  if(!R.length){ body.innerHTML = '<div class="td-empty">No open tasks to show.</div>'; return; }
+  const body = document.getElementById('mtBody'), T = _mtTl, R = T.rows, today = T.today, filters = mtViewFilters(T.facets, true);
+  if(!R.length){ body.innerHTML = filters + '<div class="td-empty">No open tasks match these filters.</div>'; return; }
   const ms = s => Date.parse(s + 'T00:00:00Z'), DAY = 86400000;
-  const lo = Math.min(ms(today) - 7 * DAY, ...R.map(r => ms(r.start))), hi = Math.max(ms(today) + 21 * DAY, ...R.map(r => ms(r.end))), span = Math.max(DAY, hi - lo);
+  const lo0 = Math.min(ms(today) - 7 * DAY, ...R.map(r => ms(r.start))), hi = Math.max(ms(today) + 21 * DAY, ...R.map(r => ms(r.end)));
+  const lo = ms(mtMonday(new Date(lo0).toISOString().slice(0, 10))), span = Math.max(DAY, hi - lo);
   const pct = s => ((ms(s) - lo) / span * 100);
-  const rows = R.map(r => { const l = Math.max(0, pct(r.start)), w = Math.max(1.2, pct(r.end) - pct(r.start));
-    return '<div class="tl-row"><button type="button" class="tl-name" onclick="mtOpenDetail(\'' + esc(r.id) + '\')" title="' + esc(r.name) + '">' + esc(r.clientName || 'Admin') + ' — ' + esc(r.name) + '<span class="tm-sub">' + esc(r.assigneeName || 'Unassigned') + ' · ' + esc(r.status) + '</span></button>'
-      + '<div class="tl-track"><i class="tl-bar cal-ev ' + r.tone + '" style="left:' + l + '%;width:' + w + '%;"></i>' + (r.internalDeadline ? '<b class="tl-mark" style="left:' + pct(r.internalDeadline) + '%;" title="Internal due ' + esc(r.internalDeadline) + '"></b>' : '') + '</div></div>'; }).join('');
-  body.innerHTML = '<div class="tm-scroll"><div class="tl" style="--today:' + pct(today) + '%;"><div class="tl-today" aria-hidden="true"></div>' + rows + '</div></div><div class="cal-legend"><span class="cal-key">▮ internal due</span>' + Object.entries({red:'Overdue',amber:'At risk',blue:'In progress',purple:'In review',green:'Approved / completed',grey:'Waiting on an external dependency'}).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + l + '</span>').join('') + '</div>';
+  let ticks = '';
+  for(let t = lo; t <= hi; t += 7 * DAY){ const iso = new Date(t).toISOString().slice(0, 10); ticks += '<span class="tl-tick" style="left:' + ((t - lo) / span * 100) + '%;">' + esc(new Date(t).toLocaleDateString('en-NZ', { day:'numeric', month:'short', timeZone:'UTC' })) + '</span>'; }
+  const rows = R.map(r => {
+    const l = Math.max(0, pct(r.start)), w = Math.max(1.2, pct(r.end) - pct(r.start));
+    const late = r.delayedFrom ? '<i class="tl-late" style="left:' + Math.max(0, pct(r.delayedFrom)) + '%;width:' + Math.max(0.8, pct(today) - Math.max(0, pct(r.delayedFrom))) + '%;" title="Delayed since ' + esc(r.delayedFrom) + '"></i>' : '';
+    return '<div class="tl-row"><button type="button" class="tl-name" onclick="mtOpenDetail(\'' + esc(r.id) + '\')" title="' + esc(r.name) + '">' + esc(r.clientName || 'Admin task') + ' — ' + esc(r.name) + '<span class="tm-sub">Owner ' + esc(r.assigneeName || 'unassigned') + ' · Reviewer ' + esc(r.reviewerName || '—') + ' · ' + esc(r.status) + '</span></button>'
+      + '<div class="tl-track" role="img" aria-label="' + esc(r.name + ': ' + r.status + (r.internalDeadline ? ', internal due ' + r.internalDeadline : '') + (r.clientDate ? ', client date ' + r.clientDate : '') + (r.delayedFrom ? ', delayed since ' + r.delayedFrom : '')) + '">'
+      + '<i class="tl-bar cal-ev ' + r.tone + '" style="left:' + l + '%;width:' + w + '%;"></i>' + late
+      + (r.internalDeadline ? '<b class="tl-mark" style="left:' + pct(r.internalDeadline) + '%;" title="Internal due ' + esc(r.internalDeadline) + '"></b>' : '')
+      + (r.clientDate ? '<b class="tl-mark tl-client" style="left:' + pct(r.clientDate) + '%;" title="Client commitment ' + esc(r.clientDate) + '"></b>' : '') + '</div></div>';
+  }).join('');
+  const pages = Math.max(1, Math.ceil(T.total / T.pageSize));
+  const pager = '<div class="mt-pager"><span>' + ((T.page - 1) * T.pageSize + 1) + '–' + Math.min(T.total, T.page * T.pageSize) + ' of ' + T.total + ' open tasks</span>'
+    + '<span><button type="button" class="btn small td-act" ' + (T.page <= 1 ? 'disabled' : '') + ' onclick="mtTlPage(' + (T.page - 1) + ')">← Previous</button> Page ' + T.page + ' of ' + pages + ' <button type="button" class="btn small td-act" ' + (T.page >= pages ? 'disabled' : '') + ' onclick="mtTlPage(' + (T.page + 1) + ')">Next →</button></span>'
+    + '<label class="mt-f"><span>Per page</span><select onchange="mtTlSize(this.value)">' + [25, 50, 100].map(n => '<option' + (T.pageSize === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label></div>';
+  body.innerHTML = filters + '<div class="tm-scroll"><div class="tl" style="--today:' + pct(today) + ';"><div class="tl-axis" aria-hidden="true"><span class="tl-axis-pad"></span><div class="tl-ticks">' + ticks + '</div></div><div class="tl-today" aria-hidden="true"></div>' + rows + '</div></div>'
+    + '<div class="cal-legend"><span class="cal-key">▮ internal due</span><span class="cal-key"><i class="tl-mark tl-client" style="position:static;display:inline-block;height:12px;margin-right:4px;"></i>client commitment</span><span class="cal-key"><i class="tl-late" style="position:static;display:inline-block;width:18px;height:10px;margin-right:4px;"></i>delayed</span><span class="cal-key">│ today</span>'
+    + Object.entries({red:'Overdue',amber:'At risk',blue:'In progress',purple:'In review',green:'Approved / completed',grey:'Waiting on an external dependency'}).map(([k, l]) => '<span class="cal-key"><i class="cal-ev ' + k + '"></i>' + esc(l) + '</span>').join('') + '</div>' + pager;
 }
 
 async function refreshTasks(){
@@ -8684,8 +8771,11 @@ function openCompleteModal(id){
   const reviewers = eligibleReviewersFor(t.assignedTo).slice().sort((a,b) => a.name.localeCompare(b.name));
   const options = reviewers
   .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-  const picker = reviewers.length
-    ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options}</select></div>`
+  const waitingForReviewer = !!(t.reviewerLater && !t.assignedReviewerId);
+  const picker = waitingForReviewer
+    ? `<div class="modal-error" style="display:block;">This task has no reviewer yet. Ask your manager to assign one — then you can send it for review.</div>`
+    : reviewers.length
+    ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options.replace('value="' + (t.assignedReviewerId || '') + '"', 'value="' + (t.assignedReviewerId || '') + '" selected')}</select></div>`
     : `<div class="modal-error" style="display:block;">There's no one else to review this yet.</div>`;
   // Internal tasks get a Sheet link only — no client, no cashbook to
   // reconcile against.
@@ -8706,7 +8796,7 @@ function openCompleteModal(id){
   <div class="modal-actions" style="flex-wrap:wrap;">
   <button class="btn" onclick="closeModal()">Cancel</button>
   <button class="btn" style="border-color:var(--teal,var(--teal));color:var(--teal);" onclick="doMarkDoneNoReview('${id}')" title="Close it now without a reviewer">Done — no review</button>
-  ${(reviewers.length || (currentViewer()||{}).canDirectProfitConfirm) ? `<button class="btn primary" onclick="submitComplete('${id}')">Send for Review</button>` : ''}
+  ${!waitingForReviewer && (reviewers.length || (currentViewer()||{}).canDirectProfitConfirm) ? `<button class="btn primary" onclick="submitComplete('${id}')">Send for Review</button>` : ''}
   </div>
   `;
   openModal();
@@ -9188,12 +9278,23 @@ function openNewTask(who){
         <div id="atClientErr" style="font-size:12px;color:var(--coral);margin-top:4px;display:none;">Pick a client from the list (or add it first in Clients).</div>
       </div>
     </div>
+    <div class="field" id="atJobTypeWrap" style="display:none;"><label for="atJobType">Job type</label>
+      <select id="atJobType"><option value="">— Choose —</option>${(taxonomyDepartments || []).map(d => '<optgroup label="' + esc(d.name) + '">' + (d.services || []).map(sv => '<option value="' + esc(d.name + '||' + sv) + '">' + esc(sv) + '</option>').join('') + '</optgroup>').join('')}</select></div>
     <div class="at-row2">
       <div class="field"><label id="atTatLabel">Hours <span class="req-mark">*</span></label><input type="number" id="atTat" value="1" min="0.25" step="0.25" onchange="atPlanPreview()"></div>
       <div class="field"><label id="atDeadlineLabel">Due date <span class="req-mark">*</span></label><input type="date" id="atDeadline" value="${addDaysISO(2)}" onchange="atPlanPreview(); atSyncClientDate()"></div>
     </div>
+    <div class="field" id="atClientDateWrap"><label for="atClientDate">Client commitment date <span class="at-hint">auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
+    <div id="atV2Basics" style="display:none;">
+      <div class="field"><label for="atPriority">Priority</label><select id="atPriority"><option value="normal" selected>Normal</option><option value="low">Low</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
+      <div class="field"><label for="atInstructions">Instructions <span class="at-hint">optional — what the person needs to know</span></label><textarea id="atInstructions" rows="3" placeholder="e.g. Use the 2025 workbook; client prefers PDF"></textarea></div>
+    </div>
     <div id="atV2Review" style="display:none;">
-      <div class="field"><label for="atReviewer">Reviewer <span class="at-hint">who checks this before it goes to the client</span></label><select id="atReviewer"></select></div>
+      <div id="atReviewerBlock">
+        <div class="field"><label for="atReviewer">Reviewer <span class="at-hint">who checks this before it goes to the client</span></label><select id="atReviewer"></select></div>
+        <div class="field"><label class="at-check"><input type="checkbox" id="atReviewerLater" onchange="atReviewerLaterToggle()"> <span>Assign the reviewer later</span></label>
+          <div id="atReviewerLaterWhy" style="display:none;margin-top:6px;"><label for="atReviewerLaterReason">Why later? <span class="req-mark">*</span> <span class="at-hint">kept on the record — your manager is alerted before the due date</span></label><textarea id="atReviewerLaterReason" rows="2"></textarea></div></div>
+      </div>
       <div class="field"><label class="at-check"><input type="checkbox" id="atReviewReq" checked onchange="atReviewToggle()"> <span id="atReviewReqLabel">Review required before this goes to the client</span></label>
         <div id="atReviewNote" class="at-note"></div></div>
       <div class="field" id="atNoReviewWhy" style="display:none;"><label for="atNoReviewReason">Why does this client task need no review? <span class="req-mark">*</span> <span class="at-hint">kept on the record</span></label><textarea id="atNoReviewReason" rows="2" placeholder="e.g. Repeat of last month's return, already reviewed by the founder"></textarea></div>
@@ -9207,17 +9308,23 @@ function openNewTask(who){
         <span>Assign anyway — push the task(s) above out to make room.</span>
       </label>
     </div>
+    <div id="atV2Delivery" style="display:none;">
+      <div class="field"><label>Report required</label><div class="rv2-yn"><label><input type="radio" name="atReportReq" value="yes" checked onchange="atDeliveryChanged()"> Yes</label><label><input type="radio" name="atReportReq" value="no" onchange="atDeliveryChanged()"> No</label></div></div>
+      <div id="atDeliveryMore">
+        <div class="field"><label for="atReportSender">Report sender <span class="at-hint">who sends it to the client once it is approved</span></label><select id="atReportSender"></select></div>
+        <div class="field"><label>Profit confirmation required</label><div class="rv2-yn"><label><input type="radio" name="atProfitReq" value="yes"> Yes</label><label><input type="radio" name="atProfitReq" value="no" checked> No</label></div></div>
+      </div>
+    </div>
     <details class="at-more">
-      <summary>More options <span>client date, links, group</span></summary>
+      <summary>Supporting work <span>Google Sheet, Cashbook</span></summary>
       <div id="atV2Links" style="display:none;">
         <div class="field"><label for="atSheet">Google Sheet link <span class="at-hint">optional — you can add it when you submit the work</span></label><input type="url" id="atSheet" placeholder="https://docs.google.com/spreadsheets/…" autocomplete="off" oninput="atLinkCheck(this)"><div class="at-linkmsg" id="atSheetMsg"></div></div>
-        <div class="field"><label for="atCash">Cashbook link <span class="at-hint">optional</span></label><input type="url" id="atCash" placeholder="https://…" autocomplete="off" oninput="atLinkCheck(this)"><div class="at-linkmsg" id="atCashMsg"></div></div>
+        <div class="field" id="atCashWrap"><label for="atCash">Cashbook link <span class="at-hint">optional</span></label><input type="url" id="atCash" placeholder="https://…" autocomplete="off" oninput="atLinkCheck(this)"><div class="at-linkmsg" id="atCashMsg"></div></div>
       </div>
       <div id="atInternalRefWrap" class="field" style="display:none;">
         <label>Client or group <span class="at-hint">optional, e.g. a client name for a payment task, or "Payroll"</span></label>
         <input type="text" id="atInternalRef" list="atClientList" placeholder="e.g. City Cabs Ltd · Payroll · Admin" autocomplete="off">
       </div>
-      <div class="field" id="atClientDateWrap"><label>Client commitment date <span class="at-hint">auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
     </details>
     <div class="modal-error" id="assignError">Please enter a task name.</div>
     <div class="modal-actions" style="align-items:center;">
@@ -9243,7 +9350,9 @@ function atV2On(){ return !!(session && session.dashboardV2); }
 function atV2Setup(){
   if(!atV2On()) return;
   const set = (id, show) => { const el = document.getElementById(id); if(el) el.style.display = show ? '' : 'none'; };
-  set('atV2Links', true); set('atV2Review', true);
+  set('atV2Links', true); set('atV2Review', true); set('atV2Basics', true);
+  set('atJobTypeWrap', (taxonomyDepartments || []).length > 0);
+  atReportSenders();
   document.querySelectorAll('.atKindBtn').forEach(b => { b.textContent = b.dataset.kind === 'client' ? 'Client Task' : 'Admin Task'; });
   atReviewers();
   atReviewKindChanged();
@@ -9256,9 +9365,27 @@ function atReviewers(){
   const mgrs = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && !e.accessDisabled && e.id !== who);
   sel.innerHTML = '<option value="">Choose when the work is submitted</option>' + mgrs.map(e => '<option value="' + esc(e.id) + '"' + (e.id === keep ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('');
 }
+// The person who will send the report: defaults to whoever does the work; anyone active can be named.
+function atReportSenders(){
+  const sel = document.getElementById('atReportSender'); if(!sel) return;
+  const who = (document.getElementById('atAssignee') || {}).value || currentViewerId, keep = sel.value;
+  sel.innerHTML = '<option value="">The person doing the work</option>' + employees.filter(e => canReceiveNewWork(e) && !isSystemAccount(e) && e.id !== who).sort((a, b) => a.name.localeCompare(b.name)).map(e => '<option value="' + esc(e.id) + '"' + (e.id === keep ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('');
+}
+function atDeliveryChanged(){
+  const no = ((document.querySelector('input[name="atReportReq"]:checked') || {}).value) === 'no';
+  const more = document.getElementById('atDeliveryMore'); if(more) more.style.display = no ? 'none' : '';
+}
+function atReviewerLaterToggle(){
+  const on = !!(document.getElementById('atReviewerLater') || {}).checked;
+  const sel = document.getElementById('atReviewer'), why = document.getElementById('atReviewerLaterWhy');
+  if(sel){ sel.disabled = on; if(on) sel.value = ''; }
+  if(why) why.style.display = on ? '' : 'none';
+}
 function atReviewKindChanged(){
   if(!atV2On()) return;
   const internal = _assignKind === 'internal', box = document.getElementById('atReviewReq'); if(!box) return;
+  ['atV2Delivery', 'atCashWrap'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = internal ? 'none' : ''; });
+  const refw = document.getElementById('atInternalRefWrap'); if(refw) refw.style.display = 'none';   // an Admin Task never takes a client name
   const canWaive = isAdmin;
   box.checked = !internal;
   box.disabled = !internal && !canWaive;
@@ -9269,6 +9396,7 @@ function atReviewKindChanged(){
 function atReviewToggle(){
   const box = document.getElementById('atReviewReq'), why = document.getElementById('atNoReviewWhy'); if(!box || !why) return;
   why.style.display = (_assignKind !== 'internal' && !box.checked) ? '' : 'none';
+  const rb = document.getElementById('atReviewerBlock'); if(rb) rb.style.display = box.checked ? '' : 'none';   // no review → no reviewer to name
 }
 function atLinkCheck(input){
   const msg = document.getElementById(input.id + 'Msg'); if(!msg) return;
@@ -9288,6 +9416,7 @@ function atAssigneeChanged(){
   atPlanPreview();
   atSyncClientDate();
   atReviewers();
+  atReportSenders();
 }
 function submitNewTask(){
   const sel = document.getElementById('atAssignee');
@@ -9613,7 +9742,7 @@ function setAssignKind(kind){
     const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
   });
   const iref = document.getElementById('atInternalRefWrap');
-  if(iref) iref.style.display = isInternal ? '' : 'none';
+  if(iref) iref.style.display = (isInternal && !atV2On()) ? '' : 'none';   // the new form never asks an Admin Task for a client name
   const dl = document.getElementById('atDeadlineLabel');
   if(dl) dl.innerHTML = (isInternal ? 'Due date' : 'Manager due date (internal)') + ' <span class="req-mark">*</span>';
   const tl = document.getElementById('atTatLabel');
@@ -9673,9 +9802,29 @@ async function submitAssign(mode){
       if(why.length < 5){ showErr('Say why this client task needs no review — it is kept on the record.'); return; }
       payload.noReviewReason = why;
     }
-    const sh = ((document.getElementById('atSheet') || {}).value || '').trim(), cb = ((document.getElementById('atCash') || {}).value || '').trim();
+    const sh = ((document.getElementById('atSheet') || {}).value || '').trim(), cb = isInternal ? '' : ((document.getElementById('atCash') || {}).value || '').trim();
     if(sh) payload.sheetLink = sh;
     if(cb) payload.cashbookLink = cb;
+    // a review-required task names its reviewer now, or says "later" with a reason
+    if(payload.reviewRequired && !rv){
+      const later = (document.getElementById('atReviewerLater') || {}).checked;
+      const why = ((document.getElementById('atReviewerLaterReason') || {}).value || '').trim();
+      if(!later){ showErr('Choose the reviewer — or tick "Assign the reviewer later" and say why.'); return; }
+      if(why.length < 5){ showErr('Say why the reviewer will be assigned later.'); return; }
+      payload.reviewerLater = true; payload.reviewerLaterReason = why;
+    }
+    payload.priority = (document.getElementById('atPriority') || {}).value || 'normal';
+    const instr = ((document.getElementById('atInstructions') || {}).value || '').trim(); if(instr) payload.instructions = instr;
+    const jt = (document.getElementById('atJobType') || {}).value || '';
+    if(jt && !payload.department){ const [d, sv] = jt.split('||'); payload.department = d; if(sv) payload.service = sv; }
+    if(!isInternal){
+      const rr = (document.querySelector('input[name="atReportReq"]:checked') || {}).value !== 'no';
+      payload.reportRequired = rr;
+      if(rr){
+        const rs = (document.getElementById('atReportSender') || {}).value || ''; if(rs) payload.reportSenderId = rs;
+        payload.profitRequired = ((document.querySelector('input[name="atProfitReq"]:checked') || {}).value) === 'yes';
+      }
+    }
   }
   await submitTaskPayload(payload);
 }
@@ -12341,7 +12490,7 @@ function rv2Pick(d){
   const opts = arr => '<option value="">— Choose —</option>' + arr.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('');
   if(d === 'approve'){
     box.innerHTML = '<h4>C · Approve</h4><div style="font-size:13px;color:var(--text-dim);margin:0 0 8px;">Approving means the work is clean and ready for the next stage. If it is not, choose Return for Correction.</div>'
-      + (isClient ? '<div class="field"><label>Is profit confirmation required?</label>' + yn('rv2Profit', false) + '<div style="font-size:12.5px;color:var(--text-faint);">If yes it goes to ' + esc(pcName(t)) + '; if no it goes to the report sender, ready to send. Approving never marks the report as sent.</div></div>' : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
+      + (isClient && t.reportRequired === false ? '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">This task was set up with no client report, so approving it completes it.</div>' : isClient ? '<div class="field"><label>Is profit confirmation required?</label>' + yn('rv2Profit', !!t.profitRequiredDefault) + '<div style="font-size:12.5px;color:var(--text-faint);">If yes it goes to ' + esc(pcName(t)) + '; if no it goes to the report sender, ready to send. Approving never marks the report as sent.</div></div>' : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
       + note('Reviewer note', false);
     sub.textContent = 'Approve';
   } else if(d === 'return'){

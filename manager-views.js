@@ -47,6 +47,7 @@ function applyFilters(rows, f) {
     if (f.client && r.clientId !== f.client && String(r.clientName || '').toLowerCase() !== String(f.client).toLowerCase()) return false;
     if (f.type) { if (f.type === 'client' ? r.kindLabel !== 'Client Task' : f.type === 'admin' ? r.kindLabel !== 'Admin Task' : r.taskType !== f.type) return false; }
     if (f.status && r.status !== f.status) return false;
+    if (f.risk && (r.clientRisk || {}).state !== f.risk) return false;
     if (f.waitingOn && r.waitingOn.kind !== f.waitingOn) return false;
     if (f.reviewer && r.reviewerId !== f.reviewer) return false;
     if (f.reviewState && r.reviewState !== f.reviewState) return false;
@@ -130,7 +131,13 @@ function exceptions(rows, tasks, deps) {
     if (t.profitConfirmStatus === 'pending' && t.profitConfirmRequestedAt && dayDiff(t.profitConfirmRequestedAt) > PROFIT_OVERDUE_DAYS) add(r, 'profit_overdue', 'Profit confirmation overdue', 'Waiting ' + dayDiff(t.profitConfirmRequestedAt) + ' days');
     if ((t.noReviewAttempts || []).length && ['Assigned', 'In Progress', 'On Hold'].includes(r.status)) add(r, 'no_review_attempt', 'No-review override attempted', (t.noReviewAttempts.length) + ' attempt(s)');
     if (isClient && ['In Review', 'Approved', 'Correction Required'].includes(r.status) && autoMarks.missingLinks(t).length) add(r, 'missing_links', 'Missing ' + autoMarks.missingLinks(t).join(' and '));
-    if (r.lastDateChange && dayDiff(r.lastDateChange.at) <= DATE_CHANGE_WINDOW_DAYS) add(r, 'date_changed', 'Commitment date changed', 'by ' + (r.lastDateChange.by || '—'));
+    // A date change is an exception only while it is recent AND nobody gave a reason — a documented change is history, not a problem.
+    if (r.lastDateChange && !String(r.lastDateChange.note || '').trim() && dayDiff(r.lastDateChange.at) <= DATE_CHANGE_WINDOW_DAYS) add(r, 'date_changed', 'Commitment date changed without a reason', 'by ' + (r.lastDateChange.by || '—'));
+    // Review is required, nobody has been named, and the task was created with "Assign reviewer later".
+    if (t.reviewerLater && !t.assignedReviewerId && !t.reviewerId && t.reviewRequired !== false) add(r, 'missing_reviewer', 'No reviewer assigned', 'Left for later: ' + String(t.reviewerLater.reason || '').slice(0, 80));
+    // Classification that contradicts itself: an Admin Task that carries a client or client links, or client work whose client is "Internal".
+    const nm = String(t.clientName || '').trim().toLowerCase();
+    if ((t.kind === 'internal' && (t.clientId || t.cashbookLink)) || (t.kind !== 'internal' && nm === 'internal')) add(r, 'bad_classification', t.kind === 'internal' ? 'Admin Task that looks like client work' : 'Client Task whose client is "Internal"');
     const badLink = [t.sheetLink, t.cashbookLink].filter(Boolean).find(u => !hostOf(u) || (deps.enforceDomains && !domainAllowed(u, deps.allowedDomains)));
     if (badLink) add(r, 'bad_link', 'Link is invalid or not on an approved site');
   }
@@ -163,7 +170,10 @@ function timelineRows(rows, tasks, deps) {
     const t = tasks[r.id] || {};
     const start = String(t.assignedAt || t.createdAt || r.internalDeadline || deps.today).slice(0, 10);
     const end = [r.internalDeadline, r.clientDate].filter(Boolean).sort().pop() || start;
-    return { id: r.id, name: r.name, clientName: r.clientName, assigneeName: r.assigneeName, status: r.status, start: start > end ? end : start, internalDeadline: r.internalDeadline, clientDate: r.clientDate, end, tone: toneFor(r, r.internalDeadline, deps.today) };
+    // the delayed stretch: from the earliest passed date to today, for work that is overdue and still open
+    const passed = [r.internalDeadline, r.clientDate].filter(d => d && d < deps.today).sort()[0] || null;
+    return { id: r.id, name: r.name, clientName: r.clientName, assigneeName: r.assigneeName, reviewerName: r.reviewerName || null, status: r.status, kindLabel: r.kindLabel, risk: (r.clientRisk || {}).state || null,
+      start: start > end ? end : start, internalDeadline: r.internalDeadline, clientDate: r.clientDate, end, delayedFrom: passed, tone: toneFor(r, r.internalDeadline, deps.today) };
   }).sort((a, b) => a.start.localeCompare(b.start) || String(a.id).localeCompare(String(b.id)));
 }
 

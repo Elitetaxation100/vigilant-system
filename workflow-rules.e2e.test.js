@@ -32,8 +32,11 @@ let SH, PK, RJ, DI, E, client;
 const emp = n => E.find(e => e.email === n + '@elitetaxation.co.nz');
 const day = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
 const T = id => `/api/tasks/${enc(id)}`;
+// Review-required tasks must name a reviewer at creation (or say "assign later", with a reason) — the helper names one unless a test says otherwise.
+const needsReviewer = b => b.taskKind === 'client' && b.reviewRequired !== false && b.reviewerId === undefined && b.reviewerLater === undefined;
 async function create(tok, body) {
-  return http('POST', '/api/tasks', { token: tok, body: { mode: 'team', name: 'Rule task ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), clientDate: day(9), ...body } });
+  const extra = needsReviewer(body) ? { reviewerId: emp('parvinder').id } : {};
+  return http('POST', '/api/tasks', { token: tok, body: { mode: 'team', name: 'Rule task ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), clientDate: day(9), ...extra, ...body } });
 }
 const mine = async (tok, id) => (await http('GET', '/api/tasks', { token: tok })).j.tasks.find(t => t.id === id);
 
@@ -55,7 +58,8 @@ test('Client Task and Admin Task: a client task needs a client; an admin task do
   const a = await create(PK, { taskKind: 'admin', name: 'Filing day', clientDate: undefined });
   assert.equal(a.status, 201, JSON.stringify(a.j));
   assert.equal(a.j.task.kind, 'internal'); assert.equal(a.j.task.reviewRequired, false); assert.equal(a.j.task.clientDate, null);
-  const a2 = await create(PK, { taskKind: 'admin', reviewRequired: true });
+  assert.equal((await create(PK, { taskKind: 'admin', reviewRequired: true })).status, 400, 'an admin task that asks for review must name a reviewer (or say later)');
+  const a2 = await create(PK, { taskKind: 'admin', reviewRequired: true, reviewerId: emp('parvinder').id });
   assert.equal(a2.j.task.reviewRequired, true, 'an admin task can still ask for review');
   assert.equal((await create(PK, { taskKind: 'client', clientId: client.id, reviewerId: emp('ranjit').id })).status, 400, 'reviewer must be a manager');
   assert.equal((await create(PK, { taskKind: 'client', clientId: client.id, reviewerId: 'nobody' })).status, 400);
@@ -108,9 +112,29 @@ test('submitting for review uses the reviewer chosen at creation when none is na
   assert.equal(c.j.task.reviewerId, emp('parvinder').id);
   const td = (await http('GET', '/api/workflow/today', { token: PK })).j;
   assert.ok(td.sections.needs.some(n => n.id === t.id && n.type === 'review'), 'it reaches that reviewer\'s queue');
-  const none = (await create(PK, { taskKind: 'client', clientId: client.id })).j.task;
-  await http('POST', T(none.id) + '/accept', { token: RJ });
-  assert.equal((await http('POST', T(none.id) + '/complete', { token: RJ, body: {} })).status, 400, 'with no reviewer anywhere the employee must still choose');
+});
+
+test('a review-required task must name its reviewer — or say "assign later" with a reason, and then it cannot be submitted until a manager assigns one', async () => {
+  const mk = body => http('POST', '/api/tasks', { token: PK, body: { mode: 'team', name: 'Later ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), taskKind: 'client', clientId: client.id, ...body } });
+  const none = await mk({});
+  assert.equal(none.status, 400); assert.equal(none.j.code, 'REVIEWER_REQUIRED');
+  const noWhy = await mk({ reviewerLater: true });
+  assert.equal(noWhy.status, 400); assert.equal(noWhy.j.code, 'REVIEWER_LATER_REASON');
+  const ok = await mk({ reviewerLater: true, reviewerLaterReason: 'Waiting to see who is free' });
+  assert.equal(ok.status, 201, JSON.stringify(ok.j));
+  const t = ok.j.task;
+  assert.ok(t.reviewerLater && t.reviewerLater.reason);
+  await http('POST', T(t.id) + '/accept', { token: RJ });
+  const blocked = await http('POST', T(t.id) + '/complete', { token: RJ, body: { reviewerId: emp('parvinder').id } });
+  assert.equal(blocked.status, 409); assert.equal(blocked.j.code, 'REVIEWER_MISSING', 'the employee cannot pick a reviewer for it either');
+  const team = (await http('GET', '/api/workflow/team', { token: PK })).j;
+  assert.ok(team.attention.some(a => a.id === t.id && a.type === 'missing_reviewer'), 'it is a manager exception until a reviewer is assigned');
+  const assign = await http('POST', T(t.id) + '/manager-change', { token: PK, body: { action: 'change_reviewer', reviewerId: emp('parvinder').id, reason: 'Parvinder will review' } });
+  assert.equal(assign.status, 200, JSON.stringify(assign.j));
+  const team2 = (await http('GET', '/api/workflow/team', { token: PK })).j;
+  assert.ok(!team2.attention.some(a => a.id === t.id && a.type === 'missing_reviewer'), 'assigned: the exception is gone');
+  const done = await http('POST', T(t.id) + '/complete', { token: RJ, body: { sheetLink: 'https://docs.google.com/spreadsheets/d/1', cashbookLink: 'https://example.com/cb' } });
+  assert.equal(done.status, 200, JSON.stringify(done.j)); assert.equal(done.j.task.reviewerId, emp('parvinder').id);
 });
 
 test('links are real links: bad schemes, embedded passwords and host-less addresses are refused; every change is kept in the link history', async () => {

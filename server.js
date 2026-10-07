@@ -2311,7 +2311,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
 
   // ---- V2 form extras: the reviewer chosen up front, whether review is required, and links typed at creation
   const v2Form = body0.taskKind === 'client' || body0.taskKind === 'admin';
-  let assignedReviewerId = null, reviewRequired = null, noReviewAuth = null;
+  let assignedReviewerId = null, reviewRequired = null, noReviewAuth = null, reviewerLater = null, priority = null, instructions = null, reportRequired = null, reportSenderId = null, profitRequiredDefault = false;
   if (v2Form) {
     if (body0.reviewerId) {
       const rv = findEmployee(state, body0.reviewerId);
@@ -2326,8 +2326,30 @@ app.post('/api/tasks', requireAuth, (req, res) => {
       if (why.length < 5) return res.status(400).json({ error: 'Say why this client task needs no review — it is kept on the record.', code: 'REVIEW_REASON' });
       noReviewAuth = { by: req.employee.id, at: new Date().toISOString(), reason: why };
     }
-    if (reviewRequired && !assignedReviewerId && !isInternal) {
-      /* a reviewer is picked when the work is submitted if none was chosen now */
+    // A task that needs review must name its reviewer now — or say, with a reason, that it will be assigned later. Never silently left blank.
+    if (reviewRequired && !assignedReviewerId) {
+      if (body0.reviewerLater === true) {
+        const why = String(body0.reviewerLaterReason || '').trim();
+        if (why.length < 5) return res.status(400).json({ error: 'Say why the reviewer will be assigned later — it is kept on the record.', code: 'REVIEWER_LATER_REASON' });
+        reviewerLater = { reason: why.slice(0, 500), by: req.employee.id, at: new Date().toISOString() };
+      } else {
+        return res.status(400).json({ error: 'Choose the reviewer — or tick "Assign reviewer later" and give a reason.', code: 'REVIEWER_REQUIRED' });
+      }
+    }
+    const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+    if (body0.priority !== undefined && body0.priority !== null && body0.priority !== '') {
+      if (!PRIORITIES.includes(String(body0.priority))) return res.status(400).json({ error: 'Priority must be low, normal, high or urgent.' });
+      priority = String(body0.priority);
+    }
+    if (body0.instructions !== undefined && body0.instructions !== null) instructions = String(body0.instructions).trim().slice(0, 4000) || null;
+    if (!isInternal) {
+      reportRequired = body0.reportRequired !== false;
+      if (body0.reportSenderId) {
+        const rs = findEmployee(state, body0.reportSenderId);
+        if (!rs || !canReceiveNewWork(rs)) return res.status(400).json({ error: 'The report sender must be an active person.' });
+        reportSenderId = rs.id;
+      }
+      profitRequiredDefault = reportRequired && body0.profitRequired === true;
     }
   }
   const linkSheet = checkLink(state, body0.sheetLink, 'Google Sheet link'), linkCash = checkLink(state, body0.cashbookLink, 'Cashbook link');
@@ -2385,7 +2407,9 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     source: 'manual', sourceRef: null,
   };
   if (v2Form) {
-    task.assignedReviewerId = assignedReviewerId; task.reviewRequired = reviewRequired;
+    task.assignedReviewerId = assignedReviewerId; task.reviewRequired = reviewRequired; task.reviewerLater = reviewerLater;
+    task.priority = priority; task.instructions = instructions;
+    if (!isInternal) { task.reportRequired = reportRequired; task.reportSenderId = reportSenderId; task.profitRequiredDefault = profitRequiredDefault; }
     if (noReviewAuth) { task.noReviewAuthorizedBy = noReviewAuth.by; task.noReviewAuthorizedAt = noReviewAuth.at; task.noReviewAuthorizedReason = noReviewAuth.reason; }
   }
   if (linkSheet.value) task.sheetLink = linkSheet.value;
@@ -2765,7 +2789,11 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'accepted') return res.status(400).json({ error: 'Only an accepted task can be marked complete.' });
   const { sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
-  const reviewerId = (req.body || {}).reviewerId || t.assignedReviewerId || null;   // the reviewer picked when the task was created is the default
+  // A task created with "Assign reviewer later" cannot be submitted until a manager has assigned one.
+  if (t.reviewerLater && !t.assignedReviewerId && (req.body || {}).directProfitConfirm !== true) {
+    return res.status(409).json({ error: 'This task has no reviewer yet — ask your manager to assign one before you submit it.', code: 'REVIEWER_MISSING' });
+  }
+  const reviewerId = (t.reviewerLater ? t.assignedReviewerId : ((req.body || {}).reviewerId || t.assignedReviewerId)) || null;   // the reviewer picked when the task was created is the default
   const direct = directProfitConfirm === true;
   if (direct && !canDirectProfitConfirm(req.employee)) return res.status(403).json({ error: "You can't send a job straight to profit confirmation." });
   if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
@@ -3371,6 +3399,8 @@ app.post('/api/tasks/:id/return-to-processor', requireAuth, (req, res) => {
 });
 // Clean and needs no profit confirmation: the report goes to the processor to send. Shared by /return-to-processor and Approve.
 function applyReturnToProcessor(state, t, actor, processor) {
+  const sender = (t.reportSenderId && findEmployee(state, t.reportSenderId)) || processor;   // the sender chosen when the task was created, else the processor
+  processor = sender;
   t.reportSendOwner = processor.id;
   t.reportReturnedAt = new Date().toISOString();
   t.reportReturnedBy = actor.id;
@@ -3467,10 +3497,14 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
       ev.profitRequired = !!owner;
       t.awaitingClientDecision = isClient;
-      if (isClient) t.reportSendOwner = t.assignedTo;
+      if (isClient) t.reportSendOwner = t.reportSenderId || t.assignedTo;
       logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
       managersOfEmployee(state, t.assignedTo).forEach(m => logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml((assignee || {}).name || '—')}</b> was reviewed clean by <b>${escHtml(me.name)}</b>.`));
-      if (isClient) { if (owner) applyProfitRequest(state, t, me, owner); else applyReturnToProcessor(state, t, me, assignee); }
+      if (isClient && t.reportRequired === false) {
+        // "No report needed" was decided when the task was created — it is closed, not left waiting to be sent.
+        t.awaitingClientDecision = false; t.sentToClient = false; t.sentToClientAt = now; t.sentToClientBy = me.id;
+        t.reportDeliveryStatus = 'sending_not_required'; t.reportDeliveryWaivedReason = 'not_required_at_creation'; t.reportDeliveryWaivedBy = t.assignedBy || me.id; t.reportDeliveryWaivedAt = now;
+      } else if (isClient) { if (owner) applyProfitRequest(state, t, me, owner); else applyReturnToProcessor(state, t, me, assignee); }
     } else if (decision === 'return') {
       t.reviewStatus = 'error'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note;
       t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
@@ -6169,21 +6203,30 @@ app.get('/api/workflow/tasks', requireAuth, requireAdmin, (req, res) => {
     facets: { employees: teamPeople(state, req.employee), clients: facet(r => r.clientName), types: facet(r => r.taskType), reviewers: [...new Map(rows.filter(r => r.reviewerId).map(r => [r.reviewerId, r.reviewerName])).entries()].map(([id, name]) => ({ id, name })) },
   });
 });
+// Filter choices for the Calendar and Timeline — only real options.
+function viewFacets(state, me, rows) {
+  const facet = f => [...new Set(rows.map(f).filter(Boolean))].sort();
+  return { employees: teamPeople(state, me), clients: facet(r => r.clientName), types: facet(r => r.taskType), statuses: facet(r => r.status),
+    reviewers: [...new Map(rows.filter(r => r.reviewerId).map(r => [r.reviewerId, r.reviewerName])).entries()].map(([id, name]) => ({ id, name })) };
+}
 app.get('/api/workflow/calendar', requireAuth, requireAdmin, (req, res) => {
   const state = db.get(), q = req.query || {};
   const { rows, byId, deps } = managerRows(state, req.employee);
-  const open = rows.filter(r => r.status !== 'Completed');
+  const open = mgr.applyFilters(rows.filter(r => r.status !== 'Completed'), { ...q, today: deps.today });
   let ev = mgr.calendarEvents(open, deps);
-  if (q.employee) ev = ev.filter(e => (rows.find(r => r.id === e.id) || {}).assigneeId === q.employee);
+  // which dates to show: both by default; ?kinds=internal or ?kinds=client narrows (follow-ups and corrections always show)
+  if (q.kinds) { const k = new Set(String(q.kinds).split(',').filter(Boolean)); ev = ev.filter(e => k.has(e.kind) || !['internal', 'client'].includes(e.kind)); }
   if (q.from) ev = ev.filter(e => e.date >= String(q.from).slice(0, 10));
   if (q.to) ev = ev.filter(e => e.date <= String(q.to).slice(0, 10));
-  res.json({ today: deps.today, events: ev, legend: mgr.TONE_LABEL });
+  res.json({ today: deps.today, events: ev, legend: mgr.TONE_LABEL, facets: viewFacets(state, req.employee, rows) });
 });
 app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
   const state = db.get(), q = req.query || {};
   const { rows, byId, deps } = managerRows(state, req.employee);
-  const open = rows.filter(r => r.status !== 'Completed' && (!q.employee || r.assigneeId === q.employee));
-  res.json({ today: deps.today, rows: mgr.timelineRows(open, byId, deps).slice(0, 300) });
+  const open = mgr.applyFilters(rows.filter(r => r.status !== 'Completed'), { ...q, today: deps.today });
+  const all = mgr.timelineRows(open, byId, deps);
+  const size = [25, 50, 100].includes(Number(q.pageSize)) ? Number(q.pageSize) : 25, page = Math.max(1, Math.floor(Number(q.page)) || 1);
+  res.json({ today: deps.today, total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size), facets: viewFacets(state, req.employee, rows) });
 });
 
 
@@ -6262,7 +6305,7 @@ app.post('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, r
 // resolved automatically — the notification drops out of the inbox — as soon as the problem is gone. A problem that comes back
 // after being resolved is a new episode and is raised again.
 // ---------------------------------------------------------------------------
-const ALERT_TYPES = new Set(['blocked_long', 'followup_due', 'report_unsent', 'profit_overdue', 'repeated_return', 'no_review_attempt']);
+const ALERT_TYPES = new Set(['blocked_long', 'followup_due', 'report_unsent', 'profit_overdue', 'repeated_return', 'no_review_attempt', 'missing_reviewer']);
 function alertRecipients(state, type, t, exceptId) {
   const to = new Set();
   const founders = state.employees.filter(e => e.accessRole === 'superadmin' && !e.accessDisabled);
@@ -6289,7 +6332,9 @@ function sweepManagerAlerts(state) {
   const deps = workflowDeps(state, me);
   const byId = {}, rows = [];
   for (const t of state.tasks) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, deps), t, deps)); }
-  const found = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs }).filter(a => ALERT_TYPES.has(a.type));
+  // A missing reviewer only alerts once the internal due date is within two working days — before it is, it stays on the exceptions list.
+  const soon = cal.addWorkingDays(deps.today, 2);
+  const found = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs }).filter(a => ALERT_TYPES.has(a.type) && (a.type !== 'missing_reviewer' || ((byId[a.id] || {}).internalDeadline || '9999') <= soon));
   const open = new Set();
   let raised = 0, resolved = 0;
   for (const a of found) {
@@ -6362,8 +6407,9 @@ app.post('/api/tasks/:id/manager-change', requireAuth, requireAdmin, (req, res) 
       if (!rv || !isAdminRole(rv.accessRole)) return res.status(400).json({ error: 'Pick a manager or founder as reviewer.' });
       if (rv.id === t.assignedTo) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
       if (t.status === 'completed' && t.reviewStatus !== 'done' && t.reviewStatus !== 'clean' && t.reviewStatus !== 'error') { /* in review: allowed */ }
-      const from = t.reviewerId || null;
+      const from = t.reviewerId || t.assignedReviewerId || null;
       t.reviewerId = rv.id;
+      if (t.status !== 'completed') { t.assignedReviewerId = rv.id; if (t.reviewerLater) t.reviewerLater = { ...t.reviewerLater, resolvedAt: new Date().toISOString(), resolvedBy: me.id }; }
       notify(state, rv.id, 'review', me.name + ' made you the reviewer of "' + t.name + '" — ' + reason, t.id);
       log('change_reviewer', from, rv.id);
       break;
