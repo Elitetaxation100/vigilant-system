@@ -3710,7 +3710,7 @@ function sweepReportDeadlines(state) {
 // What everyone is told up front (the Mark Complete and review screens quote these numbers).
 app.get('/api/auto-marks/rules', requireAuth, (req, res) => {
   const s = autoMarks.settingsOf(db.get(), todayISO());
-  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, all: s.points.ackAll, halfMax: s.points.ackHalfMax }, reports: { enabled: s.enabled.reports, late: s.points.reportLate }, mailReply: { enabled: s.enabled.mailReply, late: s.points.mailReplyLate } });
+  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, perItem: s.points.ackPerItem }, reports: { enabled: s.enabled.reports, late: s.points.reportLate }, mailReply: { enabled: s.enabled.mailReply, late: s.points.mailReplyLate } });
 });
 app.get('/api/admin/auto-marks', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
@@ -3726,7 +3726,7 @@ app.post('/api/admin/auto-marks/settings', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   const state = db.get();
   const s = autoMarks.updateSettings(state, req.body, todayISO());
-  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}, late reports ${s.enabled.reports ? 'on' : 'off'}, reassigned-mail replies ${s.enabled.mailReply ? 'on' : 'off'}; ack −${s.points.ackAll}/−${s.points.ackHalfMax}, links −${s.points.processorLinks}/−${s.points.reviewerLinks}, late report −${s.points.reportLate}, unreplied reassigned mail −${s.points.mailReplyLate}).`);
+  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}, late reports ${s.enabled.reports ? 'on' : 'off'}, reassigned-mail replies ${s.enabled.mailReply ? 'on' : 'off'}; ack −${s.points.ackPerItem} per call/email, links −${s.points.processorLinks}/−${s.points.reviewerLinks}, late report −${s.points.reportLate}, unreplied reassigned mail −${s.points.mailReplyLate}).`);
   db.save();
   res.json({ settings: s });
 });
