@@ -3481,6 +3481,8 @@ const PERF_TABS = [
   ['analytics', 'Analytics', true],
   ['cards', 'Monthly Cards', false],
 ];
+// GST work needs only the Sheet — a missing Cashbook is never marked (same test as the server's isGstWork)
+const isGstTask = t => !!t && [t.name, t.scope, t.service, t.department, t.taskType].some(v => /\bGST\b/i.test(String(v || '')));
 function renderPerformanceView(){
   const visible = PERF_TABS.filter(([,,gate]) => !gate || (gate === 'manager' ? (isAdmin || isSuperAdmin) : isSuperAdmin));
   if(!visible.some(([id]) => id === _perfTab)) _perfTab = 'report';
@@ -3583,7 +3585,7 @@ async function renderAutoMarksPanel(){
     <div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-top:8px;">
       The system deducts marks by itself. Each one is a normal mark (the person and their manager see it, it counts in the totals) and you can void any of them.<br>
       <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: <b>−${p.ackPerItem} for every call or email not acknowledged</b>. Judged at <b>6:45 pm NZ the same day</b> — when the daily Calls &amp; Email report goes to the admins — on exactly what that report counts; leave, holidays and workshop days are skipped.<br>
-      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). Internal tasks never need links.<br>
+      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). GST work needs only the Sheet — a missing Cashbook is never marked. Internal tasks never need links.<br>
       <b>Reports</b> — a client report not sent to the client by its committed date (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever is sending it, once per task. Only dates after “Starts from” count.<br>
       <b>Reassigned mail</b> — a mail reassigned to someone must be replied to (or marked “no reply needed”) <b>the same working day, before the daily Calls &amp; Email report goes to the admins (6:45 pm NZ)</b>; handed over after that report, or on a day off, it is due before the next working day's report. Otherwise <b>−${p.mailReplyLate}</b> to that person, once per hand-off. Leave days push the deadline on. The mail shows on their dashboard until it is handled.
     </div></details>
@@ -8583,7 +8585,7 @@ function openCompleteModal(id){
   <div class="field"><label>Google Sheet link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(${_autoRules && _autoRules.links && _autoRules.links.enabled && t.kind !== 'internal' ? 'needed' : 'optional'})</span></label>
     <input type="text" id="cmpSheetLink" placeholder="https://docs.google.com/spreadsheets/…" value="${esc(t.sheetLink||'')}"></div>
   ${slotHtml('cmpSheet', t.sheetFiles)}
-  ${t.kind !== 'internal' ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(${_autoRules && _autoRules.links && _autoRules.links.enabled ? 'needed' : 'optional'})</span></label>
+  ${t.kind !== 'internal' ? `<div class="field"><label>Cashbook link <span style="color:var(--text-faint); font-weight:400; text-transform:none; letter-spacing:0;">(${_autoRules && _autoRules.links && _autoRules.links.enabled && !isGstTask(t) ? 'needed' : 'optional'})</span></label>
     <input type="text" id="cmpCashbookLink" placeholder="https://…" value="${esc(t.cashbookLink||'')}"></div>
   ${slotHtml('cmpCash', t.cashbookFiles)}` : ''}`;
   document.getElementById('modalBox').innerHTML = `

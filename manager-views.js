@@ -1,6 +1,7 @@
 // Manager views — the pure rules behind My Team, "Needs Manager Attention", the paginated Tasks list, the Calendar and the
 // Timeline. Everything is DERIVED from tasks and workflow.js cards: nothing here writes, and each rule is easy to test.
 const wf = require('./workflow');
+const autoMarks = require('./auto-marks');
 
 const PAGE_SIZES = [25, 50, 100];
 const HOLD_BLOCKED_DAYS = 5;        // a hold longer than this needs a manager's attention
@@ -126,7 +127,7 @@ function exceptions(rows, tasks, deps) {
     if (r.status === 'Approved' && isClient && r.reportSent === 'not_sent' && t.reviewedAt && dayDiff(t.reviewedAt) >= REPORT_UNSENT_DAYS) add(r, 'report_unsent', 'Client report not sent', 'Approved ' + dayDiff(t.reviewedAt) + ' day(s) ago');
     if (t.profitConfirmStatus === 'pending' && t.profitConfirmRequestedAt && dayDiff(t.profitConfirmRequestedAt) > PROFIT_OVERDUE_DAYS) add(r, 'profit_overdue', 'Profit confirmation overdue', 'Waiting ' + dayDiff(t.profitConfirmRequestedAt) + ' days');
     if ((t.noReviewAttempts || []).length && ['Assigned', 'In Progress', 'On Hold'].includes(r.status)) add(r, 'no_review_attempt', 'No-review override attempted', (t.noReviewAttempts.length) + ' attempt(s)');
-    if (isClient && ['In Review', 'Approved', 'Correction Required'].includes(r.status) && (!r.hasSheet || !r.hasCashbook)) add(r, 'missing_links', 'Missing ' + [!r.hasSheet && 'Sheet', !r.hasCashbook && 'Cashbook'].filter(Boolean).join(' and '));
+    if (isClient && ['In Review', 'Approved', 'Correction Required'].includes(r.status) && autoMarks.missingLinks(t).length) add(r, 'missing_links', 'Missing ' + autoMarks.missingLinks(t).join(' and '));
     if (r.lastDateChange && dayDiff(r.lastDateChange.at) <= DATE_CHANGE_WINDOW_DAYS) add(r, 'date_changed', 'Commitment date changed', 'by ' + (r.lastDateChange.by || '—'));
     const badLink = [t.sheetLink, t.cashbookLink].filter(Boolean).find(u => !hostOf(u) || (deps.enforceDomains && !domainAllowed(u, deps.allowedDomains)));
     if (badLink) add(r, 'bad_link', 'Link is invalid or not on an approved site');

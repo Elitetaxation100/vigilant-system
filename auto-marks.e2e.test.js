@@ -187,3 +187,22 @@ test('ACKNOWLEDGEMENT: preview shows who would lose marks, leave days are skippe
   await http('POST', '/api/admin/auto-marks/run', { token: SA });
   assert.equal((await myMarks(KH)).filter(m => m.auto && m.type === 'auto_ack').length, 1);
 });
+
+test('GST work: a missing Cashbook costs nobody marks (processor or reviewer); a missing Sheet still does; other work is unchanged', async () => {
+  // GST, Sheet attached, no Cashbook → no mark for the processor, and none for the reviewer who passes it on
+  const g1 = await readyTask('GST Return — no cashbook');
+  assert.equal((await complete(g1, { sheetLink: 'https://docs.google.com/spreadsheets/d/gst1' })).status, 200);
+  assert.equal(autoOf(await myMarks(RJ), g1.id).length, 0, 'the processor loses nothing');
+  assert.equal((await review(g1)).status, 200);
+  assert.equal(autoOf(await myMarks(DI), g1.id).length, 0, 'and neither does the reviewer');
+  // GST with the Sheet missing too → only the Sheet is marked: half the processor amount
+  const g2 = await readyTask('GST return — nothing attached');
+  assert.equal((await complete(g2)).status, 200);
+  const m = autoOf(await myMarks(RJ), g2.id, 'auto_links_processor');
+  assert.equal(m.length, 1); assert.equal(m[0].points, -10); assert.match(m[0].reason, /without the Sheet link/); assert.doesNotMatch(m[0].reason, /Cashbook/);
+  // the same missing Cashbook on non-GST work is still marked
+  const o = await readyTask('Annual accounts — no cashbook');
+  await complete(o, { sheetLink: 'https://docs.google.com/spreadsheets/d/x' });
+  const om = autoOf(await myMarks(RJ), o.id, 'auto_links_processor');
+  assert.equal(om.length, 1); assert.equal(om[0].points, -10); assert.match(om[0].reason, /Cashbook link/);
+});
