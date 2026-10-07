@@ -19,6 +19,7 @@ const archive = require('./archive');
 const spaceWatch = require('./space-watch');
 const workflow = require('./workflow');
 const mgr = require('./manager-views');
+const crmHealth = require('./crm-health');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
 const crmSync = require('./crm-sync');
@@ -1650,7 +1651,35 @@ app.get('/api/admin/crm-sync', requireAuth, (req, res) => {
     events: sync.events || [],
     pull: sync.pull || null, autoPull: !!sync.autoPull,
     cutover: crmCutoverStatus(state),
+    // ---- hardening: link health, staleness, the API picture, who owns what (all read-only) ----
+    ownership: crmHealth.OWNERSHIP,
+    health: {
+      employees: crmHealth.employeeHealth(state),
+      customers: crmHealth.customerHealth(state),
+      staleness: crmHealth.staleness(state, Date.now()),
+      secret: { configured: secret, recentRefused24h: crmHealth.authFailures(state, Date.now(), 86400000) },
+      api: { urlConfigured: !!process.env.CRM_API_URL, keyConfigured: apiKey, actions: ['link-task-manager-client', 'get-policy-compliance', 'list-pipeline'] },
+      policy: { lastEventAt: (((sync.counts || {}).policy || {}).lastOk) || null, pendingLinked: emps.filter(e => e.crmUserId && e.policyCompliance && !e.policyCompliance.compliant).length,
+        blockedNow: emps.filter(e => e.accessRole === 'employee' && policyCompliance.isBlocked(e)).length, lastReconcile: (sync.lastReconcile || {}).policy || null },
+      lastReconcile: sync.lastReconcile || {},
+    },
   });
+});
+// One-click CRM connection check — READ-ONLY. It reads our own state, and asks ET-CRM two read actions to see that the
+// key works; it never writes our data, never calls link-task-manager-client (that one writes) and never shows a secret.
+app.post('/api/admin/crm-sync/check', requireAuth, async (req, res) => {
+  if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
+  const state = db.get();
+  const probes = { policy: null, pipeline: null };
+  if (process.env.CRM_API_KEY && (req.body || {}).probeApi !== false) {
+    try {
+      const { probeCrmApi } = require('./connector');
+      const linked = (state.employees || []).find(e => e.crmUserId);
+      if (linked) probes.policy = await probeCrmApi('get-policy-compliance', { crm_user_id: linked.crmUserId });
+      probes.pipeline = await probeCrmApi('list-pipeline', {});
+    } catch (e) { /* a probe that throws is reported as not run */ }
+  }
+  res.json(crmHealth.buildCheck(state, { nowMs: Date.now(), secretConfigured: !!process.env.CRM_WEBHOOK_SECRET, apiUrlConfigured: !!process.env.CRM_API_URL, apiKeyConfigured: !!process.env.CRM_API_KEY, probes }));
 });
 // Customers — preview (changes nothing) or apply. Same rule as the webhook.
 app.post('/api/admin/crm-sync/pull-clients', requireAuth, async (req, res) => {
@@ -1667,7 +1696,10 @@ app.post('/api/admin/crm-sync/reconcile', requireAuth, async (req, res) => {
   if (!['employees', 'customers', 'attendance', 'leave', 'policy'].includes(kind)) return res.status(400).json({ error: 'kind must be employees, customers, attendance, leave or policy.' });
   try {
     const { reconcileCrm } = require('./connector');
-    res.json({ result: await reconcileCrm(kind, { apply: !!(req.body && req.body.apply) }) });
+    const apply = !!(req.body && req.body.apply);
+    const result = await reconcileCrm(kind, { apply });
+    if (apply) { const sync = db.get().crmSync = db.get().crmSync || { events: [], counts: {} }; sync.lastReconcile = { ...(sync.lastReconcile || {}), [kind === 'employees' ? 'user' : kind]: new Date().toISOString() }; sync.lastReconcile.policy = sync.lastReconcile.policy || null; db.save(); }
+    res.json({ result });
   } catch (e) { res.status(500).json({ error: String(e && e.message || e) }); }
 });
 app.post('/api/admin/crm-sync/settings', requireAuth, (req, res) => {
@@ -2695,6 +2727,7 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
   const reviewer = direct ? null : findEmployee(state, reviewerId);
   if (!direct && !reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
+  if (!direct && !canReceiveNewWork(reviewer)) return res.status(400).json({ error: 'That person is no longer active — pick someone else to review.' });
   // You can send your work to anyone for review — just not yourself.
   if (!direct && reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send your own work to yourself for review — pick someone else." });
   const sheetLinkN = checkLink(state, sheetLink, 'Google Sheet link');
@@ -2813,6 +2846,7 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, takeSlotFiles, (req, res
   if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
   const reviewer = direct ? null : findEmployee(state, reviewerId);
   if (!direct && !reviewer) return res.status(400).json({ error: 'Reviewer not found.' });
+  if (!direct && !canReceiveNewWork(reviewer)) return res.status(400).json({ error: 'That person is no longer active — pick someone else to review.' });
   if (!direct && reviewerId === t.assignedTo) return res.status(400).json({ error: "You can't send a task to its own owner for review — pick someone else." });
   const sheetLinkN = checkLink(state, sheetLink, 'Google Sheet link');
   const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
@@ -5104,8 +5138,16 @@ function crmEvidence(state, kind) {
 }
 function crmCutoverStatus(state) {
   const cut = crmCutover(state), s = (state.crmSync && state.crmSync.cutover) || {};
-  const part = (kind, on, at) => { const ev = crmEvidence(state, kind); return { on, at: at || null, events: ev.events, lastOk: ev.lastOk, ready: ev.events > 0 }; };
-  return { attendance: part('attendance', cut.attendance, s.attendanceAt), leave: part('leave', cut.leave, s.leaveAt) };
+  const emps = state.employees || [];
+  const recentErrors = kind => ((state.crmSync || {}).events || []).filter(e => e.kind === kind && ['error', 'invalid', 'conflict', 'unlinked'].includes(e.outcome)).slice(0, 5).map(e => ({ at: e.at, outcome: e.outcome, note: e.note }));
+  const part = (kind, on, at) => {
+    const ev = crmEvidence(state, kind);
+    return { on, at: at || null, events: ev.events, lastOk: ev.lastOk, ready: ev.events > 0 || (kind === 'leave' && !!s.leaveConfirmedNoneAt),
+      linkedEmployees: emps.filter(e => e.crmUserId).length, unlinkedEmployees: emps.filter(e => !e.crmUserId).length, recentErrors: recentErrors(kind) };
+  };
+  const leave = part('leave', cut.leave, s.leaveAt);
+  leave.confirmedNoLeave = !!s.leaveConfirmedNoneAt;
+  return { attendance: part('attendance', cut.attendance, s.attendanceAt), leave };
 }
 // What the browser needs to know to hide the clock / the leave form.
 app.get('/api/crm-mode', requireAuth, (req, res) => {
@@ -5123,7 +5165,13 @@ app.post('/api/admin/crm-sync/cutover', requireAuth, (req, res) => {
   for (const kind of ['attendance', 'leave']) {
     if (typeof b[kind] !== 'boolean') continue;
     if (b[kind] && !crmEvidence(state, kind).events) {
-      return res.status(409).json({ error: `No ${kind} has arrived from ET-CRM yet, so ${labels[kind]} stays here. Switch on once a real ${kind} event has been received.` });
+      // No leave has arrived — fine ONLY if there is genuinely none: a founder must say so, and it is recorded.
+      if (kind === 'leave' && b.confirmNoLeave === true) {
+        sync.cutover.leaveConfirmedNoneAt = now; sync.cutover.leaveConfirmedNoneBy = req.employee.id;
+        logEvent(state, req.employee.id, 'Confirmed there is <b>no current leave</b> in ET-CRM, so leave can be switched on before any leave event has arrived.');
+      } else {
+        return res.status(409).json({ error: `No ${kind} has arrived from ET-CRM yet, so ${labels[kind]} stays here. Switch on once a real ${kind} event has been received` + (kind === 'leave' ? ', or confirm that there is currently no leave in ET-CRM.' : '.'), code: kind === 'leave' ? 'CONFIRM_NO_LEAVE_POSSIBLE' : 'NO_EVIDENCE' });
+      }
     }
     if (!!sync.cutover[kind] === b[kind]) continue;
     sync.cutover[kind] = b[kind];
@@ -6231,6 +6279,14 @@ async function spaceWatchTick() {
   } catch (e) { console.error('[watch] disk check failed:', e && e.message); return null; }
 }
 
+// ET-CRM connection alerts — checked every 15 minutes; only MEANINGFUL problems are raised (repeated refusals, many unlinked
+// users, a link conflict, attendance gone stale while ET-CRM is the source) and each is throttled to once a day.
+async function crmAlertsTick() {
+  try {
+    for (const a of crmHealth.alertCandidates(db.get(), Date.now())) await alertFounders(a.key, '🔌 ' + a.text, 24 * 3600e3);
+  } catch (e) { console.error('[crm] alert check failed:', e && e.message); }
+}
+
 // ---------------------------------------------------------------------------
 // ARCHIVE — calls / emails / WhatsApp older than ARCHIVE_AFTER_DAYS (95) leave the state and live in downloadable monthly files.
 // ---------------------------------------------------------------------------
@@ -6764,7 +6820,7 @@ require('./connector').mountConnector(app);
 // required lazily from there (after this file has fully loaded), same
 // pattern connector.js already uses elsewhere.
 module.exports = {
-  alertFounders, spaceWatchTick, archiveOldRecords, sweepReportDeadlines, resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee, attendanceStatus, announceAutoMark };
+  crmAlertsTick, alertFounders, spaceWatchTick, archiveOldRecords, sweepReportDeadlines, resumeTaskCore, findTask, isAdminRole, canManageEmployee, logEvent, escHtml, notify, findEmployee, attendanceStatus, announceAutoMark };
 
 // ---------------------------------------------------------------------------
 // Static frontend
@@ -6782,6 +6838,7 @@ db.init()
   .then(() => {
     initPush();
     // Keep images out of the state, and tidy files that were uploaded but never attached.
+    const crmAlertTimer = setInterval(() => { crmAlertsTick(); }, 15 * 60 * 1000); if (crmAlertTimer.unref) crmAlertTimer.unref();
     const watchTimer = setInterval(() => { spaceWatchTick(); }, 30 * 60 * 1000); if (watchTimer.unref) watchTimer.unref();
     const watchFirst = setTimeout(() => { spaceWatchTick(); }, 2 * 60 * 1000); if (watchFirst.unref) watchFirst.unref();
     const archTimer = setInterval(() => { archiveOldRecords(); }, 6 * 3600 * 1000); if (archTimer.unref) archTimer.unref();

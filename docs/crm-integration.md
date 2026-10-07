@@ -190,3 +190,25 @@ the same rule as the webhook. *Policy:* re-checks every linked employee with `ge
 
 The panel stores **safe metadata only**: time, entity, event type, CRM id, outcome, a reason and the payload's field *names* —
 never payload values, passwords or the secret.
+
+## Operating the connection (Admin → ET-CRM connection, superadmin)
+
+**Who owns what** is shown on the panel: Employees, Customers, Attendance, Leave and Policy compliance → *ET-CRM*; Tasks → *Task Manager*.
+Nothing here ever sends data back to ET-CRM except the link-back call (`link-task-manager-client`).
+
+* **Run CRM Connection Check** (`POST /api/admin/crm-sync/check`) is **read-only**. It reports Healthy / Needs Attention / Not Configured from:
+  the webhook secret (set or not — never its value), recent refused calls, whether each of the five webhooks has ever delivered,
+  the API address and key, a read-only probe of `get-policy-compliance` and `list-pipeline`, employee and client link counts, the last
+  attendance and leave sync, and that legacy task sync is disabled. `link-task-manager-client` writes, so it is **not** probed — its
+  status comes from real link-backs.
+* **Cut-over guards.** Attendance can only be switched to ET-CRM after a real attendance event has arrived. Leave can be switched on after
+  a real leave event, **or** after a superadmin explicitly confirms there is currently no leave in ET-CRM (recorded with their name).
+  Each switch shows the last sync, linked / unlinked employees and recent problems.
+* **Link health.** Linked / not linked / inactive-linked / conflicts / duplicate work emails. For an unlinked employee a candidate ET-CRM
+  user is offered **only** when exactly one waiting ET-CRM user has the same work email — never by name.
+* **Staleness** is judged by what is expected: attendance is *stale* only while ET-CRM is the source and nothing has arrived for 72 hours;
+  leave is event-driven, so quiet is normal; policy shows the last event and the last reconciliation.
+* **Alerts** (to every founder, in-app + Slack, each at most once a day, none for a single blip): 5+ refused webhook calls in 30 minutes,
+  3+ refused API calls in an hour, 5+ ET-CRM users waiting to be linked, a link-back conflict, stale attendance.
+* **New work** (assignee, reassignment, reviewer, client owner) is only ever offered to people who can receive it — not inactive,
+  terminated, resigned or access-disabled. History keeps their names. The server refuses it too.

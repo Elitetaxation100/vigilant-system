@@ -2626,6 +2626,18 @@ async function crmApi(action, fields) {
   }
   return { ok: true, result: r.json };
 }
+// Read-only probe for the one-click check. Only READ actions are allowed here; anything else is refused.
+const PROBE_ACTIONS = new Set(['get-policy-compliance', 'list-pipeline']);
+async function probeCrmApi(action, fields) {
+  if (!PROBE_ACTIONS.has(action)) return { ok: false, error: 'not a read-only action' };
+  const r = await crmApi(action, fields || {});
+  if (r.ok) return { ok: true };
+  const msg = String(r.error || 'no answer');
+  if (/401|unauthori[sz]ed|invalid api key/i.test(msg)) return { ok: false, error: 'ET-CRM refused the API key (401). Check CRM_API_KEY.' };
+  if (/403|forbidden|scope/i.test(msg)) return { ok: false, error: 'The API key lacks permission for ' + action + ' (403) — add that scope.' };
+  if (/unknown action|not supported|invalid action/i.test(msg)) return { ok: false, error: 'ET-CRM does not offer ' + action + ' yet.' };
+  return { ok: false, error: 'Could not reach ET-CRM: ' + msg.slice(0, 120) };
+}
 let _reminderDryRun = false; // toggled by /webhooks/run-reminders?dry=1
 async function dm(slackUserId, text, blocks) {
   if (!slackUserId) return { ok: false };
@@ -3466,6 +3478,6 @@ module.exports = {
   mountConnector, relayWaToSlack, prettyWaText, callStatsForSlackId, allCallsReport,
   awardKudos, recommendKudos, resolveKudosRecommendation, canAwardKudosTo, kudosManagerEmailFor, KUDOS_LEVELS,
   emailStatsForEmployee, allEmailsReport, pollGmailMailbox, pollAllGmailMailboxes,
-  runAutoMarks, previewAutoMarksDay, recoverCalls, callCardPreview, directionTag, healMissedCalls, setAlertSink, slackDm: dm, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
+  runAutoMarks, previewAutoMarksDay, probeCrmApi, recoverCalls, callCardPreview, directionTag, healMissedCalls, setAlertSink, slackDm: dm, pullCrmClients, reconcileCrm, doLinkBack, cleanVoicemails, reclassifyThumbs, agentRouting, awardPoints, reactToPoints, deleteKudos, deletePoints,
   callsEmailsDigestData, callsEmailsStats, callsEmailsDetail, formatCallsEmailsDigestText, formatCallsEmailsDigestHtml, runCallsEmailsDigest,
 };
