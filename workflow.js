@@ -59,7 +59,7 @@ function waitingOn(t, st, deps) {
   }
   if (st === 'In Review') return mk('reviewer', t.reviewerId, 'Waiting on reviewer');
   if (st === 'Approved') {
-    if (t.profitConfirmStatus === 'pending') return mk('profit', deps.profitOwnerId, 'Waiting on profit confirmation');
+    if (t.profitConfirmStatus === 'pending') return mk('profit', deps.profitOwnerOf ? deps.profitOwnerOf(t) : deps.profitOwnerId, 'Waiting on profit confirmation');
     return mk('ready_to_send', t.reportSendOwner || t.assignedTo, 'Ready to send');
   }
   if (!t.assignedTo) return mk('manager', null, 'Waiting on manager');
@@ -146,7 +146,7 @@ function card(t, deps) {
   const risk = clientRisk(t, st, deps.today);
   return {
     id: t.id, name: t.name, kind: t.kind, kindLabel: taskKindLabel(t),
-    clientId: t.clientId || null, clientName: t.clientName || null, taskType: t.scope && t.scope !== '—' ? t.scope : null,
+    clientId: t.clientId || null, clientName: (t.clientName && String(t.clientName).trim().toLowerCase() !== 'internal') ? t.clientName : null, taskType: t.scope && t.scope !== '—' ? t.scope : null,
     status: st, subState: subState(t, st), waitingOn: w,
     commitment: commitmentTag(t, st, deps.today, deps), clientRisk: risk,
     clientDate: t.clientDate || null, internalDeadline: t.internalDeadline || null, daysRemaining: risk.days,
@@ -201,7 +201,7 @@ function buildToday(tasks, me, deps) {
     }
   }
   for (const t of open) if (cards[t.id].escalation && cards[t.id].escalation.toId === me.id) add(t, 'escalation', 'A decision is requested from you', t.escalation.at);
-  for (const t of open) if (t.profitConfirmStatus === 'pending' && me.id === deps.profitOwnerId) add(t, 'profit_confirm', 'Profit confirmation needs you', t.profitConfirmRequestedAt);
+  for (const t of open) if (t.profitConfirmStatus === 'pending' && me.id === (deps.profitOwnerOf ? deps.profitOwnerOf(t) : deps.profitOwnerId)) add(t, 'profit_confirm', 'Profit confirmation needs you', t.profitConfirmRequestedAt);
   for (const t of open) if (cards[t.id].status === 'Approved' && t.awaitingClientDecision && t.reportSendOwner === me.id) add(t, 'send_report', 'Report ready for you to send', t.reviewedAt);
   for (const t of open) if ((t.status === 'window_proposed' || t.status === 'pending_approval') && deps.canApprove(t)) add(t, 'decision', t.status === 'window_proposed' ? 'A new date needs your decision' : 'An assignment needs your approval', t.assignedAt);
   for (const t of open) {

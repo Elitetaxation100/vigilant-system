@@ -179,6 +179,7 @@ if (!JWT_SECRET) {
 function publicEmployee(e, viewerIsAdmin) {
   const { passwordHash, crmUserId, crmUserIdHistory, ...rest } = e;
   if (viewerIsAdmin) { rest.crmUserId = crmUserId; rest.crmUserIdHistory = crmUserIdHistory; }
+  rest.isProfitConfirmer = isProfitConfirmer(db.get(), e);
   rest.canDirectProfitConfirm = canDirectProfitConfirm(e);
   return rest;
 }
@@ -228,6 +229,11 @@ function managersOfEmployee(state, empId) {
 }
 // Inactive employees remain in state forever so historical tasks, reviews and
 // audit trails keep their original identity. They must not receive new work.
+// Placeholder / test / generic accounts are not people: never an escalation recipient, never counted in capacity or Productivity.
+function isSystemAccount(emp) {
+  const n = String((emp && emp.name) || '').trim().toLowerCase(), em = String((emp && emp.email) || '').toLowerCase();
+  return !!(emp && (emp.isSystem || emp.isTest || n === 'admin' || n === 'test user' || /^test(\b|[._-])/i.test(n) || /^(admin|test|noreply|no-reply)@/.test(em)));
+}
 function canReceiveNewWork(emp) {
   return !!emp && !emp.accessDisabled && emp.crmActive !== false
     && !['inactive', 'terminated', 'resigned'].includes(String(emp.employmentStatus || '').toLowerCase());
@@ -345,10 +351,10 @@ function canDirectProfitConfirm(emp) {
 // Shubam. Returns an error message, or null when it was routed. Call AFTER
 // the task's links have been saved onto it.
 function startDirectProfitConfirm(state, t, actor) {
-  if (t.kind === 'internal' && !hasClient(t)) return 'Internal tasks have no client, so there is nothing to profit-confirm.';
+  if (t.kind === 'internal' && !hasClient(t)) return 'Admin Tasks have no client, so there is nothing to profit-confirm.';
   if (!hasSheetOrCashbook(t)) return 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.';
-  const owner = profitConfirmOwner(state);
-  if (!owner) return 'Profit confirmation is not set up — Shubam Sharma was not found.';
+  const owner = profitConfirmOwner(state, t);
+  if (!owner) return 'Profit confirmation is not set up — nobody is configured to confirm profit.';
   const now = new Date().toISOString();
   if (t.kind === 'internal') {
     t.kind = 'client';
@@ -359,15 +365,39 @@ function startDirectProfitConfirm(state, t, actor) {
   t.reviewedBy = null; t.reviewedAt = now;
   t.reviewNote = 'Sent directly for profit confirmation — separate review skipped.';
   t.awaitingClientDecision = false;
-  t.profitConfirmStatus = 'pending'; t.profitConfirmRequestedAt = now; t.profitConfirmRequestedBy = actor.id;
+  t.profitConfirmStatus = 'pending'; t.profitConfirmRequestedAt = now; t.profitConfirmRequestedBy = actor.id; t.profitConfirmerAssignedId = owner.id;
   t.profitConfirmAt = null; t.profitConfirmBy = null;
   logEvent(state, owner.id, `<b>${escHtml(actor.name)}</b> sent "${escHtml(t.name)}" for profit confirmation (no separate review).`);
   if (t.assignedTo && t.assignedTo !== actor.id) logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent to <b>${escHtml(owner.name)}</b> for profit confirmation.`);
   notify(state, owner.id, 'profit_confirm', `${actor.name} sent "${t.name}" for profit confirmation.`, t.id);
   return null;
 }
-function profitConfirmOwner(state) {
-  return (state.employees || []).find(e => (e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+// Who confirms profit for a task. Nothing is hard-coded to one person any more: a task-specific override wins, then the team's
+// confirmer, then the company default, then (only if none is configured) the original legacy default. If the chosen person can
+// no longer receive work, the configured backup steps in. Settings live in workflowSettings.profitConfirmers:
+//   { default: employeeId, teams: { "<team name>": employeeId }, backup: employeeId }
+function profitConfirmerInfo(state, t) {
+  const cfg = workflowSettings(state).profitConfirmers || {};
+  const live = id => id ? (state.employees || []).find(e => e.id === id && canReceiveNewWork(e)) : null;
+  const legacy = (state.employees || []).find(e => (e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+  let owner = null, source = null;
+  if (t && t.profitConfirmStatus === 'pending' && live(t.profitConfirmerAssignedId)) { owner = live(t.profitConfirmerAssignedId); source = 'assigned'; }   // a request already sent stays with the person it was sent to
+  else if (t && live(t.profitConfirmerId)) { owner = live(t.profitConfirmerId); source = 'task'; }
+  else if (t && t.team && live((cfg.teams || {})[t.team])) { owner = live(cfg.teams[t.team]); source = 'team'; }
+  else if (live(cfg.default)) { owner = live(cfg.default); source = 'default'; }
+  else if (legacy && canReceiveNewWork(legacy)) { owner = legacy; source = 'legacy'; }
+  if (!owner && live(cfg.backup)) { owner = live(cfg.backup); source = 'backup'; }
+  return { owner: owner || null, source, backupId: live(cfg.backup) ? cfg.backup : null };
+}
+function profitConfirmOwner(state, t) { return profitConfirmerInfo(state, t).owner; }
+// Everyone who is the profit confirmer for SOME task — the default, any team's, and the backup. Drives who sees the confirmation queue.
+function isProfitConfirmer(state, emp) {
+  if (!emp) return false;
+  const cfg = workflowSettings(state).profitConfirmers || {};
+  const ids = new Set([cfg.default, cfg.backup, ...Object.values(cfg.teams || {})].filter(Boolean));
+  const legacy = (state.employees || []).find(e => (e.email || '').toLowerCase() === PROFIT_CONFIRM_EMAIL);
+  if (!cfg.default && legacy) ids.add(legacy.id);
+  return ids.has(emp.id);
 }
 
 // ---------------------------------------------------------------------------
@@ -1986,7 +2016,7 @@ function canSeeTaskFiles(state, me, t) {
   if (t.assignedTo === me.id || t.reviewedBy === me.id || t.reviewerId === me.id || t.reportSendOwner === me.id) return true;
   if (t.escalation && t.escalation.toId === me.id) return true;
   if (me.accessRole === 'superadmin') return true;
-  const po = profitConfirmOwner(state); // Shubam needs the files to confirm profit
+  const po = profitConfirmOwner(state, t); // the profit confirmer needs the files to confirm profit
   if (po && po.id === me.id && t.profitConfirmStatus) return true;
   return isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo);
 }
@@ -2738,8 +2768,8 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
   if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
   if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
-  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
-  if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Admin Tasks have no client, so there is nothing to profit-confirm.' });
+  if (direct && !profitConfirmOwner(state, t)) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.' });
   }
@@ -2856,8 +2886,8 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, takeSlotFiles, (req, res
   const cashbookLinkN = checkLink(state, cashbookLink, 'Cashbook link');
   if (!sheetLinkN.ok) return res.status(400).json({ error: sheetLinkN.error });
   if (!cashbookLinkN.ok) return res.status(400).json({ error: cashbookLinkN.error });
-  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Internal tasks have no client, so there is nothing to profit-confirm.' });
-  if (direct && !profitConfirmOwner(state)) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  if (direct && t.kind === 'internal' && !hasClient(t)) return res.status(400).json({ error: 'Admin Tasks have no client, so there is nothing to profit-confirm.' });
+  if (direct && !profitConfirmOwner(state, t)) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.' });
   }
@@ -3226,14 +3256,15 @@ app.post('/api/tasks/:id/profit-confirm', requireAuth, (req, res) => {
   if (!hasSheetOrCashbook(t)) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file (from Send for Review), before requesting profit confirmation.' });
   }
-  const owner = profitConfirmOwner(state);
-  if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+  const owner = profitConfirmOwner(state, t);
+  if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
   applyProfitRequest(state, t, req.employee, owner);
   db.save();
   res.json({ task: taskForClient(t) });
 });
 // Clean, and profit confirmation is required: it goes to Shubam. Shared by /profit-confirm and Approve.
 function applyProfitRequest(state, t, actor, owner) {
+  t.profitConfirmerAssignedId = owner.id;
   t.profitConfirmStatus = 'pending';
   t.profitConfirmRequestedAt = new Date().toISOString();
   t.profitConfirmRequestedBy = actor.id;
@@ -3250,10 +3281,11 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!t) return res.status(404).json({ error: 'Task not found.' });
-  const owner = profitConfirmOwner(state);
-  const isBackup = req.employee.accessRole === 'superadmin' && t.profitConfirmRequestedBy !== req.employee.id; // backup for Shubam — never for your own request
+  const owner = profitConfirmOwner(state, t);
+  const info = profitConfirmerInfo(state, t);
+  const isBackup = (req.employee.accessRole === 'superadmin' || req.employee.id === info.backupId) && t.profitConfirmRequestedBy !== req.employee.id; // backup for the confirmer — never for your own request
   const allowed = (owner && req.employee.id === owner.id) || isBackup;
-  if (!allowed) return res.status(403).json({ error: 'Only Shubam Sharma can confirm this.' });
+  if (!allowed) return res.status(403).json({ error: 'Only ' + (owner ? owner.name : 'the profit confirmer') + ' can confirm this.' });
   if (t.profitConfirmStatus !== 'pending') return res.status(400).json({ error: 'This task has no pending profit confirmation.' });
   t.profitConfirmStatus = 'confirmed';
   t.profitConfirmAt = new Date().toISOString();
@@ -3279,8 +3311,8 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
 app.get('/api/profit-confirmations/stats', requireAuth, (req, res) => {
   const state = db.get();
   const owner = profitConfirmOwner(state);
-  const isOwner = !!owner && req.employee.id === owner.id;
-  if (req.employee.accessRole !== 'superadmin' && !isOwner) return res.status(403).json({ error: 'Only a founder, or Shubam, can see this.' });
+  const isOwner = isProfitConfirmer(state, req.employee);
+  if (req.employee.accessRole !== 'superadmin' && !isOwner) return res.status(403).json({ error: 'Only a founder, or a profit confirmer, can see this.' });
   const today = todayISO();
   const d0 = new Date(today + 'T00:00:00Z');
   const weekStart = new Date(d0.getTime() - ((d0.getUTCDay() + 6) % 7) * 86400000).toISOString().slice(0, 10); // Monday
@@ -3389,8 +3421,8 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       if (b.clean === false) return res.status(400).json({ error: 'If the work is not clean and ready, use Return for Correction.' });
       if (b.profitRequired === true && isClient) {
         if (!hasSheetOrCashbook(t)) return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before asking for profit confirmation.' });
-        owner = profitConfirmOwner(state);
-        if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — Shubam Sharma was not found.' });
+        owner = profitConfirmOwner(state, t);
+        if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
       }
       if (isClient && b.profitRequired !== true && !assignee) return res.status(400).json({ error: 'The processor for this task no longer exists.' });
     } else if (decision === 'return') {
@@ -3403,7 +3435,7 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       const reason = String(b.reason || '').trim();
       if (reason.length < 3) return res.status(400).json({ error: 'Give the reason for escalating.' });
       to = findEmployee(state, b.assignTo);
-      if (!to || !isAdminRole(to.accessRole) || !canReceiveNewWork(to)) return res.status(400).json({ error: 'Choose an active manager or founder to decide.' });
+      if (!to || !isAdminRole(to.accessRole) || !canReceiveNewWork(to) || isSystemAccount(to)) return res.status(400).json({ error: 'Choose an active manager or founder to decide.' });
       if (to.id === me.id) return res.status(400).json({ error: 'Escalate to someone other than yourself.' });
       if (!validDay(b.decisionDate)) return res.status(400).json({ error: 'Choose the date a decision is needed by (today or later).' });
     }
@@ -4426,7 +4458,7 @@ function floorAtGoLive(fromISO, toISO) {
 // breakdown, credited hours, and why (or why not).
 function productivityTaskRow(t, result) {
   return {
-    id: t.id, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+    id: t.id, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
     kind: t.kind, status: t.status,
     allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
     internalDeadline: t.internalDeadline, completedAt: t.completedAt,
@@ -4450,7 +4482,7 @@ function productivityTaskRow(t, result) {
 function productivityOpenRow(state, t) {
   const responsible = findEmployee(state, t.assignedTo);
   return {
-    id: t.id, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+    id: t.id, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
     allocatedHours: Number(t.tat) || 0, status: t.status,
     internalDeadline: t.internalDeadline, clientDate: t.clientDate,
     holdReason: t.holdReason || null, responsibleName: responsible ? responsible.name : '—',
@@ -4505,7 +4537,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
         // 2 October must still land in September's numbers.
         if (!inRange(c.creditDate || c.closedAt)) return;
         qualified.push({
-          id: t.id + ':close:' + c.period, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Internal' : '—'),
+          id: t.id + ':close:' + c.period, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
           kind: t.kind, status: t.status,
           allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
           internalDeadline: t.internalDeadline, completedAt: null,
@@ -6026,7 +6058,7 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
   }
   const payload = workflow.buildToday(scoped, me, {
     attentionIds, reviewSlaHours: Number((workflowSettings(state) || {}).reviewSlaHours) || undefined,
-    today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
+    today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
   });
@@ -6041,7 +6073,7 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
 function workflowDeps(state, me, extra) {
   const po = profitConfirmOwner(state);
   return {
-    today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
+    today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
     reportInfo: reportSentFor, ...(extra || {}),
@@ -6102,6 +6134,58 @@ app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
   res.json({ today: deps.today, rows: mgr.timelineRows(open, byId, deps).slice(0, 300) });
 });
 
+
+// ---------------------------------------------------------------------------
+// PROFIT CONFIRMERS — who confirms profit: a company default, optional team confirmers, a backup, and an optional per-task override.
+// Everyone can read who the confirmer is (the approval form shows the name); only a superadmin changes it, and every change is audited.
+// ---------------------------------------------------------------------------
+const pcPerson = (state, id) => { const e = id ? findEmployee(state, id) : null; return e ? { id: e.id, name: e.name } : null; };
+function profitConfirmersView(state) {
+  const cfg = workflowSettings(state).profitConfirmers || {};
+  const info = profitConfirmerInfo(state, null);
+  return {
+    default: pcPerson(state, cfg.default), effectiveDefault: info.owner ? { id: info.owner.id, name: info.owner.name, source: info.source } : null,
+    teams: Object.entries(cfg.teams || {}).map(([team, id]) => ({ team, ...(pcPerson(state, id) || { id, name: null }) })),
+    backup: pcPerson(state, cfg.backup),
+  };
+}
+app.get('/api/workflow/profit-confirmers', requireAuth, (req, res) => res.json(profitConfirmersView(db.get())));
+app.post('/api/admin/profit-confirmers', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get(), b = req.body || {};
+  const ok = id => id && (state.employees || []).some(e => e.id === id && canReceiveNewWork(e) && isAdminRole(e.accessRole));
+  const next = { default: b.default || null, backup: b.backup || null, teams: {} };
+  if (next.default && !ok(next.default)) return res.status(400).json({ error: 'The default confirmer must be an active manager or founder.' });
+  if (next.backup && !ok(next.backup)) return res.status(400).json({ error: 'The backup confirmer must be an active manager or founder.' });
+  if (next.default && next.backup && next.default === next.backup) return res.status(400).json({ error: 'The backup must be a different person from the default.' });
+  for (const [team, id] of Object.entries(b.teams || {})) {
+    if (!id) continue;
+    if (!ok(id)) return res.status(400).json({ error: 'The confirmer for ' + team + ' must be an active manager or founder.' });
+    next.teams[String(team).slice(0, 80)] = id;
+  }
+  state.workflowSettings = state.workflowSettings || {};
+  const before = state.workflowSettings.profitConfirmers || null;
+  state.workflowSettings.profitConfirmers = next;
+  state.settingsAudit = state.settingsAudit || [];
+  state.settingsAudit.push({ at: new Date().toISOString(), by: req.employee.id, key: 'profitConfirmers', from: before, to: next });
+  logEvent(state, req.employee.id, 'Changed who confirms profit (default ' + ((pcPerson(state, next.default) || {}).name || 'unchanged legacy') + ', backup ' + ((pcPerson(state, next.backup) || {}).name || 'none') + ').');
+  db.save();
+  res.json(profitConfirmersView(state));
+});
+// A per-task override: a manager/superadmin names who confirms profit for THIS task (audited on the task).
+app.post('/api/tasks/:id/profit-confirmer', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  if (t.profitConfirmStatus === 'pending' || t.profitConfirmStatus === 'confirmed') return res.status(409).json({ error: 'Profit confirmation has already started on this task.' });
+  const id = (req.body || {}).confirmerId || null;
+  if (id && !(state.employees || []).some(e => e.id === id && canReceiveNewWork(e) && isAdminRole(e.accessRole))) return res.status(400).json({ error: 'Choose an active manager or founder.' });
+  const was = t.profitConfirmerId || null;
+  t.profitConfirmerId = id;
+  t.profitConfirmerHistory = [...(t.profitConfirmerHistory || []), { at: new Date().toISOString(), by: req.employee.id, from: was, to: id }];
+  logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}": profit confirmer set to <b>${escHtml((pcPerson(state, id) || { name: 'the default confirmer' }).name)}</b> by <b>${escHtml(req.employee.name)}</b>.`);
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+
 app.get('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, res) => {
   const ws = workflowSettings(db.get());
   res.json({ settings: { linkDomainsEnforced: !!ws.linkDomainsEnforced, linkDomains: ws.linkDomains || mgr.clientLinkDomains }, defaultDomains: mgr.clientLinkDomains });
@@ -6134,7 +6218,7 @@ function alertRecipients(state, type, t, exceptId) {
   if (t.assignedBy) { const a = findEmployee(state, t.assignedBy); if (a && isAdminRole(a.accessRole)) to.add(a.id); }
   if (type === 'followup_due' && t.assignedTo) to.add(t.assignedTo);
   if (type === 'report_unsent') { to.add(t.reportSendOwner || t.assignedTo); }
-  if (type === 'profit_overdue') { const po = profitConfirmOwner(state); if (po) to.add(po.id); founders.forEach(f => to.add(f.id)); }
+  if (type === 'profit_overdue') { const po = profitConfirmOwner(state, t); if (po) to.add(po.id); founders.forEach(f => to.add(f.id)); }
   if (!t.assignedTo) founders.forEach(f => to.add(f.id));
   to.delete(exceptId); to.delete(null); to.delete(undefined);
   return [...to];
