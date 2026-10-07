@@ -232,3 +232,16 @@ test('settings: defaults, validation, and activeFrom stays put', () => {
   assert.equal(s.autoMarks.settings.points.ackPerItem, 10, 'a non-number is ignored');
   assert.equal(s.autoMarks.settings.activeFrom, '2026-10-12', 'an invalid date is ignored');
 });
+
+test('GST work needs only the Sheet — a missing Cashbook is never marked, a missing Sheet still is', () => {
+  assert.equal(am.isGstWork({ name: 'GST Return' }), true);
+  assert.equal(am.isGstWork({ name: 'GST return — September' }), true);
+  assert.equal(am.isGstWork({ name: 'Annual accounts', service: 'GST' }), true, 'by service');
+  assert.equal(am.isGstWork({ name: 'Rideshare', service: 'Rideshare GST' }), true);
+  assert.equal(am.isGstWork({ name: 'Annual Financial Statements' }), false);
+  assert.equal(am.isGstWork({ name: 'GSTR notes' }), false, 'a whole word only');
+  assert.deepEqual(am.missingLinks({ name: 'GST Return', sheetLink: 'https://x' }), [], 'no Cashbook, no problem');
+  assert.deepEqual(am.missingLinks({ name: 'GST Return' }), ['Sheet'], 'but the Sheet is still needed');
+  assert.deepEqual(am.missingLinks({ name: 'Annual accounts', sheetLink: 'https://x' }), ['Cashbook'], 'other work is unchanged');
+  assert.equal(am.linkMarks(am.missingLinks({ name: 'GST Return' }), 20), 10, 'a GST task missing only its Sheet is the half amount');
+});

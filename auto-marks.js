@@ -19,6 +19,7 @@
 //     per hand-off. Leave days push the deadline on.
 //  2. LINKS — a CLIENT task needs both a Google Sheet and a Cashbook link
 //     (internal tasks never do).
+//       (GST work needs only the Sheet — a missing Cashbook is never marked)
 //       the processor sends it for review without them          → −20 (−10 if one is missing)
 //       the reviewer passes it on (returns it to send, or sends for profit
 //       confirmation, or marks it sent) while they are still missing → −30 (−15 if one)
@@ -67,10 +68,13 @@ function ackDeduction(total, notAck, pts) {
 // Only client work that goes through review needs links; internal tasks and the
 // call / Slack follow-ups that skip review never do.
 const linksRequired = t => !!t && t.kind === 'client' && !['call', 'slack_message'].includes(t.source || '');
+// GST work (a GST return, the "GST" service, a GST department task…) does NOT need a Cashbook — only the Sheet. So a missing Cashbook
+// on GST work never costs anyone marks, and never shows as a missing link.
+const isGstWork = t => !!t && [t.name, t.scope, t.service, t.department, t.taskType].some(v => /\bGST\b/i.test(String(v || '')));
 function missingLinks(t) {
   const out = [];
   if (!(t && (String(t.sheetLink || '').trim() || (t.sheetFiles || []).length))) out.push('Sheet');
-  if (!(t && (String(t.cashbookLink || '').trim() || (t.cashbookFiles || []).length))) out.push('Cashbook');
+  if (!isGstWork(t) && !(t && (String(t.cashbookLink || '').trim() || (t.cashbookFiles || []).length))) out.push('Cashbook');
   return out;
 }
 const linkMarks = (missing, full) => Math.round((full * missing.length) / 2); // both missing = full, one = half
@@ -208,6 +212,6 @@ function runDays(state, deps) {
 }
 
 module.exports = {
-  DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, linkMarks, reportIsLate, reassignedMailDeadline, reassignedMailIsDue, evaluateReassignedMail, digestCutoffMinutes, cutoffLabel,
+  DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, isGstWork, linkMarks, reportIsLate, reassignedMailDeadline, reassignedMailIsDue, evaluateReassignedMail, digestCutoffMinutes, cutoffLabel,
   createAutoMark, evaluateAckDay, runDays, addDays, dayLabel,
 };
