@@ -6033,16 +6033,19 @@ function workflowDeps(state, me, extra) {
   };
 }
 // Every task in the manager's world, as enriched cards. Only managers/founders reach this (requireAdmin).
+// My Team, the manager Tasks list and the measures show the manager's OWN team. Only the founder (or a firm-wide observer) sees everyone —
+// a superadmin who is not the founder (e.g. Parvinder) is scoped to the team(s) he belongs to, like any other manager.
+const firmWide = me => !!(me.isFounder || me.dashObserver);
 function managerRows(state, me) {
   const deps = workflowDeps(state, me);
   const roster = new Set(teamRoster(state, me).map(e => e.id)); roster.add(me.id);
-  const tasks = visibleTasks(state, me).filter(t => me.accessRole === 'superadmin' || me.dashObserver || !t.assignedTo || roster.has(t.assignedTo) || t.reviewerId === me.id || t.reportSendOwner === me.id || t.assignedBy === me.id);
+  const tasks = visibleTasks(state, me).filter(t => firmWide(me) || !t.assignedTo || roster.has(t.assignedTo) || t.reviewerId === me.id || t.reportSendOwner === me.id || t.assignedBy === me.id);
   const byId = {}, rows = [];
   for (const t of tasks) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, deps), t, deps)); }
   return { rows, byId, deps };
 }
 function teamPeople(state, me) {
-  const list = me.accessRole === 'superadmin' ? state.employees.filter(canReceiveNewWork) : teamRoster(state, me).filter(canReceiveNewWork);
+  const list = firmWide(me) ? state.employees.filter(canReceiveNewWork) : teamRoster(state, me).filter(canReceiveNewWork);
   return list.filter(e => e.id !== me.id).map(e => ({ id: e.id, name: e.name }));
 }
 app.get('/api/workflow/team', requireAuth, requireAdmin, (req, res) => {
@@ -6162,7 +6165,7 @@ app.get('/api/workflow/measures', requireAuth, requireAdmin, (req, res) => {
   const state = db.get(), me = req.employee;
   const deps = workflowDeps(state, me, { commitmentOutcome });
   const roster = new Set(teamRoster(state, me).map(e => e.id));
-  const tasks = visibleTasks(state, me).filter(t => me.accessRole === 'superadmin' || me.dashObserver || (t.assignedTo && roster.has(t.assignedTo)));
+  const tasks = visibleTasks(state, me).filter(t => firmWide(me) || (t.assignedTo && roster.has(t.assignedTo)));
   res.json(mgr.measures(tasks, deps, req.query.days));
 });
 

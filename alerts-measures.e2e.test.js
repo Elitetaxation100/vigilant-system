@@ -104,10 +104,10 @@ test('a task returned twice is flagged to managers', async () => {
 });
 
 test('the measures are separate: client date, the employee\'s own date, report sending, corrections and reviewer turnaround each stand alone', async () => {
-  const before = (await http('GET', '/api/workflow/measures?days=30', { token: PK })).j;
+  const before = (await http('GET', '/api/workflow/measures?days=30', { token: SH })).j;
   for (let i = 0; i < 3; i++) assert.equal(await finish((await create({})).j.task, 'clean'), 200);
   assert.equal(await finish((await create({})).j.task, 'error'), 200);
-  const m = (await http('GET', '/api/workflow/measures?days=30', { token: PK })).j;
+  const m = (await http('GET', '/api/workflow/measures?days=30', { token: SH })).j;
   const d = (a, b) => a - b;
   assert.equal(m.days, 30); assert.equal(m.to, day(0));
   assert.equal(d(m.firm.clientCommitment.met, before.firm.clientCommitment.met), 3, 'the three that were finished were submitted before the client date (the returned one is still being corrected)');
@@ -124,15 +124,15 @@ test('the measures are separate: client date, the employee\'s own date, report s
 });
 
 test('measures: the window is clamped, a manager sees only their team, an employee is refused, and reading changes nothing', async () => {
-  assert.equal((await http('GET', '/api/workflow/measures?days=9999', { token: PK })).j.days, 365);
-  assert.equal((await http('GET', '/api/workflow/measures?days=-5', { token: PK })).j.days, 1);
-  assert.equal((await http('GET', '/api/workflow/measures', { token: PK })).j.days, 30);
+  assert.equal((await http('GET', '/api/workflow/measures?days=9999', { token: SH })).j.days, 365);
+  assert.equal((await http('GET', '/api/workflow/measures?days=-5', { token: SH })).j.days, 1);
+  assert.equal((await http('GET', '/api/workflow/measures', { token: SH })).j.days, 30);
   assert.equal((await http('GET', '/api/workflow/measures', { token: RJ })).status, 403);
   assert.equal((await http('GET', '/api/workflow/measures')).status, 401);
-  const all = (await http('GET', '/api/workflow/measures', { token: PK })).j, mine = (await http('GET', '/api/workflow/measures', { token: DI })).j;
+  const all = (await http('GET', '/api/workflow/measures', { token: SH })).j, mine = (await http('GET', '/api/workflow/measures', { token: DI })).j;
   assert.ok(mine.firm.corrections.reviewed <= all.firm.corrections.reviewed);
   const snap = JSON.stringify((await http('GET', '/api/tasks', { token: SH })).j.tasks);
-  await http('GET', '/api/workflow/measures?days=7', { token: PK });
+  await http('GET', '/api/workflow/measures?days=7', { token: SH });
   assert.equal(JSON.stringify((await http('GET', '/api/tasks', { token: SH })).j.tasks), snap);
 });
 
@@ -140,8 +140,8 @@ test('the team page shows the follow-up exception, and measures never reach Toda
   const t = (await create({})).j.task;
   await http('POST', T(t.id) + '/accept', { token: RJ });
   await http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'THIRD_PARTY', detail: 'IRD reply pending', responsibility: 'third_party', followUpDate: day(0) } });
-  const team = (await http('GET', '/api/workflow/team', { token: PK })).j;
+  const team = (await http('GET', '/api/workflow/team', { token: SH })).j;
   assert.ok(team.attention.some(a => a.id === t.id && a.type === 'followup_due'));
-  const td = (await http('GET', '/api/workflow/today', { token: PK })).j;
+  const td = (await http('GET', '/api/workflow/today', { token: SH })).j;
   assert.ok(!('measures' in td) && !('firm' in td));
 });
