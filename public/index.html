@@ -8022,9 +8022,10 @@ function tdDetailHtml(id, given){
       + grp('Work', fact('Task type', esc(c.taskType || c.kindLabel)), fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), waitFact, fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : 'None'))
       + grp('Links', sheet, cash);
   }
-  body += facts
-    + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
-    + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '');
+  // Attachments and the latest note come first — they are what the reviewer reads before the details
+  body += ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
+    + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '')
+    + facts;
   const prim = given ? '' : tdPrimary(id);
   // Work assigned to ME: every action that belongs to it — accept, start, mark done, send for review, hold / client query, resume, dates
   const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
