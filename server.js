@@ -6016,7 +6016,16 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
     return !finished || todayTouched(t, today);
   });
   const po = profitConfirmOwner(state);
+  // Manager exceptions for the Manager view's "Needs Manager Attention" tile — the same rule the Manager attention page uses.
+  let attentionIds = [];
+  if (isAdminRole(me.accessRole)) {
+    const wdeps = workflowDeps(state, me), byId = {}, rows = [];
+    for (const t of scoped) { byId[t.id] = t; rows.push(mgr.enrich(workflow.card(t, wdeps), t, wdeps)); }
+    const ws = workflowSettings(state);
+    attentionIds = [...new Set(mgr.exceptions(rows, byId, { today, nowMs, enforceDomains: !!ws.linkDomainsEnforced, allowedDomains: ws.linkDomains }).map(a => a.id))];
+  }
   const payload = workflow.buildToday(scoped, me, {
+    attentionIds, reviewSlaHours: Number((workflowSettings(state) || {}).reviewSlaHours) || undefined,
     today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null,
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),

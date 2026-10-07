@@ -194,6 +194,15 @@ body.v2-dash .clock-card{ display:none !important; }
 .td-counts{ display:grid; grid-template-columns:repeat(6,minmax(120px,1fr)); gap:10px; margin-bottom:14px; }
 .td-count{ text-align:left; padding:12px 14px; min-height:64px; border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); cursor:pointer; font:inherit; color:inherit; }
 .td-count .n{ font-size:26px; font-weight:700; line-height:1.1; display:block; } .td-count .l{ font-size:12.5px; color:var(--text-dim); }
+.pg-search{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 12px; }
+.pg-search .pg-lab{ position:absolute; left:-9999px; }
+.pg-search input{ width:100%; max-width:380px; min-height:44px; padding:8px 12px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel); color:inherit; font:inherit; }
+.pg-search input:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
+.pg-search .pg-count{ font-size:12.5px; color:var(--text-dim); }
+.td-count .sc{ display:block; font-size:11px; color:var(--text-faint); margin-top:2px; }
+.td-search{ width:100%; max-width:420px; min-height:44px; padding:8px 12px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel); color:inherit; font:inherit; }
+.td-acc-h{ display:flex; justify-content:space-between; gap:8px; width:100%; padding:12px 14px; min-height:44px; border:0; border-top:1px solid var(--panel-border); background:transparent; color:var(--text-dim); font:inherit; font-weight:700; font-size:12.5px; letter-spacing:.05em; text-transform:uppercase; cursor:pointer; text-align:left; }
+.td-acc-h:hover{ background:var(--panel-2); } .td-acc-h:focus-visible, .td-search:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
 .td-count.on{ outline:2px solid var(--purple); } .td-count.hot .n{ color:var(--coral); }
 .td-grid{ display:grid; grid-template-columns:minmax(300px,430px) 1fr; gap:14px; align-items:start; }
 .td-list{ border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); max-height:calc(100vh - 250px); overflow:auto; }
@@ -4615,6 +4624,28 @@ document.addEventListener('DOMContentLoaded', () => {
   if(sb) sb.addEventListener('click', e => { if(e.target.closest('.nav-item, .admin-btn, .btn-punch')) closeMobileNav(); });
   document.addEventListener('keydown', e => { if(e.key === 'Escape') closeMobileNav(); });
 });
+// Search on every list page. Pages that already have their own search keep it; every other page that shows rows gets this one:
+// it hides the rows that do not contain the words typed, says how many matched, and keeps working when the page redraws itself.
+const PAGE_SEARCH_VIEWS = ['teamboard', 'attendance', 'timeoff', 'performance', 'kudos', 'employees', 'taxonomy', 'assignments', 'team'];
+function applyPageSearch(view){
+  const inp = view.querySelector('.pg-search input'); if(!inp) return;
+  const q = inp.value.trim().toLowerCase(), rows = view.querySelectorAll('tbody tr, #employeeGrid > *, #toList > *, #kudosRecList > *, #taxDeptList > *, .td-card');
+  let shown = 0;
+  rows.forEach(r => { const hit = !q || r.textContent.toLowerCase().includes(q); r.style.display = hit ? '' : 'none'; if(hit) shown++; });
+  const st = view.querySelector('.pg-search .pg-count'), msg = q ? (shown + ' of ' + rows.length + ' shown') : ''; if(st && st.textContent !== msg) st.textContent = msg;
+}
+function installPageSearch(id){
+  if(!PAGE_SEARCH_VIEWS.includes(id)) return;
+  const view = document.getElementById('view-' + id); if(!view) return;
+  if(!view.querySelector('.pg-search')){
+    const box = document.createElement('div'); box.className = 'pg-search';
+    box.innerHTML = '<label for="pgs_' + id + '" class="pg-lab">Search this page</label><input id="pgs_' + id + '" type="search" placeholder="Search…" autocomplete="off"><span class="pg-count" role="status" aria-live="polite"></span>';
+    view.insertBefore(box, view.firstChild);
+    box.querySelector('input').addEventListener('input', () => applyPageSearch(view));
+    new MutationObserver(ms => { if(ms.some(m => !box.contains(m.target))) applyPageSearch(view); }).observe(view, { childList: true, subtree: true });   // re-apply after the page redraws
+  }
+  applyPageSearch(view);
+}
 function showView(id, el, classic){
   closeMobileNav();
   mtMenuClose();
@@ -4636,6 +4667,7 @@ function showView(id, el, classic){
   if(id === 'whatsapp' && !isSuperAdmin && !(currentViewer() || {}).whatsappAccess){ id = 'dashboard'; el = document.querySelector('.nav-item[data-view="dashboard"]'); }
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById('view-' + id).classList.add('active');
+  installPageSearch(id);
   document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
   if(el) el.classList.add('active');
   document.getElementById('pageTitle').textContent = titles[id][0];
@@ -5331,10 +5363,7 @@ function renderTeamBoard(){
     </tr>`;
   }).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-faint);padding:26px;">No members on this team yet.</td></tr>';
 
-  const sorted = teamTasks.slice().sort((a,b) => {
-    const ad = a.internalDeadline || '9999', bd = b.internalDeadline || '9999';
-    return ad < bd ? -1 : ad > bd ? 1 : 0;
-  });
+  const sorted = teamTasks.slice().sort(taskNewest);
   document.getElementById('tbTasksBody').innerHTML = sorted.length ? sorted.map(t => {
     const a = empById(t.assignedTo);
     const canEdit = canEditTaskTiming(t);
@@ -6463,7 +6492,7 @@ function renderTaskTable(){
     if(due && !dueBucketMatches(t, due)) return false;
     const hay = (t.name + ' ' + t.scope + ' ' + (t.clientName||'') + ' ' + (empById(t.assignedTo)?.name||'') + ' ' + t.id).toLowerCase();
     return hay.includes(q);
-  }).sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
+  }).sort(taskNewest);
   if(rows.length === 0){
     body.innerHTML = `<tr><td colspan="6" style="text-align:center; color:var(--text-faint); padding:26px;">No tasks match this view.</td></tr>`;
   } else {
@@ -7010,7 +7039,7 @@ function dashPersonRows(personId, from, to, status){
   // contains whatever any other status shows.
   const inRange = mine.filter(t => taskInRange(t, from, to));
   const rows = inRange.filter(t => status === 'overdue' ? isOverdueNow(t) : (status === '_all' || dashCat(t) === status))
-    .sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+    .sort(taskNewest);
   const groups = {};
   rows.forEach(t => { (groups[dashCat(t)] = groups[dashCat(t)] || []).push(t); });
   return { rows, groups, overdueNow: inRange.filter(isOverdueNow).length };
@@ -7269,7 +7298,7 @@ function renderMyDay(){
   const needsResponse = mineOpen.filter(t => ['awaiting_acceptance','rework','window_proposed'].includes(t.status));
   const actionable = mineOpen
     .filter(t => t !== running && !held.includes(t) && !needsResponse.includes(t))
-    .sort((a,b) => (a.internalDeadline || '9999-99-99').localeCompare(b.internalDeadline || '9999-99-99'));
+    .sort(taskNewest);
 
   const metaBlock = t => {
     const isInternal = t.kind === 'internal';
@@ -7583,7 +7612,7 @@ function renderNeedsAttention(){
   const today = todayISO();
   const overdue = mgTasks().filter(t => t.internalDeadline && t.internalDeadline < today && t.status !== 'completed')
     .slice()
-    .sort((a,b) => a.internalDeadline.localeCompare(b.internalDeadline));
+    .sort(taskNewest);
   if(overdue.length === 0){ wrap.innerHTML = '<div style="font-size:14.5px; color:var(--text-faint);">Nothing overdue right now.</div>'; return; }
   // The three most overdue, not the whole list — this panel sits right on
   // the dashboard; the same data in full is one click away via the
@@ -7668,9 +7697,10 @@ function renderReassignedMail(){
    Left: a compact list. Right: the selected task in full — progress tracker, facts, files, timeline — without leaving the page.
    Every number is derived by the server (workflow.js) from the same tasks, on the company clock.
    ========================================================================= */
-let _today = null, _tdMode = 'today', _tdFilter = null, _tdSel = null, _tdShowAllDone = false;
-const TD_COUNTS = [['review', 'Needs your review'], ['risk', 'Client delivery at risk'], ['decision', 'Waiting for your decision'], ['reports', 'Reports not sent'], ['overdue', 'Team overdue'], ['completed', 'Completed today']];
-const TD_EMPTY = { review: 'No reviews are waiting for you.', risk: 'No client deadlines are currently at risk.', decision: 'Nothing is waiting for your decision.', reports: 'All reports due today have been sent.', overdue: 'No team tasks are overdue.', completed: 'Nothing completed yet today.' };
+const TD_MODES = [['today', 'Today'], ['manager', 'Manager View'], ['review', 'Review View']];
+function tdLoadMode(){ try { const m = localStorage.getItem('tdMode'); return TD_MODES.some(x => x[0] === m) ? m : 'today'; } catch(e){ return 'today'; } }
+// ONE view is on screen at a time and each view owns its own tile, expanded section, selected task and search — switching clears them all.
+let _today = null, _tdMode = tdLoadMode(), _tdTile = null, _tdOpen = null, _tdSel = null, _tdQuery = '';
 function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
   document.body.classList.toggle('v2-dash', on);
@@ -7705,71 +7735,100 @@ function tdCardHtml(id, note){
     + '<div class="t2">' + (note ? '<b>' + esc(note) + '</b><br>' : '') + esc(c.status) + (c.subState ? ' · ' + esc(c.subState) : '') + (c.taskType ? ' · ' + esc(c.taskType) : '') + (when ? ' · ' + esc(when) : '') + esc(wait)
     + '<br>' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + ' → ' + esc(c.nextAction) + '</div></button>';
 }
-// The sections for the chosen mode. A task appears ONCE per screen: the first section that claims it keeps it.
+// ---- search: matches client, task, people, status, type and task number. Tiles and lists both honour it, so a tile's number is always the length of the list it opens.
+function tdMatch(id){
+  const q = _tdQuery.trim().toLowerCase(); if(!q) return true;
+  const c = _today.cards[id]; if(!c) return false;
+  return [c.clientName, c.name, c.assigneeName, c.reviewerName, c.status, c.subState, c.taskType, c.kindLabel, c.id, c.nextAction].filter(Boolean).join(' ').toLowerCase().includes(q);
+}
+function tdModeData(){ return _today.modes[_tdMode]; }
+// What the list shows. A tile list is exactly that tile's ids. With no tile selected: one primary section + secondary sections of which only ONE is open.
+// A task appears once per screen (the first section that claims it keeps it) — the same rule the header counts use.
 function tdSections(){
-  const T = _today, seen = new Set(), out = [];
-  const take = (ids, noteFor) => ids.filter(id => T.cards[id] && !seen.has(id)).map(id => { seen.add(id); return { id, note: noteFor ? noteFor(id) : '' }; });
-  const sec = (title, items, empty) => out.push({ title, items, empty });
-  const why = id => (T.sections.needs.find(n => n.id === id) || {}).why || '';
-  const needs = T.sections.needs, rvNeeds = needs.filter(n => n.type === 'review' || n.type === 'correction_resubmitted');
-  const waitGroups = T.sections.waiting;
-  if(_tdFilter){
-    const lab = TD_COUNTS.find(x => x[0] === _tdFilter)[1];
-    sec(lab, take(T.filters[_tdFilter], why), TD_EMPTY[_tdFilter]);
-    return out;
+  const M = tdModeData();
+  if(_tdTile){
+    const tile = M.tiles.find(x => x.key === _tdTile);
+    return { tile, primary: { key: tile.key, title: tile.label, ids: tile.ids.filter(tdMatch), empty: tile.empty }, secondary: [], note: '' };
   }
-  if(_tdMode === 'review'){
-    const urgent = rvNeeds.filter(n => ['overdue', 'due_today', 'at_risk'].includes(T.cards[n.id].clientRisk.state)).map(n => n.id);
-    sec('Urgent — client deadline overdue or at risk', take(urgent, why), 'No client deadlines are currently at risk.');
-    sec('Corrections resubmitted', take(rvNeeds.filter(n => n.type === 'correction_resubmitted').map(n => n.id), why), 'No corrections have come back.');
-    sec('New submissions', take(rvNeeds.map(n => n.id), why), 'No reviews are waiting for you.');
-    const corr = Object.values(T.cards).filter(c => c.status === 'Correction Required').map(c => c.id);
-    sec('Waiting on employee correction', take(corr), 'No corrections are waiting on employees.');
-    sec('Completed reviews', take(T.sections.completed.filter(d => /approved|Returned/.test(d.action)).map(d => d.id), id => (T.sections.completed.find(d => d.id === id) || {}).action), 'No reviews completed yet today.');
-    return out;
-  }
-  if(_tdMode === 'manager'){
-    sec('Client delivery at risk', take(T.filters.risk, why), TD_EMPTY.risk);
-    sec('Team overdue', take(T.filters.overdue), TD_EMPTY.overdue);
-    sec('Waiting for your decision', take(T.filters.decision, why), TD_EMPTY.decision);
-    sec('Reports not sent', take(T.filters.reports), TD_EMPTY.reports);
-    waitGroups.forEach(g => sec('Waiting on ' + g.label.toLowerCase(), take(g.ids), ''));
-    return out.filter(x => x.items.length || x.empty);
-  }
-  sec('Needs your action now', take(needs.map(n => n.id), why), 'Nothing requires your action right now.');
-  waitGroups.forEach(g => sec('Waiting on others — ' + g.label.toLowerCase(), take(g.ids), ''));
-  const done = take(T.sections.completed.map(d => d.id), id => (T.sections.completed.find(d => d.id === id) || {}).action);
-  sec('Completed today', _tdShowAllDone ? done : done.slice(0, 5), 'Nothing completed yet today.');
-  if(done.length > 5 && !_tdShowAllDone) out[out.length - 1].more = done.length - 5;
-  return out.filter((x, i, a) => x.items.length || i === 0 || x.empty);
+  const seen = new Set();
+  const claim = ids => ids.filter(tdMatch).filter(id => !seen.has(id) && seen.add(id));
+  const primary = Object.assign({}, M.default.primary, { ids: claim(M.default.primary.ids) });
+  const secondary = M.default.secondary.map(x => Object.assign({}, x, { ids: claim(x.ids) })).filter(x => x.ids.length);
+  return { tile: null, primary, secondary, note: M.default.note || '' };
+}
+function tdListHtml(){
+  const S = tdSections();
+  const head = (title, n) => '<div class="td-sec"><span>' + esc(title) + '</span><span>' + n + '</span></div>';
+  const cards = (ids, noteFor) => ids.map(id => tdCardHtml(id, noteFor ? noteFor(id) : '')).join('');
+  const why = id => (_today.sections.needs.find(n => n.id === id) || {}).why || '';
+  const done = id => (_today.sections.completed.find(d => d.id === id) || {}).action || '';
+  const noteFor = x => (x.key === 'needs_now' || x.key === 'urgent' || x.key === 'risk') ? why : (x.key === 'done_today' || x.key === 'done') ? done : null;
+  let out = head(S.primary.title, S.primary.ids.length) + (S.primary.ids.length ? cards(S.primary.ids, noteFor(S.primary)) : '<div class="td-empty">' + esc(_tdQuery.trim() ? 'Nothing here matches your search.' : S.primary.empty) + '</div>');
+  if(S.note) out += '<div class="td-empty" role="note">' + esc(S.note) + '</div>';
+  out += S.secondary.map(x => {
+    const open = _tdOpen === x.key;
+    return '<div class="td-acc"><button type="button" class="td-acc-h" aria-expanded="' + open + '" aria-controls="tdAcc_' + esc(x.key) + '" onclick="tdToggleOpen(\'' + esc(x.key) + '\')"><span>' + (open ? '▾ ' : '▸ ') + esc(x.title) + '</span><span>' + x.ids.length + '</span></button>'
+      + (open ? '<div id="tdAcc_' + esc(x.key) + '" role="region" aria-label="' + esc(x.title) + '">' + cards(x.ids, noteFor(x)) + '</div>' : '') + '</div>';
+  }).join('');
+  return out;
+}
+function tdTilesHtml(){
+  return tdModeData().tiles.map(t => {
+    const n = t.ids.filter(tdMatch).length, on = _tdTile === t.key;
+    const hot = (t.key === 'team_risk' || t.key === 'team_overdue' || t.key === 'risk_mine' || t.key === 'overdue_mine' || t.key === 'urgent' || t.key === 'sla') && n;
+    return '<button type="button" class="td-count' + (on ? ' on' : '') + (hot ? ' hot' : '') + '" onclick="tdSetTile(\'' + t.key + '\')" aria-pressed="' + on + '" aria-label="' + esc(t.label + ', ' + n + (n === 1 ? ' task' : ' tasks') + '. Scope: ' + t.scope + '. ' + (on ? 'Showing. Press to go back.' : 'Show tasks.')) + '">'
+      + '<span class="n">' + n + '</span><span class="l">' + esc(t.label) + '</span><span class="sc">' + esc(t.scope) + '</span></button>';
+  }).join('');
+}
+// Redraw everything BELOW the tabs and search box (so typing in the search box never loses focus).
+function tdDrawBody(){
+  const body = document.getElementById('tdBody'); if(!body || !_today) return;
+  const M = tdModeData(), S = _tdTile ? M.tiles.find(x => x.key === _tdTile) : null;
+  const reportsNote = S && S.key === 'reports_team' && S.breakdown ? '<div class="td-empty" role="note">Overdue to send: <b>' + S.breakdown.overdue + '</b> · Due today: <b>' + S.breakdown.today + '</b> · Due later: <b>' + S.breakdown.later + '</b> · Waiting for profit confirmation: <b>' + S.breakdown.profit + '</b>. A report is never counted late before its client date.</div>' : '';
+  body.innerHTML = '<div class="td-counts" role="group" aria-label="' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + ' summary">' + tdTilesHtml() + '</div>'
+    + (S ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(S.label) + '</b> <button type="button" class="btn small td-act" onclick="tdSetTile(null)">Back to ' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + '</button></div>' + reportsNote : '')
+    + '<div class="td-grid' + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + tdListHtml() + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
 }
 function drawToday(){
   const T = _today, box = document.getElementById('tdRoot'); if(!box) return;
   const first = (T.name || '').split(' ')[0];
   const dateLabel = new Date(T.today + 'T12:00:00').toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
-  const counts = TD_COUNTS.map(([k, label]) => '<button type="button" class="td-count' + (_tdFilter === k ? ' on' : '') + ((k === 'risk' || k === 'overdue') && T.counts[k] ? ' hot' : '') + '" onclick="tdSetFilter(\'' + k + '\')" aria-pressed="' + (_tdFilter === k) + '" aria-label="' + esc(label) + ': ' + T.counts[k] + '. Show these.">'
-    + '<span class="n">' + T.counts[k] + '</span><span class="l">' + esc(label) + '</span></button>').join('');
-  const seg = [['today', 'Today'], ['manager', 'Manager View'], ['review', 'Review View']].map(([k, l]) => '<button type="button" class="' + (_tdMode === k ? 'on' : '') + '" onclick="tdSetMode(\'' + k + '\')" aria-pressed="' + (_tdMode === k) + '">' + l + '</button>').join('');
-  const secs = tdSections();
-  const list = secs.map(x => '<div class="td-sec"><span>' + esc(x.title) + '</span><span>' + x.items.length + '</span></div>'
-    + (x.items.length ? x.items.map(i => tdCardHtml(i.id, i.note)).join('') : (x.empty ? '<div class="td-empty">' + esc(x.empty) + '</div>' : ''))
-    + (x.more ? '<div class="td-empty"><button class="btn small td-act" onclick="_tdShowAllDone=true;drawToday()">Show all ' + (x.items.length + x.more) + '</button></div>' : '')).join('');
+  const tabs = TD_MODES.map(([k, l]) => '<button type="button" role="tab" id="tdTab_' + k + '" class="' + (_tdMode === k ? 'on' : '') + '" aria-selected="' + (_tdMode === k) + '" aria-controls="tdPanel" tabindex="' + (_tdMode === k ? 0 : -1) + '" onclick="tdSetMode(\'' + k + '\')">' + l + '</button>').join('');
   box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(T.greeting) + ', ' + esc(first) + '</h2><div class="td-date">' + esc(dateLabel) + ' · ' + esc(T.timezone.replace('Pacific/Auckland', 'New Zealand time')) + '</div></div>'
-    + '<div class="td-seg" role="group" aria-label="Dashboard view">' + seg + '</div></div>'
-    + '<div class="td-counts">' + counts + '</div>'
-    + (_tdFilter ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(TD_COUNTS.find(x => x[0] === _tdFilter)[1]) + '</b> <button class="btn small td-act" onclick="tdSetFilter(null)">Clear filter</button></div>' : '')
-    + '<div class="td-grid' + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + list + '</div><div class="td-detail" id="tdDetail">' + tdDetailHtml(_tdSel) + '</div></div>';
+    + '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div></div>'
+    + '<div style="margin:0 0 12px;"><label for="tdSearch" class="sr-only" style="position:absolute;left:-9999px;">Search tasks in this view</label><input id="tdSearch" type="search" class="td-search" placeholder="Search client, task, employee, status…" value="' + esc(_tdQuery) + '" oninput="tdSearchInput(this.value)" autocomplete="off"></div>'
+    + '<div id="tdPanel" role="tabpanel" aria-labelledby="tdTab_' + _tdMode + '"><div id="tdBody"></div></div>';
+  tdDrawBody();
 }
-function tdSetMode(m){ _tdMode = m; _tdFilter = null; drawToday(); }
-function tdSetFilter(k){ _tdFilter = (_tdFilter === k) ? null : k; drawToday(); }
+function tdSetMode(m, focusTab){
+  if(m === _tdMode && !focusTab) return;
+  _tdMode = m; _tdTile = null; _tdOpen = null; _tdSel = null; _tdQuery = ''; window.__tdMobileOpen = false;   // the old view leaves NOTHING behind
+  try { localStorage.setItem('tdMode', m); } catch(e){}
+  drawToday();
+  if(focusTab){ const b = document.getElementById('tdTab_' + m); if(b) b.focus(); }
+}
+function tdTabKey(e){
+  const i = TD_MODES.findIndex(x => x[0] === _tdMode);
+  const to = e.key === 'ArrowRight' ? (i + 1) % TD_MODES.length : e.key === 'ArrowLeft' ? (i + TD_MODES.length - 1) % TD_MODES.length : e.key === 'Home' ? 0 : e.key === 'End' ? TD_MODES.length - 1 : -1;
+  if(to < 0) return;
+  e.preventDefault(); tdSetMode(TD_MODES[to][0], true);
+}
+function tdSetTile(k){ _tdTile = (_tdTile === k) ? null : k; _tdOpen = null; _tdSel = null; window.__tdMobileOpen = false; tdDrawBody(); }
+function tdToggleOpen(k){ _tdOpen = (_tdOpen === k) ? null : k; tdDrawBody(); }
+function tdSearchInput(v){ _tdQuery = v; if(_tdSel && !tdMatch(_tdSel)) _tdSel = null; tdDrawBody(); }
 function tdSelect(id){
-  _tdSel = id; window.__tdMobileOpen = true;
+  _tdSel = id; window.__tdMobileOpen = true;          // one detail panel only: this REPLACES whatever was open
   document.querySelectorAll('#tdList .td-card').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
   const d = document.getElementById('tdDetail'); if(d) d.innerHTML = tdDetailHtml(id);
   const g = document.getElementById('tdGrid'); if(g) g.classList.add('show-detail');
 }
 function tdBack(){ window.__tdMobileOpen = false; const g = document.getElementById('tdGrid'); if(g) g.classList.remove('show-detail'); }
-document.addEventListener('keydown', e => { if(e.key === 'Escape' && todayViewActive() && window.__tdMobileOpen){ tdBack(); } });
+// Escape closes the open task panel — but never while a dialog is open (that handler closes the dialog first).
+document.addEventListener('keydown', e => {
+  if(e.key !== 'Escape' || !todayViewActive() || !_tdSel) return;
+  const ov = document.getElementById('modalOverlay'); if(ov && ov.classList.contains('active')) return;
+  _tdSel = null; window.__tdMobileOpen = false; tdDrawBody();
+});
 function tdPrimary(id){
   const n = (_today.sections.needs.find(x => x.id === id) || {}), c = _today.cards[id];
   const btn = (label, fn) => '<button type="button" class="btn primary td-act" onclick="' + fn + '">' + label + '</button>';
@@ -7789,26 +7848,42 @@ function tdDetailHtml(id, given){
   const fact = (label, val) => '<div><b>' + label + '</b>' + (val || '<span style="color:var(--text-faint);">—</span>') + '</div>';
   const track = c.tracker.applicable ? '<div class="td-track" role="list" aria-label="Delivery progress">' + c.tracker.steps.map(st => '<span class="td-step ' + st.state + '" role="listitem">' + (st.state === 'done' ? '✓ ' : st.state === 'attention' ? '⚠ ' : '') + esc(st.label) + '</span>').join('') + '</div>'
     : '<div style="font-size:13px;color:var(--text-dim);margin:8px 0 12px;">Admin task — no client report to send.</div>';
+  const mode = given ? 'today' : _tdMode;          // the panel emphasises what THIS view is for
+  const slaH = (_today && _today.modes && _today.modes.sla) || 48;
   let body = '<button type="button" class="btn td-back td-act" onclick="tdBack()">← Back to the list</button>'
     + '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><div><div style="font-size:12.5px;color:var(--text-faint);">' + esc(c.kindLabel) + ' · ' + esc(taskNo(c.id)) + '</div>'
     + '<h3 style="margin:2px 0 0;">' + esc(c.clientName || 'Admin task') + ' — ' + esc(c.name) + '</h3></div><div>' + tdRiskTag(c) + '</div></div>'
-    + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>'
-    + '<div style="font-size:13.5px;color:var(--text-dim);">Next: ' + esc(c.nextAction) + '</div>' + track;
+    + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>';
+  if(mode === 'today') body += '<div style="margin:8px 0 6px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:14px;"><b>What you need to do</b><br>' + esc(c.nextAction) + (c.clientDate ? '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : (c.internalDeadline ? '<br><span style="color:var(--text-dim);">Due ' + esc(fmtDate(c.internalDeadline)) + '</span>' : '')) + '</div>' + track;
+  else body += '<div style="font-size:13.5px;color:var(--text-dim);">Next: ' + esc(c.nextAction) + '</div>' + track;
   if(!t){ return body + '<div class="td-empty">Loading the task details…</div>'; }
-  body += '<div class="td-facts">'
-    + fact('Task type', esc(c.taskType || c.kindLabel)) + fact('Assigned employee', esc(c.assigneeName || '')) + fact('Reviewer', esc(c.reviewerName || ''))
-    + fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : '') + fact('Internal submission date', c.internalDeadline ? esc(fmtDate(c.internalDeadline)) : '')
-    + fact('Client commitment', c.clientDate ? esc(fmtDate(c.clientDate)) + '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : '')
-    + fact('Your employee\'s commitment', esc(c.commitment.label))
-    + (c.reviewWaiting ? fact('Waiting for review', c.reviewWaiting.days + (c.reviewWaiting.days === 1 ? ' day' : ' days') + '<br><span style="color:var(--text-dim);">since ' + esc(dt(c.reviewWaiting.since)) + '</span>') : '')
-    + fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : '')
-    + fact('Google Sheet', (t.sheetLink || (t.sheetFiles || []).length) ? slotCell(t.sheetLink, 'Open Sheet', t.sheetFiles) : '')
-    + fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '')
-    + '</div>'
+  const sheet = fact('Google Sheet', (t.sheetLink || (t.sheetFiles || []).length) ? slotCell(t.sheetLink, 'Open Sheet', t.sheetFiles) : '');
+  const cash = fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '');
+  const client = fact('Client commitment', c.clientDate ? esc(fmtDate(c.clientDate)) + '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : '');
+  const internal = fact('Internal submission date', c.internalDeadline ? esc(fmtDate(c.internalDeadline)) : '');
+  const waitFact = c.reviewWaiting ? fact('Waiting for review', c.reviewWaiting.days + (c.reviewWaiting.days === 1 ? ' day' : ' days') + (c.reviewWaiting.hours > slaH ? ' <b style="color:var(--coral);">· past the ' + slaH + ' h review SLA</b>' : '') + '<br><span style="color:var(--text-dim);">since ' + esc(dt(c.reviewWaiting.since)) + '</span>') : '';
+  const dh = (t.dateHistory || []).map(h => esc(dt(h.at)) + ' — ' + esc(h.note || 'changed')).join('<br>');
+  let facts;
+  if(mode === 'manager'){
+    facts = fact('Assigned employee', esc(c.assigneeName || '')) + fact('Reviewer', esc(c.reviewerName || ''))
+      + fact('Owner of the next action', esc(c.waitingOn.ownerName || c.waitingOn.label)) + internal + client
+      + fact('Date changes', dh) + fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : '')
+      + fact('Rework cycles', c.reworkCount ? String(c.reworkCount) : '0') + fact('Escalation', c.escalation ? 'Open — ' + esc(c.escalation.toName || '') + (c.escalation.decisionDate ? ' by ' + esc(c.escalation.decisionDate) : '') : 'None');
+  } else if(mode === 'review'){
+    facts = fact('Employee submission', c.submittedAt ? esc(dt(c.submittedAt)) + (c.assigneeName ? '<br><span style="color:var(--text-dim);">by ' + esc(c.assigneeName) + '</span>' : '') : '') + waitFact + client
+      + fact('Internal commitment', esc(c.commitment.label)) + sheet + cash
+      + fact('Previous corrections', c.reworkCount ? c.reworkCount + (c.correction ? ' · last: ' + esc(c.correction.category || '') : '') : 'None');
+  } else {
+    facts = fact('Task type', esc(c.taskType || c.kindLabel)) + fact('Assigned employee', esc(c.assigneeName || '')) + fact('Reviewer', esc(c.reviewerName || ''))
+      + fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : '') + internal + client
+      + fact('Employee\'s commitment', esc(c.commitment.label)) + waitFact + fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : '') + sheet + cash;
+  }
+  body += '<div class="td-facts">' + facts + '</div>'
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
     + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '');
   const prim = given ? '' : tdPrimary(id);
-  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px;">' + prim + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>';
+  const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
+  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 16px;">' + prim + mgrBtns + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>';
   const { ev } = taskTimelineEvents(t);
   body += '<div style="font-weight:700;margin:6px 0 4px;">Timeline <span style="font-weight:400;color:var(--text-faint);font-size:12px;">(New Zealand time)</span></div>'
     + (ev.length ? ev.map(e => '<div style="display:grid;grid-template-columns:26px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--panel-border);"><div>' + e.icon + '</div><div><div style="font-size:13.5px;color:var(--text-dim);line-height:1.5;">' + e.text + '</div>' + (e.extra || '') + '<div style="font-size:11.5px;color:var(--text-faint);font-family:var(--font-mono);">' + (e.at ? esc(dt(e.at)) : '—') + '</div></div></div>').join('')
@@ -7901,7 +7976,7 @@ function drawTeamView(){
 }
 function tmPickType(k){ _tmType = (_tmType === k) ? null : k; drawTeamView(); }
 /* ---------------- Tasks list ---------------- */
-function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', ids:'', sort:'risk', page:1, pageSize:25 }; }
+function mtDefaults(){ return { tab:'list', q:'', employee:'', client:'', type:'', status:'', waitingOn:'', due:'', commitment:'', reportSent:'', rework:'', reviewer:'', ids:'', sort:'newest', page:1, pageSize:25 }; }
 let _mt = mtDefaults(), _mtData = null, _mtTimer = null, _mtCal = null, _mtMonth = null, _mtTl = null, _mtSeq = 0;
 const MT_STATUSES = ['Assigned','In Progress','On Hold','In Review','Correction Required','Approved','Completed'];
 const MT_WAIT = [['employee','Employee'],['reviewer','Reviewer'],['manager','Manager'],['founder','Founder'],['client','Client'],['external','External authority'],['profit','Profit confirmation'],['ready_to_send','Ready to send']];
@@ -7954,7 +8029,7 @@ function mtDrawList(){
     + mtSel('mtf_commitment', 'Commitment', [['met','Met'],['breached','Breached'],['due_today','Due today'],['at_risk','At risk'],['on_track','On track'],['waiting_client','Waiting on client']], _mt.commitment)
     + mtSel('mtf_reportSent', 'Report sent', [['sent_on_time','Sent on time'],['sent_late','Sent late'],['not_sent','Not sent'],['pending','Not yet due']], _mt.reportSent)
     + mtSel('mtf_rework', 'Correction rounds', [['0','None'],['1','1'],['2+','2 or more']], _mt.rework)
-    + mtSel('mtf_sort', 'Sort by', [['risk','Most at risk'],['internal','Internal due date'],['client','Client date'],['employee','Employee'],['hours','Hours']], _mt.sort).replace('<option value="">All</option>', '')
+    + mtSel('mtf_sort', 'Sort by', [['newest','Newest first'],['risk','Most at risk'],['internal','Internal due date'],['client','Client date'],['employee','Employee'],['hours','Hours']], _mt.sort).replace('<option value="">All</option>', '')
     + '<button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>'
     + (_mt.ids ? '<div class="mt-banner">Showing the exact tasks behind a count. <button type="button" class="btn small td-act" onclick="mtSet(\'ids\',\'\')">Show everything</button></div>' : '');
   body.innerHTML = f + '<div id="mtResults"></div>';
@@ -10934,7 +11009,7 @@ const TASK_LIST_FILTER_OPTIONS = [
 ];
 function taskListModal(title, subtitle, list, { empty = 'No tasks.', showOwner = true, statusFilter = false, subjectId = null } = {}){
   const today = todayISO();
-  const sorted = list.slice().sort((a,b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+  const sorted = list.slice().sort(taskNewest);
   const canEdit = t => canEditTaskTiming(t);
   const showActions = sorted.some(canEdit);
   const rows = sorted.map(t => {
@@ -11160,7 +11235,7 @@ function renderTasksPage(resetTabs){
     const o = empById(t.assignedTo);
     return (t.name + ' ' + (t.clientName||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase().includes(q);
   });
-  list = list.slice().sort((a,b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999'));
+  list = list.slice().sort(taskNewest);
   const today = todayISO();
   document.getElementById('tasksPageBody').innerHTML = list.map(t => {
     const o = empById(t.assignedTo);
@@ -11408,7 +11483,7 @@ function updateReviewsNavBadge(){
   const b2 = document.getElementById('reviewsNavBadgeV2'); if(b2){ b2.textContent = n; b2.style.display = n > 0 ? '' : 'none'; }
 }
 function openMyReviewQueue(){
-  const list = myReviewTasks().slice().sort((a,b) => (a.clientDate || a.completedAt || '').localeCompare(b.clientDate || b.completedAt || ''));
+  const list = myReviewTasks().slice().sort(taskNewest);
   const rows = list.map(t => {
     const o = empById(t.assignedTo);
     const hay = (t.name + ' ' + (t.clientName||'') + ' ' + (o?o.name:'') + ' ' + t.id).toLowerCase();
@@ -11586,7 +11661,7 @@ function renderFvSearch(){
     (t.scope||'').toLowerCase().includes(q) ||
     (empById(t.assignedTo)?.name||'').toLowerCase().includes(q) ||
     (t.id||'').toLowerCase().includes(q)
-  ).sort((a,b)=>(a.internalDeadline||'9999').localeCompare(b.internalDeadline||'9999')).slice(0, 40);
+  ).sort(taskNewest).slice(0, 40);
 
   let html = '';
   if(clientHits.length){
@@ -12994,6 +13069,11 @@ function taskTimelineEvents(t){
 
   ev.sort((a,b) => (a.at||'').localeCompare(b.at||''));
   return { ev, dt, nm };
+}
+// Every task list runs NEWEST first — the latest-assigned task on top (task numbers rise with every new task, so they break ties).
+function taskNewest(a, b){
+  const ka = String(a.assignedAt || a.createdAt || ''), kb = String(b.assignedAt || b.createdAt || '');
+  return kb.localeCompare(ka) || String(b.id || '').localeCompare(String(a.id || ''));
 }
 function openTaskTrailModal(id){
   const t = findTask(id);

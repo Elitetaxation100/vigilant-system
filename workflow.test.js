@@ -204,3 +204,71 @@ test('review waiting days are whole business days, correct across a daylight-sav
   const backAcross = submitted({ completedAt: '2026-04-04T10:00:00Z' });                  // 23:00 NZDT Saturday 4 Apr (before clocks go back)
   assert.equal(wf.card(backAcross, deps({ today: '2026-04-06' })).reviewWaiting.days, 2, 'and when an hour is gained');
 });
+
+/* ---------------- the three dashboard views (modes) ---------------- */
+const LABELS = {
+  today: ['Needs My Review', 'Client Delivery at Risk', 'Waiting for My Decision', 'Reports I Must Send', 'My Overdue Actions', 'Actions Completed Today'],
+  manager: ['Team Delivery at Risk', 'Team Overdue', 'Reviews Blocking Delivery', 'Reports Not Sent', 'Waiting on Client', 'Needs Manager Attention'],
+  review: ['Urgent Reviews', 'New Submissions', 'Corrections Resubmitted', 'Waiting on Employee Correction', 'Reviews Completed Today', 'Review SLA Breached'],
+};
+test('MODES: each view has its own six tiles — and no tile belongs to two views', () => {
+  const r = today({ attentionIds: ['#e'] });
+  for (const k of Object.keys(LABELS)) assert.deepEqual(r.modes[k].tiles.map(t => t.label), LABELS[k], k + ' tiles');
+  const keys = Object.values(r.modes).filter(m => m.tiles).flatMap(m => m.tiles.map(t => t.key));
+  assert.equal(new Set(keys).size, keys.length, 'no tile key is shared between views');
+});
+test('MODES: every tile count equals the unique tasks in the list it opens, and every id has a card', () => {
+  const r = today({ attentionIds: ['#e', '#g', '#nope'] });
+  for (const k of ['today', 'manager', 'review']) for (const t of r.modes[k].tiles) {
+    assert.equal(t.count, t.ids.length, k + '/' + t.key + ': count = ids');
+    assert.equal(new Set(t.ids).size, t.ids.length, k + '/' + t.key + ': no duplicate task');
+    t.ids.forEach(id => assert.ok(r.cards[id], k + '/' + t.key + ': ' + id + ' has a card'));
+  }
+  const att = r.modes.manager.tiles.find(t => t.key === 'needs_attention');
+  assert.deepEqual(att.ids.sort(), ['#e', '#g'], 'only real, known tasks are counted as exceptions');
+});
+test('MODES: Today is personal — another sender\'s report and work waiting on others are not mine', () => {
+  const tasks = fixture().concat([T('#h2', { status: 'completed', completedAt: '2026-10-05T01:00:00Z', reviewStatus: 'clean', sentToClient: null, reportSendOwner: 'emp', awaitingClientDecision: true, reviewedBy: 'me', reviewedAt: '2026-10-06T00:00:00Z' })]);
+  const r = wf.buildToday(tasks, mine, deps({ canApprove: t => t.status === 'window_proposed' }));
+  const tile = k => r.modes.today.tiles.find(t => t.key === k).ids;
+  assert.deepEqual(tile('reports_mine'), ['#h'], 'only the report I send');
+  assert.ok(!tile('reports_mine').includes('#h2'));
+  assert.ok(r.modes.manager.tiles.find(t => t.key === 'reports_team').ids.includes('#h2'), 'but the team view still counts it');
+  assert.deepEqual(tile('needs_review').sort(), ['#a', '#b', '#c'], 'reviews where I am the reviewer');
+  const od = tile('overdue_mine');
+  assert.ok(!od.includes('#f') && !od.includes('#g') && !od.includes('#e'), 'work waiting on a client or an employee is not MY overdue action');
+});
+test('MODES: Team Overdue excludes client holds and reviews; Waiting on Client lists only client holds', () => {
+  const r = today();
+  const tile = k => r.modes.manager.tiles.find(t => t.key === k).ids;
+  assert.deepEqual(tile('team_overdue'), ['#g']);
+  assert.deepEqual(tile('waiting_client'), ['#f']);
+  assert.ok(!tile('team_risk').includes('#f'));
+});
+test('MODES: a resubmitted correction is counted in Corrections Resubmitted even when it shows under Urgent', () => {
+  const tasks = fixture().concat([T('#r', { status: 'completed', completedAt: '2026-10-06T01:00:00Z', clientDate: '2026-10-06', reworkCount: 1 })]);
+  const r = wf.buildToday(tasks, mine, deps({ canApprove: () => false }));
+  const rv = k => r.modes.review.tiles.find(t => t.key === k).ids;
+  assert.ok(rv('resubmitted').includes('#r') && rv('resubmitted').includes('#c'), 'both resubmissions are counted');
+  assert.ok(rv('urgent').includes('#r'), 'the overdue one is also urgent');
+  assert.ok(rv('urgent').includes('#c'), 'and so is the one waiting past the review SLA');
+  assert.match(r.modes.review.default.note, /2 resubmissions are displayed under Urgent/);
+  const calm = wf.buildToday(tasks, mine, deps({ reviewSlaHours: 24 * 365 }));
+  assert.match(calm.modes.review.default.note, /1 resubmission is displayed under Urgent/, 'with a long SLA only the client-overdue one is urgent');
+  assert.equal(calm.modes.review.tiles.find(t => t.key === 'resubmitted').count, 2, 'the tile still counts both');
+});
+test('MODES: Review SLA is its own measure (hours waiting), not the client deadline', () => {
+  const r = today();
+  const sla = r.modes.review.tiles.find(t => t.key === 'sla');
+  assert.equal(r.modes.sla, 48);
+  assert.ok(sla.ids.includes('#a') && sla.ids.includes('#c'), 'submitted days ago: past 48 h');
+  assert.ok(!sla.ids.includes('#d'), 'someone else\'s review is not mine');
+  const strict = wf.buildToday(fixture(), mine, deps({ reviewSlaHours: 24 * 30 }));
+  assert.equal(strict.modes.review.tiles.find(t => t.key === 'sla').count, 0, 'a long SLA means nothing is breached, whatever the client date says');
+});
+test('MODES: lists run newest first', () => {
+  const r = today();
+  const ids = r.modes.review.tiles.find(t => t.key === 'sla').ids;
+  const at = id => r.cards[id].sortAt;
+  for (let i = 1; i < ids.length; i++) assert.ok(String(at(ids[i - 1])) >= String(at(ids[i])), 'newest activity first');
+});

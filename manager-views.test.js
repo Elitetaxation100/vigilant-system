@@ -83,3 +83,11 @@ test('calendar and timeline: tones follow state; bars never run backwards', () =
   const tl = mv.timelineRows(rs, ts, deps); tl.forEach(r => assert.ok(r.start <= r.end));
   assert.deepEqual(ev.map(e => e.date), [...ev.map(e => e.date)].sort());
 });
+
+test('sortRows: the default is newest first, and an unknown sort falls back to it', () => {
+  const mv = require('./manager-views');
+  const rows = [{ id: '#1', createdAt: '2026-10-01T00:00:00Z', clientRisk: { state: 'ok' } }, { id: '#3', createdAt: '2026-10-03T00:00:00Z', clientRisk: { state: 'ok' } }, { id: '#2', createdAt: '2026-10-03T00:00:00Z', clientRisk: { state: 'ok' } }];
+  assert.deepEqual(mv.sortRows(rows).map(r => r.id), ['#3', '#2', '#1']);
+  assert.deepEqual(mv.sortRows(rows, 'nonsense').map(r => r.id), ['#3', '#2', '#1']);
+  assert.deepEqual(mv.sortRows(rows, 'newest').map(r => r.id), ['#3', '#2', '#1']);
+});
