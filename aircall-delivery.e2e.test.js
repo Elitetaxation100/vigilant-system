@@ -44,3 +44,16 @@ test('an answered call from an agent nobody is mapped to is saved but gets no ca
   assert.ok(d.lastCallAt);
   assert.doesNotMatch(JSON.stringify(await health()), /Nobody Mapped|64211234567/, 'no names or numbers on the public page');
 });
+
+test('outbound calls are recorded like inbound ones and shown separately; the newest calls are listed without names or numbers', async () => {
+  assert.equal((await hook(TOKEN, { event: 'call.ended', data: { id: 3, direction: 'outbound', raw_digits: '+64219998888', duration: 0, user: { id: 99999, name: 'Nobody Mapped' } } })).status, 200);   // the customer did not pick up
+  assert.equal((await hook(TOKEN, { event: 'call.ended', data: { id: 4, direction: 'outbound', raw_digits: '+64217776666', duration: 45, answered_at: 5, user: { id: 99998, name: 'Other Unmapped' } } })).status, 200);
+  for (let i = 0; i < 20; i++) { if ((await health()).aircallDelivery.last24h.calls >= 3) break; await new Promise(r => setTimeout(r, 250)); }
+  const D = (await health()).aircallDelivery;
+  const out = D.last24h.byDirection.outbound;
+  assert.equal(out.calls, 2); assert.equal(out.notPickedUp, 1); assert.equal(out.answered, 1);
+  assert.equal(D.last24h.byDirection.inbound.calls, 1);
+  assert.equal(D.latest.length, 3); assert.ok(D.latest.every(x => 'direction' in x && 'status' in x && 'card' in x));
+  assert.ok(D.latest.some(x => x.direction === 'outbound' && x.status === 'ended' && x.mapped === false), 'an answered outbound call from an unmapped agent is saved, with no card');
+  assert.doesNotMatch(JSON.stringify(D), /Unmapped|64219998888|64217776666/);
+});
