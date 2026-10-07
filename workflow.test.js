@@ -207,11 +207,11 @@ test('review waiting days are whole business days, correct across a daylight-sav
 
 /* ---------------- the three dashboard views (modes) ---------------- */
 const LABELS = {
-  today: ['Needs My Review', 'Client Delivery at Risk', 'Waiting for My Decision', 'Reports I Must Send', 'My Overdue Actions', 'Actions Completed Today'],
+  today: ['Needs My Review', 'Client Delivery at Risk', 'Waiting for My Decision', 'Reports I Must Send', 'My Overdue Actions', 'Actions Completed Today', 'My Work'],
   manager: ['Team Delivery at Risk', 'Team Overdue', 'Reviews Blocking Delivery', 'Reports Not Sent', 'Waiting on Client', 'Needs Manager Attention'],
   review: ['Urgent Reviews', 'New Submissions', 'Corrections Resubmitted', 'Waiting on Employee Correction', 'Reviews Completed Today', 'Review SLA Breached'],
 };
-test('MODES: each view has its own six tiles — and no tile belongs to two views', () => {
+test('MODES: each view has its own tiles (Today also has My Work) — and no tile belongs to two views', () => {
   const r = today({ attentionIds: ['#e'] });
   for (const k of Object.keys(LABELS)) assert.deepEqual(r.modes[k].tiles.map(t => t.label), LABELS[k], k + ' tiles');
   const keys = Object.values(r.modes).filter(m => m.tiles).flatMap(m => m.tiles.map(t => t.key));
@@ -271,4 +271,24 @@ test('MODES: lists run newest first', () => {
   const ids = r.modes.review.tiles.find(t => t.key === 'sla').ids;
   const at = id => r.cards[id].sortAt;
   for (let i = 1; i < ids.length; i++) assert.ok(String(at(ids[i - 1])) >= String(at(ids[i])), 'newest activity first');
+});
+
+test('MY WORK: what is assigned to me (not a review) is on Today — to accept, in progress, on hold, being corrected', () => {
+  const tasks = [
+    T('#w1', { status: 'awaiting_acceptance', assignedTo: 'me', reviewerId: 'rev' }),                                           // new, waiting for me to accept
+    T('#w2', { status: 'accepted', assignedTo: 'me', reviewerId: 'rev' }),                                                      // in progress
+    T('#w3', { status: 'on_hold', assignedTo: 'me', holdReasonCode: 'CLIENT_QUERY' }),                                           // on hold (a client query)
+    T('#w4', { status: 'awaiting_acceptance', reviewStatus: 'error', assignedTo: 'me', reworkCount: 1, reviewerId: 'rev' }),     // sent back to me
+    T('#w5', { status: 'accepted', assignedTo: 'emp' }),                                                                         // someone else's
+    T('#w6', { status: 'completed', completedAt: '2026-10-05T01:00:00Z', assignedTo: 'me', reviewerId: 'rev' }),                 // mine, submitted — now it is the reviewer's
+  ];
+  const r = wf.buildToday(tasks, mine, deps());
+  const my = r.modes.today.tiles.find(t => t.key === 'my_work');
+  assert.deepEqual(my.ids.slice().sort(), ['#w1', '#w2', '#w3', '#w4'], 'only my own open work, never a review or someone else\'s');
+  assert.equal(my.count, 4);
+  const need = id => (r.sections.needs.find(n => n.id === id) || {}).type;
+  assert.equal(need('#w1'), 'accept'); assert.equal(need('#w4'), 'accept', 'a correction sent back also waits for my acceptance');
+  assert.equal(need('#w2'), undefined, 'in progress needs nothing from me right now');
+  const sec = r.modes.today.default.secondary.find(x => x.key === 'my_work');
+  assert.deepEqual(sec.ids.slice().sort(), ['#w1', '#w2', '#w3', '#w4']);
 });
