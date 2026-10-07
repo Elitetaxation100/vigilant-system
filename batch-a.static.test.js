@@ -39,3 +39,11 @@ test('sidebar navigation is keyboard- and screen-reader-operable (buttons with a
   assert.match(html, /aria-current/);
   assert.match(html, /\.nav-item:focus-visible\{/);
 });
+
+test('Reviews: one slim line per task (client — task, links, owner, Review), the rest under the row, one open at a time', () => {
+  const row = html.slice(html.indexOf('function rqCardHtml'), html.indexOf('async function renderReviewsV2'));
+  for (const part of ['rq-main', 'rq-links', 'rq-own', 'Review</button>', 'class="rq-det"', 'aria-expanded', 'aria-controls']) assert.ok(row.includes(part), part);
+  assert.match(row, /function rqToggle\(id\)[\s\S]*one open at a time/);
+  assert.match(html, /\.rq-row\{ min-height:38px;/);
+  assert.match(html, /rq-sec-empty/, 'an empty section is a single line, not a box');
+});
