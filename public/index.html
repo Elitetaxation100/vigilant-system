@@ -204,6 +204,7 @@ body.v2-dash .clock-card{ display:none !important; }
 .pg-search input{ width:100%; max-width:380px; min-height:44px; padding:8px 12px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel); color:inherit; font:inherit; }
 .pg-search input:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
 .pg-search .pg-count{ font-size:12.5px; color:var(--text-dim); }
+.nav-item:focus-visible{ outline:3px solid var(--purple); outline-offset:-3px; }
 .linkbtn{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-decoration:underline; cursor:pointer; text-align:inherit; }
 .linkbtn:focus-visible{ outline:3px solid var(--purple); outline-offset:2px; }
 .td-count .sc{ display:block; font-size:11px; color:var(--text-faint); margin-top:2px; }
@@ -1575,6 +1576,11 @@ body.v2-dash .clock-card{ display:none !important; }
             </thead>
             <tbody id="adminTaskTableBody"></tbody>
           </table>
+        </div>
+
+        <div class="panel" id="dqPanel" style="display:none;">
+          <div class="panel-head"><h2>Data quality</h2><div class="panel-head-actions"><button class="btn small" onclick="openDataQuality()">Open the report</button><button class="btn small" onclick="downloadDataQuality()">Download CSV</button></div></div>
+          <div style="padding:4px 2px;font-size:13px;color:var(--text-dim);">A read-only check of duplicate or test logins, missing clients, zero hours, personal details in task titles and mixed-up Client/Admin tasks. It changes nothing — you decide each item.</div>
         </div>
 
         <div class="panel" id="pcPanel" style="display:none;">
@@ -4684,6 +4690,16 @@ function installPageSearch(id){
   }
   applyPageSearch(view);
 }
+// Sidebar navigation items are buttons for the keyboard and for screen readers: focusable, announced as buttons, Enter / Space opens, and the current page is marked.
+function enhanceNavItems(){
+  document.querySelectorAll('.nav-item[onclick]').forEach(n => { if(!n.hasAttribute('role')){ n.setAttribute('role', 'button'); n.setAttribute('tabindex', '0'); } });
+  document.querySelectorAll('.nav-item[role=button]').forEach(n => { if(n.classList.contains('active')) n.setAttribute('aria-current', 'page'); else n.removeAttribute('aria-current'); });
+}
+document.addEventListener('keydown', e => {
+  const n = e.target && e.target.closest && e.target.closest('.nav-item[role=button]');
+  if(n && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); n.click(); }
+});
+document.addEventListener('DOMContentLoaded', enhanceNavItems);
 function showView(id, el, classic){
   closeMobileNav();
   mtMenuClose();
@@ -4708,6 +4724,7 @@ function showView(id, el, classic){
   installPageSearch(id);
   document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
   if(el) el.classList.add('active');
+  enhanceNavItems();
   document.getElementById('pageTitle').textContent = titles[id][0];
   document.getElementById('pageSub').textContent = titles[id][1];
   if(id !== 'dashboard' && _dashMirror){ _dashMirror = null; renderMirrorBanner(); }  // mirror only lives on the Commitment Dashboard
@@ -4731,7 +4748,7 @@ function showView(id, el, classic){
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
-  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); renderPcSettings(); }
+  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); renderPcSettings(); { const p = document.getElementById('dqPanel'); if(p) p.style.display = isSuperAdmin ? '' : 'none'; } }
   if(id === 'teamboard') renderTeamBoard();
   if(id === 'whatsapp') renderWhatsAppView();
   if(['manager','teamboard','founder','command'].includes(id)){
@@ -13296,6 +13313,25 @@ function notConvertedSubHtml(p){
   if(b.nonQualifyingCompleted) bits.push(`${b.nonQualifyingCompleted.toFixed(1)}h completed but not yet qualifying`);
   bits.push(`${b.unallocated.toFixed(1)}h unallocated`);
   return bits.join(' · ');
+}
+/* ---------------- Data quality report (superadmin, read-only) ---------------- */
+const DQ_LABEL = { duplicate_user:'Possible duplicate people', system_or_test_user:'Test / shared logins', hr_in_productivity:'HR login in Productivity', missing_client:'Client Task with no client', fake_client_value:'Placeholder client name', wrong_classification:'Client / Admin mixed up', zero_allocated_hours:'Zero or missing hours', missing_internal_due:'No internal due date', email_in_title:'Email address in a title', phone_in_title:'Phone number in a title', possible_misspelling:'Possible misspelling', duplicate_task_type:'Duplicate task types' };
+async function openDataQuality(){
+  document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="td-empty">Checking…</div>'; openModal();
+  let r; try { r = await api('/api/admin/data-quality'); } catch(e){ document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="modal-error" style="display:block;">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>'; return; }
+  const sum = Object.entries(r.counts).map(([k, n]) => '<li><b>' + n + '</b> ' + esc(DQ_LABEL[k] || k) + '</li>').join('') || '<li>Nothing to report.</li>';
+  const rows = r.rows.slice(0, 150).map(x => '<tr><td>' + esc(DQ_LABEL[x.category] || x.category) + '</td><td>' + esc(x.label) + '</td><td>' + esc(x.detail) + '<div style="color:var(--text-faint);">' + esc(x.suggestion) + '</div></td></tr>').join('');
+  document.getElementById('modalBox').innerHTML = '<h3>Data quality — ' + r.total + ' item' + (r.total === 1 ? '' : 's') + ' to look at</h3><div class="modal-sub">Read-only. Nothing here changes, merges or deletes anything.</div><ul style="margin:8px 0 12px;padding-left:18px;font-size:13.5px;">' + sum + '</ul>'
+    + (rows ? '<div style="max-height:46vh;overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;"><thead><tr><th style="text-align:left;">Kind</th><th style="text-align:left;">Record</th><th style="text-align:left;">What we found · suggested fix</th></tr></thead><tbody>' + rows + '</tbody></table></div>' + (r.rows.length > 150 ? '<div class="td-empty">Showing the first 150 — download the CSV for all ' + r.rows.length + '.</div>' : '') : '')
+    + '<div class="modal-actions"><button class="btn" onclick="downloadDataQuality()">Download CSV</button><button class="btn primary" onclick="closeModal()">Close</button></div>';
+}
+async function downloadDataQuality(){
+  try {
+    const res = await fetch(API_BASE + '/api/admin/data-quality?format=csv', { headers: { 'Authorization': 'Bearer ' + authToken } });
+    if(!res.ok) throw new Error('Download failed: ' + res.status);
+    const url = URL.createObjectURL(await res.blob()), a = document.createElement('a'); a.href = url; a.download = 'data-quality-' + todayISO() + '.csv';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch(e){ showToast('error', 'Could not download', e.message); }
 }
 function openTaskTrailModal(id){
   const t = findTask(id);

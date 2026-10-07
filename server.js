@@ -18,6 +18,7 @@ fileStore.init(db);
 const archive = require('./archive');
 const spaceWatch = require('./space-watch');
 const prodRules = require('./productivity-rules');
+const dataQuality = require('./data-quality');
 const workflow = require('./workflow');
 const mgr = require('./manager-views');
 const crmHealth = require('./crm-health');
@@ -6229,6 +6230,21 @@ app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
   res.json({ today: deps.today, total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size), facets: viewFacets(state, req.employee, rows) });
 });
 
+
+// DATA QUALITY — a read-only report for a superadmin: duplicates, test logins, missing clients, zero hours, personal details in titles,
+// contradictory Client/Admin typing, duplicate task types. It never changes, merges or deletes anything; ?format=csv gives a list with a
+// "decision" column to review and sign off before anyone touches the data.
+app.get('/api/admin/data-quality', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get();
+  const report = dataQuality.build({ employees: state.employees, tasks: [...(state.tasks || []), ...(state.deletedTasks || []).filter(() => false)], clients: state.clients, taxonomy: state.taxonomy },
+    { today: todayISO(), isSystemAccount });
+  if (req.query.format === 'csv') {
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="data-quality-' + todayISO() + '.csv"');
+    return res.send(dataQuality.toCsv(report));
+  }
+  res.json(report);
+});
 
 // ---------------------------------------------------------------------------
 // PROFIT CONFIRMERS — who confirms profit: a company default, optional team confirmers, a backup, and an optional per-task override.

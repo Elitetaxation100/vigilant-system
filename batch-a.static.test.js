@@ -32,3 +32,10 @@ test('escalation recipients exclude system / test accounts on the page and on th
   assert.match(html, /!isSystemAccount\(e\) && e\.id !== currentViewerId/);
   assert.match(server, /isSystemAccount\(to\)\) return res\.status\(400\)/);
 });
+
+test('sidebar navigation is keyboard- and screen-reader-operable (buttons with a current-page marker)', () => {
+  assert.match(html, /function enhanceNavItems\(\)/);
+  assert.match(html, /n\.setAttribute\('role', 'button'\); n\.setAttribute\('tabindex', '0'\)/);
+  assert.match(html, /aria-current/);
+  assert.match(html, /\.nav-item:focus-visible\{/);
+});
