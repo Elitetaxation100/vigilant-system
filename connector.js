@@ -3202,7 +3202,15 @@ function callDelivery(state) {
       answeredButAgentNotMapped: answered.length - mapped.length,
       cardsPosted: mapped.filter(c => c.slackTs).length, cardsMissing: mapped.filter(c => !c.slackTs).length,
       lastCallAt: recent.reduce((m, c) => (c.occurredAt > m ? c.occurredAt : m), '') || null,
+      // inbound vs outbound — an outbound call the customer did not pick up is "not picked up" and, like any missed call, has no card
+      byDirection: Object.fromEntries(['inbound', 'outbound', 'unknown'].map(d => {
+        const rows = recent.filter(c => (c.direction === 'inbound' || c.direction === 'outbound' ? c.direction : 'unknown') === d);
+        const ans = rows.filter(c => c.status === 'ended');
+        return [d, { calls: rows.length, answered: ans.length, notPickedUp: rows.filter(c => c.status === 'not_picked_up').length, voicemail: rows.filter(c => c.status === 'voicemail').length, cardsPosted: ans.filter(c => c.slackTs).length }];
+      })),
     },
+    // the 8 newest calls, with no names or numbers — enough to see what really happened to each
+    latest: (state.calls || []).filter(c => !c.stub).slice(-8).reverse().map(c => ({ at: c.occurredAt, direction: c.direction || null, status: c.status, mapped: !!(c.team && c.team !== 'Unmapped'), card: !!c.slackTs, recovered: !!c.recovered, seconds: c.durationSec || null })),
   };
 }
 function mountConnector(app) {
