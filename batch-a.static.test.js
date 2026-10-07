@@ -58,3 +58,12 @@ test('every list has the same search + Status + Date bar, and the tile numbers f
   assert.match(html, /id="mtf_datePreset"/, 'the Tasks page has a date filter too');
   assert.match(html, /\.td-row\{ display:grid !important;/, 'dashboard rows are one slim line');
 });
+
+test('work assigned to me: Accept, Start, Mark Done, Send for review, Hold / query, Resume are offered on Today and on the Tasks page', () => {
+  assert.match(html, /if\(n\.type === 'accept'\) return btn\(/, 'Accept is the primary action on a task waiting for me');
+  assert.match(html, /<div class="td-own"><b>My actions<\/b>' \+ actionCell\(t\)/, 'the Today panel carries every own-task action');
+  assert.match(html, /function myTaskMenuItems\(t\)/);
+  for (const a of ["acceptTask('", "markDoneNoReview('", "openCompleteModal('", "openHoldModal('", "unholdTask('", "openProposeModal('"]) assert.ok(html.slice(html.indexOf('function myTaskMenuItems')).includes(a), a);
+  assert.match(html, /<button type="button" class="btn small primary td-act" style="margin-top:4px;" onclick="acceptTask/, 'an Accept button right on the Tasks row');
+  assert.match(html, /const tdDefaultOpen = \(\) => _tdMode === 'today' \? 'my_work'/, 'My work starts open on Today');
+});

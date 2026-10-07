@@ -203,6 +203,7 @@ function buildToday(tasks, me, deps) {
   for (const t of open) if (cards[t.id].escalation && cards[t.id].escalation.toId === me.id) add(t, 'escalation', 'A decision is requested from you', t.escalation.at);
   for (const t of open) if (t.profitConfirmStatus === 'pending' && me.id === (deps.profitOwnerOf ? deps.profitOwnerOf(t) : deps.profitOwnerId)) add(t, 'profit_confirm', 'Profit confirmation needs you', t.profitConfirmRequestedAt);
   for (const t of open) if (cards[t.id].status === 'Approved' && t.awaitingClientDecision && t.reportSendOwner === me.id) add(t, 'send_report', 'Report ready for you to send', t.reviewedAt);
+  for (const t of open) if (t.assignedTo === me.id && t.status === 'awaiting_acceptance') add(t, 'accept', cards[t.id].status === 'Correction Required' ? 'Sent back to you — accept it to start the correction' : 'Assigned to you — accept it to start', t.assignedAt);
   for (const t of open) if ((t.status === 'window_proposed' || t.status === 'pending_approval') && deps.canApprove(t)) add(t, 'decision', t.status === 'window_proposed' ? 'A new date needs your decision' : 'An assignment needs your approval', t.assignedAt);
   for (const t of open) {
     const c = cards[t.id];
@@ -285,6 +286,7 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
   const myResubmitted = myReviews.filter(id => cards[id].subState === 'Correction resubmitted');
   const myNew = myReviews.filter(id => cards[id].subState !== 'Correction resubmitted');
   const ownsNext = id => cards[id].waitingOn.ownerId === me.id || needsIds.has(id);
+  const myWorkIds = open.filter(t => t.assignedTo === me.id && ['Assigned', 'In Progress', 'On Hold', 'Correction Required'].includes(cards[t.id].status)).map(t => t.id);
 
   // ================= TODAY — only what I personally must act on
   const todayTiles = [
@@ -299,13 +301,15 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
       return c.clientRisk.state === 'overdue' || slaBreached(id);
     }), 'You have no overdue actions.'),
     tileOf('actions_done', 'Actions Completed Today', 'Actions, not tasks', doneToday.map(d => d.id), 'No actions completed yet today.'),
+    // everything assigned to ME that is not a review: to accept, in progress, on hold, being corrected
+    tileOf('my_work', 'My Work', 'Assigned to me', myWorkIds, 'Nothing is assigned to you right now.'),
   ];
   const mkDefault = (primary, secondary) => ({ primary, secondary });
   const sec = (key, title, ids, empty) => ({ key, title, ids: newest(ids), empty: empty || '' });
   const waitSecs = waiting.map(g => sec('wait_' + g.kind, 'Waiting on ' + g.label.toLowerCase(), g.ids));
   const todayDefault = mkDefault(
     sec('needs_now', 'Needs your action now', needs.map(n => n.id), 'Nothing requires your action right now.'),
-    [...waitSecs, sec('done_today', 'Actions completed today', doneToday.map(d => d.id), 'Nothing completed yet today.')]);
+    [sec('my_work', 'My work — assigned to me', myWorkIds, 'Nothing is assigned to you right now.'), ...waitSecs, sec('done_today', 'Actions completed today', doneToday.map(d => d.id), 'Nothing completed yet today.')]);
 
   // ================= MANAGER — the team's delivery picture
   const reportsOpen = open.filter(t => cards[t.id].status === 'Approved' && isClientTask(t));
