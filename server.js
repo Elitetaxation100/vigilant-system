@@ -3467,7 +3467,9 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       }
       if (isClient && b.profitRequired !== true && !assignee) return res.status(400).json({ error: 'The processor for this task no longer exists.' });
     } else if (decision === 'return') {
-      if (!CORRECTION_CATEGORIES.includes(b.category)) return res.status(400).json({ error: 'Choose the correction category.' });
+      // the category is OPTIONAL; if one is given it must be a real one
+      if (b.category !== undefined && b.category !== null && b.category !== '' && !CORRECTION_CATEGORIES.includes(b.category)) return res.status(400).json({ error: 'That is not a correction category.' });
+      b.category = b.category || null;
       if (!RESPONSIBILITY_CATEGORIES.includes(b.responsibility)) return res.status(400).json({ error: 'Choose who is responsible for the correction.' });
       if (note.length < 3) return res.status(400).json({ error: 'Write a correction note so the employee knows what to fix.' });
       if (!validDay(b.dueDate)) return res.status(400).json({ error: 'Choose a correction due date (today or later).' });
@@ -3515,8 +3517,8 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       t.correction = { category: b.category, responsibility: b.responsibility, dueDate: b.dueDate, eventId: ev.id, cycle: t.reworkCount };
       Object.assign(ev, { category: b.category, responsibility: b.responsibility, dueDate: b.dueDate, attachmentIds: files.map(f => f.id) });
       t.reviewAttachments = [...(t.reviewAttachments || []), ...files];   // earlier files are kept; this round's are added
-      logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for correction (${escHtml(b.category)}) — due ${escHtml(b.dueDate)}. Note: ${escHtml(note)}`);
-      notify(state, t.assignedTo, 'rework', `"${t.name}" needs a correction: ${b.category} — due ${b.dueDate}${files.length ? ' · ' + files.length + ' file' + (files.length > 1 ? 's' : '') + ' attached' : ''}. ${note}`, t.id);
+      logEvent(state, t.assignedTo, `"${escHtml(t.name)}" sent back for correction${b.category ? ' (' + escHtml(b.category) + ')' : ''} — due ${escHtml(b.dueDate)}. Note: ${escHtml(note)}`);
+      notify(state, t.assignedTo, 'rework', `"${t.name}" needs a correction${b.category ? ': ' + b.category : ''} — due ${b.dueDate}${files.length ? ' · ' + files.length + ' file' + (files.length > 1 ? 's' : '') + ' attached' : ''}. ${note}`, t.id);
     } else {
       const reason = String(b.reason).trim().slice(0, 1000);
       t.escalation = { id: ev.id, status: 'open', byId: me.id, toId: to.id, reason, note: note || null, decisionDate: b.decisionDate, at: now, attachments: files };
