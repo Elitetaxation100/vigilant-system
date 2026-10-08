@@ -7801,6 +7801,12 @@ function applyDashboardV2(){
   document.querySelectorAll('#navV2 .v2-mgr').forEach(x => x.style.display = (on && isAdmin) ? '' : 'none');
   const ag = document.getElementById('v2AdminGroup'); if(ag) ag.style.display = (on && isSuperAdmin) ? '' : 'none';
 }
+// Choose the right layout AS SOON AS we know who signed in — before the (slow) data loads — so nobody sees the old layout while they wait.
+let _v2Landed = false;
+function landV2Early(){
+  applyDashboardV2();
+  if(session && session.dashboardV2 && !_v2Landed){ _v2Landed = true; showView('today', document.querySelector('#navV2 .nav-item[data-view="today"]')); }
+}
 function todayViewActive(){ const v = document.getElementById('view-today'); return !!(v && v.classList.contains('active')); }
 async function renderToday(quiet){
   const box = document.getElementById('tdRoot'); if(!box) return;
@@ -14517,6 +14523,7 @@ async function submitLogin(){
     isSuperAdmin = session.accessRole === 'superadmin';
     currentViewerId = session.id;
     loadPcCfg();
+    landV2Early();                  // before the login box closes, so the old layout never shows behind it
     closeModal();
     if(session.mustChangePassword){ openForcedPasswordChangeModal(); return; }
     window.__loginGateActive = false;
@@ -14564,6 +14571,7 @@ async function onLoginComplete(){
     showPolicyComplianceGate(session.policyCompliance.pendingCount);
     if(session.accessRole === 'employee') return;
   }
+  landV2Early();
   seenAwaitingIds = null; // fresh baseline each login — don't re-pop tasks already surfaced last session
   // Firm-wide oversight & administration — SUPERADMIN only. An Admin manages
   // their own team (Manager Dashboard + team task actions) but doesn't get
@@ -14617,8 +14625,7 @@ async function onLoginComplete(){
   await loadPunchState();
   await loadCrmMode();
   await loadAutoRules();
-  applyDashboardV2();
-  if(session && session.dashboardV2) showView('today', document.getElementById('todayNavItem')); // Today is this person's landing page
+  landV2Early();                    // (already done at the start; this only matters if the first call could not run)
 
   // Everyone lands on My Dashboard now, admins included — it's already
   // fully populated by refreshTasks() above regardless of role, and
@@ -14645,7 +14652,7 @@ function logoutSession(){
   const wasAdmin = isAdmin;
   authToken = null;
   _tokClear();
-  session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null; _dashMirror = null; _today = null; applyDashboardV2();
+  session = null; isAdmin = false; isSuperAdmin = false; currentViewerId = null; _dashMirror = null; _today = null; _v2Landed = false; applyDashboardV2();
   _dashRange = { preset: 'today', from: '', to: '' }; _dashTab = 'today'; _workStatus = 'todo'; // a new login starts on Today / To do
   try { sessionStorage.removeItem('govOsDashRange'); sessionStorage.removeItem('govOsDashTab'); } catch(e){}
   _notifs = []; _notifUnread = 0; _notifPrevIds = null; renderNotifBadge();

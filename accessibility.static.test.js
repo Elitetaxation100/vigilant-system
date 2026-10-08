@@ -75,3 +75,12 @@ test('every task list sorts newest first', () => {
   assert.match(html, /function taskNewest\(a, b\)/);
   assert.equal((html.match(/\.sort\(taskNewest\)/g) || []).length >= 8, true);
 });
+
+test('the new layout is chosen the moment sign-in succeeds — before the slow data loads, and before the login box closes', () => {
+  assert.match(html, /function landV2Early\(\)\{[\s\S]{0,200}applyDashboardV2\(\);[\s\S]{0,200}showView\('today'/);
+  const submit = html.slice(html.indexOf('async function submitLogin()'), html.indexOf('// A brand-new account'));
+  assert.ok(submit.indexOf('landV2Early()') > 0 && submit.indexOf('landV2Early()') < submit.indexOf('closeModal()'), 'before the login box closes');
+  const done = html.slice(html.indexOf('async function onLoginComplete()'), html.indexOf('function openAdminLogin()'));
+  assert.ok(done.indexOf('landV2Early()') < done.indexOf('await refreshEmployees()'), 'before the first slow load');
+  assert.match(html, /_v2Landed = false; applyDashboardV2\(\);/, 'a new sign-in lands again after logout');
+});
