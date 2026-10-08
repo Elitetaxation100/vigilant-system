@@ -159,6 +159,7 @@ function card(t, deps) {
     correction: t.correction ? { category: t.correction.category, responsibility: t.correction.responsibility, dueDate: t.correction.dueDate } : null,
     reviewWaiting: reviewWaiting(t, st, deps.today, deps, deps.nowMs),
     tracker: tracker(t, st), nextAction: nextAction(t, st, w, deps),
+    sheetLink: t.sheetLink || null, cashbookLink: t.cashbookLink || null,
     hasSheet: !!(t.sheetLink || (t.sheetFiles || []).length), hasCashbook: !!(t.cashbookLink || (t.cashbookFiles || []).length),
     attachmentCount: (t.reviewAttachments || []).length + (t.sheetFiles || []).length + (t.cashbookFiles || []).length,
     holdStart: t.heldAt || null, holdFollowUp: t.holdFollowUp || null, submittedAt: t.completedAt || null,

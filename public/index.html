@@ -260,6 +260,28 @@ body.v2-dash .clock-card{ display:none !important; }
 .rq-head{ font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-faint); background:var(--panel-2); padding-top:6px; padding-bottom:6px; }
 .rq-row{ min-height:38px; border-top:1px solid var(--panel-border); font-size:13.5px; }
 .rq-row:hover{ background:var(--panel-2); }
+/* ---- column headings on every task list: Name | Work | Processor | Status | Client commitment date | Link ---- */
+.td-colhead{ display:grid; grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); gap:8px; align-items:center; padding:7px 12px; background:var(--purple-dim); color:var(--purple); font-weight:800; font-size:12px; letter-spacing:.04em; text-transform:uppercase; border-top:1px solid var(--panel-border); border-bottom:1px solid var(--panel-border); }
+.td-list .td-row{ grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); }
+.td-row .tr-name, .td-row .tr-work, .td-row .tr-who, .td-row .tr-st, .td-row .tr-link{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.td-row .tr-name{ font-weight:700; } .td-row .tr-work{ color:var(--text); } .td-row .tr-who{ font-size:13px; color:var(--text); } .td-row .tr-st{ font-size:12px; color:var(--text-dim); }
+.td-row .tr-date{ display:flex; gap:6px; align-items:center; text-align:left; font-size:12.5px; color:var(--text); white-space:nowrap; min-width:0; }
+.td-row .tr-date{ flex-wrap:wrap; row-gap:2px; }
+@media (min-width:1200px){ .td-grid{ grid-template-columns:minmax(600px,1.8fr) minmax(300px,1fr); } }
+.tr-a{ color:var(--purple); font-weight:600; text-decoration:underline; } .tr-a.off{ color:var(--text-dim); text-decoration:none; }
+.td-list .td-card.sel{ background:var(--purple-dim); box-shadow:inset 3px 0 0 var(--purple); }
+.td-list .td-row:focus-visible{ outline:2px solid var(--purple); outline-offset:-2px; }
+.rq-head, .rq-row{ grid-template-columns:28px minmax(100px,1fr) minmax(110px,1.2fr) minmax(90px,.8fr) minmax(130px,.9fr) minmax(120px,.9fr) 96px; }
+.rq-head{ background:var(--purple-dim); color:var(--purple); font-weight:800; font-size:12px; }
+.rq-name{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; } .rq-work{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; } .rq-cd{ font-size:12.5px; white-space:nowrap; }
+.tm-table thead th{ background:var(--purple-dim); color:var(--purple); font-weight:800; }
+@media (max-width:900px){
+  .td-colhead{ display:none; }
+  .td-list .td-row{ grid-template-columns:minmax(0,1fr) auto; }
+  .td-row .tr-work{ grid-column:1; font-size:12.5px; color:var(--text-dim); } .td-row .tr-who, .td-row .tr-st, .td-row .tr-link{ display:none; }
+  .td-list .td-row .tr-date{ display:flex; grid-column:2; grid-row:1 / span 2; } .td-row .tr-dt{ display:none; }   /* on a phone only the risk tag stays, to the right */
+  .rq-row{ grid-template-columns:28px 1fr auto; } .rq-proc, .rq-cd{ grid-column:2 / 3; white-space:normal; }
+}
 .rq-tg{ width:28px; height:28px; min-height:28px; border:0; background:none; border-radius:6px; cursor:pointer; color:var(--text-dim); font:inherit; line-height:1; transition:transform .12s; }
 .rq-tg[aria-expanded="true"]{ transform:rotate(90deg); color:var(--purple); } .rq-tg:focus-visible{ outline:3px solid var(--purple); outline-offset:1px; }
 .rq-main{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; } .rq-main .rq-task{ color:var(--text-dim); }
@@ -7826,25 +7848,50 @@ function tdRiskTag(c){
   return '<span class="td-tag grey">' + esc(c.kindLabel) + '</span>';
 }
 // One slim line per task: Client — task · status · deadline tag · who it is with · date. The detail panel opens on click.
+// Links for the Link column: the Sheet / Cashbook web address opens in a new tab; a file attachment shows as a paperclip.
+function linkCellHtml(c){
+  const one = (url, hasAny, label) => url ? '<a class="tr-a" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">' + label + '</a>' : hasAny ? '<span class="tr-a off" title="Attached as a file — open the task to see it">' + label + ' 📎</span>' : '';
+  const out = [one(c.sheetLink, c.hasSheet, 'Sheet'), one(c.cashbookLink, c.hasCashbook, 'Cashbook')].filter(Boolean);
+  return out.length ? out.join(' · ') : '<span style="color:var(--text-faint);">—</span>';
+}
+// The headings that sit above every list of tasks, in the same order as the cells in each row.
+const TD_COLHEAD = '<div class="td-colhead" aria-hidden="true"><span>Name</span><span>Work</span><span>Processor</span><span>Status</span><span>Client commitment date</span><span>Link</span></div>';
+// One slim line per task: Name | Work | Processor | Status | Client commitment date (+ risk) | Link. The detail panel opens on click.
 function tdCardHtml(id, note){
   const c = _today.cards[id]; if(!c) return '';
-  const when = c.clientDate ? fmtDate(c.clientDate) : (c.internalDeadline ? fmtDate(c.internalDeadline) : '');
-  const who = c.assigneeName || (c.waitingOn && c.waitingOn.ownerName) || '';   // the owner = who did / sent the work
+  const when = c.clientDate ? fmtDate(c.clientDate) : (c.internalDeadline ? 'Due ' + fmtDate(c.internalDeadline) : '—');
+  const processor = c.assigneeName || (c.waitingOn && c.waitingOn.ownerName) || '—';   // the processor = who did / sent the work
   const tip = (note ? note + ' · ' : '') + c.status + (c.subState ? ' · ' + c.subState : '') + ' — ' + c.waitingOn.label + (c.waitingOn.ownerName ? ' (' + c.waitingOn.ownerName + ')' : '') + ' → ' + c.nextAction;
-  return '<button type="button" class="td-card td-row' + (_tdSel === id ? ' sel' : '') + '" role="listitem" data-id="' + esc(id) + '" onclick="tdSelect(\'' + esc(id) + '\')" title="' + esc(tip) + '" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status + '. ' + tip) + '">'
-    + '<span class="tr-main"><b>' + esc(c.clientName || 'Admin task') + '</b> — ' + esc(c.name) + '</span>'
-    + '<span class="tr-st">' + esc(c.status) + '</span>' + tdRiskTag(c)
-    + '<span class="tr-who">' + esc(who) + '</span><span class="tr-date">' + esc(when) + '</span></button>';
+  const sid = esc(id);
+  return '<div class="td-card td-row' + (_tdSel === id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();tdSelect(\'' + sid + '\');}" title="' + esc(tip) + '" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status + '. ' + tip) + '">'
+    + '<span class="tr-name">' + esc(c.clientName || 'Admin task') + '</span>'
+    + '<span class="tr-work">' + esc(c.name) + '</span>'
+    + '<span class="tr-who">' + esc(processor) + '</span>'
+    + '<span class="tr-st">' + esc(c.status) + '</span>'
+    + '<span class="tr-date"><span class="tr-dt">' + esc(when) + '</span>' + tdRiskTag(c) + '</span>'
+    + '<span class="tr-link">' + linkCellHtml(c) + '</span></div>';
 }
 /* ---------------- One filter bar for every list: search + Status + Date ---------------- */
 const FLT_STATUSES = ['Assigned', 'In Progress', 'On Hold', 'In Review', 'Correction Required', 'Approved', 'Completed'];
 const FLT_PRESETS = [['any', 'Any date'], ['today', 'Today'], ['yesterday', 'Yesterday'], ['this-week', 'This week'], ['last-week', 'Last week'], ['this-month', 'This month'], ['last-month', 'Last month'], ['next7', 'Next 7 days'], ['custom', 'Pick dates…']];
 const FLT_BY = [['client', 'Client date'], ['due', 'Internal due date'], ['submitted', 'Submitted']];
-const FLT_DEFAULT = { td: { q: '', status: '', preset: 'any', from: '', to: '', by: 'client' }, rv: { q: '', status: '', preset: 'any', from: '', to: '', by: 'submitted' } };
+const FLT_DEFAULT = { td: { q: '', status: '', processor: '', preset: 'any', from: '', to: '', by: 'client' }, rv: { q: '', status: '', processor: '', preset: 'any', from: '', to: '', by: 'submitted' } };
 const _flt = { td: Object.assign({}, FLT_DEFAULT.td), rv: Object.assign({}, FLT_DEFAULT.rv) };
 const fltRedraw = {};                                           // namespace → what to redraw after a change
 function fltReset(ns){ _flt[ns] = Object.assign({}, FLT_DEFAULT[ns]); }
-function fltActive(ns){ const f = _flt[ns]; return !!(f.q.trim() || f.status || f.preset !== 'any'); }
+function fltActive(ns){ const f = _flt[ns]; return !!(f.q.trim() || f.status || f.processor || f.preset !== 'any'); }
+// Everyone who has work in the lists on screen — the choices in the Processor filter.
+function fltProcessors(ns){
+  const m = new Map(), T = _today;
+  let ids = null;
+  try {
+    if(T && ns === 'td'){ const M = T.modes[_tdMode]; ids = [...M.tiles.flatMap(t => t.ids), ...M.default.primary.ids, ...M.default.secondary.flatMap(x => x.ids)]; }
+    else if(T && ns === 'rv') ids = Object.values(T.review || {}).flat();
+  } catch(e){ ids = null; }
+  const cards = T && T.cards ? T.cards : {};
+  (ids ? ids.map(id => cards[id]) : Object.values(cards)).forEach(c => { if(c && c.assigneeId && c.assigneeName) m.set(c.assigneeId, c.assigneeName); });
+  return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+}
 function fltBounds(f){
   if(f.preset === 'any') return null;
   if(f.preset === 'next7') return { from: todayISO(), to: addDaysISO(7) };
@@ -7861,6 +7908,7 @@ function fltMatch(ns, c){
   const q = f.q.trim().toLowerCase();
   if(q && ![c.clientName, c.name, c.assigneeName, c.reviewerName, c.status, c.subState, c.taskType, c.kindLabel, c.id, c.nextAction].filter(Boolean).join(' ').toLowerCase().includes(q)) return false;
   if(f.status && c.status !== f.status) return false;
+  if(f.processor && c.assigneeId !== f.processor) return false;
   const b = fltBounds(f);
   if(b){ const d = fltCardDate(c, f.by); if(!d || d < b.from || d > b.to) return false; }
   return true;
@@ -7870,6 +7918,7 @@ function fltBarHtml(ns){
   return '<div class="flt-bar" role="search" aria-label="Search and filter">'
     + '<label class="flt-q"><span class="sr-only" style="position:absolute;left:-9999px;">Search</span><input type="search" id="flt_' + ns + '_q" class="td-search" placeholder="Search client, task, employee, status…" value="' + esc(f.q) + '" oninput="fltSet(\'' + ns + '\',\'q\',this.value)" autocomplete="off"></label>'
     + '<label class="flt-f"><span>Status</span><select id="flt_' + ns + '_status" onchange="fltSet(\'' + ns + '\',\'status\',this.value)"><option value="">All statuses</option>' + FLT_STATUSES.map(x => '<option' + (f.status === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></label>'
+    + '<label class="flt-f"><span>Processor</span><select id="flt_' + ns + '_processor" onchange="fltSet(\'' + ns + '\',\'processor\',this.value)"><option value="">All processors</option>' + fltProcessors(ns).map(([id, name]) => '<option value="' + esc(id) + '"' + (f.processor === id ? ' selected' : '') + '>' + esc(name) + '</option>').join('') + '</select></label>'
     + '<label class="flt-f"><span>Date</span><select id="flt_' + ns + '_preset" onchange="fltSet(\'' + ns + '\',\'preset\',this.value)">' + opt(FLT_PRESETS, f.preset) + '</select></label>'
     + '<label class="flt-f"><span>Date is the</span><select id="flt_' + ns + '_by" onchange="fltSet(\'' + ns + '\',\'by\',this.value)">' + opt(FLT_BY, f.by) + '</select></label>'
     + '<span class="flt-custom" id="flt_' + ns + '_custom"' + (f.preset === 'custom' ? '' : ' style="display:none;"') + '><label class="flt-f"><span>From</span><input type="date" id="flt_' + ns + '_from" value="' + esc(f.from) + '" onchange="fltSet(\'' + ns + '\',\'from\',this.value)"></label><label class="flt-f"><span>To</span><input type="date" id="flt_' + ns + '_to" value="' + esc(f.to) + '" onchange="fltSet(\'' + ns + '\',\'to\',this.value)"></label></span>'
@@ -7883,7 +7932,7 @@ function fltSet(ns, k, v){
 function fltClear(ns){
   fltReset(ns);
   const f = _flt[ns];
-  ['q', 'status', 'preset', 'by', 'from', 'to'].forEach(k => { const e = document.getElementById('flt_' + ns + '_' + k); if(e) e.value = f[k]; });
+  ['q', 'status', 'processor', 'preset', 'by', 'from', 'to'].forEach(k => { const e = document.getElementById('flt_' + ns + '_' + k); if(e) e.value = f[k]; });
   const c = document.getElementById('flt_' + ns + '_custom'); if(c) c.style.display = 'none';
   if(fltRedraw[ns]) fltRedraw[ns]();
 }
@@ -7912,12 +7961,12 @@ function tdListHtml(){
   const why = id => (_today.sections.needs.find(n => n.id === id) || {}).why || '';
   const done = id => (_today.sections.completed.find(d => d.id === id) || {}).action || '';
   const noteFor = x => (x.key === 'needs_now' || x.key === 'urgent' || x.key === 'risk') ? why : (x.key === 'done_today' || x.key === 'done') ? done : null;   // (my_work rows explain themselves in the status and the tooltip)
-  let out = head(S.primary.title, S.primary.ids.length) + (S.primary.ids.length ? cards(S.primary.ids, noteFor(S.primary)) : '<div class="td-empty">' + esc(fltActive('td') ? 'Nothing here matches your search or filters.' : S.primary.empty) + '</div>');
+  let out = head(S.primary.title, S.primary.ids.length) + (S.primary.ids.length ? TD_COLHEAD + cards(S.primary.ids, noteFor(S.primary)) : '<div class="td-empty">' + esc(fltActive('td') ? 'Nothing here matches your search or filters.' : S.primary.empty) + '</div>');
   if(S.note) out += '<div class="td-empty" role="note">' + esc(S.note) + '</div>';
   out += S.secondary.map(x => {
     const open = _tdOpen === x.key;
     return '<div class="td-acc"><button type="button" class="td-acc-h" aria-expanded="' + open + '" aria-controls="tdAcc_' + esc(x.key) + '" onclick="tdToggleOpen(\'' + esc(x.key) + '\')"><span>' + (open ? '▾ ' : '▸ ') + esc(x.title) + '</span><span>' + x.ids.length + '</span></button>'
-      + (open ? '<div id="tdAcc_' + esc(x.key) + '" role="region" aria-label="' + esc(x.title) + '">' + cards(x.ids, noteFor(x)) + '</div>' : '') + '</div>';
+      + (open ? '<div id="tdAcc_' + esc(x.key) + '" role="region" aria-label="' + esc(x.title) + '">' + TD_COLHEAD + cards(x.ids, noteFor(x)) + '</div>' : '') + '</div>';
   }).join('');
   return out;
 }
@@ -7930,8 +7979,16 @@ function tdTilesHtml(){
   }).join('');
 }
 // Redraw everything BELOW the tabs and search box (so typing in the search box never loses focus).
+// The first task in the list that is on screen — so the detail panel on the right opens by itself instead of sitting empty.
+function tdFirstVisibleId(){
+  const S = tdSections();
+  if(S.primary.ids.length) return S.primary.ids[0];
+  const open = S.secondary.find(x => x.key === _tdOpen && x.ids.length) || S.secondary.find(x => x.ids.length);
+  return open ? open.ids[0] : null;
+}
 function tdDrawBody(){
   const body = document.getElementById('tdBody'); if(!body || !_today) return;
+  if(!_tdSel && window.matchMedia('(min-width: 901px)').matches){ const f = tdFirstVisibleId(); if(f) _tdSel = f; }
   const M = tdModeData(), S = _tdTile ? M.tiles.find(x => x.key === _tdTile) : null;
   const reportsNote = S && S.key === 'reports_team' && S.breakdown ? '<div class="td-empty" role="note">Overdue to send: <b>' + S.breakdown.overdue + '</b> · Due today: <b>' + S.breakdown.today + '</b> · Due later: <b>' + S.breakdown.later + '</b> · Waiting for profit confirmation: <b>' + S.breakdown.profit + '</b>. A report is never counted late before its client date.</div>' : '';
   body.innerHTML = '<div class="td-counts" role="group" aria-label="' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + ' summary">' + tdTilesHtml() + '</div>'
@@ -7973,7 +8030,7 @@ function tdSelect(id){
 function tdBack(){ window.__tdMobileOpen = false; const g = document.getElementById('tdGrid'); if(g) g.classList.remove('show-detail'); }
 // Escape closes the open task panel — but never while a dialog is open (that handler closes the dialog first).
 document.addEventListener('keydown', e => {
-  if(e.key !== 'Escape' || !todayViewActive() || !_tdSel) return;
+  if(e.key !== 'Escape' || !todayViewActive() || !_tdSel || !window.__tdMobileOpen) return;   // (on a computer the panel always shows a task; Escape only closes it on a phone)
   const ov = document.getElementById('modalOverlay'); if(ov && ov.classList.contains('active')) return;
   _tdSel = null; window.__tdMobileOpen = false; tdDrawBody();
 });
@@ -7991,7 +8048,7 @@ function tdPrimary(id){
   return '';
 }
 function tdDetailHtml(id, given){
-  if(!id || !(given || (_today && _today.cards[id]))) return '<div class="td-empty" style="padding:30px 10px;">Select a task on the left to see everything about it here — no new page needed.</div>';
+  if(!id || !(given || (_today && _today.cards[id]))) return '<div class="td-empty" style="padding:30px 10px;">Nothing to show here — no task matches the tile and filters you chose.</div>';
   const c = given || _today.cards[id], t = findTask(id);
   const dt = iso => { const d = new Date(iso); return d.toLocaleDateString('en-NZ', { day:'2-digit', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }); };
   const fact = (label, val) => '<div><b>' + label + '</b><span>' + (val || '<span style="color:var(--text-faint);">—</span>') + '</span></div>';
@@ -8183,7 +8240,7 @@ function mtDrawList(){
   const body = document.getElementById('mtBody'), D = _mtData, F = D.facets;
   const primary = '<div class="mt-filters" role="search">'
     + '<label class="mt-f mt-q"><span>Search</span><input type="search" id="mtf_q" value="' + esc(_mt.q) + '" placeholder="Task, client, number or employee" oninput="mtSearch(this.value)"></label>'
-    + mtSel('mtf_employee', 'Employee', F.employees.map(e => [e.id, e.name]), _mt.employee)
+    + mtSel('mtf_employee', 'Processor', F.employees.map(e => [e.id, e.name]), _mt.employee)
     + mtSel('mtf_status', 'Status', MT_STATUSES.map(s => [s, s]), _mt.status)
     + mtSel('mtf_risk', 'Risk', MT_RISK, _mt.risk)
     + '<label class="mt-f"><span>Date</span><select id="mtf_datePreset" onchange="mtDatePreset(this.value)">' + FLT_PRESETS.map(([v, l]) => '<option value="' + v + '"' + ((_mt.datePreset || 'any') === v ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></label>'
@@ -8213,12 +8270,14 @@ function mtDrawResults(){
   const D = _mtData, box = document.getElementById('mtResults'); if(!box) return;
   const reportLabel = { sent_on_time:'Sent on time', sent_late:'Sent late', not_sent:'Not sent', pending:'Not yet due', na:'—' };
   const rows = D.rows.map(r => '<tr oncontextmenu="mtMenu(event,\'' + esc(r.id) + '\');return false;">'
-    + '<td data-l="Task"><button type="button" class="tm-link" onclick="mtOpenDetail(\'' + esc(r.id) + '\')"><b>' + esc(r.clientName || 'Admin task') + '</b> — ' + esc(r.name) + '</button><div class="tm-sub">' + esc(r.kindLabel) + ' · ' + esc(taskNo(r.id)) + '</div></td>'
-    + '<td data-l="Employee">' + esc(r.assigneeName || 'Unassigned') + '<div class="tm-sub">Reviewer: ' + esc(r.reviewerName || '—') + '</div></td>'
+    + '<td data-l="Name"><button type="button" class="tm-link" onclick="mtOpenDetail(\'' + esc(r.id) + '\')"><b>' + esc(r.clientName || 'Admin task') + '</b></button><div class="tm-sub">' + esc(taskNo(r.id)) + '</div></td>'
+    + '<td data-l="Work">' + esc(r.name) + '<div class="tm-sub">' + esc(r.kindLabel) + '</div></td>'
+    + '<td data-l="Processor">' + esc(r.assigneeName || 'Unassigned') + '<div class="tm-sub">Reviewer: ' + esc(r.reviewerName || '—') + '</div></td>'
     + '<td data-l="Status"><b>' + esc(r.status) + '</b><div class="tm-sub">' + esc(r.waitingOn.label) + (r.waitingOn.ownerName ? ' · ' + esc(r.waitingOn.ownerName) : '') + '</div>'
     + (r.assigneeId === currentViewerId && (findTask(r.id) || {}).status === 'awaiting_acceptance' ? '<button type="button" class="btn small primary td-act" style="margin-top:4px;" onclick="acceptTask(\'' + esc(r.id) + '\')">Accept</button>' : '') + '</td>'
     + '<td data-l="Internal due">' + (r.internalDeadline ? esc(fmtDate(r.internalDeadline)) : '—') + '<div class="tm-sub">' + esc(r.commitment.label) + '</div></td>'
-    + '<td data-l="Client date">' + (r.clientDate ? esc(fmtDate(r.clientDate)) : '—') + '<div>' + mtTag(r) + '</div></td>'
+    + '<td data-l="Client commitment date">' + (r.clientDate ? esc(fmtDate(r.clientDate)) : '—') + '<div>' + mtTag(r) + '</div></td>'
+    + '<td data-l="Link">' + linkCellHtml(r) + '</td>'
     + '<td data-l="Hours">' + (r.allocatedHours != null ? esc(String(r.allocatedHours)) + ' h' : '—') + '</td>'
     + '<td data-l="Report">' + esc(reportLabel[r.reportSent] || '—') + '</td>'
     + '<td class="tm-act"><button type="button" class="btn small td-act" aria-haspopup="menu" aria-label="Actions for ' + esc(r.name) + '" onclick="mtMenu(event,\'' + esc(r.id) + '\')">⋯</button></td></tr>').join('');
@@ -8226,7 +8285,7 @@ function mtDrawResults(){
     + '<span><button type="button" class="btn small td-act" ' + (D.page <= 1 ? 'disabled' : '') + ' onclick="mtPage(' + (D.page - 1) + ')">← Previous</button> Page ' + D.page + ' of ' + D.pages + ' <button type="button" class="btn small td-act" ' + (D.page >= D.pages ? 'disabled' : '') + ' onclick="mtPage(' + (D.page + 1) + ')">Next →</button></span>'
     + '<label class="mt-f"><span>Per page</span><select onchange="mtSetSize(this.value)">' + [25,50,100].map(n => '<option' + (D.pageSize === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label></div>';
   box.style.opacity = '';
-  box.innerHTML = (D.rows.length ? '<div class="tm-scroll"><table class="tm-table mt-table"><thead><tr><th>Task</th><th>Employee</th><th>Status</th><th>Internal due</th><th>Client date</th><th>Hours</th><th>Report</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+  box.innerHTML = (D.rows.length ? '<div class="tm-scroll"><table class="tm-table mt-table"><thead><tr><th>Name</th><th>Work</th><th>Processor</th><th>Status</th><th>Internal due</th><th>Client commitment date</th><th>Link</th><th>Hours</th><th>Report</th><th><span class="sr-only">Actions</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>'
     : '<div class="td-empty">No tasks match these filters. <button type="button" class="btn small td-act" onclick="mtClear()">Clear filters</button></div>') + pager;
 }
 function mtSet(k, v){ _mt[k] = v; _mt.page = 1; mtLoad(); }
@@ -8333,7 +8392,7 @@ function mtViewQuery(extra){
 function mtViewFilters(F, withRisk){
   const sel = (id, label, opts, val) => '<label class="mt-f"><span>' + label + '</span><select id="mtv_' + id + '" onchange="mtViewSet(\'' + id + '\', this.value)"><option value="">All</option>' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>';
   return '<div class="mt-filters" role="group" aria-label="Filters">'
-    + sel('employee', 'Employee', F.employees.map(e => [e.id, e.name]), _mt.employee) + sel('client', 'Client', F.clients.map(c => [c, c]), _mt.client)
+    + sel('employee', 'Processor', F.employees.map(e => [e.id, e.name]), _mt.employee) + sel('client', 'Client', F.clients.map(c => [c, c]), _mt.client)
     + sel('reviewer', 'Reviewer', F.reviewers.map(r => [r.id, r.name]), _mt.reviewer) + sel('status', 'Status', MT_STATUSES.map(x => [x, x]), _mt.status)
     + sel('type', 'Task type', [['client', 'Client Task'], ['admin', 'Admin Task']], _mt.type) + (withRisk ? sel('risk', 'Risk', MT_RISK, _mt.risk) : '')
     + '<button type="button" class="btn small td-act" onclick="mtViewClear()">Clear filters</button></div>';
@@ -11618,7 +11677,7 @@ function rqAge(c){
 // One line per task so ten or more fit on a screen: Client — task · links · who sent it · the Review button.
 // Everything else (when it was submitted, how long it has waited, the client date, files, rework) is under the row — click the arrow or the name to open it; only one is open at a time.
 let _rqOpen = null;
-const RQ_HEAD = '<div class="rq-head" aria-hidden="true"><span></span><span>Client — task</span><span>Links</span><span>Owner (sent by)</span><span></span></div>';
+const RQ_HEAD = '<div class="rq-head" aria-hidden="true"><span></span><span>Name</span><span>Work</span><span>Processor</span><span>Client commitment date</span><span>Link</span><span></span></div>';
 function rqCardHtml(c, kind){
   const t = findTask(c.id) || {};
   const submitted = c.reviewWaiting ? new Date(c.reviewWaiting.since).toLocaleString('en-NZ', { day:'2-digit', month:'short', hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }) : '—';
@@ -11630,8 +11689,11 @@ function rqCardHtml(c, kind){
   const links = [slotBits(t.sheetLink, 'Sheet', t.sheetFiles, 'rv-link').join(' · '), slotBits(t.cashbookLink, 'Cashbook', t.cashbookFiles, 'rv-link').join(' · ')].filter(Boolean).join(' · ') || '<span style="color:var(--text-faint);">no links</span>';
   const id = esc(c.id), label = (c.clientName || 'Admin task') + ' — ' + c.name, open = _rqOpen === c.id;
   return '<div class="rq-row" role="listitem"><button type="button" class="rq-tg" aria-expanded="' + open + '" aria-controls="rqd_' + id + '" aria-label="Details for ' + esc(label) + '" onclick="rqToggle(\'' + id + '\')">▸</button>'
-    + '<div class="rq-main" onclick="rqToggle(\'' + id + '\')" title="' + esc(label) + '"><b>' + esc(c.clientName || 'Admin task') + '</b><span class="rq-task"> — ' + esc(c.name) + '</span>' + flag + '</div>'
-    + '<div class="rq-links">' + links + '</div><div class="rq-own" title="Sent by ' + esc(c.assigneeName || '—') + '"><small>from</small>' + esc(c.assigneeName || '—') + '</div><div class="go">' + go + '</div></div>'
+    + '<div class="rq-name" onclick="rqToggle(\'' + id + '\')" title="' + esc(label) + '"><b>' + esc(c.clientName || 'Admin task') + '</b></div>'
+    + '<div class="rq-work" onclick="rqToggle(\'' + id + '\')" title="' + esc(label) + '">' + esc(c.name) + flag + '</div>'
+    + '<div class="rq-own rq-proc" title="Processor: ' + esc(c.assigneeName || '—') + '">' + esc(c.assigneeName || '—') + '</div>'
+    + '<div class="rq-cd">' + (c.clientDate ? esc(fmtDate(c.clientDate)) : '—') + '</div>'
+    + '<div class="rq-links">' + links + '</div><div class="go">' + go + '</div></div>'
     + '<div class="rq-det" id="rqd_' + id + '"' + (open ? '' : ' hidden') + '>' + esc(taskNo(c.id)) + (c.reworkCount ? ' · rework cycle ' + c.reworkCount : '') + (c.taskType ? ' · ' + esc(c.taskType) : '') + '<br>'
     + (c.reviewWaiting ? 'Submitted ' + esc(submitted) + ' · ' + rqAge(c) + '<br>' : '')
     + (c.clientDate ? 'Client commitment ' + esc(fmtDate(c.clientDate)) + ' — ' + esc(c.clientRisk.label.replace('Client deadline: ', '')) : 'No client commitment') + '<br>'

@@ -81,7 +81,7 @@ test('submitted work reaches MY queue only; the same task is never in two sectio
   const c = r.cards[t1.id];
   assert.equal(c.status, 'In Review'); assert.equal(c.waitingOn.kind, 'reviewer'); assert.equal(c.waitingOn.ownerName, 'Parvinder Kumar');
   assert.equal(c.reviewWaiting.days, 0); assert.equal(c.clientRisk.state, 'ok'); assert.equal(c.kindLabel, 'Client Task');
-  assert.equal(c.hasSheet, true); assert.equal(c.hasCashbook, true); assert.ok(c.allocatedHours === 2);
+  assert.equal(c.hasSheet, true); assert.equal(c.hasCashbook, true); assert.equal(c.sheetLink, 'https://docs.google.com/spreadsheets/d/x'); assert.equal(c.cashbookLink, 'https://example.com/cb'); assert.ok(c.allocatedHours === 2);
   const ids = sectionIds(r); assert.equal(new Set(ids).size, ids.length, 'no task appears twice across the sections');
   for (const [k, n] of Object.entries(r.counts)) assert.equal(n, r.filters[k].length, k + ' count = the list it opens');
   assert.ok(r.filters.review.includes(t1.id));
