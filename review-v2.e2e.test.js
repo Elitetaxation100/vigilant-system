@@ -103,6 +103,21 @@ test('APPROVE with profit confirmation: it goes to Shubam; without a Sheet / Cas
   assert.equal(c.waitingOn.kind, 'profit'); assert.ok(c.tracker.steps.some(s => s.key === 'profit' && s.state === 'current'), 'profit confirmation is its own milestone before Ready');
 });
 
+test('RETURN FOR CORRECTION: the category is optional — with none (or blank) the return works and nothing reads "null"; a made-up category is still refused', async () => {
+  const t = await submitted('No category');
+  const go = body => decide(t.id, { decision: 'return', requestId: R(), responsibility: 'Employee', note: 'Totals do not match the bank.', dueDate: later, ...body });
+  assert.equal((await go({ category: 'Made up' })).status, 400, 'a category that does not exist is still refused');
+  const r = await go({ category: '' });
+  assert.equal(r.status, 200, JSON.stringify(r.j));
+  assert.equal(r.j.task.correction.category, null); assert.equal(r.j.task.reviewEvents.at(-1).category, null);
+  assert.equal(r.j.task.status, 'awaiting_acceptance');
+  const rw = (await http('GET', '/api/notifications', { token: RJ })).j.notifications.find(x => x.type === 'rework' && x.taskId === t.id);
+  assert.match(rw.text, /needs a correction — due/); assert.doesNotMatch(rw.text, /null|undefined/);
+  const t2 = await submitted('Category left out entirely');
+  assert.equal((await decide(t2.id, { decision: 'return', requestId: R(), responsibility: 'Manager', note: 'Please redo the schedule.', dueDate: later })).status, 200, 'the field can simply be absent');
+  assert.equal((await mine(RJ, t2.id)).correction.category, null);
+});
+
 test('RETURN FOR CORRECTION: every field is required, a bad attempt changes nothing, and a good one reaches the employee with the reviewer\'s PDF', async () => {
   const t = await submitted('Return me');
   const bad = body => decide(t.id, { decision: 'return', requestId: R(), ...body });

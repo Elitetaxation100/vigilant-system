@@ -8013,7 +8013,7 @@ function tdDetailHtml(id, given){
       + grp('Dates', internal, client, fact('Date changes', dh))
       + grp('Work', fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), fact('Rework cycles', c.reworkCount ? String(c.reworkCount) : '0'), fact('Escalation', c.escalation ? 'Open — ' + esc(c.escalation.toName || '') + (c.escalation.decisionDate ? ' by ' + esc(c.escalation.decisionDate) : '') : 'None'));
   } else if(mode === 'review'){
-    facts = grp('Submission', fact('Submitted', c.submittedAt ? esc(dt(c.submittedAt)) + (c.assigneeName ? '<span class="sub">by ' + esc(c.assigneeName) + '</span>' : '') : ''), waitFact, fact('Previous corrections', c.reworkCount ? c.reworkCount + (c.correction ? ' · last: ' + esc(c.correction.category || '') : '') : 'None'))
+    facts = grp('Submission', fact('Submitted', c.submittedAt ? esc(dt(c.submittedAt)) + (c.assigneeName ? '<span class="sub">by ' + esc(c.assigneeName) + '</span>' : '') : ''), waitFact, fact('Previous corrections', c.reworkCount ? c.reworkCount + (c.correction && c.correction.category ? ' · last: ' + esc(c.correction.category) : '') : 'None'))
       + grp('Dates', client, fact('Internal commitment', esc(c.commitment.label)))
       ;
   } else {
@@ -12651,7 +12651,7 @@ function rv2Pick(d){
     sub.textContent = 'Approve';
   } else if(d === 'return'){
     box.innerHTML = '<h4>C · Return for correction</h4>'
-      + '<div class="field"><label>Correction category <span class="req-mark">*</span></label><select id="rv2Cat">' + opts(RV2_CATEGORIES) + '</select></div>'
+      + '<div class="field"><label>Correction category <span class="at-hint">optional</span></label><select id="rv2Cat"><option value="">— None —</option>' + RV2_CATEGORIES.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('') + '</select></div>'
       + note('Correction note — what must be fixed', true)
       + '<div class="field"><label>Who is responsible? <span class="req-mark">*</span></label><select id="rv2Resp">' + opts(RV2_RESPONSIBILITY) + '</select></div>'
       + '<div class="field"><label>Correction due date <span class="req-mark">*</span></label><input type="date" id="rv2Due" min="' + todayISO() + '" value="' + addDaysISO(2) + '"></div>'
@@ -12679,11 +12679,10 @@ async function rv2Submit(){
     body.clean = true;
     const p = document.querySelector('input[name="rv2Profit"]:checked'); body.profitRequired = !!(p && p.value === 'yes');
   } else if(d === 'return'){
-    if(!v('rv2Cat')) return fail('Choose the correction category.');
     if(body.note.length < 3) return fail('Write the correction note — what must be fixed.');
     if(!v('rv2Resp')) return fail('Choose who is responsible.');
     if(!v('rv2Due')) return fail('Choose the correction due date.');
-    Object.assign(body, { category: v('rv2Cat'), responsibility: v('rv2Resp'), dueDate: v('rv2Due'), attachments: slotIds('rv2File') });
+    Object.assign(body, { category: v('rv2Cat') || null, responsibility: v('rv2Resp'), dueDate: v('rv2Due'), attachments: slotIds('rv2File') });
   } else {
     if(v('rv2Reason').trim().length < 3) return fail('Say why you are escalating.');
     if(!v('rv2To')) return fail('Choose who should decide.');
@@ -13375,7 +13374,7 @@ function taskTimelineEvents(t){
   (t.reviewEvents || []).forEach(e => {
     const who = '<b>' + esc(nm(e.byId) || '—') + '</b>';
     const files = (e.attachmentIds || []).length ? '<div style="font-size:12px;color:var(--text-faint);">📎 ' + e.attachmentIds.length + ' file' + (e.attachmentIds.length > 1 ? 's' : '') + ' attached</div>' : '';
-    if(e.type === 'returned') push(e.at, '🛑', who + ' returned it for correction — <i>' + esc(e.category || '') + '</i> · responsibility: ' + esc(e.responsibility || '—') + ' · due ' + esc(e.dueDate ? fmtDate(e.dueDate) : '—') + (e.note ? ': “' + esc(e.note) + '”' : '') + '.', files);
+    if(e.type === 'returned') push(e.at, '🛑', who + ' returned it for correction' + (e.category ? ' — <i>' + esc(e.category) + '</i>' : '') + ' · responsibility: ' + esc(e.responsibility || '—') + ' · due ' + esc(e.dueDate ? fmtDate(e.dueDate) : '—') + (e.note ? ': “' + esc(e.note) + '”' : '') + '.', files);
     else if(e.type === 'approved') push(e.at, '🔎', who + ' approved it' + (e.profitRequired ? ' — profit confirmation required' : '') + (e.note ? ': “' + esc(e.note) + '”' : '') + '.');
     else if(e.type === 'escalated') push(e.at, '⚖️', who + ' escalated it to <b>' + esc(nm(e.toId) || '—') + '</b> — decision needed by ' + esc(e.decisionDate ? fmtDate(e.decisionDate) : '—') + ': “' + esc(e.reason || '') + '”.', files);
     else if(e.type === 'escalation_resolved') push(e.at, '✅', who + ' decided on the escalation: “' + esc(e.note || '') + '”.');
@@ -13597,7 +13596,7 @@ function openReworkDetailModal(id){
       ${t.reviewScore != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Score given:</b> ${t.reviewScore}/100</div>` : ''}
       ${t.reviewMarks ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Marks:</b> ${t.reviewMarks > 0 ? '+' : ''}${t.reviewMarks}</div>` : ''}
       ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
-      ${t.correction ? `<div style="margin-top:8px;"><b style="color:#7A2A0C;">Correction category:</b> ${esc(t.correction.category)} · <b style="color:#7A2A0C;">Due:</b> ${esc(fmtDate(t.correction.dueDate))}</div>` : ''}
+      ${t.correction ? `<div style="margin-top:8px;">${t.correction.category ? `<b style="color:#7A2A0C;">Correction category:</b> ${esc(t.correction.category)} · ` : ''}<b style="color:#7A2A0C;">Due:</b> ${esc(fmtDate(t.correction.dueDate))}</div>` : ''}
       ${(t.reviewAttachments || []).length ? `<div style="margin-top:10px;"><b style="color:#7A2A0C;">Attached by the reviewer:</b>${reviewFilesByRoundHtml(t)}</div>` : ''}
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
