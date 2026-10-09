@@ -590,6 +590,9 @@ function runMigrations(state) {
       const hh = (t.holdHistory || []).find(h => h && h.queryId === q.id);
       if (hh && hh.heldAt && new Date(hh.heldAt).toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' }) === String(q.sentAt).slice(0, 10)) q.sentTs = hh.heldAt;
     });
+    // A correction in progress measures working time from the hours logged when it began. Corrections already under way get that baseline now
+    // (their hours so far count as before the correction). Idempotent: only fills a missing baseline.
+    if (t.reworkLoggedAtStart === undefined && t.reworkStartedAt && (t.status === 'rework' || (t.status === 'on_hold' && t.preHoldStatus === 'rework'))) t.reworkLoggedAtStart = Number(t.logged) || 0;
     // "Yet to start" vs "In progress": accepting no longer auto-starts the
     // clock. startedAt records the first Start.
     if (t.startedAt === undefined) t.startedAt = null;

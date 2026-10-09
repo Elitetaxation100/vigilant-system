@@ -434,10 +434,12 @@ function isProfitConfirmer(state, emp) {
     });
   }
 
-/** Live elapsed time (wall-clock) since a task currently in rework was sent back — null once it's resubmitted. */
+/** Working time spent on the current correction: only the time the work clock actually RAN since the correction was accepted. Time on hold,
+ *  paused or sitting idle does not count (the clock stops on hold, so this figure simply stops). null once resubmitted or if unknown. */
 function reworkElapsedHours(t) {
-  if (t.status !== 'rework' || !t.reworkStartedAt) return null;
-  return (Date.now() - new Date(t.reworkStartedAt).getTime()) / 3600000;
+  const inRework = t.status === 'rework' || (t.status === 'on_hold' && t.preHoldStatus === 'rework');
+  if (!inRework || !t.reworkStartedAt || typeof t.reworkLoggedAtStart !== 'number') return null;
+  return Math.max(0, liveElapsedHours(t) - t.reworkLoggedAtStart);
 }
 // ---------------------------------------------------------------------------
 // QUERY-AWARE COMMITMENT (Phase 2). A client query freezes the commitment
@@ -2837,7 +2839,7 @@ app.post('/api/tasks/:id/accept', requireAuth, (req, res) => {
   // the comment on /review below.
   if (t.reviewStatus === 'error') {
     t.status = 'rework';
-    t.reworkStartedAt = new Date().toISOString();
+    t.reworkStartedAt = new Date().toISOString(); t.reworkLoggedAtStart = t.logged;
     logEvent(state, t.assignedTo, `Accepted rework for "${escHtml(t.name)}" — now due ${t.internalDeadline || 'as agreed'}.`);
   } else {
     t.status = 'accepted';
@@ -4152,11 +4154,13 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   if (newRv && newRv.error) return res.status(400).json({ error: newRv.error });
   const endedAt = new Date().toISOString();
   const startedAt = t.reworkStartedAt;
-  const durationHours = startedAt ? Math.round(((new Date(endedAt) - new Date(startedAt)) / 3600000) * 100) / 100 : null;
-  t.logged += durationHours || 0; // actual time spent on this rework round, added to the task's total
+  // Only the time the work clock actually ran counts — not time on hold, paused, or idle. Bank a running clock first; the rework hours are
+  // what was logged since the correction began (they are already in t.logged, so nothing is added twice).
+  if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+  const durationHours = typeof t.reworkLoggedAtStart === 'number' ? Math.round(Math.max(0, t.logged - t.reworkLoggedAtStart) * 100) / 100 : null;
   t.reworkHistory = t.reworkHistory || [];
   t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: (t.reviewAttachments || []).filter(a => a.cycle == null || a.cycle === t.reworkCount) });
-  t.reworkStartedAt = null;
+  t.reworkStartedAt = null; t.reworkLoggedAtStart = null;
   t.status = 'completed';
   t.completedAt = recordSubmission(t, req.employee, 'resubmit', endedAt);
   t.reviewStatus = null;
@@ -4215,7 +4219,7 @@ app.post('/api/tasks/:id/approve-window', requireAuth, (req, res) => {
   // rule as /accept: this puts the rework clock in motion (reworkStartedAt).
   if (t.reviewStatus === 'error') {
     t.status = 'rework';
-    t.reworkStartedAt = new Date().toISOString();
+    t.reworkStartedAt = new Date().toISOString(); t.reworkLoggedAtStart = t.logged;
   } else {
     t.status = 'accepted';
     t.acceptedAt = new Date().toISOString();
@@ -4239,7 +4243,7 @@ app.post('/api/tasks/:id/reject-window', requireAuth, (req, res) => {
   // proposal means the original deadline stands.
   if (t.reviewStatus === 'error') {
     t.status = 'rework';
-    t.reworkStartedAt = new Date().toISOString();
+    t.reworkStartedAt = new Date().toISOString(); t.reworkLoggedAtStart = t.logged;
   } else {
     t.status = 'accepted';
     t.acceptedAt = new Date().toISOString();
@@ -4450,7 +4454,7 @@ function applyReassign(state, t, actor, newAssigneeId, reason) {
   // ownership window — clear it so a stale timestamp can't leak through.
   // If reviewStatus is still 'error', the new assignee's own Accept (or
   // an approved/rejected window) will set a fresh reworkStartedAt.
-  t.reworkStartedAt = null;
+  t.reworkStartedAt = null; t.reworkLoggedAtStart = null;
   t.timerStartedAt = null;
   const reworkNote = t.reviewStatus === 'error' ? ' This task is flagged for rework — the new assignee will see the reviewer\'s note.' : '';
   notify(state, newAssigneeId, 'assigned', `${req.employee.name} reassigned "${t.name}" to you — accept it or propose a new date.`, t.id);
