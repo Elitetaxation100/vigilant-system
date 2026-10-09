@@ -39,7 +39,7 @@ test('every task has ONE owner for the next action, in the spec\'s words', () =>
   assert.deepEqual([w(base()).kind, w(base()).label], ['employee', 'Waiting on employee']);
   assert.deepEqual([w(submitted()).kind, w(submitted()).ownerName], ['reviewer', 'Parvinder Kumar']);
   assert.equal(w(base({ status: 'awaiting_acceptance', reviewStatus: 'error' })).label, 'Waiting on employee');
-  assert.equal(w(base({ status: 'on_hold', holdReasonCode: 'CLIENT_DOCS' })).label, 'Waiting on client');
+  assert.equal(w(base({ status: 'on_hold', holdReasonCode: 'CLIENT_DOCS' })).label, 'Waiting on client documents');
   assert.equal(w(base({ status: 'on_hold', holdReasonCode: 'THIRD_PARTY' })).label, 'Waiting on external authority');
   assert.equal(w(base({ status: 'on_hold', holdReasonCode: 'CAPACITY' })).label, 'Waiting on manager');
   assert.equal(w(base({ assignedTo: null, status: 'awaiting_acceptance' })).label, 'Waiting on manager');
@@ -79,7 +79,11 @@ test('commitment tags: a REVIEWER delay is never an employee breach', () => {
   assert.equal(tag(base({ internalDeadline: '2026-10-10', clientDate: '2026-10-09' })), 'at_risk');
   assert.equal(tag(base({ internalDeadline: '2026-10-10', clientDate: '2026-10-20' })), 'on_track');
   assert.equal(tag(base({ kind: 'internal', clientId: null })), 'na', 'an Admin Task has no client commitment');
-  assert.equal(tag(base({ status: 'on_hold', holdReasonCode: 'CLIENT_QUERY', internalDeadline: '2026-10-01' })), 'waiting_client', 'an approved client-wait hold pauses the clock');
+  // a hold protects nothing by itself — only an APPROVED pause on a verified external dependency does
+  assert.equal(tag(base({ status: 'on_hold', holdReasonCode: 'CLIENT_INFO', internalDeadline: '2026-10-01' })), 'breached', 'a plain hold does not remove a miss');
+  const paused = { status: 'on_hold', holdReasonCode: 'CLIENT_INFO', internalDeadline: '2026-10-01', holdHistory: [{ heldAt: '2026-09-30T01:00:00Z', queryId: 'q1' }], queries: [{ id: 'q1', reasonCode: 'CLIENT_INFO', pauseStatus: 'approved', sentAt: '2026-09-30' }] };
+  assert.equal(tag(base(paused)), 'waiting_client', 'an approved pause on a recorded client query pauses the processor responsibility');
+  assert.equal(tag(base({ ...paused, queries: [{ ...paused.queries[0], pauseStatus: 'pending' }] })), 'breached', 'an unapproved pause pauses nothing');
 });
 
 test('date arithmetic cannot shift across daylight saving (NZ clocks went forward on 27 Sept 2026 and back on 5 Apr 2026)', () => {

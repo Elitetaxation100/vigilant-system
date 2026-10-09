@@ -133,6 +133,10 @@ function exceptions(rows, tasks, deps) {
     if ((r.reworkCount || 0) >= 2) add(r, 'repeated_return', 'Returned ' + r.reworkCount + ' times', 'Rework cycle ' + r.reworkCount);
     if (r.status === 'On Hold' && r.holdFollowUp && r.holdFollowUp <= today) add(r, 'followup_due', 'Hold follow-up is due', 'Follow up ' + (r.holdFollowUp === today ? 'today' : 'was due ' + r.holdFollowUp) + (r.holdResponsibility ? ' · ' + r.holdResponsibility.replace('_', ' ') : ''));
     if (r.status === 'On Hold' && r.heldAt && dayDiff(r.heldAt) > HOLD_BLOCKED_DAYS) add(r, 'blocked_long', 'On hold for ' + dayDiff(r.heldAt) + ' days', r.waitingOn.label);
+    // A recorded query is waiting for a manager to approve (or refuse) pausing the processor's responsibility.
+    if (r.status === 'On Hold' && r.hold && r.hold.pauseRequested) add(r, 'pause_pending', 'Pause of responsibility awaiting your approval', (r.assigneeName || 'The processor') + ' — ' + (r.hold.categoryLabel || 'on hold'));
+    // On hold for the client / an authority but no query evidence was ever recorded: nothing is paused — flagged for review.
+    if (r.status === 'On Hold' && r.hold && /^(CLIENT_|EXTERNAL_|THIRD_PARTY)/.test(r.hold.category || '') && !r.hold.queryRecorded) add(r, 'hold_no_evidence', 'On hold for the client with no query evidence recorded', 'Nothing is paused · ' + (r.hold.categoryLabel || ''));
     if (r.status === 'Approved' && isClient && r.reportSent === 'not_sent' && t.reviewedAt && dayDiff(t.reviewedAt) >= REPORT_UNSENT_DAYS) add(r, 'report_unsent', 'Client report not sent', 'Approved ' + dayDiff(t.reviewedAt) + ' day(s) ago');
     if (t.profitConfirmStatus === 'pending' && t.profitConfirmRequestedAt && dayDiff(t.profitConfirmRequestedAt) > PROFIT_OVERDUE_DAYS) add(r, 'profit_overdue', 'Profit confirmation overdue', 'Waiting ' + dayDiff(t.profitConfirmRequestedAt) + ' days');
     if ((t.noReviewAttempts || []).length && ['Assigned', 'In Progress', 'On Hold'].includes(r.status)) add(r, 'no_review_attempt', 'No-review override attempted', (t.noReviewAttempts.length) + ' attempt(s)');

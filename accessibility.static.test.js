@@ -42,7 +42,7 @@ test('every new screen has loading, empty and error states with a retry; live re
 });
 
 test('form controls are labelled; link and review fields explain themselves', () => {
-  for (const id of ['atSheet', 'atCash', 'atReviewer', 'atNoReviewReason', 'holdResp', 'holdFollow', 'mtaReason'])
+  for (const id of ['atSheet', 'atCash', 'atReviewer', 'atNoReviewReason', 'holdReasonCode', 'holdReason', 'holdFollow', 'mtaReason'])
     assert.match(html, new RegExp('<label[^>]*for="' + id + '"'), id + ' has a label');
   assert.match(html, /<label class="mt-f mt-q"><span>Search<\/span><input type="search"/, 'search is a real search field');
 });
@@ -106,7 +106,7 @@ test('the Sheet and Cashbook links are real links that open in a new tab and nev
 test('no task opens by itself: the details panel appears only when a row is clicked, the list uses the full width until then, and it can be closed', () => {
   assert.doesNotMatch(html, /tdFirstVisibleId/, 'nothing picks a first task');
   assert.match(html, /\(_tdSel \? ' has-sel' : ''\)/);
-  assert.match(html, /\.td-grid:not\(\.has-sel\)\{ grid-template-columns:1fr !important; \} \.td-grid:not\(\.has-sel\) \.td-detail\{ display:none !important; \}/);
+  assert.match(html, /\.td-grid:not\(\.has-sel\)\{ grid-template-columns:minmax\(0,1fr\) !important; \} \.td-grid:not\(\.has-sel\) \.td-detail\{ display:none !important; \}/);
   assert.match(html, /function tdBack\(\)\{ _tdSel = null; window\.__tdMobileOpen = false; tdDrawBody\(\); \}/);
   assert.doesNotMatch(html, /Select a task on the left to see everything about it here/);
 });
@@ -126,4 +126,27 @@ test('the Calendar opens on TODAY and shows only today\'s client commitment date
   assert.match(fn, /todays\('client'\)/); assert.match(fn, /todays\('internal'\)/);
   assert.doesNotMatch(fn, /correction|followup/, 'no other kind of date is mixed in');
   assert.match(fn, /colHeadHtml\(label\)/, 'the same column headings as every other list');
+});
+
+test('Founder dashboard: three real tabs, tiles are buttons, one set of lists at a time, filters labelled, clutter gone, More insights collapsed', () => {
+  const fd = html.slice(html.indexOf('let _fdTile = null'), html.indexOf('function renderRiskFlags(){'));
+  assert.match(html, /<div id="fdRoot" aria-live="polite"><\/div>/);
+  assert.match(fd, /role="tablist" aria-label="Founder dashboard view"/); assert.match(fd, /role="tab"/); assert.match(fd, /aria-selected="/); assert.match(fd, /role="tabpanel"/);
+  assert.match(fd, /ArrowRight[\s\S]*ArrowLeft[\s\S]*Home[\s\S]*End/, 'arrow keys move between tabs');
+  assert.doesNotMatch(fd.slice(fd.indexOf('function fdTabs'), fd.indexOf('function fdTabKey')), /checkbox/, 'views are tabs, not checkboxes');
+  for (const v of ['today', 'founder', 'review']) assert.ok(fd.includes("'" + v + "'"), v + ' view exists');
+  assert.match(fd, /Today[\s\S]{0,200}Founder View[\s\S]{0,200}Review & Decisions/);
+  const set = fd.slice(fd.indexOf('function fdSetView'), fd.indexOf('function fdSetView') + 300), reset = fd.slice(fd.indexOf('function fdReset'), fd.indexOf('async function renderFounderView'));
+  assert.ok(set.includes('fdReset()'), 'changing view resets everything');
+  for (const v of ['_fdTile = null', '_fdSel = null', '_fdDrill = null', '_fdPerfSel = null']) assert.ok(reset.includes(v), 'reset clears ' + v);
+  assert.match(fd, /<button type="button" class="td-count/, 'tiles are real buttons');
+  assert.match(fd, /<label class="flt-f"><span>' \+ label \+ '<\/span><select id="' \+ id/, 'filters have visible labels');
+  for (const l of ['Scope', 'Period', 'Compare with the previous period']) assert.ok(fd.includes(l), l + ' filter');
+  assert.match(fd, /Not available/, 'a missing figure says Not available, never a silent 0%');
+  assert.match(fd, /Loading/); assert.match(fd, /role="alert"/); assert.ok(fd.includes('Showing highest-risk'));
+  assert.match(fd, /<details class="fd-sec fd-more" id="fdMore"' \+ \(_fdMoreOpen \? ' open' : ''\)/, 'More insights starts collapsed');
+  for (const gone of ['Time Clock', 'Punch', 'Online', 'Offline', 'worked hours', 'Worked hours']) assert.ok(!fd.includes(gone), gone + ' is not on the Founder dashboard');
+  assert.match(html, /body\.v2-dash \.clock-card, body\.fd-active \.clock-card\{ display:none !important; \}/);
+  assert.equal((html.match(/id="view-founder"/g) || []).length, 1, 'one Founder page');
+  assert.match(fd, /\/api\/founder\/dashboard/); assert.doesNotMatch(fd, /state\.tasks|allTasks\.filter/, 'the screen does no calculating of its own');
 });

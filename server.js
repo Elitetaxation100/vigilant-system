@@ -20,7 +20,9 @@ const spaceWatch = require('./space-watch');
 const prodRules = require('./productivity-rules');
 const dataQuality = require('./data-quality');
 const workflow = require('./workflow');
+const holdModel = require('./hold-model');
 const mgr = require('./manager-views');
+const founderMetrics = require('./founder-metrics');
 const crmHealth = require('./crm-health');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
@@ -85,15 +87,14 @@ async function sendPush(state, empId, payload) {
 // `exempting` codes freeze the client commitment clock (Phase 2); the rest
 // are internal and keep it running. `needsDetail` requires free text.
 // ---------------------------------------------------------------------------
-const HOLD_REASONS = {
-  CLIENT_QUERY:    { label: 'Awaiting client answer to a query',        exempting: true,  needsDetail: false },
-  CLIENT_DOCS:     { label: 'Awaiting documents / records from client', exempting: true,  needsDetail: false },
-  THIRD_PARTY:     { label: 'Awaiting IRD / bank / third party',        exempting: true,  needsDetail: true  },
-  INTERNAL_REVIEW: { label: 'Blocked on a reviewer or partner sign-off', exempting: false, needsDetail: false },
-  CAPACITY:        { label: 'Re-prioritised — parked by manager',        exempting: false, needsDetail: false, managerOnly: true },
-  BLOCKED_OTHER:   { label: 'Other',                                     exempting: false, needsDetail: true  },
-};
-const EXEMPTING_REASONS = new Set(Object.keys(HOLD_REASONS).filter(k => HOLD_REASONS[k].exempting));
+// (the structured categories live in hold-model.js; this table is the same data in the shape the routes below use)
+const HOLD_REASONS = Object.fromEntries([
+  ...holdModel.CATEGORIES.map(c => [c.code, { label: c.label, exempting: c.external, needsDetail: true, kind: c.kind, clientRelated: c.clientRelated }]),
+  ...Object.entries(holdModel.LEGACY).map(([k, c]) => [k, { label: c.label, exempting: c.external, needsDetail: k === 'THIRD_PARTY' || k === 'BLOCKED_OTHER', kind: c.kind, clientRelated: c.clientRelated, managerOnly: !!c.managerOnly, legacy: true }]),
+]);
+// "exempting" = a verified EXTERNAL dependency. Only these may ever pause the processor's responsibility (and only with a recorded, approved query).
+const EXTERNAL_HOLD_CODES = new Set(holdModel.EXTERNAL_CODES);
+const EXEMPTING_REASONS = EXTERNAL_HOLD_CODES;
 // Working days between the internal due date and what the client is told.
 const DISPATCH_BUFFER_WD = 3;
 
@@ -186,6 +187,8 @@ if (!JWT_SECRET) {
 function publicEmployee(e, viewerIsAdmin) {
   const { passwordHash, crmUserId, crmUserIdHistory, ...rest } = e;
   if (viewerIsAdmin) { rest.crmUserId = crmUserId; rest.crmUserIdHistory = crmUserIdHistory; }
+  // The focused dashboard is the default for every ordinary employee (processor); a superadmin can still switch it off or on per person.
+  rest.dashboardV2 = e.dashboardV2 !== undefined && e.dashboardV2 !== null ? !!e.dashboardV2 : e.accessRole === 'employee';
   rest.isProfitConfirmer = isProfitConfirmer(db.get(), e);
   rest.canDirectProfitConfirm = canDirectProfitConfirm(e);
   return rest;
@@ -453,17 +456,18 @@ function taskShiftDays(t) {
   let shift = 0;
   for (const q of (t.queries || [])) {
     if (q.dismissedAt || !EXEMPTING_REASONS.has(q.reasonCode)) continue;
+    if (q.pauseStatus === 'pending' || q.pauseStatus === 'rejected') continue;       // responsibility is only paused once a manager has approved it
     shift += cal.queryShift(q, today).shift;
   }
   return shift;
 }
+// The client commitment date is exactly what was agreed. A hold or a client query never moves it — only an authorised manager change
+// (Edit dates) does. (A verified external wait pauses the PROCESSOR's own internal responsibility instead — see internalDueOf in workflow.js.)
 function effectiveClientDate(t) {
-  if (!t.clientDate) return null;
-  const s = taskShiftDays(t);
-  return s > 0 ? cal.addWorkingDays(t.clientDate, s) : t.clientDate;
+  return t.clientDate || null;
 }
 function anyQueryOpen(t) {
-  return (t.queries || []).some(q => !q.dismissedAt && EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
+  return (t.queries || []).some(q => !q.dismissedAt && q.pauseStatus !== 'rejected' && EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
 }
 // A client query — and the freeze of the client commitment date that comes with it — is only ever recorded by the task's owner (or their
 // manager), on purpose, with the real date AND time it was sent. A hold alone never opens one, and nothing is stamped at midnight.
@@ -480,15 +484,18 @@ function nzLocalToIso(day, hhmm) {
 }
 // Validate what the owner typed for a client query. Returns { error } or { source, sentAt, sentTs }.
 function parseQueryInput(body, reasonCode) {
-  const source = reasonCode === 'THIRD_PARTY' ? 'manual' : String(body.querySource || '');
-  if (reasonCode !== 'THIRD_PARTY' && !['email', 'phone', 'whatsapp', 'in_person'].includes(source)) return { error: 'Say how you asked the client — email, phone, WhatsApp or in person.' };
+  const noSource = ['THIRD_PARTY', 'EXTERNAL_AUTHORITY'].includes(reasonCode);
+  const source = noSource ? 'manual' : String(body.querySource || '');
+  const evidence = String(body.queryEvidence || '').trim();
+  if (evidence.length < 3) return { error: 'Give the evidence for the query — the email subject, message reference or link, or a short note of the call (who, when).' };
+  if (!noSource && !['email', 'phone', 'whatsapp', 'in_person'].includes(source)) return { error: 'Say how you asked the client — email, phone, WhatsApp or in person.' };
   const day = String(body.querySentAt || '').slice(0, 10), time = String(body.querySentTime || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !time) return { error: 'Say the date and the time the query was sent — it is never filled in for you.' };
   if (day > todayISO()) return { error: "The query can't be dated in the future." };
   const ts = nzLocalToIso(day, time);
   if (!ts) return { error: 'That is not a valid New Zealand date and time.' };
   if (Date.parse(ts) > Date.now() + 5 * 60000) return { error: "The query can't be timed in the future." };
-  return { source, sentAt: day, sentTs: ts };
+  return { source, sentAt: day, sentTs: ts, evidence: evidence.slice(0, 500) };
 }
 // Who reviews a task can be changed by the person doing the work (when handing it back, or while it waits). Every change is kept in
 // t.reviewerHistory and the new reviewer is told (the old one simply stops having it waiting). Returns { error } or { changed, from, to }.
@@ -528,8 +535,6 @@ function commitmentOutcome(t) {
     return nzDay(t.completedAt) <= eff ? 'met' : 'missed';
   }
   if (t.reviewStatus === 'error') return 'rework';
-  if (anyQueryOpen(t)) return 'exempt';
-  if (t.status === 'on_hold') return 'on_hold';       // on hold, whatever the reason: not counted as missed or at risk
   const today = todayISO();
   if (today <= eff) return 'on-track';
   if (today <= cal.addWorkingDays(eff, 1)) return 'at-risk';
@@ -540,11 +545,13 @@ function commitmentOutcome(t) {
 // credit — used by the Exceptions/Open Work section and the drill-down's
 // excluded-task table (spec §6/§13).
 const OPEN_STATUS_REASONS = {
-  awaiting_acceptance: 'Awaiting acceptance',
-  accepted: 'In progress',
+  awaiting_acceptance: 'Not completed — awaiting acceptance',
+  accepted: 'Not completed — in progress',
   on_hold: 'On hold',
-  rework: 'Needs rework',
-  window_proposed: 'Window proposed',
+  rework: 'Returned for correction',
+  window_proposed: 'Not completed — new date proposed',
+  pending_approval: 'Not completed — assignment awaiting approval',
+  cancelled: 'Cancelled',
 };
 
 // ---------------------------------------------------------------------------
@@ -586,8 +593,9 @@ function isReviewerCapable(state, employeeId) {
 }
 function productivityQualifies(state, t, v2At, reportInfo) {
   const isInternal = t.kind === 'internal';
-  const submissionMet = (t.completedAt && t.internalDeadline)
-    ? nzDay(t.completedAt) <= t.internalDeadline : null;
+  const firstHandIn = t.firstSubmittedAt || t.completedAt;
+  const internalDue = t.internalDeadline ? (taskShiftDays(t) > 0 ? cal.addWorkingDays(t.internalDeadline, taskShiftDays(t)) : t.internalDeadline) : null;
+  const submissionMet = (firstHandIn && internalDue) ? nzDay(firstHandIn) <= internalDue : null;
   const stages = {
     processor: submissionMet == null ? null : (submissionMet ? 'met' : 'missed'),
     reviewer: t.reviewStatus === 'clean' ? 'clean' : t.reviewStatus === 'done' ? 'done'
@@ -605,25 +613,17 @@ function productivityQualifies(state, t, v2At, reportInfo) {
     return exclude(OPEN_STATUS_REASONS[t.status] || 'Not yet delivered');
   }
 
-  // Missing/invalid allocated-hours snapshot is a data exception, never a
-  // silent zero-hour "qualify" — a genuinely zero-hour task (snapshot === 0,
-  // explicitly valid) still qualifies, just credits nothing (zeroHourTask).
+  // Missing/invalid allocated-hours snapshot is a data exception, never a silent zero-hour "qualify" — a genuinely zero-hour task
+  // (snapshot === 0, explicitly valid) still qualifies, just credits nothing (zeroHourTask).
   const rawSnapshot = t.productivityAllocatedHoursSnapshot;
   const snapshotNum = Number(rawSnapshot);
   const snapshotValid = rawSnapshot !== null && rawSnapshot !== undefined && Number.isFinite(snapshotNum) && snapshotNum >= 0;
   if (!snapshotValid) return exclude('Missing allocated-hours snapshot', { dataException: true });
-  // If this task was on hold through one or more manual month-closes (see
-  // closeMonthOnHoldCredits), those already paid out actual-hours credit to
-  // earlier periods — subtract that back out here so the task's completion
-  // period doesn't ALSO get its full original estimate, which would double
-  // -count the same work. What's left over is what completion actually
-  // still earns.
-  const bankedHours = (t.monthCloseCredits || []).reduce((s, c) => s + (Number(c.hours) || 0), 0);
-  const creditHours = Math.max(0, Math.round((snapshotNum - bankedHours) * 100) / 100);
+  // FULL allocated hours or nothing. There is no partial credit: hours banked for held work at a month-close, hours "so far", or a share
+  // of the estimate are never credited — a task earns its whole allocated hours on its qualifying event, once.
+  const creditHours = Math.round(snapshotNum * 100) / 100;
 
-  const completedMs = Date.parse(t.completedAt);
-  const cutoffMs = Date.parse(v2At);
-  if (!Number.isFinite(completedMs)) return exclude('Invalid completion timestamp', { dataException: true });
+  if (!Number.isFinite(Date.parse(t.completedAt))) return exclude('Invalid completion timestamp', { dataException: true });
 
   const qualify = (rule, eventType, eventAt) => ({
     ...base, qualifies: true, creditedHours: creditHours, exclusionReason: null, dataException: false,
@@ -631,32 +631,23 @@ function productivityQualifies(state, t, v2At, reportInfo) {
     zeroHourTask: creditHours === 0,
   });
 
-  if (completedMs < cutoffMs) {
-    // Historical rule — unconditional on review outcome or dispatch.
-    const type = t.reviewStatus === 'done' ? 'marked_done' : 'sent_for_review';
-    return qualify('historical', type, t.completedAt);
+  // ONE rule for every period (no date cut-offs): work that needs a review qualifies only when the final work is Reviewed Clean, on the
+  // Reviewed Clean timestamp. The Report Sent step is a separate measure and never unlocks, moves or removes productivity.
+  if (t.reviewStatus === 'error') return exclude('Returned for correction');
+  if (!workflow.isClientTask(t)) {
+    // genuinely administrative work (no client): counts when it reaches its valid completed state
+    if (t.reviewStatus === 'clean') return qualify('v3', 'clean_review', t.reviewedAt || t.completedAt);
+    if (t.reviewStatus === 'done') return qualify('v3', 'admin_completed', t.completedAt);
+    return exclude('Review pending');
   }
-
-  // V2 rule — genuinely Clean, closed with no review needed (see below), or
-  // the report actually reaching the client (real-world proof of
-  // completion, independent of whether it was formally reviewed first).
-  if (t.reviewStatus === 'error') return exclude('Review contains errors');
-  // V3: reviewed clean is THE event; Report Sent neither unlocks nor moves it.
-  if (prodRules.v3Applies(completedMs, state.productivityV3EffectiveAt || PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT) && t.reviewStatus === 'clean') {
-    return qualify('v3', 'clean_review', t.reviewedAt);
-  }
-  if (t.sentToClient === true) return qualify('v2', 'report_dispatched', t.sentToClientAt);
-  if (t.reviewStatus === 'clean') return qualify('v2', 'clean_review', t.reviewedAt);
+  // client-processing work must be reviewed
+  if (t.reviewStatus === 'clean') return qualify('v3', 'clean_review', t.reviewedAt);
   if (t.reviewStatus === 'done') {
-    // Closed with no review: counts, no manager approval required. A task
-    // that was already authorised under the old rule keeps the AUTHORISATION
-    // timestamp as its period (so already-reported periods don't move);
-    // everything else counts on the day it was closed.
-    if (t.noReviewAuthorizedAt) return qualify('v2', 'no_review_authorized', t.noReviewAuthorizedAt);
-    if (isReviewerCapable(state, t.assignedTo)) return qualify('v2', 'self_certified_reviewer', t.completedAt);
-    return qualify('v2', 'no_review_needed', t.completedAt);
+    // closed with no review: counts ONLY with a recorded manager exception (who + when + why live on the task)
+    if (t.noReviewAuthorizedAt) return qualify('v3', 'manager_exception_no_review', t.completedAt);
+    return exclude('Client task closed without review — no manager exception recorded');
   }
-  return exclude('Review pending'); // sent for review, not yet actioned (covers rework-resubmitted-not-yet-reviewed too)
+  return exclude('Review pending');
 }
 // The date a completed task counts against for reporting-period purposes —
 // the day its qualifying event actually happened (see qualifyingEventAt
@@ -1090,7 +1081,7 @@ function buildRecurringInstance(state, rt, dateISO) {
     clientDate: null, clientDateOverride: false,
     internalDeadline: dateISO,
     points: 0, assignedTo: rt.assignedTo, assignedBy: rt.assignedBy,
-    assignedAt: new Date().toISOString(), reassignHistory: [],
+    assignedAt: new Date().toISOString(), createdAt: new Date().toISOString(), reassignHistory: [],
     // A recurring task is routine, agreed-to work — it lands straight in
     // 'accepted' every morning rather than sitting in an accept queue.
     status: 'accepted',
@@ -1433,6 +1424,25 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
       .map(m => ({ team: m.team.trim(), level: m.level === 'admin' ? 'admin' : 'member' }));
   }
   if (typeof req.body.isFounder === 'boolean') emp.isFounder = req.body.isFounder;
+  // "Include this person in productivity capacity": true = always, false = never, null = the default rules (system/test/HR/founder/inactive are out)
+  if (req.body.countsInProductivity !== undefined) {
+    const v = req.body.countsInProductivity;
+    if (v !== true && v !== false && v !== null) return res.status(400).json({ error: 'countsInProductivity must be true, false or null.' });
+    if (v === null) delete emp.countsInProductivity; else emp.countsInProductivity = v;
+  }
+  // A duplicate profile (the same person twice) is mapped onto the real one for metrics — nothing is deleted or rewritten.
+  if (req.body.duplicateOf !== undefined) {
+    const to = req.body.duplicateOf;
+    if (to === null || to === '') delete emp.duplicateOf;
+    else {
+      const real = findEmployee(state, to);
+      if (!real || real.id === emp.id) return res.status(400).json({ error: 'Pick a different, existing employee as the real profile.' });
+      if (real.duplicateOf) return res.status(400).json({ error: 'That profile is itself marked as a duplicate — pick the real one.' });
+      if (state.employees.some(e => e.duplicateOf === emp.id)) return res.status(400).json({ error: 'Other profiles point at this one, so it cannot be a duplicate.' });
+      emp.duplicateOf = real.id;
+    }
+    logEvent(state, emp.id, 'Duplicate mapping for <b>' + escHtml(emp.name) + '</b> changed by ' + escHtml(req.employee.name) + (emp.duplicateOf ? ' — now counted under ' + escHtml(findEmployee(state, emp.duplicateOf).name) : ' — cleared') + '.');
+  }
   if (typeof req.body.isHr === 'boolean' && emp.email !== 'hr@elitetaxation.co.nz') emp.isHr = req.body.isHr;
   // Read-only firm-wide Commitment Dashboard observer — no other powers.
   if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
@@ -2439,7 +2449,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     originalInternalDeadline: internalDeadline || null,
     originalClientDate: isInternal ? null : (clientDate || (internalDeadline ? cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD) : null)),
     points: parseInt(points, 10) || 0, assignedTo: assignee, assignedBy: req.employee.id,
-    assignedAt: new Date().toISOString(), reassignHistory: [], status,
+    assignedAt: new Date().toISOString(), createdAt: new Date().toISOString(), reassignHistory: [], status,
     // logged accumulates ACTUAL delivery time — the wall-clock gap between
     // Accept and Complete (or, for a rework round, between the rework
     // Accept and Resubmit). There's no manual Start/Pause; the clock is
@@ -2586,14 +2596,47 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     res.json({ task: taskForClient(t) });
   });
 
-  // Put a task on hold — blocked by a client, a query, missing info. Needs a
-  // reason; a screenshot is optional. The clock is banked, the task stays on
-  // the assignee's list as pending, and it stops counting toward any day's
-  // capacity until it's resumed. Time only ever counts once: the hours
-  // already logged stay logged, and when the task resumes the new day's work
-  // adds on top — the agreed hours (tat) never change, so a task that ran
-  // long because of a hold is visibly flagged rather than counted against
-  // the person.
+  // ---------------------------------------------------------------------------------------------------------------------------
+  // PUT ON HOLD — structured. The category decides who the task waits on and whether responsibility can ever pause; the free-text
+  // reason never does. A hold never changes the allocated hours, the seven-hour capacity, the client commitment date or productivity,
+  // and never opens a client query by itself: a query exists only when the owner records one WITH evidence. A verified external
+  // wait pauses the processor's own responsibility only once a manager approves it (a manager's own hold is approved on the spot).
+  // ---------------------------------------------------------------------------------------------------------------------------
+  const isoDateOk = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  const personName = (state, id) => (findEmployee(state, id) || {}).name || null;
+  // who the task is waiting on, as a name: typed by the owner, or sensibly defaulted from the category
+  function resolveWaitingOn(state, t, code, body) {
+    const m = holdModel.meta(code);
+    const typed = String(body.waitingOnPerson || body.waitingOn || '').trim();
+    const byId = body.waitingOnId ? findEmployee(state, String(body.waitingOnId)) : null;
+    if (m.party === 'none') return { name: null, id: null };
+    if (byId) return { name: byId.name, id: byId.id };
+    if (typed) return { name: typed.slice(0, 120), id: null };
+    if (m.party === 'client') return { name: (t.clientName && String(t.clientName).trim()) || null, id: null };
+    if (m.party === 'reviewer') { const r = t.reviewerId && findEmployee(state, t.reviewerId); return { name: r ? r.name : null, id: r ? r.id : null }; }
+    if (m.party === 'manager') { const mg = managersOfEmployee(state, t.assignedTo)[0]; return { name: mg ? mg.name : null, id: mg ? mg.id : null }; }
+    return { name: null, id: null };
+  }
+  function activeHold(t) { const h = (t.holdHistory || [])[(t.holdHistory || []).length - 1]; return h && !h.resumedAt ? h : null; }
+  // Start a client query (with evidence) on the active hold. The pause of responsibility is approved at once for a manager, otherwise it waits.
+  function openHoldQuery(state, t, hh, actor, qIn, code, detail) {
+    const managerActing = isAdminRole(actor.accessRole) && actor.id !== t.assignedTo;
+    const q = {
+      id: crypto.randomUUID(), taskId: t.id, reasonCode: code, source: qIn.source,
+      raisedBy: actor.id, sentAt: qIn.sentAt, sentTs: qIn.sentTs, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null,
+      evidence: qIn.evidence, emailThreadId: null, chaseLog: [], note: detail || null,
+      pauseStatus: managerActing ? 'approved' : 'pending', pauseApprovedBy: managerActing ? actor.id : null, pauseApprovedAt: managerActing ? new Date().toISOString() : null,
+    };
+    t.queries = t.queries || []; t.queries.push(q);
+    hh.queryId = q.id; hh.querySentAt = q.sentTs; hh.queryEvidence = q.evidence;
+    hh.pauseRequested = true; hh.responsibilityPaused = q.pauseStatus === 'approved';
+    hh.pauseStartedAt = q.pauseStatus === 'approved' ? q.sentTs : null; hh.approvedBy = q.pauseApprovedBy;
+    hh.clocksStopped = { workTimer: true, clientCommitment: false, processorResponsibility: hh.responsibilityPaused };
+    if (q.pauseStatus === 'pending') {
+      managersOfEmployee(state, t.assignedTo).forEach(m => { if (m.id !== actor.id) notify(state, m.id, 'hold_pause', actor.name + ' asks you to approve pausing responsibility on "' + t.name + '" — waiting on ' + holdModel.label(code).toLowerCase() + '.', t.id); });
+    }
+    return q;
+  }
   app.post('/api/tasks/:id/hold', requireAuth, (req, res) => {
     const state = db.get();
     const t = findTask(state, req.params.id);
@@ -2606,89 +2649,189 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'Only active work can be put on hold.' });
     }
     const body = req.body || {};
-    // reasonCode is the new taxonomy pick; `detail` is the free text (was `reason`).
-    let reasonCode = String(body.reasonCode || '').trim().toUpperCase();
+    // the structured category (reasonCode is the older name for the same field)
+    const code = String(body.category || body.reasonCode || '').trim().toUpperCase();
     const detail = String(body.detail != null ? body.detail : (body.reason || '')).trim();
-    if (!reasonCode) reasonCode = 'BLOCKED_OTHER'; // tolerate old clients that only send `reason`
-    const meta = HOLD_REASONS[reasonCode];
-    if (!meta) return res.status(400).json({ error: 'Pick a valid hold reason.' });
+    if (!code) return res.status(400).json({ error: 'Choose why the task is going on hold.' });
+    const meta = HOLD_REASONS[code];
+    if (!meta) return res.status(400).json({ error: 'Pick a valid hold category.' });
     if (meta.managerOnly && isMine && !canManageEmployee(state, req.employee, t.assignedTo)) {
       return res.status(403).json({ error: 'Only a manager can park a task for capacity reasons.' });
     }
-    if (meta.needsDetail && !detail) {
-      return res.status(400).json({ error: 'This reason needs a short note — what exactly are you waiting on?' });
+    if (detail.length < 3) return res.status(400).json({ error: 'Give the reason in a few words — what exactly is the task waiting on?' });
+    // who it is waiting on, when to follow up, when a reply is expected
+    const waiting = resolveWaitingOn(state, t, code, body);
+    if (holdModel.meta(code).party !== 'none' && !waiting.name) return res.status(400).json({ error: 'Say who the task is waiting on.' });
+    if (!isoDateOk(String(body.followUpDate || '').slice(0, 10))) return res.status(400).json({ error: 'Pick the date you will follow this up.' });
+    const followUp = String(body.followUpDate).slice(0, 10);
+    if (followUp < todayISO()) return res.status(400).json({ error: "The follow-up date can't be in the past." });
+    if (code === 'SCHEDULED_FUTURE' && followUp <= todayISO()) return res.status(400).json({ error: 'Pick the future date this work is scheduled for.' });
+    let expected = null;
+    if (body.expectedResponseDate) {
+      expected = String(body.expectedResponseDate).slice(0, 10);
+      if (!isoDateOk(expected)) return res.status(400).json({ error: 'The expected response date is not a valid date.' });
+      if (expected < todayISO()) return res.status(400).json({ error: "The expected response date can't be in the past." });
     }
-    // Hold record: WHO is responsible for the next step, WHEN to follow up, and exactly which clocks stopped.
     const HOLD_RESP = ['client', 'employee', 'reviewer', 'manager', 'third_party', 'capacity'];
-    const respDefault = { CLIENT_QUERY: 'client', CLIENT_DOCS: 'client', THIRD_PARTY: 'third_party', INTERNAL_REVIEW: 'reviewer', CAPACITY: 'manager', BLOCKED_OTHER: 'employee' }[reasonCode];
+    const respDefault = { client: 'client', external: 'third_party', manager: 'manager', reviewer: 'reviewer', internal: 'employee', scheduled: 'employee', other: 'employee' }[meta.kind] || 'employee';
     const responsibility = body.responsibility ? String(body.responsibility) : respDefault;
     if (!HOLD_RESP.includes(responsibility)) return res.status(400).json({ error: 'Say who is responsible for the next step.' });
-    let followUp = null;
-    if (body.followUpDate || body.responsibility) {
-      followUp = /^\d{4}-\d{2}-\d{2}/.test(String(body.followUpDate || '')) ? String(body.followUpDate).slice(0, 10) : null;
-      if (!followUp) return res.status(400).json({ error: 'Pick the date you will follow this up.' });
-      if (followUp < todayISO()) return res.status(400).json({ error: "The follow-up date can't be in the past." });
+    // A client query is recorded only when the owner says one was really sent — with how, when and the evidence. Never automatically.
+    let qIn = null;
+    if (body.queryConfirmed === true) {
+      if (!EXTERNAL_HOLD_CODES.has(code)) return res.status(400).json({ error: 'A query can only be recorded for a wait on the client or an external authority.' });
+      if (!t.clientDate) return res.status(400).json({ error: 'This task has no client date, so there is nothing to pause.' });
+      qIn = parseQueryInput(body, code);
+      if (qIn.error) return res.status(400).json({ error: qIn.error });
     }
-    // A client wait only freezes the commitment date if the owner records the query on purpose (queryConfirmed + real date and time).
-    const wantsQuery = EXEMPTING_REASONS.has(reasonCode) && !!t.clientDate && body.queryConfirmed === true;
-    const qIn = wantsQuery ? parseQueryInput(body, reasonCode) : null;
-    if (qIn && qIn.error) return res.status(400).json({ error: qIn.error });
     let shot = body.screenshot || null;
     if (shot && (typeof shot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(shot) || shot.length > 6_000_000)) {
       shot = null; // ignore anything that isn't a reasonably-sized inline image
     }
+    // ---- everything is valid: now change the task
     if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+    const statusBefore = t.status, now = new Date().toISOString();
     t.preHoldStatus = t.status;
     t.status = 'on_hold';
-    t.heldAt = new Date().toISOString();
-    t.holdReasonCode = reasonCode;
-    t.holdReason = detail || meta.label;      // human-readable, always populated
+    t.heldAt = now;
+    t.holdReasonCode = code;
+    t.holdReason = detail;
     t.holdScreenshot = shot;
     t.holdCount = (t.holdCount || 0) + 1;
+    t.holdResolvedAt = null; t.holdResolvedBy = null;
     t.holdHistory = t.holdHistory || [];
-    const hh = { heldAt: t.heldAt, reasonCode, reason: t.holdReason, hasShot: !!shot, resumedAt: null, by: req.employee.name, queryId: null };
-    if (qIn) {
-      const q = {
-        id: crypto.randomUUID(), taskId: t.id, reasonCode, source: qIn.source,
-        raisedBy: req.employee.id, sentAt: qIn.sentAt, sentTs: qIn.sentTs, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null,
-        emailThreadId: null, chaseLog: [], note: detail || null,
-      };
-      t.queries = t.queries || [];
-      t.queries.push(q);
-      hh.queryId = q.id;
-    }
+    const hh = {
+      holdId: crypto.randomUUID(), heldAt: now, reasonCode: code, category: code, reason: detail, hasShot: !!shot, resumedAt: null, by: req.employee.name, createdBy: req.employee.id,
+      waitingOnType: meta.kind, waitingOnPerson: waiting.name, waitingOnId: waiting.id, queryId: null, querySentAt: null, queryEvidence: null,
+      followUp, expectedResponseDate: expected, responsibilityPaused: false, pauseRequested: false, pauseStartedAt: null, pauseEndedAt: null, approvedBy: null,
+      originalInternalDueDate: t.internalDeadline || null, originalClientCommitmentDate: t.clientDate || null,
+      statusBeforeHold: statusBefore, statusAfterResume: null, resumedBy: null, resumeReason: null, updates: [],
+    };
+    t.holdHistory.push(hh);
+    if (qIn) openHoldQuery(state, t, hh, req.employee, qIn, code, detail);
     t.holdResponsibility = responsibility; t.holdFollowUp = followUp;
     hh.responsibility = responsibility; hh.followUp = followUp;
-    hh.clocksStopped = { workTimer: true, clientCommitment: !!hh.queryId };   // the work timer always stops; the client's clock only for a client wait
-    t.holdHistory.push(hh);
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}${hh.queryId ? ' · client commitment date paused (query recorded)' : ''}`, { hold: true });
+    hh.clocksStopped = hh.clocksStopped || { workTimer: true, clientCommitment: false, processorResponsibility: false };   // the work timer always stops; nothing else changes by itself
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}: ${escHtml(detail)}${waiting.name ? ' · waiting on ' + escHtml(waiting.name) : ''}${hh.queryId ? (hh.responsibilityPaused ? ' · responsibility paused (query recorded)' : ' · query recorded — pause awaiting manager approval') : ''}`, { hold: true });
     db.save();
     res.json({ task: taskForClient(t) });
   });
 
-  // Record the client query for a task that is already on hold — the owner (or their manager) does this on purpose, with the real date and time.
+  // Record the client query for a task that is already on hold — the owner (or their manager) does this on purpose, with the real date, time and evidence.
   app.post('/api/tasks/:id/query', requireAuth, (req, res) => {
     const state = db.get();
     const t = findTask(state, req.params.id);
     if (!t) return res.status(404).json({ error: 'Task not found.' });
     if (t.assignedTo !== req.employee.id && !canManageEmployee(state, req.employee, t.assignedTo)) return res.status(403).json({ error: 'Only the assignee or a manager over them can record a client query.' });
-    if (t.status !== 'on_hold' || !EXEMPTING_REASONS.has(t.holdReasonCode)) return res.status(400).json({ error: 'A client query can only be recorded on a task that is on hold waiting for the client (or a third party).' });
+    if (t.status !== 'on_hold' || !EXEMPTING_REASONS.has(t.holdReasonCode)) return res.status(400).json({ error: 'A client query can only be recorded on a task that is on hold waiting for the client (or an external authority).' });
     if (!t.clientDate) return res.status(400).json({ error: 'This task has no client date, so there is nothing to pause.' });
-    const last = (t.holdHistory || [])[(t.holdHistory || []).length - 1];
+    const last = activeHold(t);
     if (!last) return res.status(400).json({ error: 'No hold found for this task.' });
     if (last.queryId && (t.queries || []).some(q => q.id === last.queryId && !q.dismissedAt)) return res.status(400).json({ error: 'A query is already recorded for this hold.' });
     const qIn = parseQueryInput(req.body || {}, t.holdReasonCode);
     if (qIn.error) return res.status(400).json({ error: qIn.error });
-    const q = { id: crypto.randomUUID(), taskId: t.id, reasonCode: t.holdReasonCode, source: qIn.source, raisedBy: req.employee.id, sentAt: qIn.sentAt, sentTs: qIn.sentTs, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null, emailThreadId: null, chaseLog: [], note: String((req.body || {}).note || '').trim().slice(0, 500) || null };
-    t.queries = t.queries || []; t.queries.push(q);
-    last.queryId = q.id; last.clocksStopped = { ...(last.clocksStopped || {}), clientCommitment: true };
-    logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> recorded a client query on "${escHtml(t.name)}" (sent ${escHtml(qIn.sentAt)}) — client commitment date paused.`);
+    const q = openHoldQuery(state, t, last, req.employee, qIn, t.holdReasonCode, String((req.body || {}).note || '').trim().slice(0, 500) || null);
+    logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> recorded a client query on "${escHtml(t.name)}" (sent ${escHtml(qIn.sentAt)}) — ${q.pauseStatus === 'approved' ? 'responsibility paused' : 'pause awaiting manager approval'}.`);
     db.save();
     res.json({ task: taskForClient(t) });
   });
 
-  // Take a task off hold — back to whatever active state it was in, clock not
-  // auto-started (the assignee presses play when they actually pick it up).
+  // A manager approves or rejects the pause of the processor's responsibility for a recorded query. Until approved, nothing is paused.
+  app.post('/api/tasks/:id/hold-pause', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (!isAdminRole(req.employee.accessRole) || !canManageEmployee(state, req.employee, t.assignedTo) || t.assignedTo === req.employee.id) return res.status(403).json({ error: 'Only a manager over this employee can approve or reject the pause.' });
+    const q = (t.queries || []).find(x => x.pauseStatus === 'pending' && !x.dismissedAt);
+    if (!q) return res.status(400).json({ error: 'There is no pause waiting for approval on this task.' });
+    const approve = (req.body || {}).approve === true;
+    const note = String((req.body || {}).note || '').trim().slice(0, 300);
+    if (!approve && note.length < 3) return res.status(400).json({ error: 'Say briefly why the pause is not approved.' });
+    q.pauseStatus = approve ? 'approved' : 'rejected'; q.pauseApprovedBy = req.employee.id; q.pauseApprovedAt = new Date().toISOString(); q.pauseNote = note || null;
+    const hh = (t.holdHistory || []).find(h => h.queryId === q.id);
+    if (hh) { hh.responsibilityPaused = approve; hh.pauseStartedAt = approve ? q.sentTs : null; hh.approvedBy = approve ? req.employee.id : null; hh.clocksStopped = { ...(hh.clocksStopped || {}), processorResponsibility: approve }; }
+    notify(state, t.assignedTo, 'hold_pause', req.employee.name + (approve ? ' approved' : ' did not approve') + ' pausing your responsibility on "' + t.name + '"' + (note ? ' — ' + note : '') + '.', t.id);
+    logEvent(state, t.assignedTo, `Pause of responsibility on "${escHtml(t.name)}" ${approve ? 'approved' : 'not approved'} by <b>${escHtml(req.employee.name)}</b>${note ? ' — ' + escHtml(note) : ''}.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // The dependency is resolved (client replied, manager decided, reviewer answered): the task becomes Ready to Resume. Nothing resumes by itself.
+  function markHoldResolved(state, t, actor, note) {
+    t.holdResolvedAt = new Date().toISOString(); t.holdResolvedBy = actor.id;
+    const hh = activeHold(t); if (hh) { hh.resolvedAt = t.holdResolvedAt; hh.resolvedBy = actor.id; hh.resolvedNote = note || null; }
+    if (t.assignedTo && t.assignedTo !== actor.id) notify(state, t.assignedTo, 'hold_ready', '"' + t.name + '" is ready to resume — ' + (note || 'what it was waiting on has arrived') + '.', t.id);
+  }
+  app.post('/api/tasks/:id/hold-resolved', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    const canAct = t.assignedTo === req.employee.id || canManageEmployee(state, req.employee, t.assignedTo) || t.reviewerId === req.employee.id;
+    if (!canAct) return res.status(403).json({ error: 'Only the person doing the work, their manager or the reviewer can mark this ready to resume.' });
+    if (t.status !== 'on_hold') return res.status(400).json({ error: 'This task is not on hold.' });
+    if (t.holdResolvedAt) return res.status(400).json({ error: 'This task is already marked ready to resume.' });
+    const note = String((req.body || {}).note || '').trim().slice(0, 300);
+    markHoldResolved(state, t, req.employee, note);
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" is ready to resume — marked by <b>${escHtml(req.employee.name)}</b>${note ? ': ' + escHtml(note) : ''}.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // Change the follow-up date / expected response, or add evidence, on the ACTIVE hold. Every change is kept in the hold's own history.
+  app.post('/api/tasks/:id/hold-update', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (t.assignedTo !== req.employee.id && !canManageEmployee(state, req.employee, t.assignedTo)) return res.status(403).json({ error: 'Only the assignee or a manager over them can update the hold.' });
+    const hh = t.status === 'on_hold' ? activeHold(t) : null;
+    if (!hh) return res.status(400).json({ error: 'This task is not on hold.' });
+    const b = req.body || {}, change = { at: new Date().toISOString(), by: req.employee.id, byName: req.employee.name };
+    if (b.followUpDate !== undefined) {
+      const d = String(b.followUpDate || '').slice(0, 10);
+      if (!isoDateOk(d) || d < todayISO()) return res.status(400).json({ error: 'Pick a follow-up date from today onwards.' });
+      change.followUpFrom = hh.followUp || null; change.followUpTo = d; hh.followUp = d; t.holdFollowUp = d;
+    }
+    if (b.expectedResponseDate !== undefined) {
+      const d = b.expectedResponseDate ? String(b.expectedResponseDate).slice(0, 10) : null;
+      if (d && (!isoDateOk(d) || d < todayISO())) return res.status(400).json({ error: 'The expected response date must be today or later.' });
+      change.expectedFrom = hh.expectedResponseDate || null; change.expectedTo = d; hh.expectedResponseDate = d;
+    }
+    if (b.evidence !== undefined) {
+      const ev = String(b.evidence || '').trim();
+      if (ev.length < 3) return res.status(400).json({ error: 'Give the evidence — an email subject, message reference, link or a note of the call.' });
+      hh.evidence = hh.evidence || []; hh.evidence.push({ at: change.at, by: req.employee.id, byName: req.employee.name, text: ev.slice(0, 500) }); change.evidence = ev.slice(0, 500);
+    }
+    if (Object.keys(change).length <= 3) return res.status(400).json({ error: 'Nothing to update.' });
+    hh.updates = hh.updates || []; hh.updates.push(change);
+    logEvent(state, t.assignedTo, `Hold on "${escHtml(t.name)}" updated by <b>${escHtml(req.employee.name)}</b>${change.followUpTo ? ' — follow-up ' + escHtml(change.followUpTo) : ''}${change.expectedTo !== undefined ? ' — expected response ' + escHtml(change.expectedTo || 'not set') : ''}${change.evidence ? ' — evidence added' : ''}.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // The processor asks for a new commitment date. Nothing changes by itself — the request goes to the manager, who decides with Edit dates.
+  app.post('/api/tasks/:id/date-request', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (t.assignedTo !== req.employee.id) return res.status(403).json({ error: 'Only the person doing the work can ask for a new date.' });
+    const b = req.body || {}, internal = b.internalDeadline ? String(b.internalDeadline).slice(0, 10) : null, client = b.clientDate ? String(b.clientDate).slice(0, 10) : null;
+    const reason = String(b.reason || '').trim();
+    if (!internal && !client) return res.status(400).json({ error: 'Say which date you want to change and to what.' });
+    if ((internal && !isoDateOk(internal)) || (client && !isoDateOk(client))) return res.status(400).json({ error: 'Those are not valid dates.' });
+    if (reason.length < 5) return res.status(400).json({ error: 'Say why you need the new date.' });
+    t.dateRequests = t.dateRequests || [];
+    const reqRow = { id: crypto.randomUUID(), at: new Date().toISOString(), by: req.employee.id, internalDeadline: internal, clientDate: client, reason: reason.slice(0, 400), status: 'open' };
+    t.dateRequests.push(reqRow);
+    managersOfEmployee(state, t.assignedTo).forEach(m => notify(state, m.id, 'date_request', req.employee.name + ' asks for a new date on "' + t.name + '"' + (internal ? ' — internal ' + internal : '') + (client ? ' — client ' + client : '') + ': ' + reason, t.id));
+    logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> asked for a new commitment date on "${escHtml(t.name)}"${internal ? ' (internal ' + escHtml(internal) + ')' : ''}${client ? ' (client ' + escHtml(client) + ')' : ''} — waiting for a manager. Nothing has changed.`);
+    db.save();
+    res.json({ ok: true, request: reqRow });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------------------------
+  // RESUME — closes the hold interval, restores the status the task had, tells the people involved. It never completes the task, never
+  // changes its allocated hours and never grants productivity.
+  // ---------------------------------------------------------------------------------------------------------------------------
   app.post('/api/tasks/:id/unhold', requireAuth, (req, res) => {
     const state = db.get();
     const t = findTask(state, req.params.id);
@@ -2698,27 +2841,34 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       return res.status(403).json({ error: 'Only the assignee or a manager over them can take this off hold.' });
     }
     if (t.status !== 'on_hold') return res.status(400).json({ error: 'This task is not on hold.' });
+    const resumeReason = String((req.body || {}).reason || (req.body || {}).resumeReason || '').trim().slice(0, 300) || null;
     t.status = ['accepted', 'rework', 'awaiting_acceptance'].includes(t.preHoldStatus) ? t.preHoldStatus : 'accepted';
     t.preHoldStatus = null;
-    // `resumedAt` is a working-DAY marker (it feeds queryShift's resume-lag
-    // calc), so store the NZ calendar day, not a UTC timestamp.
-    const resumeDay = todayISO();
+    // `resumedAt` is a working-DAY marker (it feeds queryShift's resume-lag calc), so store the NZ calendar day, not a UTC timestamp.
+    const resumeDay = todayISO(), resumeTs = new Date().toISOString();
     const last = (t.holdHistory || [])[t.holdHistory.length - 1];
-    const resumeTs = new Date().toISOString();
-    if (last && !last.resumedAt) { last.resumedAt = resumeDay; last.resumedTs = resumeTs; }
-    // Mark the query for this hold as resumed — this starts the resume-lag
-    // clock that can forfeit part of the freeze (calendar.queryShift).
+    if (last && !last.resumedAt) {
+      last.resumedAt = resumeDay; last.resumedTs = resumeTs;
+      last.resumedBy = req.employee.id; last.resumeReason = resumeReason; last.statusAfterResume = t.status;
+      last.heldHours = last.heldAt ? Math.round(((Date.parse(resumeTs) - Date.parse(last.heldAt)) / 3600000) * 100) / 100 : null;
+      if (last.responsibilityPaused && !last.pauseEndedAt) last.pauseEndedAt = resumeTs;
+    }
+    // Mark the query for this hold as resumed — this starts the resume-lag clock (calendar.queryShift).
     if (last && last.queryId) {
       const q = (t.queries || []).find(x => x.id === last.queryId);
       if (q && !q.resumedAt) { q.resumedAt = resumeDay; q.resumedTs = resumeTs; }
     }
-    t.heldAt = null; t.holdFollowUp = null; t.holdResponsibility = null;
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
+    t.heldAt = null; t.holdFollowUp = null; t.holdResponsibility = null; t.holdResolvedAt = null; t.holdResolvedBy = null;
+    const dest = t.reviewStatus === 'error' ? 'Fix Needed' : t.status === 'awaiting_acceptance' ? 'To Do' : 'In Progress';
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" resumed${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back to ${dest}${last && last.heldHours != null ? ' after ' + last.heldHours.toFixed(1) + ' h on hold' : ''}.`);
+    // tell the processor (if someone else resumed it) and the manager(s)
+    if (!isMine) notify(state, t.assignedTo, 'hold_resumed', '"' + t.name + '" was resumed by ' + req.employee.name + ' — back to ' + dest + '.', t.id);
+    managersOfEmployee(state, t.assignedTo).forEach(m => { if (m.id !== req.employee.id) notify(state, m.id, 'hold_resumed', '"' + t.name + '" is back from hold — ' + dest + '.', t.id); });
     db.save();
     res.json({ task: taskForClient(t) });
   });
 
-  // Log the client's reply to an open query (manual tick-box — phone /
+    // Log the client's reply to an open query (manual tick-box — phone /
   // WhatsApp / in person / email). Ends the freeze. The processor still has
   // to Resume the task; the gap between reply and resume is the "resume lag"
   // that forfeits part of the extension if it runs past one working day.
@@ -2738,8 +2888,8 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     if (replyAt < q.sentAt.slice(0, 10)) return res.status(400).json({ error: "The reply can't be dated before the query was sent." });
     q.replyAt = replyAt; q.replyTs = replyAt === todayISO() ? new Date().toISOString() : null;
     if (['email', 'phone', 'whatsapp', 'in_person'].includes(body.replySource)) q.replySource = body.replySource;
-    const sh = cal.queryShift(q, todayISO());
-    logEvent(state, t.assignedTo, `Client replied to the query on "${escHtml(t.name)}" (${escHtml(replyAt)}) — commitment date moves +${sh.shift} working day${sh.shift === 1 ? '' : 's'}. Resume the task to keep the full extension.`);
+    logEvent(state, t.assignedTo, `Client replied to the query on "${escHtml(t.name)}" (${escHtml(replyAt)}) — the task is ready to resume.`);
+    if (t.status === 'on_hold' && !t.holdResolvedAt) markHoldResolved(state, t, req.employee, 'the client replied');
     db.save();
     res.json({ task: taskForClient(t) });
   });
@@ -2756,9 +2906,9 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     if (!q) return res.status(404).json({ error: 'Query not found.' });
     const body = req.body || {};
     if (body.remove === true) {
-      t.queries = t.queries.filter(x => x.id !== q.id);
-      (t.holdHistory || []).forEach(h => { if (h.queryId === q.id) h.queryId = null; });
-      logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was removed by <b>${escHtml(req.employee.name)}</b> — its commitment-clock pause no longer applies.`);
+      // never deleted — kept on the task as dismissed, with who and when (the pause it caused no longer applies)
+      q.dismissedAt = new Date().toISOString(); q.dismissedBy = req.employee.id; q.dismissedReason = String(body.reason || 'Removed as raised by mistake').slice(0, 300);
+      logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was dismissed by <b>${escHtml(req.employee.name)}</b> — its pause of responsibility no longer applies.`);
     } else {
       if (typeof body.sentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.sentAt) && body.sentAt.slice(0, 10) <= todayISO()) { q.sentAt = body.sentAt.slice(0, 10); q.sentTs = null; }
       if (body.replyAt === null) { q.replyAt = null; q.replyTs = null; q.resumedAt = null; q.resumedTs = null; }
@@ -4145,13 +4295,22 @@ app.post('/api/marks/:id/void', requireAuth, (req, res) => {
 // stamped at acceptance time, not when the error was originally flagged,
 // so this duration measures actual working time, not time spent sitting
 // unaccepted in the queue.
-app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
+app.post('/api/tasks/:id/resubmit', requireAuth, async (req, res) => {
+  try {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'rework') return res.status(400).json({ error: 'Only tasks in rework can be resubmitted.' });
   const newRv = (req.body || {}).reviewerId ? checkNewReviewer(state, t, String(req.body.reviewerId)) : null;
   if (newRv && newRv.error) return res.status(400).json({ error: newRv.error });
+  // the corrected file(s): each one the processor uploaded, kept by round with who/when — earlier files are never overwritten
+  let correctionRefs = [];
+  const fileIds = (req.body || {}).attachmentIds;
+  if (Array.isArray(fileIds) && fileIds.length) {
+    const claimed = await claimReviewFiles(req.employee, t, fileIds, { id: null, cycle: t.reworkCount || 0 }, 'correction');
+    if (!claimed.ok) return res.status(400).json({ error: claimed.error });
+    correctionRefs = claimed.refs;
+  }
   const endedAt = new Date().toISOString();
   const startedAt = t.reworkStartedAt;
   // Only the time the work clock actually ran counts — not time on hold, paused, or idle. Bank a running clock first; the rework hours are
@@ -4168,9 +4327,12 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   t.reviewedAt = null;
   if (newRv) applyReviewerChange(state, t, req.employee, newRv.rv, String((req.body || {}).reason || '').trim().slice(0, 300) || null, 'resubmit');
   t.submissions[t.submissions.length - 1].reviewerId = t.reviewerId || null;
+  if (correctionRefs.length) { t.correctionAttachments = [...(t.correctionAttachments || []), ...correctionRefs]; t.submissions[t.submissions.length - 1].fileCount = correctionRefs.length; }
+  if (t.reviewerId) notify(state, t.reviewerId, 'correction_resubmitted', `${req.employee.name} resubmitted "${t.name}" after your correction${correctionRefs.length ? ' — ' + correctionRefs.length + ' corrected file' + (correctionRefs.length > 1 ? 's' : '') + ' attached' : ''}.`, t.id);
   logEvent(state, t.assignedTo, `"${escHtml(t.name)}" resubmitted after rework — awaiting re-review.${durationHours !== null ? ` In rework for ${durationHours.toFixed(2)} hrs.` : ''}`);
   db.save();
   res.json({ task: taskForClient(t) });
+  } catch (e) { console.error('[resubmit] failed:', e && e.stack || e); res.status(500).json({ error: 'Could not resubmit — please try again.' }); }
 });
 
 
@@ -4607,7 +4769,9 @@ function floorAtGoLive(fromISO, toISO) {
 // snapshot, not live tat), status, the three-stage responsibility
 // breakdown, credited hours, and why (or why not).
 function productivityTaskRow(t, result) {
+  const w = (() => { try { const c = workflow.card(t, workflowDeps(db.get(), { id: null, accessRole: 'employee' }, {})); return c; } catch (e) { return null; } })();
   return {
+    primaryStatus: w ? w.primaryStatus : null, actionOwner: w ? (w.waitingOn.ownerName ? w.waitingOn.label + ' — ' + w.waitingOn.ownerName : w.waitingOn.label) : null, nextAction: w ? w.nextAction : null,
     id: t.id, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
     kind: t.kind, status: t.status,
     allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
@@ -4646,6 +4810,32 @@ function productivityOpenRow(state, t) {
 //   scheduled working days (every day the firm's week includes) − public holidays = working days
 //   − approved leave (a half day counts 0.5) − workshop days (never also counted as leave) − custom-hours reductions = final eligible days
 //   capacity hours = final eligible days × the working day (7 h).  A deduction is shown only if it was actually made.
+// One row per calendar day: standard hours, each deduction, the final eligible hours, why, and the record it came from. The final hours always add
+// up to the person's eligible capacity. A hold, a review wait, rework or being unassigned never appears here — they never reduce capacity.
+function capacityDaysDetail(state, emp, fromISO, toISO) {
+  const base = baseHoursOf(emp), rows = [], DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  if (!fromISO || !toISO || toISO < fromISO) return rows;
+  let cur = new Date(fromISO + 'T00:00:00Z');
+  const end = new Date(toISO + 'T00:00:00Z').getTime();
+  while (cur.getTime() <= end) {
+    const iso = cur.toISOString().slice(0, 10), dow = cur.getUTCDay();
+    const row = { date: iso, day: DOW[dow], standardHours: base, leaveDeduction: 0, workshopDeduction: 0, weeklyOffDeduction: 0, otherDeduction: 0, finalHours: 0, reason: '', source: null };
+    if (dow === 0) { row.weeklyOffDeduction = base; row.reason = 'Weekly off (Sunday)'; row.source = { type: 'calendar', label: 'Firm calendar — Sunday is the weekly off' }; }
+    else if (!cal.isWorkingDay(iso)) { row.otherDeduction = base; row.reason = 'Public / non-working day'; row.source = { type: 'calendar', label: 'Firm calendar — holiday or close-down day' }; }
+    else {
+      const st = attendanceStatus(state, emp, iso), leave = approvedLeaveOn(state, emp.id, iso), adj = (state.capacityCalendarAdjustments || []).find(a => a.active && a.type === 'WORKSHOP' && a.date === iso), ws = workshopOnDate(state, iso);
+      if (st === 'WORKSHOP') { row.workshopDeduction = base; row.reason = dow === 6 ? 'Workshop Saturday' : 'Workshop day'; row.source = adj ? { type: 'workshop_calendar', id: adj.id || null, label: 'Superadmin capacity calendar — workshop' + (adj.note ? ': ' + adj.note : '') } : ws ? { type: 'workshop', id: ws.id || null, label: 'Workshop: ' + (ws.name || ws.date) } : leave ? { type: 'leave', id: leave.id || null, label: 'Approved workshop leave' } : { type: 'workshop_calendar', label: 'Workshop day' }; }
+      else if (st === 'LEAVE') { row.leaveDeduction = base; row.reason = 'Approved leave'; row.source = { type: 'leave', id: leave && leave.id || null, label: 'Approved leave ' + (leave ? leave.from + ' → ' + leave.to : '') }; }
+      else if (st === 'HALF') { row.leaveDeduction = Math.round((base / 2) * 100) / 100; row.reason = 'Approved half-day leave'; row.source = { type: 'leave', id: leave && leave.id || null, label: 'Approved half-day leave ' + (leave ? leave.from : '') }; }
+      else if (st === 'CUSTOM') { row.leaveDeduction = Math.round(Math.min(base, Number(leave && leave.hours || 0)) * 100) / 100; row.reason = 'Approved partial leave (' + row.leaveDeduction + ' h)'; row.source = { type: 'leave', id: leave && leave.id || null, label: 'Approved partial leave ' + (leave ? leave.from : '') }; }
+      else { row.reason = dow === 6 ? 'Standard working Saturday' : 'Standard working day'; }
+    }
+    row.finalHours = Math.max(0, Math.round((row.standardHours - row.leaveDeduction - row.workshopDeduction - row.weeklyOffDeduction - row.otherDeduction) * 100) / 100);
+    rows.push(row);
+    cur = new Date(cur.getTime() + 86400000);
+  }
+  return rows;
+}
 function capacityBreakdownOf(state, emp, fromISO, toISO, capacityHours) {
   const base = baseHoursOf(emp), days = [];
   if (fromISO && toISO && toISO >= fromISO) {
@@ -4662,13 +4852,25 @@ function capacityBreakdownOf(state, emp, fromISO, toISO, capacityHours) {
   const b = prodRules.capacityDays(days, base);
   return { ...b, reconciles: Math.abs(b.capacityHours - capacityHours) < 0.011 };
 }
-function isNonProductiveAccount(emp) {
-  if (!emp) return true;
-  if (emp.countsInProductivity === true) return false;
-  if (emp.countsInProductivity === false) return true;
-  return isSystemAccount(emp) || String(emp.email || '').toLowerCase() === 'hr@elitetaxation.co.nz';
+// Why is this person NOT counted in productivity / capacity? null = they are counted. The same answer feeds every dashboard, report and export.
+function productivityExclusionReason(state, emp) {
+  if (!emp) return 'Not found';
+  if (emp.countsInProductivity === false) return 'Excluded by a superadmin';
+  if (emp.duplicateOf && findEmployee(state, emp.duplicateOf)) return 'Duplicate profile (counted under ' + findEmployee(state, emp.duplicateOf).name + ')';
+  if (emp.countsInProductivity === true) return null;                    // explicitly switched on
+  if (isSystemAccount(emp)) return 'System / test account';
+  if (String(emp.email || '').toLowerCase() === 'hr@elitetaxation.co.nz') return 'HR system login';
+  if (emp.isFounder) return 'Founder / Director (not standard processing capacity)';
+  if (!canReceiveNewWork(emp)) return 'Inactive employee';
+  return null;
 }
-function productivityFor(state, empIds, fromISO, toISO) {
+function isNonProductiveAccount(emp) { return !!productivityExclusionReason(db.get(), emp); }
+// A task belongs to its assignee — or, if that profile is marked a duplicate of another, to the real profile (history is never rewritten).
+function ownerOf(state, t) {
+  const e = t.assignedTo ? findEmployee(state, t.assignedTo) : null;
+  return e && e.duplicateOf && findEmployee(state, e.duplicateOf) ? e.duplicateOf : t.assignedTo;
+}
+function productivityFor(state, empIds, fromISO, toISO, opts) {
   empIds = empIds.filter(id => !isNonProductiveAccount(findEmployee(state, id)));
   const from = fromISO, to = toISO;
   const inRange = d => d && nzDay(d) >= from && nzDay(d) <= to;
@@ -4690,7 +4892,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     // Compute qualification ONCE per completed task (reused for period
     // bucketing, the qualified/excluded split, and the commitment stat) —
     // never re-derived, so it can't drift between the different readings.
-    const allCompleted = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed');
+    const allCompleted = state.tasks.filter(t => ownerOf(state, t) === id && t.status === 'completed');
     const computed = allCompleted.map(t => {
       const reportInfo = reportSentFor(t);
       const result = productivityQualifies(state, t, v2At, reportInfo);
@@ -4702,33 +4904,11 @@ function productivityFor(state, empIds, fromISO, toISO) {
     done.forEach(({ t, result }) => {
       (result.qualifies ? qualified : excluded).push(productivityTaskRow(t, result));
     });
-    // On-hold "month close" partial credits (see closeMonthOnHoldCredits) —
-    // actual hours banked for a task that was on hold at a manual
-    // month-close, credited to whichever period the close itself happened
-    // in. Independent of the task's own eventual qualifying event, which
-    // still earns credit later too, minus whatever was already banked here
-    // (see productivityQualifies) — so the two together always add up to
-    // no more than the task's original estimate, never double-counted.
-    state.tasks.filter(t => t.assignedTo === id).forEach(t => {
-      (t.monthCloseCredits || []).forEach(c => {
-        // Credited to the month that was closed (its last day), NOT the day
-        // the close button happened to be pressed — closing September on
-        // 2 October must still land in September's numbers.
-        if (!inRange(c.creditDate || c.closedAt)) return;
-        qualified.push({
-          id: t.id + ':close:' + c.period, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
-          kind: t.kind, status: t.status,
-          allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
-          internalDeadline: t.internalDeadline, completedAt: null,
-          clientDate: t.clientDate, sentToClientAt: null,
-          stages: { processor: null, reviewer: null, sender: null },
-          creditedHours: c.hours, qualifies: true,
-          exclusionReason: null, dataException: false, zeroHourTask: c.hours === 0,
-          rule: 'on_hold_month_close', qualifyingEventType: 'month_close', qualifyingEventAt: c.creditDate || c.closedAt,
-          reviewedAt: null, noReviewAuthorized: false, reportStatus: null,
-        });
-      });
+    // handed in during the period but its Reviewed Clean date falls outside it → shown, with the reason (never silently missing)
+    computed.filter(x => x.result.qualifies && x.t.completedAt && inRange(x.t.completedAt) && !inRange(x.result.periodDate || x.t.completedAt)).forEach(({ t, result }) => {
+      excluded.push(productivityTaskRow(t, { ...result, qualifies: false, creditedHours: 0, exclusionReason: 'Clean review outside selected period (' + nzDay(result.periodDate) + ')' }));
     });
+    // (Hours banked at a month-close for held work are NOT credited: a task earns its full allocated hours on Reviewed Clean, or nothing.)
     const qualifiedHours = r2(qualified.reduce((s, x) => s + x.creditedHours, 0));
     const rawPct = capacityHours > 0 ? (qualifiedHours / capacityHours) * 100 : null;
     // One decimal, capped at 100 — anything qualified beyond capacity shows
@@ -4760,7 +4940,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     });
 
     // Open/unfinished work — current state, not period-scoped.
-    const openWork = state.tasks.filter(t => t.assignedTo === id && t.status !== 'completed');
+    const openWork = state.tasks.filter(t => ownerOf(state, t) === id && t.status !== 'completed' && t.status !== 'cancelled');
     const excludedRows = excluded.concat(
       openWork.filter(t => t.internalDeadline && inRange(t.internalDeadline))
         .map(t => productivityTaskRow(t, { qualifies: false, creditedHours: 0, exclusionReason: OPEN_STATUS_REASONS[t.status] || t.status, stages: { processor: null, reviewer: null, sender: null } }))
@@ -4794,6 +4974,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
       outstandingReports: reportsReadyNotSent + reportsLate,
       qualifiedTasks: qualified, excludedTasks: excludedRows, openWork: openWork.map(t => productivityOpenRow(state, t)),
       capacityNotConverted, assignedOpenHours: openPart, trulyUnallocatedHours, notConvertedBreakdown, capacityBreakdown,
+      ...(opts && opts.detail ? { capacityDays: capacityDaysDetail(state, emp, from, to) } : {}),
     };
   });
 }
@@ -4802,10 +4983,14 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const state = db.get();
   const me = req.employee;
   const clamp = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
-  const to = clamp(req.query.to) || todayISO();
+  const requestedTo = clamp(req.query.to) || todayISO();
   const requestedFrom = clamp(req.query.from)
-    || new Date(new Date(to + 'T00:00:00Z').getTime() - 90 * 86400000).toISOString().slice(0, 10);
-  if (requestedFrom > to) return res.status(400).json({ error: 'from must be on or before to.' });
+    || new Date(new Date(requestedTo + 'T00:00:00Z').getTime() - 90 * 86400000).toISOString().slice(0, 10);
+  if (requestedFrom > requestedTo) return res.status(400).json({ error: 'from must be on or before to.' });
+  // Actual productivity never counts days that have not happened yet: a window that reaches past today ends today (the planned end is reported
+  // separately). A window that is entirely in the future is a planning query (leave / capacity previews) and is left exactly as asked.
+  const today0 = todayISO();
+  const to = (requestedTo > today0 && requestedFrom <= today0) ? today0 : requestedTo;
   // No real data before go-live — count capacity / working days / worked
   // hours from 7 Sept 2026 on, never from the fiscal-year start.
   const from = floorAtGoLive(requestedFrom, to);
@@ -4825,26 +5010,13 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const grp = String(req.query.group || '');
   if (PROD_GROUPS.includes(grp)) ids = ids.filter(id => prodGroupOf(findEmployee(state, id)) === grp);
 
-  const people = productivityFor(state, ids, from, to);
-  const sum = (k) => people.reduce((s, p) => s + (p[k] || 0), 0);
-  // Team/firm totals: summed hours over summed capacity, never an average of
-  // individual percentages — a person with more capacity should weigh more
-  // in the team figure, not count the same as everyone else.
-  const totalQualified = sum('qualifiedHours'), totalCap = sum('capacityHours');
-  const rawTotalPct = totalCap > 0 ? (totalQualified / totalCap) * 100 : null;
-  const totalReportPoints = sum('reportPoints'), totalReportMax = sum('reportMaxPoints');
-  const totalCommitmentMet = sum('commitmentMet'), totalCommitmentTotal = sum('commitmentTotal');
-  // workingDays is the same shared calendar fact for everyone in one call
-  // (only per-day capacity *deductions* are person-specific) — copying it
-  // straight onto totals (rather than never including it) is the fix for
-  // the team-summary card's "undefined working days" display bug.
+  const people = productivityFor(state, ids, from, to, { detail: req.query.full === '1' || req.query.days === '1' });
+  // workingDays / workshopDays are shared calendar facts for everyone in one call (only the per-day deductions are personal).
   const totalWorkingDays = people.length ? people[0].workingDays : Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to));
-  // same firm-wide fact as workingDays above — not a per-person sum.
   const totalWorkshopDays = people.length ? Math.max(...people.map(p => p.workshopDays)) : (state.capacityCalendarAdjustments || [])
     .filter(a => a.active && a.type === 'WORKSHOP' && a.date >= from && a.date <= to).length;
-
   res.json({
-    from, to, requestedFrom, goLive: SYSTEM_GO_LIVE,
+    from, to, requestedFrom, requestedTo, plannedTo: requestedTo, elapsedOnly: to !== requestedTo, goLive: SYSTEM_GO_LIVE,
     goLiveApplied: from !== requestedFrom,
     fiscalYearStart: floorAtGoLive(fiscalYearStart(to), to),
     v2EffectiveAt: state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT,
@@ -4853,31 +5025,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
     // Show everyone in scope, including zero-output people, with a plain
     // reason rather than hiding them.
     people,
-    totals: {
-      capacityHours: Math.round(totalCap * 100) / 100,
-      workingDays: totalWorkingDays, leaveDays: Math.round(sum('leaveDays') * 100) / 100,
-      workshopDays: totalWorkshopDays,
-      qualifiedHours: Math.round(totalQualified * 100) / 100,
-      productivityPct: rawTotalPct == null ? null : Math.min(100, Math.round(rawTotalPct * 10) / 10),
-      rawUtilisationPct: rawTotalPct == null ? null : Math.round(rawTotalPct * 10) / 10,
-      additionalHours: rawTotalPct != null && rawTotalPct > 100 ? Math.round((totalQualified - totalCap) * 100) / 100 : 0,
-      notScorable: totalCap <= 0,
-      commitmentMet: totalCommitmentMet, commitmentTotal: totalCommitmentTotal,
-      commitmentPct: totalCommitmentTotal > 0 ? Math.round((totalCommitmentMet / totalCommitmentTotal) * 1000) / 10 : null,
-      reportsRequired: sum('reportsRequired'), reportsOnTime: sum('reportsOnTime'),
-      reportsLate: sum('reportsLate'), reportsReadyNotSent: sum('reportsReadyNotSent'), reportsNoDate: sum('reportsNoDate'),
-      reportPoints: totalReportPoints, reportMaxPoints: totalReportMax,
-      reportSentRate: totalReportMax > 0 ? Math.round((totalReportPoints / totalReportMax) * 1000) / 10 : null,
-      outstandingReports: sum('outstandingReports'),
-      capacityNotConverted: Math.round(sum('capacityNotConverted') * 100) / 100,
-      assignedOpenHours: Math.round(sum('assignedOpenHours') * 100) / 100,
-      trulyUnallocatedHours: Math.round(sum('trulyUnallocatedHours') * 100) / 100,
-      notConvertedBreakdown: (() => {
-        const k = f => Math.round(people.reduce((n, p) => n + ((p.notConvertedBreakdown || {})[f] || 0), 0) * 100) / 100;
-        const b = { total: k('total'), openAllocated: k('openAllocated'), nonQualifyingCompleted: k('nonQualifyingCompleted'), unallocated: k('unallocated') };
-        return { ...b, reconciles: people.every(p => (p.notConvertedBreakdown || {}).reconciles !== false) && Math.abs(b.openAllocated + b.nonQualifyingCompleted + b.unallocated - b.total) < 0.05 };
-      })(),
-    },
+    totals: prodRules.aggregateTotals(people, { workingDays: totalWorkingDays, workshopDays: totalWorkshopDays }),
   });
 });
 
@@ -4897,6 +5045,9 @@ function periodBounds(period) {
   return { from: `${period}-01`, to: `${period}-${String(last).padStart(2, '0')}` };
 }
 function closeMonthOnHoldCredits(state, period, byEmployeeId) {
+  // Retired: partial credit for held work is not part of the productivity method (full allocated hours on Reviewed Clean, or zero).
+  // Earlier entries stay on their tasks for the record but are never counted.
+  if (true) return [];
   const credited = [];
   const creditDate = periodBounds(period).to;
   (state.tasks || []).filter(t => t.status === 'on_hold').forEach(t => {
@@ -6118,7 +6269,7 @@ app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
     assignedTo: assignee ? assignee.id : null,
     assignedBy: assignee ? assignee.id : null,
     team: (b.team ? String(b.team).trim() : null) || (assignee ? assignee.team : null) || null,
-    assignedAt: now, reassignHistory: [],
+    assignedAt: now, createdAt: now, reassignHistory: [],
     status: 'accepted',
     logged: 0, tat: 0,
     acceptedAt: now, timerStartedAt: null,
@@ -6248,14 +6399,18 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
     const ws = workflowSettings(state);
     attentionIds = [...new Set(mgr.exceptions(rows, byId, { today, nowMs, enforceDomains: !!ws.linkDomainsEnforced, allowedDomains: ws.linkDomains }).map(a => a.id))];
   }
+  // an ordinary processor sees ONE focused view (and a Review view only if they are somebody's reviewer); managers keep Today / Manager / Review
+  const isReviewerNow = state.tasks.some(t => t.reviewerId === me.id && t.assignedTo !== me.id);
+  const tabs = isAdminRole(me.accessRole) ? ['today', 'manager', 'review'] : (isReviewerNow ? ['processor', 'review'] : ['processor']);
   const payload = workflow.buildToday(scoped, me, {
     attentionIds, reviewSlaHours: Number((workflowSettings(state) || {}).reviewSlaHours) || undefined,
     today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
+    reportInfo: reportSentFor, queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays,
   });
   const hour = Math.floor(nzMinutesOfDay(nowMs) / 60);
-  res.json({ ...payload, today, timezone: BUSINESS_TZ, hour, greeting: workflow.greetingFor(hour), name: me.name });
+  res.json({ ...payload, tabs, today, timezone: BUSINESS_TZ, hour, greeting: workflow.greetingFor(hour), name: me.name });
 });
 
 // ---------------------------------------------------------------------------
@@ -6268,7 +6423,8 @@ function workflowDeps(state, me, extra) {
     today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
-    reportInfo: reportSentFor, queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays, ...(extra || {}),
+    reportInfo: reportSentFor, queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays,
+    managerNameOf: t => { const m = t.assignedTo ? managersOfEmployee(state, t.assignedTo)[0] : null; return m ? m.name : null; }, ...(extra || {}),
   };
 }
 // Every task in the manager's world, as enriched cards. Only managers/founders reach this (requireAdmin).
@@ -6546,6 +6702,110 @@ app.get('/api/workflow/measures', requireAuth, requireAdmin, (req, res) => {
   const roster = new Set(teamRoster(state, me).map(e => e.id));
   const tasks = visibleTasks(state, me).filter(t => firmWide(me) || (t.assignedTo && roster.has(t.assignedTo)));
   res.json(mgr.measures(tasks, deps, req.query.days));
+});
+
+// ---------------------------------------------------------------------------
+// FOUNDER DASHBOARD — founder only, checked HERE (not just hidden in the page). Everything comes from founder-metrics.js, which in turn uses
+// the same productivityFor() service as every other dashboard. Reading only; nothing is written or recalculated.
+// ---------------------------------------------------------------------------
+function requireFounder(req, res, next) {
+  if (req.employee.accessRole === 'superadmin' && req.employee.isFounder) return next();
+  res.status(403).json({ error: 'The Founder dashboard is for the founder only.' });
+}
+function founderDeps(state, me) {
+  return {
+    today: todayISO(), nzDay, findEmployee, teamsOf, teamRoster, managersOfEmployee, productivityFor, aggregateTotals: prodRules.aggregateTotals,
+    productivityExclusionReason, prodGroupOf, goLive: SYSTEM_GO_LIVE, fiscalYearStart, effectiveClientDate, ownerOf,
+    workflowDeps: (st, who) => workflowDeps(st, who, {}),
+  };
+}
+function founderParams(q) {
+  q = q || {};
+  return { scope: { kind: q.scopeKind, value: q.scopeValue }, period: { preset: q.preset, from: q.from, to: q.to }, employee: q.employee };
+}
+function founderFilters(state, d) {
+  const elig = founderMetrics.eligibility(state, d).filter(x => x.included);
+  return {
+    teams: [...new Set(state.employees.flatMap(e => teamsOf(e)))].sort(),
+    managers: state.employees.filter(e => isAdminRole(e.accessRole) && !e.isFounder && state.employees.some(x => x.id !== e.id && managersOfEmployee(state, x.id).some(m => m.id === e.id))).map(e => ({ id: e.id, name: e.name })).sort((a, b) => a.name.localeCompare(b.name)),
+    employees: elig.map(x => ({ id: x.id, name: x.name, team: x.team })).sort((a, b) => a.name.localeCompare(b.name)),
+    periods: founderMetrics.PERIODS,
+  };
+}
+app.get('/api/founder/dashboard', requireAuth, requireFounder, (req, res) => {
+  const state = db.get(), d = founderDeps(state, req.employee);
+  const data = founderMetrics.build(state, req.employee, founderParams(req.query), d);
+  res.json({ ...data, filters: founderFilters(state, d), name: req.employee.name });
+});
+app.get('/api/founder/productivity', requireAuth, requireFounder, (req, res) => {
+  const state = db.get();
+  res.json(founderMetrics.drilldown(state, founderParams(req.query), founderDeps(state, req.employee)));
+});
+// Who is counted in productivity and capacity, who is not and why — and likely duplicate profiles for the founder to confirm.
+app.get('/api/founder/eligibility', requireAuth, requireFounder, (req, res) => {
+  const state = db.get(), d = founderDeps(state, req.employee);
+  res.json({ people: founderMetrics.eligibility(state, d), duplicates: founderMetrics.suspectedDuplicates(state), mapped: state.employees.filter(e => e.duplicateOf).map(e => ({ id: e.id, name: e.name, countedUnder: (findEmployee(state, e.duplicateOf) || {}).name || null })) });
+});
+// A live self-check of the invariants the dashboard promises — run it on real data to see whether every number agrees with every other.
+// It only reads. Each line says what was compared and the two figures.
+app.get('/api/founder/reconcile', requireAuth, requireFounder, (req, res) => {
+  const state = db.get(), d = founderDeps(state, req.employee), params = founderParams(req.query);
+  const D = founderMetrics.build(state, req.employee, params, d), P = founderMetrics.drilldown(state, params, d), V = D.views;
+  const checks = [], add = (name, ok, detail) => checks.push({ name, pass: !!ok, detail });
+  const near = (a, b) => Math.abs((a || 0) - (b || 0)) < 0.011;
+  const lists = [...V.founder.actionTiles, ...V.today.tiles, ...V.review.tiles, ...V.founder.kpis];
+  lists.forEach(l => add('List "' + l.label + '": ' + l.ids.length + ' records, every one has a row, none repeated', new Set(l.ids).size === l.ids.length && l.ids.every(id => D.rows[id]), l.ids.length + ' ids'));
+  const prod = V.founder.kpis.find(k => k.key === 'productivity');
+  const qSum = P.table.reduce((n, r) => n + r.qualifiedHours, 0), cSum = P.table.reduce((n, r) => n + r.eligibleCapacityHours, 0);
+  add('Productivity KPI = the employee drill-down table (hours)', near(prod.numerator, qSum) && near(prod.denominator, cSum), 'KPI ' + prod.numerator + ' ÷ ' + prod.denominator + ' · table ' + Math.round(qSum * 100) / 100 + ' ÷ ' + Math.round(cSum * 100) / 100);
+  const pe = V.founder.performance.byEmployee;
+  add('Performance table (by employee) adds up to the KPI', near(prod.numerator, pe.reduce((n, g) => n + g.productivity.numerator, 0)) && near(prod.denominator, pe.reduce((n, g) => n + g.productivity.denominator, 0)), pe.length + ' employees');
+  const open = V.founder.kpis.find(k => k.key === 'open'), openWrong = open.ids.filter(id => !D.rows[id] || D.rows[id].status === 'Completed' || D.rows[id].cancelled);
+  add('Open Work lists only unfinished work (no completed task is counted as open)', openWrong.length === 0 && open.value === open.ids.length, 'dashboard ' + open.value + ' · ' + openWrong.length + ' finished tasks wrongly in the list');
+  add('Capacity parts add up to the whole (never exceed it)', D.views.founder.capacity.reconciles, JSON.stringify({ capacity: D.views.founder.capacity.eligibleCapacityHours, clean: D.views.founder.capacity.reviewedCleanHours, open: D.views.founder.capacity.openAllocatedHours, notQualifying: D.views.founder.capacity.nonQualifyingCompletedHours, unallocated: D.views.founder.capacity.unallocatedCapacityHours }));
+  add('Capacity counts only days that have happened', D.period.to <= todayISO(), 'counted through ' + D.period.to + (D.period.elapsedOnly ? ' (planned end ' + D.period.plannedTo + ' not counted)' : ''));
+  const elig = founderMetrics.eligibility(state, d), counted = elig.filter(x => x.included), dupCounted = counted.filter(x => (findEmployee(state, x.id) || {}).duplicateOf);
+  add('No duplicate profile is counted in capacity', dupCounted.length === 0, dupCounted.length + ' duplicates counted');
+  add('Nobody who should be excluded is counted (founder, system, test, HR, inactive)', counted.every(x => !productivityExclusionReason(state, findEmployee(state, x.id))), counted.length + ' counted');
+  const suspects = founderMetrics.suspectedDuplicates(state);
+  add('No unconfirmed possible-duplicate profiles', suspects.length === 0, suspects.length ? suspects.map(x => x.a.name + ' / ' + x.b.name).join('; ') : 'none');
+  const prodApi = (() => { const people = productivityFor(state, counted.filter(x => !params.scope.kind || params.scope.kind === 'firm').map(x => x.id).filter(id => founderMetrics.HOURS_GROUPS.includes(prodGroupOf(findEmployee(state, id)))), D.period.from, D.period.to); return prodRules.aggregateTotals(people); })();
+  add('Founder dashboard and /api/productivity total the same people the same way (whole firm)', D.scope.kind !== 'firm' || (near(prodApi.qualifiedHours, prod.numerator) && near(prodApi.capacityHours, prod.denominator)), 'service ' + prodApi.qualifiedHours + ' ÷ ' + prodApi.capacityHours);
+  res.json({ asOf: D.asOf, scope: D.scope.label, period: D.period.label, allPass: checks.every(c => c.pass), failed: checks.filter(c => !c.pass).length, checks });
+});
+// CSV exports — built from the SAME functions as the screen, so a figure on screen and in the file cannot differ.
+app.get('/api/founder/export', requireAuth, requireFounder, (req, res) => {
+  const state = db.get(), d = founderDeps(state, req.employee), params = founderParams(req.query);
+  const section = String(req.query.section || 'performance'), toCsv = founderMetrics.toCsv;
+  const send = (name, head, rows) => { res.setHeader('Content-Type', 'text/csv; charset=utf-8'); res.setHeader('Content-Disposition', 'attachment; filename="' + name + '.csv"'); res.send(toCsv(head, rows)); };
+  const taskRows = (data, ids) => ids.map(id => data.rows[id]).filter(Boolean).map(r => [r.id, r.clientName, r.name, r.taskType || '', r.assigneeName || 'Unassigned', r.reviewerName || '', r.status, r.waitingOn, r.internalDeadline || '', r.clientDate || '', r.allocatedHours == null ? '' : r.allocatedHours]);
+  const taskHead = ['Task', 'Client', 'Work', 'Task type', 'Processor', 'Reviewer', 'Status', 'Waiting on', 'Internal due', 'Client commitment', 'Allocated hours'];
+  if (section === 'productivity') {
+    const p = founderMetrics.drilldown(state, params, d);
+    return send('productivity-' + p.period.from + '-to-' + p.period.to, ['Employee', 'Team', 'Eligible working days', 'Approved leave days', 'Weekly offs', 'Workshop Saturdays', 'Other exclusions (days)', 'Eligible capacity hours', 'Reviewed-clean allocated hours', 'Productivity %', 'Qualifying tasks', 'Excluded tasks'],
+      [...p.table.map(r => [r.name, r.team, r.eligibleWorkingDays, r.approvedLeaveDays, r.weeklyOffs, r.workshopSaturdays, r.otherExclusions, r.eligibleCapacityHours, r.qualifiedHours, r.productivityPct == null ? 'Not available' : r.productivityPct, r.qualifyingTasks, r.excludedTasks]),
+       ['FIRM / SCOPE TOTAL', '', '', p.totals.leaveDays, '', '', '', p.totals.capacityHours, p.totals.qualifiedHours, p.totals.capacityHours > 0 ? Math.round(p.totals.qualifiedHours / p.totals.capacityHours * 1000) / 10 : 'Not available', '', '']]);
+  }
+  if (section === 'productivity_tasks') {
+    const p = founderMetrics.drilldown(state, params, d);
+    if (!p.detail) return res.status(400).json({ error: 'Choose an employee.' });
+    return send('productivity-tasks-' + p.detail.name.replace(/[^A-Za-z0-9]+/g, '-'), ['Task', 'Client', 'Work', 'Task type', 'Assignee', 'Reviewer', 'Allocated hours', 'Internal due', 'Client commitment', 'Submitted for review', 'Review completed', 'Review decision', 'Reviewed clean', 'Report sent status', 'Report sent date', 'Qualification', 'Reason', 'Credited hours'],
+      [...p.detail.qualifying, ...p.detail.excluded].map(r => [r.id, r.clientName, r.name, r.taskType || '', r.assignee, r.reviewer || '', r.allocatedHours, r.internalDeadline || '', r.clientDate || '', r.submittedAt || '', r.reviewCompletedAt || '', r.reviewDecision, r.reviewedCleanAt || '', r.reportStatus, r.reportSentAt || '', r.qualification, r.reason, r.creditedHours]));
+  }
+  const data = founderMetrics.build(state, req.employee, params, d), V = data.views;
+  if (section === 'performance') {
+    const by = { team: V.founder.performance.byTeam, manager: V.founder.performance.byManager, employee: V.founder.performance.byEmployee }[req.query.by || 'employee'] || V.founder.performance.byEmployee;
+    const v = c => c.value == null ? 'Not available' : c.value;
+    return send('performance-' + data.period.from + '-to-' + data.period.to, ['Name', 'Reviewed-clean productivity %', 'Qualified hours', 'Capacity hours', 'Internal commitment %', 'Client delivery %', 'First-pass approval %', 'Reports not sent', 'Overdue tasks', 'Blocked tasks', 'Founder attention'],
+      by.map(g => [g.label, v(g.productivity), g.productivity.numerator, g.productivity.denominator, v(g.internal), v(g.delivery), v(g.firstPass), g.reportsNotSent.count, g.overdue.count, g.blocked.count, g.attention.count]));
+  }
+  if (section === 'attention') return send('needs-founder-attention', ['Severity', 'Issue', 'Task', 'Client', 'Work', 'Processor', 'Reviewer', 'Manager', 'Internal due', 'Client commitment', 'Status', 'Days overdue', 'Blocker', 'Required action'],
+    V.founder.attention.all.map(a => [a.severityLabel, a.issue, a.id, a.clientName || '', a.name, a.employee || 'Unassigned', a.reviewer || '', a.manager || '', a.internalDeadline || '', a.clientDate || '', a.status, a.daysOverdue, a.blocker || '', a.requiredAction]));
+  const tile = [...V.founder.actionTiles, ...V.today.tiles, ...V.review.tiles].find(t => t.key === section.replace(/^tile:/, ''));
+  if (tile) return send(tile.key, taskHead, taskRows(data, tile.ids));
+  const kpi = V.founder.kpis.find(k => k.key === section.replace(/^kpi:/, ''));
+  if (kpi) return send('kpi-' + kpi.key, taskHead, taskRows(data, kpi.ids));
+  res.status(400).json({ error: 'Unknown export.' });
 });
 
 // A manager's one-off change to someone's task. Always needs a reason; every change is written to t.managerActions (who, when, why,
@@ -6950,7 +7210,7 @@ app.post('/api/emails/:id/task', requireAuth, (req, res) => {
     internalRef: e.subject || null,
     clientDate: null, clientDateOverride: false, internalDeadline,
     points: 0, assignedTo: assignee.id, assignedBy: req.employee.id,
-    assignedAt: now, reassignHistory: [], status,
+    assignedAt: now, createdAt: now, reassignHistory: [], status,
     logged: 0, tat: numTat, acceptedAt: status === 'accepted' ? now : null,
     timerStartedAt: null, startedAt: null, completedAt: null,
     reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
@@ -7170,7 +7430,7 @@ app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAcces
     clientId: null, clientName: 'WhatsApp · ' + c.name, internalRef: c.name,
     clientDate: null, clientDateOverride: false, internalDeadline,
     points: 0, assignedTo: assignee.id, assignedBy: req.employee.id,
-    assignedAt: now, reassignHistory: [], status,
+    assignedAt: now, createdAt: now, reassignHistory: [], status,
     logged: 0, tat: numTat, acceptedAt: status === 'accepted' ? now : null,
     timerStartedAt: null, startedAt: null, completedAt: null,
     reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,

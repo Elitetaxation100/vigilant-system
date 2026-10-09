@@ -6,7 +6,9 @@
 //   Assigned · In Progress · On Hold · In Review · Correction Required · Approved · Completed
 // "Commitment met/breached", "Report sent", "Reviewed clean", "Profit confirmed" are NOT statuses — they stay separate attributes.
 
-const EXEMPT_HOLDS = new Set(['CLIENT_QUERY', 'CLIENT_DOCS']);   // holds that pause the client commitment clock
+const holdModel = require('./hold-model');
+// Holds that wait on an EXTERNAL party (client / IRD). Only these may ever pause the processor's own responsibility — and never the client date.
+const EXEMPT_HOLDS = new Set(holdModel.EXTERNAL_CODES);
 
 // Whole days from date-only `a` to date-only `b` ('YYYY-MM-DD'). Done in UTC so a daylight-saving change can never shift it.
 function daysBetween(a, b) {
@@ -45,11 +47,14 @@ function waitingOn(t, st, deps) {
   const mk = (kind, ownerId, label) => ({ kind, ownerId: ownerId || null, ownerName: ownerId ? deps.nameOf(ownerId) : null, label });
   if (st === 'Completed') return mk('none', null, 'No action required');
   if (st === 'On Hold') {
-    const c = t.holdReasonCode;
-    if (c === 'CLIENT_QUERY' || c === 'CLIENT_DOCS') return mk('client', null, 'Waiting on client');
-    if (c === 'THIRD_PARTY') return mk('external', null, 'Waiting on external authority');
-    if (c === 'INTERNAL_REVIEW') return mk('reviewer', t.reviewerId, 'Waiting on reviewer');
-    return mk('manager', null, 'Waiting on manager');
+    const c = t.holdReasonCode, k = holdModel.waitingKind(c), legacy = !!holdModel.LEGACY[c];
+    if (k === 'client') return mk('client', null, legacy ? 'Waiting on client' : holdModel.label(c));
+    if (k === 'external') return mk('external', null, legacy ? 'Waiting on external authority' : holdModel.label(c));
+    if (k === 'reviewer') return mk('reviewer', t.reviewerId, 'Waiting on reviewer');
+    if (k === 'manager') return mk('manager', null, 'Waiting on manager');
+    if (k === 'internal') return mk('internal', null, holdModel.label(c));
+    if (k === 'scheduled') return mk('scheduled', null, holdModel.label(c));
+    return mk('other', null, holdModel.label(c));
   }
   if (st === 'Correction Required') return mk('employee', t.assignedTo, 'Waiting on employee');
   const esc = openEscalation(t);
@@ -67,12 +72,22 @@ function waitingOn(t, st, deps) {
   return mk('employee', t.assignedTo, 'Waiting on employee');
 }
 
+// Is the processor's responsibility paused RIGHT NOW? Only for an open, approved query on a verified external dependency.
+function holdPausedNow(t) {
+  const h = activeHoldOf(t);
+  const q = h && h.queryId ? (t.queries || []).find(x => x.id === h.queryId && !x.dismissedAt) : null;
+  return !!q && !q.replyAt && EXEMPT_HOLDS.has(t.holdReasonCode) && (q.pauseStatus || 'approved') === 'approved';
+}
+// Is there a recorded, still-open query for the active hold? Only then may a hold be described as "waiting on the client / authority".
+function openRecordedQuery(t) {
+  const h = activeHoldOf(t);
+  return !!(h && h.queryId && (t.queries || []).some(q => q.id === h.queryId && !q.dismissedAt && q.pauseStatus !== 'rejected' && !q.replyAt));
+}
 // How the CLIENT commitment stands today — separate from who is at fault. Never mixes in review waiting time.
 function clientRisk(t, st, today) {
   if (!isClientTask(t) || !t.clientDate) return { state: 'na', days: null, label: 'Not applicable' };
   if (st === 'Completed') return { state: 'done', days: null, label: 'Done' };
-  // A task that is on hold is not counted as late or at risk — whatever the reason for the hold.
-  if (st === 'On Hold') return { state: 'waiting_client', days: daysBetween(today, t.clientDate), label: EXEMPT_HOLDS.has(t.holdReasonCode) ? 'Waiting on client' : 'On hold' };
+  // A hold never changes the client commitment date, so a held task is shown at risk / overdue exactly as the date says (until an authorised change).
   const d = daysBetween(today, t.clientDate);
   if (d < 0) return { state: 'overdue', days: d, label: 'Client deadline: overdue by ' + (-d) + (d === -1 ? ' day' : ' days') };
   if (d === 0) return { state: 'due_today', days: 0, label: 'Client deadline: due today' };
@@ -103,17 +118,24 @@ function commitmentTag(t, st, today, deps) {
   if (!isClientTask(t) || !t.clientDate) return na;
   const dueByEmployee = internalDueOf(t, deps) || t.clientDate;
   const first = firstSubmission(t, deps), firstOn = first ? deps.nzDay(first.at) : null;
-  const metOn = d => ({ key: 'met', label: 'Commitment met', detail: 'Submitted ' + d + ' — due ' + dueByEmployee });
+  const detail = d => 'Submitted ' + d + ' — due ' + dueByEmployee;
+  // A correction the processor must make: who is answerable for it matters (a manager / SOP fault is not the processor's miss).
+  const corr = t.correction || {}, corrOwner = corr.responsibility && corr.responsibility !== 'Employee' ? ' — ' + String(corr.responsibility).toLowerCase() + ' responsibility, not the processor\'s' : '';
+  const lastResub = (t.submissions || []).filter(x => x.kind === 'resubmit').pop();
+  const corrNote = lastResub && corr.dueDate ? ' · correction resubmitted ' + (deps.nzDay(lastResub.at) <= corr.dueDate ? 'on time' : 'late') : '';
   if (['In Review', 'Approved', 'Completed', 'Correction Required'].includes(st)) {
-    if (firstOn && firstOn <= dueByEmployee) return metOn(firstOn);          // handed in on time at the first attempt — stays met through any rework
-    if (st === 'Correction Required' && !(first && first.exact)) return { key: 'na', label: 'First submission time not recorded' };
+    if (st === 'Correction Required' && !(first && first.exact) && !(firstOn && firstOn <= dueByEmployee)) return { key: 'na', label: 'First submission time not recorded' };
     const submittedOn = firstOn || (t.completedAt ? deps.nzDay(t.completedAt) : null);
     if (!submittedOn) return na;
-    return submittedOn <= dueByEmployee ? metOn(submittedOn) : { key: 'breached', label: 'Commitment breached', detail: 'Submitted ' + submittedOn + ' — due ' + dueByEmployee };
+    const onTime = submittedOn <= dueByEmployee;
+    const tail = st === 'In Review' ? ' — waiting for reviewer' : st === 'Correction Required' ? ' · correction due' + (corr.dueDate ? ' ' + corr.dueDate : '') + corrOwner : corrNote;
+    return onTime ? { key: 'met', label: 'Submitted on time' + tail, detail: detail(submittedOn) } : { key: 'breached', label: 'Submitted late' + tail, detail: detail(submittedOn) };
   }
-  if (firstOn && firstOn <= dueByEmployee) return metOn(firstOn);
-  if (st === 'On Hold') return { key: 'waiting_client', label: EXEMPT_HOLDS.has(t.holdReasonCode) ? 'Waiting on client' : 'On hold' };   // never counted as a breach while on hold
-  if (dueByEmployee < today) return { key: 'breached', label: 'Commitment breached' };
+  if (firstOn && firstOn <= dueByEmployee) return { key: 'met', label: 'Submitted on time', detail: detail(firstOn) };
+  // Not yet handed in. A hold protects NOTHING by itself; only an approved pause on a verified external dependency does (and then from the
+  // verified query time — the internal date above is already moved by those paused days).
+  if (st === 'On Hold' && holdPausedNow(t)) return { key: 'waiting_client', label: 'Paused by verified external dependency' };
+  if (dueByEmployee < today) return { key: 'breached', label: 'Not submitted — internal date passed' };
   if (dueByEmployee === today) return { key: 'due_today', label: 'Due today' };
   if (daysBetween(today, t.clientDate) <= 2) return { key: 'at_risk', label: 'At risk' };
   return { key: 'on_track', label: 'On track' };
@@ -162,15 +184,69 @@ function nextAction(t, st, w, deps) {
   }
 }
 
+// ONE primary status per task, in the words people use. (The stored/working statuses above are unchanged — this is only the label shown.)
+// Everything else about the task (overdue, waiting on someone, at risk, correction history …) is a separate BADGE, never part of the status.
+function primaryStatusOf(t, st) {
+  if (st === 'On Hold') return t.holdResolvedAt ? 'Ready to Resume' : 'On Hold';
+  if (st === 'Correction Required') return 'Fix Needed';
+  if (st === 'In Review') return 'Sent for Review';
+  if (st === 'Approved') return t.profitConfirmStatus === 'pending' ? 'Reviewed Clean' : 'Ready to Send';
+  if (st === 'Completed') return t.sentToClient === true ? 'Report Sent' : (t.status === 'cancelled' ? 'Cancelled' : 'Completed');
+  if (st === 'In Progress') return (t.startedAt || t.timerStartedAt || t.status === 'rework') ? 'In Progress' : 'To Do';
+  if (t.status === 'cancelled') return 'Cancelled';
+  return (t.status === 'awaiting_acceptance' || t.status === 'pending_approval' || t.status === 'window_proposed') ? 'New / Awaiting Acceptance' : 'To Do';
+}
+const activeHoldOf = t => { const h = (t.holdHistory || [])[(t.holdHistory || []).length - 1]; return h && !h.resumedAt ? h : null; };
+// What a held task shows: category, who it waits on, how long, when to follow up, and whether anything is paused — never "waiting on client"
+// unless a real client query is recorded.
+function holdOf(t, deps) {
+  if (t.status !== 'on_hold') return null;
+  const h = activeHoldOf(t) || {}, code = t.holdReasonCode || h.reasonCode;
+  const age = holdModel.holdAge(t.heldAt || h.heldAt, deps.nowMs);
+  const q = (t.queries || []).find(x => !x.dismissedAt && x.id === h.queryId) || null;
+  const pauseStatus = q ? (q.pauseStatus || 'approved') : null;   // saved queries from before approval existed count as approved
+  const paused = !!q && !q.replyAt && pauseStatus === 'approved';
+  return {
+    holdId: h.holdId || null, category: code, categoryLabel: holdModel.label(code), reason: t.holdReason || h.reason || null,
+    waitingOnType: h.waitingOnType || holdModel.waitingKind(code), waitingOnPerson: h.waitingOnPerson || null,
+    heldAt: t.heldAt || h.heldAt || null, ageHours: age.hours, ageDays: age.days, ageText: age.text,
+    followUp: t.holdFollowUp || h.followUp || null, followUpDue: !!((t.holdFollowUp || h.followUp) && (t.holdFollowUp || h.followUp) <= deps.today),
+    expectedResponseDate: h.expectedResponseDate || null,
+    queryRecorded: !!q, clientResponsePending: !!q && !q.replyAt && holdModel.isClientRelated(code), querySentAt: q ? (q.sentTs || q.sentAt) : null, queryEvidence: q ? (q.evidence || null) : null,
+    responsibilityPaused: paused, pauseStatus, pausedSince: paused ? (q.sentTs || q.sentAt) : null, pauseRequested: !!q && pauseStatus === 'pending',
+    resolved: !!t.holdResolvedAt, resolvedAt: t.holdResolvedAt || null, statusBeforeHold: h.statusBeforeHold || t.preHoldStatus || null,
+    holdCount: t.holdCount || 0, evidence: (h.evidence || []).slice(-5),
+  };
+}
+function badgesOf(t, st, c, deps) {
+  const b = [];
+  const add = (key, label, tone) => b.push({ key, label, tone: tone || 'grey' });
+  if (c.clientRisk.state === 'overdue') add('overdue', 'Client date passed', 'red');
+  else if (c.clientRisk.state === 'due_today' || c.clientRisk.state === 'at_risk') add('at_risk', 'Client commitment at risk', 'amber');
+  if (c.commitment && c.commitment.key === 'breached') add('internal_breached', 'Internal commitment missed', 'red');
+  if (st === 'On Hold' && c.hold) {
+    if (c.hold.clientResponsePending) add('waiting_client', 'Waiting on client', 'grey');
+    else if (c.waitingOn.kind === 'manager') add('waiting_manager', 'Waiting on manager', 'grey');
+    else if (c.waitingOn.kind === 'reviewer') add('waiting_reviewer', 'Waiting on reviewer', 'grey');
+    if (c.hold.responsibilityPaused) add('sla_paused', 'Processor SLA paused', 'blue');
+    if (c.hold.pauseRequested) add('pause_requested', 'Pause awaiting manager', 'amber');
+    if (c.hold.followUpDue) add('followup_due', 'Follow-up due', 'amber');
+  }
+  if ((t.reworkCount || 0) > 0 && st !== 'Correction Required') add('had_rework', 'Previous review required rework', 'grey');
+  if (st === 'In Review' && c.reviewWaiting && deps.reviewSlaHours && c.reviewWaiting.hours > deps.reviewSlaHours) add('review_sla', 'Reviewer SLA breached', 'red');
+  const r = deps.reportInfo ? deps.reportInfo(t) : null;
+  if (r && r.outcome === 'sent_late') add('report_late', 'Report sent late', 'amber');
+  return b;
+}
 // One task, fully derived. deps: { today, nowMs, nzDay, nameOf, profitOwnerId }
-function card(t, deps) {
+function cardBase(t, deps) {
   const st = status(t);
   const w = waitingOn(t, st, deps);
   const risk = clientRisk(t, st, deps.today);
   return {
     id: t.id, name: t.name, kind: t.kind, kindLabel: taskKindLabel(t),
     clientId: t.clientId || null, clientName: (t.clientName && String(t.clientName).trim().toLowerCase() !== 'internal') ? t.clientName : null, taskType: t.scope && t.scope !== '—' ? t.scope : null,
-    status: st, subState: subState(t, st), waitingOn: w,
+    status: st, primaryStatus: primaryStatusOf(t, st), subState: subState(t, st), waitingOn: w,
     commitment: commitmentTag(t, st, deps.today, deps), clientRisk: risk,
     clientDate: t.clientDate || null, internalDeadline: t.internalDeadline || null, internalDue: internalDueOf(t, deps), daysRemaining: risk.days,
     assigneeId: t.assignedTo || null, assigneeName: t.assignedTo ? deps.nameOf(t.assignedTo) : null,
@@ -187,7 +263,17 @@ function card(t, deps) {
     attachmentCount: (t.reviewAttachments || []).length + (t.sheetFiles || []).length + (t.cashbookFiles || []).length,
     holdStart: t.heldAt || null, holdFollowUp: t.holdFollowUp || null, submittedAt: t.completedAt || null,
     sortAt: latestOf([t.createdAt, t.assignedAt, t.completedAt, t.reviewedAt, t.heldAt, t.escalation && t.escalation.at, t.sentToClientAt]),
+    hold: null, readyToResume: st === 'On Hold' && !!t.holdResolvedAt, badges: [],
+    managerName: deps.managerNameOf ? deps.managerNameOf(t) : null,
+    reportStatus: (() => { const r = deps.reportInfo ? deps.reportInfo(t) : null; return r ? (r.eligible ? r.outcome : r.reason) : null; })(),
   };
+}
+// (the hold + badges need the finished card, so they are attached here)
+function card(t, deps) {
+  const c = cardBase(t, deps);
+  c.hold = holdOf(t, deps);
+  c.badges = badgesOf(t, c.status, c, deps);
+  return c;
 }
 // The most recent of several ISO timestamps — what "newest first" sorts on (latest activity on the task).
 function latestOf(list) { return list.filter(Boolean).sort().pop() || null; }
@@ -253,7 +339,7 @@ function buildToday(tasks, me, deps) {
     if (w.ownerId && w.ownerId === me.id) continue;           // mine → it would be in A
     (waitingGroups[w.kind] = waitingGroups[w.kind] || []).push(t.id);
   }
-  const KIND_LABEL = { founder: 'Founder', employee: 'Employee', client: 'Client', reviewer: 'Another reviewer', profit: 'Profit confirmer', manager: 'Another manager', external: 'External authority', ready_to_send: 'Report sender' };
+  const KIND_LABEL = { internal: 'Internal dependency', scheduled: 'Scheduled for later', other: 'Other', founder: 'Founder', employee: 'Employee', client: 'Client', reviewer: 'Another reviewer', profit: 'Profit confirmer', manager: 'Another manager', external: 'External authority', ready_to_send: 'Report sender' };
   const waiting = Object.keys(KIND_LABEL).filter(k => waitingGroups[k]).map(k => ({ kind: k, label: KIND_LABEL[k], ids: waitingGroups[k] }));
   // ---- the six counts, each with the exact records behind it
   const ids = f => open.filter(f).map(t => t.id);
@@ -280,7 +366,7 @@ function buildToday(tasks, me, deps) {
   const used = new Set([...Object.values(review).flat(), ...needs.map(n => n.id), ...waiting.flatMap(g => g.ids), ...doneToday.map(d => d.id), ...Object.values(filters).flat()]);
   const outCards = Object.fromEntries([...used].map(id => [id, cards[id]]));
   const modes = buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, finishedIds });
-  const modeIds = new Set(['today', 'manager', 'review'].flatMap(k => [...modes[k].tiles.flatMap(x => x.ids), ...modes[k].default.primary.ids, ...modes[k].default.secondary.flatMap(x => x.ids)]));
+  const modeIds = new Set(['today', 'manager', 'review', 'processor'].flatMap(k => [...modes[k].tiles.flatMap(x => x.ids), ...modes[k].default.primary.ids, ...modes[k].default.secondary.flatMap(x => x.ids)]));
   modeIds.forEach(id => { if (cards[id]) outCards[id] = cards[id]; });
   return { counts, filters, review, reviewCounts, modes, sections: { needs: needs.map(({ id, type, why }) => ({ id, type, why })), waiting, completed: doneToday }, cards: outCards };
 }
@@ -373,8 +459,33 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
      sec('done', 'Reviews completed today', completedReviews)]);
   reviewDefault.note = shownUnderUrgent ? shownUnderUrgent + (shownUnderUrgent === 1 ? ' resubmission is' : ' resubmissions are') + ' displayed under Urgent.' : '';
 
+  // ================= PROCESSOR — the work assigned to ME, in the six questions a processor asks. Every tile is a list of task ids and the
+  // number on it IS the length of that list (unique). A task held for any reason is NOT in Due Today and NOT in progress.
+  const mine = open.filter(t => t.assignedTo === me.id);
+  const stOf = id => cards[id].status;
+  const dueNow = t => { const due = internalDueOf(t, deps); return (due && due <= deps.today) || !!t.timerStartedAt; };
+  const pDue = mine.filter(t => ['Assigned', 'In Progress'].includes(stOf(t.id)) && dueNow(t)).map(t => t.id);
+  const pFix = mine.filter(t => stOf(t.id) === 'Correction Required').map(t => t.id);
+  const pReady = mine.filter(t => stOf(t.id) === 'On Hold' && t.holdResolvedAt).map(t => t.id);
+  const pWaiting = mine.filter(t => stOf(t.id) === 'On Hold' && !t.holdResolvedAt).map(t => t.id);
+  const pSent = mine.filter(t => stOf(t.id) === 'In Review').map(t => t.id);
+  const pReports = open.filter(t => cards[t.id].status === 'Approved' && isClientTask(t) && t.awaitingClientDecision && t.profitConfirmStatus !== 'pending' && (t.reportSendOwner || t.assignedTo) === me.id).map(t => t.id);
+  const waitGroups = {}; pWaiting.forEach(id => { const k = cards[id].waitingOn.kind; (waitGroups[k] = waitGroups[k] || []).push(id); });
+  const processorTiles = [
+    tileOf('p_due', 'Due Today', 'Needs my action today', pDue, 'Nothing is due today.'),
+    tileOf('p_fix', 'Fix Needed', 'Returned by a reviewer', pFix, 'No corrections are waiting for you.'),
+    tileOf('p_ready', 'Ready to Resume', 'What I was waiting for has arrived', pReady, 'Nothing is ready to resume.'),
+    tileOf('p_waiting', 'Waiting on Others', 'On hold', pWaiting, 'Nothing of yours is on hold.', { groups: Object.fromEntries(Object.entries(waitGroups).map(([k, v]) => [k, newest(v)])) }),
+    tileOf('p_sent', 'Sent for Review', 'With a reviewer', pSent, 'Nothing is waiting for a reviewer.'),
+    tileOf('p_reports', 'Reports to Send', 'Reviewed clean — ready for the client', pReports, 'No reports are waiting to be sent.'),
+  ];
+  const processorDefault = mkDefault(
+    sec('p_due', 'Due today', pDue, 'Nothing is due today.'),
+    [sec('p_fix', 'Fix needed', pFix), sec('p_ready', 'Ready to resume', pReady), sec('p_waiting', 'Waiting on others', pWaiting), sec('p_sent', 'Sent for review', pSent), sec('p_reports', 'Reports to send', pReports)]);
+
   return {
     sla,
+    processor: { tiles: processorTiles, default: processorDefault },
     today: { tiles: todayTiles, default: todayDefault },
     manager: { tiles: managerTiles, default: managerDefault },
     review: { tiles: reviewTiles, default: reviewDefault },

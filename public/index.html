@@ -142,7 +142,7 @@ body.v2-dash #navV2{ display:block !important; }
 .tm-attn-list{ margin-top:12px; border-top:1px solid var(--panel-border); }
 .tm-attn-row{ display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--panel-border); }
 .tm-sub{ font-size:12px; color:var(--text-faint); margin-top:2px; }
-.tm-scroll{ overflow-x:auto; }
+.tm-scroll{ overflow-x:auto; position:relative; }
 .tm-table{ width:100%; border-collapse:collapse; font-size:13.5px; }
 .tm-table th, .tm-table td{ text-align:left; padding:10px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
 .tm-table thead th{ font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); white-space:nowrap; }
@@ -189,7 +189,7 @@ i.cal-ev{ display:inline-block; width:12px; height:12px; padding:0; vertical-ali
   .cal-cell{ min-height:70px; } .cal-ev{ font-size:10.5px; }
 }
 /* ---- Today (v2): the personal command centre ---- */
-body.v2-dash .clock-card{ display:none !important; }
+body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .td-head{ display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
 .td-greet{ font-size:26px; font-weight:700; letter-spacing:-.01em; margin:0; }
 .td-date{ color:var(--text-dim); font-size:13.5px; margin-top:2px; }
@@ -260,10 +260,38 @@ body.v2-dash .clock-card{ display:none !important; }
 .rq-head{ font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-faint); background:var(--panel-2); padding-top:6px; padding-bottom:6px; }
 .rq-row{ min-height:38px; border-top:1px solid var(--panel-border); font-size:13.5px; }
 .rq-row:hover{ background:var(--panel-2); }
+/* ---- Founder dashboard ---- */
+.fd-note{ font-size:13px; color:var(--text-dim); margin:0 0 10px; }
+.fd-filters{ margin:0 0 14px; }
+.fd-crumb{ font-size:12.5px; color:var(--text-dim); margin-left:auto; align-self:center; }
+.fd-h{ margin:18px 0 8px; font-size:16px; }
+.fd-kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:10px; margin:0 0 14px; }
+.fd-kpi{ text-align:left; display:flex; flex-direction:column; gap:3px; padding:12px 14px; border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); color:inherit; font:inherit; cursor:pointer; min-height:120px; }
+.fd-kpi.on{ outline:2px solid var(--purple); } .fd-kpi:focus-visible{ outline:3px solid var(--purple); outline-offset:2px; }
+.fd-kl{ font-size:12px; color:var(--purple); font-weight:800; text-transform:uppercase; letter-spacing:.03em; }
+.fd-val{ font-size:28px; font-weight:800; line-height:1.1; } .fd-val small{ font-size:13px; font-weight:600; color:var(--text-dim); }
+.fd-na{ font-size:15px; font-weight:700; color:var(--text-dim); }
+.fd-kc{ font-size:12.5px; color:var(--text); } .fd-kb{ font-size:11.5px; color:var(--text-faint); } .fd-kp{ font-size:12px; color:var(--text-dim); }
+.fd-sec{ margin:18px 0; }
+.fd-dh{ display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 8px; } .fd-dact{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.fd-drill{ border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); padding:12px 14px; margin:12px 0; }
+.fd-grid .td-list{ max-height:520px; } .fd-grid{ min-width:0; } .fd-pwrap{ min-width:0; }
+.fd-arow{ display:grid; grid-template-columns:84px minmax(110px,1fr) minmax(150px,1.3fr) minmax(110px,1fr) minmax(130px,1fr) minmax(110px,1fr) minmax(130px,1fr); gap:8px; align-items:start; padding:8px 12px; border-top:1px solid var(--panel-border); font-size:13px; cursor:pointer; }
+.fd-ahead{ background:var(--purple-dim); color:var(--purple); font-weight:800; font-size:12px; text-transform:uppercase; letter-spacing:.04em; cursor:default; border-top:0; }
+.fd-sev b{ display:inline-block; padding:1px 8px; border-radius:999px; border:1px solid currentColor; font-size:11.5px; } .fd-sev.critical{ color:var(--coral); } .fd-sev.high{ color:#B45309; } .fd-sev.medium{ color:var(--text-dim); }
+.fd-capgrid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:12px; }
+.fd-ir{ display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-top:1px solid var(--panel-border); font-size:13px; } .fd-ir:first-child{ border-top:0; }
+.fd-arow .tm-sub, .fd-ptable .tm-sub, .fd-capgrid .tm-sub{ display:block; }
+.fd-more > summary{ cursor:pointer; padding:8px 0; }
+.fd-sort{ background:none; border:0; font:inherit; font-weight:800; color:inherit; cursor:pointer; text-align:left; padding:0; text-transform:inherit; letter-spacing:inherit; } .fd-sort:focus-visible{ outline:2px solid var(--purple); }
+.fd-total th, .fd-total td{ font-weight:800; border-top:2px solid var(--panel-border); }
+.tm-table tr.sel{ background:var(--purple-dim); }
+@media (max-width:900px){ .fd-arow{ grid-template-columns:1fr; } .fd-ahead{ display:none; } .fd-crumb{ margin-left:0; } }
 /* ---- column headings on every task list: Name | Work | Processor | Status | Client commitment date | Link ---- */
 .td-colhead{ display:grid; grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); gap:8px; align-items:center; padding:7px 12px; background:var(--purple-dim); color:var(--purple); font-weight:800; font-size:12px; letter-spacing:.04em; text-transform:uppercase; border-top:1px solid var(--panel-border); border-bottom:1px solid var(--panel-border); }
 .td-list .td-row{ grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); }
 .td-row .tr-name, .td-row .tr-work, .td-row .tr-who, .td-row .tr-st, .td-row .tr-link{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
 .td-row .tr-name{ font-weight:700; } .td-row .tr-work{ color:var(--text); } .td-row .tr-who{ font-size:13px; color:var(--text); } .td-row .tr-st{ font-size:12px; color:var(--text-dim); }
 .td-row .tr-date{ display:flex; gap:6px; align-items:center; text-align:left; font-size:12.5px; color:var(--text); white-space:nowrap; min-width:0; }
 .td-row .tr-date{ flex-wrap:wrap; row-gap:2px; }
@@ -308,7 +336,7 @@ body.v2-dash .clock-card{ display:none !important; }
 @media (max-width:900px){ .td-row{ grid-template-columns:minmax(0,1fr) auto; } .td-row .tr-who, .td-row .tr-date, .td-row .tr-st{ display:none; } .rq-head{ display:none; } .rq-row{ grid-template-columns:28px 1fr auto; } .rq-links, .rq-own{ grid-column:2 / 3; white-space:normal; } .rq-bar{ grid-template-columns:repeat(2,1fr); } .rq-card{ grid-template-columns:1fr; } .rq-card .go{ grid-column:1; grid-row:auto; } .rv2-pick{ grid-template-columns:1fr; } }
 /* more specific than the general .btn rule, so it only appears on phones */
 .td-detail .td-back{ display:inline-flex; margin-bottom:10px; min-height:40px; align-items:center; }
-.td-grid:not(.has-sel){ grid-template-columns:1fr !important; } .td-grid:not(.has-sel) .td-detail{ display:none !important; }
+.td-grid:not(.has-sel){ grid-template-columns:minmax(0,1fr) !important; } .td-grid:not(.has-sel) .td-detail{ display:none !important; }
 @media (max-width:900px){
   .td-counts{ grid-template-columns:repeat(2,1fr); } .td-grid{ grid-template-columns:1fr; } .td-detail{ display:none; }
   .td-grid.show-detail .td-list{ display:none; } .td-grid.show-detail .td-detail{ display:block; position:fixed; inset:0; z-index:60; overflow:auto; border-radius:0; padding-bottom:90px; }
@@ -1461,9 +1489,9 @@ body.v2-dash .clock-card{ display:none !important; }
         <div id="workNew" style="display:none;"></div>
         <div id="workLegacy">
         <div class="top-grid">
-          <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Open work (always current) plus what finished in the period selected above">
+          <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Unique tasks: everything currently open or with a reviewer (always current), plus what finished in the period selected above. The three parts shown underneath add up to this number.">
             <div class="mt-ic">▦</div>
-            <div class="mt-label">Total tasks <span style="font-weight:400;color:var(--text-faint);" id="myTotalLabel">· all time</span></div>
+            <div class="mt-label">Work in scope <span style="font-weight:400;color:var(--text-faint);" id="myTotalLabel">· all time</span></div>
             <div class="mt-value" id="myTotalTasks">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myTotalSub"></div>
           </div>
@@ -1489,12 +1517,6 @@ body.v2-dash .clock-card{ display:none !important; }
             <div class="mt-value teal" id="myDoneAll">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myDoneSub"></div>
           </div>
-          <div class="metric-tile mg-tile" onclick="openMyExtraHours()" title="Completed work that ran over its estimate, and by how much">
-            <div class="mt-ic">⚡</div>
-            <div class="mt-label">Extra hours</div>
-            <div class="mt-value" style="color:var(--coral);" id="myExtraHours">0</div>
-            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myExtraSub"></div>
-          </div>
           <div class="metric-tile mg-tile" id="myCallsTile" style="display:none;" onclick="showView('calls', document.querySelector('.nav-item[data-view=&quot;calls&quot;]'))" title="Calls tagged to you that actually connected — voicemails and missed calls aren't counted">
             <div class="mt-ic">📞</div>
             <div class="mt-label">Calls remaining</div>
@@ -1517,7 +1539,7 @@ body.v2-dash .clock-card{ display:none !important; }
 
         <div class="dash-bento">
           <div class="dash-card">
-            <div class="dc-hd">Task status <span id="statusDonutScope"></span></div>
+            <div class="dc-hd">Task status — every task, all time <span id="statusDonutScope"></span></div>
             <div id="statusDonutWrap"></div>
           </div>
           <div id="capacityCard"></div>
@@ -1931,99 +1953,7 @@ body.v2-dash .clock-card{ display:none !important; }
 
       <!-- ===================== FOUNDER VIEW ===================== -->
       <section class="view" id="view-founder">
-        <div class="mgmt-tabs" style="margin-bottom:14px;"></div>
-        <div class="dscope" id="fvScope">
-          <div class="dg">
-            <label>Viewing</label>
-            <select id="fvView" onchange="onDashScope('fv')"></select>
-          </div>
-          <div class="dg">
-            <label>Period</label>
-            <select id="fvPeriod" onchange="onDashScope('fv')">
-              <option value="this-week">This week</option>
-              <option value="this-month" selected>This month</option>
-              <option value="this-quarter">This quarter</option>
-              <option value="this-year">This year</option>
-              <option value="last-30">Last 30 days</option>
-              <option value="last-90">Last 90 days</option>
-              <option value="all">All time</option>
-              <option value="custom">Custom range…</option>
-            </select>
-            <span class="drange"><input type="date" id="fvCStart" onchange="onDashScope('fv')"> → <input type="date" id="fvCEnd" onchange="onDashScope('fv')"></span>
-          </div>
-          <label class="dcmp"><input type="checkbox" id="fvCmp" checked onchange="onDashScope('fv')"> vs previous period</label>
-          <span class="dcrumb" id="fvCrumb"><b>Scope:</b> Whole firm · This month</span>
-        </div>
-
-        <div class="fv-search-row">
-          <span class="fv-search-ico">🔎</span>
-          <input type="text" id="fvSearch" placeholder="Search a client, task or person across the whole firm…" oninput="renderFvSearch()" autocomplete="off" spellcheck="false">
-          <button class="btn small" id="fvSearchClear" style="display:none;" onclick="document.getElementById('fvSearch').value='';renderFvSearch();">Clear</button>
-        </div>
-        <div id="fvSearchPanel" class="panel" style="display:none;"></div>
-
-        <div class="stat-grid g8" id="fvKpis">
-          <div class="stat-card fv-tile" onclick="openFvTileList('completed')"><div class="label">Tasks Completed</div><div class="value" id="fvTasksCompleted">0</div><div class="delta" id="fvTasksCompletedSub">—</div></div>
-          <div class="stat-card fv-tile" onclick="openFvTileList('ontime')"><div class="label">Delivered On Time</div><div class="value teal" id="fvOnTimePct">—</div><div class="delta" id="fvOnTimeSub">—</div></div>
-          <div class="stat-card fv-tile" onclick="openFvTileList('quality')"><div class="label">First-Time Quality</div><div class="value" id="fvQualityPct">—</div><div class="delta" id="fvQualitySub">—</div></div>
-          <div class="stat-card fv-tile" onclick="openFvTileList('productivity')"><div class="label">Team Productivity</div><div class="value" id="fvProductivityPct">—</div><div class="delta" id="fvProductivitySub">—</div></div>
-          <div class="stat-card fv-tile" onclick="openFvTileList('open')"><div class="label">Open Tasks</div><div class="value" id="fvOpen">0</div><div class="delta" id="fvOpenSub">—</div></div>
-          <div class="stat-card fv-tile" onclick="openFvTileList('overdue')"><div class="label">Overdue</div><div class="value coral" id="fvOverdue">0</div><div class="delta" id="fvOverdueSub">—</div></div>
-          <div class="stat-card fv-tile" onclick="openFvTileList('unassigned')"><div class="label">Unassigned</div><div class="value amber" id="fvUnassigned">0</div><div class="delta" id="fvUnassignedSub">—</div></div>
-          <div class="stat-card fv-tile" onclick="openFvTileList('turnaround')"><div class="label">Avg Turnaround</div><div class="value" id="fvTurnaround">—</div><div class="delta" id="fvTurnaroundSub">—</div></div>
-        </div>
-
-        <div class="dgrid-2">
-          <div class="panel">
-            <div class="panel-head"><h2>Needs attention</h2><span style="font-size:12px;color:var(--text-faint);" id="fvAttnCount">—</span></div>
-            <div class="d-attn" id="fvAttn"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Work coming in vs getting done</h2><span style="font-size:12px;color:var(--text-faint);" id="fvInOutNote">by week</span></div>
-            <p style="font-size:13px;color:var(--text-dim);margin:-6px 0 14px;">The backlog grows whenever purple (created) keeps beating teal (completed).</p>
-            <div class="d-inout" id="fvInOut"></div>
-            <div class="d-legend" id="fvInOutLegend"><span class="a"><i></i>Created</span><span class="b"><i></i>Completed</span></div>
-          </div>
-        </div>
-
-        <div class="dgrid-2e">
-          <div class="panel">
-            <div class="panel-head"><h2 id="fvOwnerPerfTitle">Owner Performance</h2><span style="font-size:12px;color:var(--text-faint);">on-time · accuracy · productivity · commitment</span></div>
-            <div id="fvOwnerPerfWrap" class="d-perf">Loading…</div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Where the Failures Came From</h2></div>
-            <p style="font-size:13px; color:var(--text-dim); margin:-6px 0 14px;" id="fvReworkCasesNote">No rework cases in this period.</p>
-            <div class="fault-grid" id="fvFaultWrap"></div>
-          </div>
-        </div>
-
-        <div class="dgrid-2e">
-          <div class="panel">
-            <div class="panel-head"><h2>By team</h2><span style="font-size:12px;color:var(--text-faint);">open · coral = overdue</span></div>
-            <div id="fvByTeam"></div>
-          </div>
-          <div class="panel">
-            <div class="panel-head"><h2>Where it came from</h2><span style="font-size:12px;color:var(--text-faint);" id="fvSrcNote">—</span></div>
-            <div class="donut-wrap" id="fvSource"></div>
-          </div>
-        </div>
-
-        <div class="fold-grid">
-          <details class="panel panel-fold">
-            <summary><h2>Client Ownership</h2><span class="fold-hint">who owns which client</span></summary>
-            <div id="fvClientOwn"></div>
-          </details>
-          <details class="panel panel-fold">
-            <summary><h2>Team capacity</h2><span class="fold-hint">agreed hrs vs capacity</span></summary>
-            <div id="fvCapacity" class="cap-list">Nobody has active work yet.</div>
-          </details>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><h2>Recent activity</h2><span style="font-size:12px;color:var(--text-faint);">firm-wide</span></div>
-          <div class="d-feed" id="fvFeed"></div>
-        </div>
+        <div id="fdRoot" aria-live="polite"></div>
       </section>
 
       <!-- ===================== MANAGER DASHBOARD VIEW ===================== -->
@@ -2711,14 +2641,26 @@ function startPolicyCompliancePolling(){
 function stopPolicyCompliancePolling(){ if(policyCompliancePoll){ clearInterval(policyCompliancePoll); policyCompliancePoll=null; } }
 
 // Hold reason taxonomy — mirrors HOLD_REASONS on the server (which validates).
+// The same categories as hold-model.js. party = what "Waiting on" asks for; exempting = a verified EXTERNAL dependency (the only kind that may pause responsibility).
 const HOLD_REASONS = {
-  CLIENT_QUERY:    { label: 'Awaiting client answer to a query',         exempting: true,  needsDetail: false },
-  CLIENT_DOCS:     { label: 'Awaiting documents / records from client',  exempting: true,  needsDetail: false },
-  THIRD_PARTY:     { label: 'Awaiting IRD / bank / third party',         exempting: true,  needsDetail: true  },
-  INTERNAL_REVIEW: { label: 'Blocked on a reviewer / partner sign-off',  exempting: false, needsDetail: false },
-  CAPACITY:        { label: 'Re-prioritised — parked by a manager',      exempting: false, needsDetail: false, managerOnly: true },
-  BLOCKED_OTHER:   { label: 'Other',                                     exempting: false, needsDetail: true  },
+  CLIENT_INFO:         { label: 'Waiting on client information',        exempting: true,  needsDetail: true, party: 'client',   clientRelated: true },
+  CLIENT_DOCS:         { label: 'Waiting on client documents',          exempting: true,  needsDetail: true, party: 'client',   clientRelated: true },
+  EXTERNAL_AUTHORITY:  { label: 'Waiting on IRD or external authority', exempting: true,  needsDetail: true, party: 'text',     clientRelated: false },
+  MANAGER_DECISION:    { label: 'Waiting on manager decision',          exempting: false, needsDetail: true, party: 'manager',  clientRelated: false },
+  REVIEWER:            { label: 'Waiting on reviewer',                  exempting: false, needsDetail: true, party: 'reviewer', clientRelated: false },
+  INTERNAL_DEPENDENCY: { label: 'Internal dependency',                  exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
+  REWORK_BLOCKED:      { label: 'Rework blocked',                       exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
+  SCHEDULED_FUTURE:    { label: 'Scheduled for a future date',          exempting: false, needsDetail: true, party: 'none',     clientRelated: false },
+  NO_CONFIRMATION:     { label: 'No confirmation received',             exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
+  OTHER:               { label: 'Other',                                exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
+  // saved before the structured categories existed — still shown correctly
+  CLIENT_QUERY:        { label: 'Awaiting client answer to a query',    exempting: true,  needsDetail: false, party: 'client',   clientRelated: true },
+  THIRD_PARTY:         { label: 'Awaiting IRD / bank / third party',    exempting: true,  needsDetail: true, party: 'text',     clientRelated: false },
+  INTERNAL_REVIEW:     { label: 'Blocked on a reviewer or partner sign-off', exempting: false, needsDetail: false, party: 'reviewer', clientRelated: false },
+  CAPACITY:            { label: 'Re-prioritised — parked by manager',   exempting: false, needsDetail: false, party: 'manager',  clientRelated: false },
+  BLOCKED_OTHER:       { label: 'Other',                                exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
 };
+const HOLD_CATEGORY_CODES = ['CLIENT_INFO', 'CLIENT_DOCS', 'EXTERNAL_AUTHORITY', 'MANAGER_DECISION', 'REVIEWER', 'INTERNAL_DEPENDENCY', 'REWORK_BLOCKED', 'SCHEDULED_FUTURE', 'NO_CONFIRMATION', 'OTHER'];
 const DISPATCH_BUFFER_WD = 3;
 function holdReasonLabel(t){
   const m = HOLD_REASONS[t && t.holdReasonCode];
@@ -3562,7 +3504,7 @@ const titles = {
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
   command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
   attendance: ['Attendance Log', 'Daily login/logout history — your reports, or the whole firm'],
-  founder: ['Founder Dashboard', 'The whole firm — sliced by team, person, or any date range'],
+  founder: ['Founder Dashboard', 'Today, Founder View and Review & Decisions — one set of numbers for the whole firm'],
   admin: ['Admin', 'Every task that came in from a call or a Slack message'],
   teamboard: ['Team Board', "Your team's open work, overdue items and week ahead"],
   whatsapp: ['WhatsApp (Interakt)', "Who hasn't been replied to yet, and turning a message into a task"],
@@ -4796,6 +4738,7 @@ function showView(id, el, classic){
   document.querySelectorAll('.nav-item[data-view]').forEach(n => n.classList.remove('active'));
   if(el) el.classList.add('active');
   enhanceNavItems();
+  document.body.classList.toggle('fd-active', id === 'founder');   // no time clock / Online-Offline on the Founder dashboard
   document.getElementById('pageTitle').textContent = titles[id][0];
   document.getElementById('pageSub').textContent = titles[id][1];
   if(id !== 'dashboard' && _dashMirror){ _dashMirror = null; renderMirrorBanner(); }  // mirror only lives on the Commitment Dashboard
@@ -5999,7 +5942,7 @@ function bannerRef(list, max=1){
 function renderDeadlineBanner(){
   const wrap = document.getElementById('deadlineBannerWrap');
   const bell = document.getElementById('bellIcon');
-  const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed'].includes(t.status));
+  const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed', 'on_hold'].includes(t.status));   // held work is not something to finish today
   const awaitingMine = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'awaiting_acceptance');
   const awaitingNew = awaitingMine.filter(t => !isReworkFlagged(t));
   const awaitingRework = awaitingMine.filter(isReworkFlagged);
@@ -6656,7 +6599,7 @@ function renderTaskTable(){
   if(document.getElementById('view-command')?.classList.contains('active')) renderCommandCenter();
   if(document.getElementById('view-admin')?.classList.contains('active')) renderAdminView();
   if(document.getElementById('view-teamboard')?.classList.contains('active')) renderTeamBoard();
-  if(document.getElementById('view-founder')?.classList.contains('active')) renderFounderView();
+  if(document.getElementById('view-founder')?.classList.contains('active')) renderFounderView(true);
 }
 
     function primaryAction(t){
@@ -6794,7 +6737,8 @@ function renderEmployeeStats(){
   // you.
   const reviewedN = reviewedByCount(dashSubjectId(), start, end);
   const pendingReviewN = pendingReviewCountFor(dashSubjectId());
-  const totalN = openN + donePeriod.length + reviewedN + pendingReviewN;
+  // Unique tasks: open work + work sent for review + work finished in the period (the three groups never overlap), then other people's work you reviewed / must review.
+  const totalN = openN + inReview.length + donePeriod.length + reviewedN + pendingReviewN;
   setV('myTotalTasks', totalN);
   setV('myTotalLabel', '· ' + label);
   // A task you finished but that's still sitting with a reviewer isn't
@@ -6811,7 +6755,7 @@ function renderEmployeeStats(){
   setV('myDoneAll', donePeriod.length);
   setV('myDoneLabel', '· ' + label);
   const doneHrs = donePeriod.reduce((s,t) => s + taskHrs(t), 0);
-  setV('myDoneSub', donePeriod.length ? `${doneHrs.toFixed(1)}h total` : '');
+  setV('myDoneSub', donePeriod.length ? `${doneHrs.toFixed(1)}h allocated` : '');
   // Extra hours — completed work in the period that ran over its estimate.
   _myExtra = doneP.map(t => ({ t, est: Number(t.tat)||0, actual: taskHrs(t) }))
     .map(x => ({ ...x, extra: Math.round((x.actual - x.est) * 100) / 100 }))
@@ -7286,7 +7230,7 @@ function renderDashWork(){
   if(m){
     const capH = m.capacityToday || m.dailyCapacity || 0;
     const pct = capH > 0 ? Math.min(100, Math.round(m.pendingHours / capH * 100)) : (m.pendingHours > 0 ? 100 : 0);
-    cap = `<div class="wk-cap"><span>${m.onLeaveToday ? 'On leave today' : `<b>${m.pendingHours}h</b> pending today of ${capH}h`}${m.backlogHours ? ` · ${m.backlogHours}h in queue` : ' · queue clear'}${m.backlogHours && m.busyUntilAt ? ` · busy until ${fmtBusyUntil(m.busyUntilAt)}` : ''}</span>
+    cap = `<div class="wk-cap"><span>${m.onLeaveToday ? 'On leave today' : `<b>${m.pendingHours}h</b> pending today of ${capH}h`}${m.backlogHours ? ` · actionable workload: ${m.backlogHours} allocated hours` : ' · no actionable workload'}${m.backlogHours && m.busyUntilAt ? ` · busy until ${fmtBusyUntil(m.busyUntilAt)}` : ''}</span>
       ${m.onLeaveToday ? '' : `<span class="tm-bar" style="width:150px;"><i class="${m.pendingHours > capH && capH > 0 ? 'over' : ''}" style="width:${pct}%;"></i></span>`}</div>`;
   }
   // the list — same rule and same grouping as My team, so the two always read alike
@@ -7364,7 +7308,7 @@ function renderGreeting(){
   wrap.innerHTML = `<div class="greeting-block">
     <div>
       <h1>${mirror ? esc(me.name) + "'s dashboard" : greeting + (firstName ? ', ' + esc(firstName) : '')}</h1>
-      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueInPeriod} task${dueInPeriod === 1 ? '' : 's'} due ${phrase} &middot; ${hrsInPeriod.toFixed(1)} hrs done ${phrase}</div>
+      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueInPeriod} task${dueInPeriod === 1 ? '' : 's'} due ${phrase}</div>
       ${seNote}
     </div>
   </div>`;
@@ -7641,7 +7585,7 @@ function renderTodayTeamInto(wrapId){
     <div class="to-main">
       <b>${esc(r.name)}</b>
       <span class="badge ${r.status==='over'?'overdue':r.status==='light'?'awaiting':'completed'} dot" style="font-size:10px;">${pill(r.status)}</span>
-      <div style="font-size:12px;color:var(--text-faint);">${r.onLeaveToday?'on leave today':`${r.pendingHours}h pending · ${r.capacityToday}h capacity${r.doneToday?` · ${r.doneToday}h done`:''}${r.busyUntil?` · busy until ${r.busyUntilAt?fmtBusyUntil(r.busyUntilAt):fmtDate(r.busyUntil)}`:''}`}</div>
+      <div style="font-size:12px;color:var(--text-faint);">${r.onLeaveToday?'on leave today':`${r.pendingHours}h pending · ${r.capacityToday}h capacity${r.doneToday?` · ${r.doneToday}h allocated, completed today`:''}${r.busyUntil?` · busy until ${r.busyUntilAt?fmtBusyUntil(r.busyUntilAt):fmtDate(r.busyUntil)}`:''}`}</div>
       <div style="max-width:240px;margin-top:5px;">${r.onLeaveToday?'':tgBar(r.pendingHours, r.capacityToday)}</div>
     </div>
     ${r.status==='over'?`<button class="btn-ghost btn-sm" onclick="openAssignModal('team')">Reassign</button>`:''}
@@ -7683,7 +7627,7 @@ function renderStatusDonut(){
       const labelOf = s => s === 'toreview' ? "To review (others' work)" : statusLabel(s);
       const key = order.map(s => `<div class="k"><span><i style="background:${colors[s]||'var(--text-faint)'};"></i>${labelOf(s)}</span><b>${counts[s]}</b></div>`).join('');
       const extraBits = [reviewedN ? `${reviewedN} reviewed` : '', pendingReviewN ? `${pendingReviewN} to review` : ''].filter(Boolean).join(', ');
-      wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} task${total===1?'':'s'}${extraBits ? ` · ${scoped.length} yours, ${extraBits}` : ''}</div>
+      wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} task${total===1?'':'s'} in all (not the same as “Work in scope”, which is open work plus what finished in the period)${extraBits ? ` · ${scoped.length} yours, ${extraBits}` : ''}</div>
         <div class="seg">${seg}</div>
         <div class="seg-key">${key}</div>`;
       const sc = document.getElementById('statusDonutScope');
@@ -7724,7 +7668,7 @@ function renderWorkloadBlockersInto(wrapId){
       <div class="cap-main">
         <div class="cap-top">
           <span class="cap-name">${esc(w.name)}</span>
-          <span class="cap-hours">${done}h done today${w.backlogHours ? ' &middot; ' + w.backlogHours + 'h in queue' : ''}</span>
+          <span class="cap-hours">${done}h allocated, completed today${w.backlogHours ? ' &middot; actionable workload ' + w.backlogHours + ' allocated h' : ''}</span>
         </div>
         <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%; background:var(--teal);"></div></div>
         <div class="cap-sub">
@@ -7826,11 +7770,12 @@ function renderReassignedMail(){
    Left: a compact list. Right: the selected task in full — progress tracker, facts, files, timeline — without leaving the page.
    Every number is derived by the server (workflow.js) from the same tasks, on the company clock.
    ========================================================================= */
-const TD_MODES = [['today', 'Today'], ['manager', 'Manager View'], ['review', 'Review View']];
+const TD_LABELS = { processor: 'My Dashboard', today: 'Today', manager: 'Manager View', review: 'Review View' };
+let TD_MODES = [['processor', 'My Dashboard'], ['today', 'Today'], ['manager', 'Manager View'], ['review', 'Review View']];   // narrowed to this person's views as soon as the data arrives
 function tdLoadMode(){ try { const m = localStorage.getItem('tdMode'); return TD_MODES.some(x => x[0] === m) ? m : 'today'; } catch(e){ return 'today'; } }
 // ONE view is on screen at a time and each view owns its own tile, expanded section, selected task and search — switching clears them all.
 let _today = null, _tdMode = tdLoadMode(), _tdTile = null, _tdOpen = null, _tdSel = null;
-const tdDefaultOpen = () => _tdMode === 'today' ? 'my_work' : null;      // on Today, "My work" is the one section that starts open
+const tdDefaultOpen = () => _tdMode === 'today' ? 'my_work' : _tdMode === 'processor' ? 'p_due' : null;      // on Today, "My work" is the one section that starts open
 _tdOpen = tdDefaultOpen();
 function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
@@ -7849,7 +7794,7 @@ function todayViewActive(){ const v = document.getElementById('view-today'); ret
 async function renderToday(quiet){
   const box = document.getElementById('tdRoot'); if(!box) return;
   if(!quiet && !_today) box.innerHTML = '<div class="td-head"><div><div class="td-greet" style="opacity:.35;">Loading…</div></div></div><div class="td-counts">' + '<div class="td-count" style="opacity:.4;"><span class="n">–</span><span class="l">&nbsp;</span></div>'.repeat(6) + '</div><div class="td-list"><div class="td-empty">Loading your day…</div></div>';
-  try { _today = await api('/api/workflow/today'); }
+  try { _today = await api('/api/workflow/today'); TD_MODES = (_today.tabs || ['today', 'manager', 'review']).map(k => [k, TD_LABELS[k]]); if(!TD_MODES.some(x => x[0] === _tdMode)){ _tdMode = TD_MODES[0][0]; _tdTile = null; _tdSel = null; _tdOpen = tdDefaultOpen(); } }
   catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not load Today: ' + esc(e.message) + ' <button class="btn small td-act" onclick="renderToday()">Retry</button></div>'; return; }
   drawToday();
 }
@@ -7882,9 +7827,9 @@ function tdCardHtml(id, note){
   const sid = esc(id);
   return '<div class="td-card td-row' + (_tdSel === id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();tdSelect(\'' + sid + '\');}" title="' + esc(tip) + '" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status + '. ' + tip) + '">'
     + '<span class="tr-name">' + esc(c.clientName || 'Admin task') + '</span>'
-    + '<span class="tr-work">' + esc(c.name) + '</span>'
+    + '<span class="tr-work"><button type="button" class="tr-open" data-id="' + sid + '" aria-label="Open ' + esc(c.name) + ' for ' + esc(c.clientName || 'admin task') + ', ' + esc(c.primaryStatus || c.status) + '" onclick="event.stopPropagation(); tdSelect(this.dataset.id)">' + esc(c.name) + '</button></span>'
     + '<span class="tr-who">' + esc(processor) + '</span>'
-    + '<span class="tr-st">' + esc(c.status) + '</span>'
+    + '<span class="tr-st">' + esc(c.primaryStatus || c.status) + (c.hold ? '<span class="tm-sub" style="display:block;">Held ' + esc(c.hold.ageText) + (c.hold.waitingOnPerson ? ' · ' + esc(c.hold.waitingOnPerson) : '') + (c.hold.responsibilityPaused ? ' · responsibility paused' : '') + '</span>' : '') + '</span>'
     + '<span class="tr-date"><span class="tr-dt">' + esc(when) + '</span>' + tdRiskTag(c) + '</span>'
     + '<span class="tr-link">' + linkCellHtml(c) + '</span></div>';
 }
@@ -7990,18 +7935,33 @@ function tdListHtml(){
 function tdTilesHtml(){
   return tdModeData().tiles.map(t => {
     const n = t.ids.filter(tdMatch).length, on = _tdTile === t.key;
-    const hot = (t.key === 'team_risk' || t.key === 'team_overdue' || t.key === 'risk_mine' || t.key === 'overdue_mine' || t.key === 'urgent' || t.key === 'sla') && n;
+    const hot = (t.key === 'team_risk' || t.key === 'team_overdue' || t.key === 'risk_mine' || t.key === 'overdue_mine' || t.key === 'urgent' || t.key === 'sla' || t.key === 'p_fix') && n;
     return '<button type="button" class="td-count' + (on ? ' on' : '') + (hot ? ' hot' : '') + '" onclick="tdSetTile(\'' + t.key + '\')" aria-pressed="' + on + '" aria-label="' + esc(t.label + ', ' + n + (n === 1 ? ' task' : ' tasks') + '. Scope: ' + t.scope + '. ' + (on ? 'Showing. Press to go back.' : 'Show tasks.')) + '">'
       + '<span class="n">' + n + '</span><span class="l">' + esc(t.label) + '</span><span class="sc">' + esc(t.scope) + '</span></button>';
   }).join('');
 }
 // Redraw everything BELOW the tabs and search box (so typing in the search box never loses focus).
+// Allocated hours (the estimate agreed for each task), in the words they mean — never presented as work completed and never actual time spent.
+function procStripHtml(){
+  const M = _today.modes.processor; if(!M) return '';
+  const tile = k => (M.tiles.find(x => x.key === k) || { ids: [] }).ids;
+  const hrs = ids => Math.round([...new Set(ids)].reduce((n, id) => n + (Number((_today.cards[id] || {}).allocatedHours) || 0), 0) * 100) / 100;
+  const part = (label, h, tip) => '<span title="' + esc(tip) + '"><b>' + h + 'h</b> ' + label + '</span>';
+  return '<div class="td-empty" role="note" style="margin:-2px 0 10px;text-align:left;display:flex;gap:16px;flex-wrap:wrap;font-size:13px;">'
+    + part('actionable workload', hrs([...tile('p_due'), ...tile('p_fix'), ...tile('p_ready')]), 'Allocated hours of what you can work on now: due today, fix needed and ready to resume')
+    + part('fix needed', hrs(tile('p_fix')), 'Allocated hours of corrections returned to you')
+    + part('on hold', hrs([...tile('p_waiting'), ...tile('p_ready')]), 'Allocated hours of your tasks on hold (waiting on others or ready to resume)')
+    + part('sent for review', hrs(tile('p_sent')), 'Allocated hours of your work waiting for a reviewer')
+    + '<span style="color:var(--text-faint);">Allocated hours are the estimate agreed for each task — not time spent, and not your capacity.</span></div>';
+}
 function tdDrawBody(){
   const body = document.getElementById('tdBody'); if(!body || !_today) return;
   const M = tdModeData(), S = _tdTile ? M.tiles.find(x => x.key === _tdTile) : null;
   const reportsNote = S && S.key === 'reports_team' && S.breakdown ? '<div class="td-empty" role="note">Overdue to send: <b>' + S.breakdown.overdue + '</b> · Due today: <b>' + S.breakdown.today + '</b> · Due later: <b>' + S.breakdown.later + '</b> · Waiting for profit confirmation: <b>' + S.breakdown.profit + '</b>. A report is never counted late before its client date.</div>' : '';
+  const groupsNote = S && S.key === 'p_waiting' && S.groups ? '<div class="td-empty" role="note">' + Object.entries(S.groups).map(([k, v]) => ({ client: 'Client', external: 'External authority', manager: 'Manager', reviewer: 'Reviewer', internal: 'Internal dependency', scheduled: 'Scheduled for later', other: 'Other' }[k] || k) + ': <b>' + v.length + '</b>').join(' · ') + '</div>' : '';
   body.innerHTML = '<div class="td-counts" role="group" aria-label="' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + ' summary">' + tdTilesHtml() + '</div>'
-    + (S ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(S.label) + '</b> <button type="button" class="btn small td-act" onclick="tdSetTile(null)">Back to ' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + '</button></div>' + reportsNote : '')
+    + (_tdMode === 'processor' ? procStripHtml() : '')
+    + (S ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(S.label) + '</b> <button type="button" class="btn small td-act" onclick="tdSetTile(null)">Back to ' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + '</button></div>' + reportsNote + groupsNote : '')
     + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + tdListHtml() + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
 }
 function drawToday(){
@@ -8010,7 +7970,7 @@ function drawToday(){
   const dateLabel = new Date(T.today + 'T12:00:00').toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   const tabs = TD_MODES.map(([k, l]) => '<button type="button" role="tab" id="tdTab_' + k + '" class="' + (_tdMode === k ? 'on' : '') + '" aria-selected="' + (_tdMode === k) + '" aria-controls="tdPanel" tabindex="' + (_tdMode === k ? 0 : -1) + '" onclick="tdSetMode(\'' + k + '\')">' + l + '</button>').join('');
   box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(T.greeting) + ', ' + esc(first) + '</h2><div class="td-date">' + esc(dateLabel) + ' · ' + esc(T.timezone.replace('Pacific/Auckland', 'New Zealand time')) + '</div></div>'
-    + '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div></div>'
+    + (TD_MODES.length > 1 ? '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div>' : '') + '</div>'
     + fltBarHtml('td')
     + '<div id="tdPanel" role="tabpanel" aria-labelledby="tdTab_' + _tdMode + '"><div id="tdBody"></div></div>';
   tdDrawBody();
@@ -8035,6 +7995,7 @@ function tdSelect(id){
   document.querySelectorAll('#tdList .td-card').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
   const d = document.getElementById('tdDetail'); if(d) d.innerHTML = tdDetailHtml(id);
   const g = document.getElementById('tdGrid'); if(g){ g.classList.add('show-detail'); g.classList.add('has-sel'); }
+  const h = d && d.querySelector('h3'); if(h){ h.setAttribute('tabindex', '-1'); try { h.focus({ preventScroll: true }); } catch(e){ h.focus(); } }   // keyboard and screen-reader users land on the task they opened
 }
 // Close the details: nothing stays selected, and the list goes back to the full width.
 function tdBack(){ _tdSel = null; window.__tdMobileOpen = false; tdDrawBody(); }
@@ -8070,7 +8031,7 @@ function tdDetailHtml(id, given){
   let body = '<button type="button" class="btn td-back td-act" onclick="tdBack()">← Back to the list</button>'
     + '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><div><div style="font-size:12.5px;color:var(--text-faint);">' + esc(c.kindLabel) + ' · ' + esc(taskNo(c.id)) + '</div>'
     + '<h3 style="margin:2px 0 0;">' + esc(c.clientName || 'Admin task') + ' — ' + esc(c.name) + '</h3></div><div>' + tdRiskTag(c) + '</div></div>'
-    + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>';
+    + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.primaryStatus || c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>';
   if(mode === 'today') body += '<div style="margin:8px 0 6px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:14px;"><b>What you need to do</b><br>' + esc(c.nextAction) + (c.clientDate ? '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : (c.internalDeadline ? '<br><span style="color:var(--text-dim);">Due ' + esc(fmtDate(c.internalDeadline)) + '</span>' : '')) + '</div>' + track;
   else body += '<div style="font-size:13.5px;color:var(--text-dim);">Next: ' + esc(c.nextAction) + '</div>' + track;
   if(!t){ return body + '<div class="td-empty">Loading the task details…</div>'; }
@@ -8095,15 +8056,27 @@ function tdDetailHtml(id, given){
       + grp('Work', fact('Task type', esc(c.taskType || c.kindLabel)), fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), waitFact, fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : 'None'));
   }
   const links = grp('Links', sheet, cash);
+  const holdBox = (t && t.status === 'on_hold') ? holdSummaryHtml(t) : '';
+  const reviewResult = !t ? '' : t.reviewStatus === 'clean' ? 'Reviewed Clean' : t.reviewStatus === 'error' ? 'Returned for correction' : t.reviewStatus === 'done' ? 'Closed without review' : (t.status === 'completed' ? 'Pending — with the reviewer' : 'Not yet submitted');
+  const reviewBox = grp('Review & report', fact('Latest review result', esc(reviewResult) + (t && t.reviewedAt && t.reviewStatus ? '<span class="sub">' + esc((empById(t.reviewedBy) || {}).name || '') + ' · ' + esc(fmtStamp(t.reviewedAt)) + '</span>' : '')), fact('Review notes', t && t.reviewNote ? esc(t.reviewNote) : ''), fact('Manager', esc(c.managerName || '')), fact('Action owner', esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' <span class="sub">' + esc(c.waitingOn.ownerName) + '</span>' : '')), fact('Report Sent', c.reportStatus ? stageLabel(c.reportStatus) + '<span class="sub">separate from productivity</span>' : ''));
+  const btn = (fn, label) => '<button type="button" class="btn td-act" onclick="' + fn + '(\'' + esc(id) + '\')">' + label + '</button>';
+  const stateBtns = !t ? '' : [
+    (c.hold && c.hold.pauseRequested && isAdmin && t.assignedTo !== currentViewerId) ? btn('openPauseDecisionModal', 'Review pause request') : '',
+    (t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'cancelled') ? btn('openDateRequestModal', 'Request new date') : '',
+    (t.status === 'completed' && t.reviewStatus === 'clean' && t.awaitingClientDecision && (t.reportSendOwner || t.assignedTo) === currentViewerId) ? btn('openSendToClientModal', 'Send report…') : '',
+  ].join('');
   const prim = given ? '' : tdPrimary(id);
   // Work assigned to ME: every action that belongs to it — accept, start, mark done, send for review, hold / client query, resume, dates
   const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
   const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
   // Order: actions (Open review / Full history) → My actions → Links → attachments + latest note → People / Dates / Work
-  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + (iCanChangeReviewer(t) ? '<button type="button" class="btn td-act" onclick="openChangeReviewerModal(\'' + esc(id) + '\')" title="Send this to a different reviewer">Change reviewer</button>' : '') + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
+  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + stateBtns + mgrBtns + (iCanChangeReviewer(t) ? '<button type="button" class="btn td-act" onclick="openChangeReviewerModal(\'' + esc(id) + '\')" title="Send this to a different reviewer">Change reviewer</button>' : '') + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
     + (mineOpen ? '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>' : '')
+    + holdBox
+    + reviewBox
     + links
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
+    + ((t.correctionAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Corrected files from the processor</b>' + correctionFilesHtml(t) + '</div>' : '')
     + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '')
     + facts + '<div style="height:6px;"></div>';
   const { ev } = taskTimelineEvents(t);
@@ -8118,7 +8091,7 @@ function tdDetailHtml(id, given){
    Everything shown is derived by the server (manager-views.js); the only write is a manager action, which needs a reason.
    ========================================================================= */
 const MT_ATTN = {
-  followup_due: 'Hold follow-up due', unassigned: 'Unassigned', no_client: 'Client work with no client', no_due_date: 'No internal due date', zero_hours: 'No allocated hours',
+  followup_due: 'Hold follow-up due', pause_pending: 'Pause awaiting approval', hold_no_evidence: 'Held — no query evidence', unassigned: 'Unassigned', no_client: 'Client work with no client', no_due_date: 'No internal due date', zero_hours: 'No allocated hours',
   repeated_return: 'Returned repeatedly', blocked_long: 'Blocked too long', report_unsent: 'Client report not sent', profit_overdue: 'Profit confirmation overdue',
   no_review_attempt: 'No-review override attempted', missing_links: 'Missing Sheet / Cashbook', date_changed: 'Commitment date changed', bad_link: 'Link is invalid',
 };
@@ -8648,10 +8621,11 @@ async function acceptTask(id){
 function iCanHold(t){
   return t && (t.assignedTo === currentViewerId || empManagesWork(currentViewer(), t.assignedTo));
 }
-function openQuery(t){ return (t.queries||[]).find(q => !q.dismissedAt && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode) && !q.replyAt); }
+const EXTERNAL_HOLD_CODES = ['CLIENT_INFO', 'CLIENT_DOCS', 'EXTERNAL_AUTHORITY', 'CLIENT_QUERY', 'THIRD_PARTY'];
+function openQuery(t){ return (t.queries||[]).find(q => !q.dismissedAt && q.pauseStatus !== 'rejected' && EXTERNAL_HOLD_CODES.includes(q.reasonCode) && !q.replyAt); }
 // A summary of every query on a task: sent → reply → resume, and the shift it earned.
 function queryDetailHtml(t){
-  const qs = (t.queries||[]).filter(q => !q.dismissedAt && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode));
+  const qs = (t.queries||[]).filter(q => !q.dismissedAt && EXTERNAL_HOLD_CODES.includes(q.reasonCode));
   if(!qs.length) return '';
   const rows = qs.map(q => {
     const reply = q.replyAt ? fmtDate(q.replyAt) : '<span style="color:var(--amber,#B45309);">awaiting</span>';
@@ -8679,20 +8653,44 @@ function queryDetailHtml(t){
         : `No shift applied yet — the client date is still <b>${t.clientDate ? fmtDate(t.clientDate) : '—'}</b>.`}
     </div>`;
 }
+function holdAgeText(iso){
+  if(!iso) return '';
+  const h = Math.max(0, (Date.now() - new Date(iso).getTime()) / 3600000), d = Math.floor(h / 24);
+  return h < 1 ? 'under an hour' : h < 24 ? Math.floor(h) + (Math.floor(h) === 1 ? ' hour' : ' hours') : d + (d === 1 ? ' day' : ' days');
+}
+function activeHoldOf(t){ const h = (t.holdHistory || [])[(t.holdHistory || []).length - 1]; return h && !h.resumedAt ? h : null; }
 function holdControlsHtml(t){
   if(!iCanHold(t)) return '';
   if(t.status === 'on_hold'){
-    const q = openQuery(t);
-    let h = q
-      ? `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeReplyModal('${t.id}','${q.id}')">Resume</button>`
-      : `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="unholdTask('${t.id}')">Resume</button>`;
-    if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log client reply</button>`;
-    if(!q && t.clientDate && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(t.holdReasonCode)) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openRecordQueryModal('${t.id}')" title="Only if you really sent the client a query — this pauses the client commitment date">Record client query</button>`;
-    h += `<button class="verify-btn" onclick="openAddHoursModal('${t.id}')" title="Add time you spent on this task while it's on hold">+ Add time</button>`;
+    const q = openQuery(t), ready = !!t.holdResolvedAt, ext = !!(HOLD_REASONS[t.holdReasonCode] || {}).exempting;
+    let h = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeModal('${t.id}')">Resume</button>`;
+    if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log reply</button>`;
+    else if(!ready) h += `<button class="verify-btn" onclick="openHoldResolvedModal('${t.id}')" title="What it was waiting for has arrived">Ready to resume</button>`;
+    if(!q && !(activeHoldOf(t) || {}).queryId && t.clientDate && ext) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openRecordQueryModal('${t.id}')" title="Only if you really sent a query — a manager has to approve the pause of your responsibility">Record query</button>`;
+    h += `<button class="verify-btn" onclick="openHoldUpdateModal('${t.id}')">Update hold</button>`;
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
     return h;
   }
   return `<button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+}
+// Everything about the active hold, in plain words. "Waiting on client" is only said when a client query is really recorded.
+function holdSummaryHtml(t){
+  const hh = activeHoldOf(t) || {}, code = t.holdReasonCode, q = (t.queries || []).find(x => !x.dismissedAt && x.id === hh.queryId);
+  const pause = q ? (q.pauseStatus || 'approved') : null, paused = q && !q.replyAt && pause === 'approved';
+  const age = holdAgeText(t.heldAt || hh.heldAt), row = (k, v) => '<div class="fd-ir"><span>' + k + '</span><b style="text-align:right;">' + v + '</b></div>';
+  const follow = t.holdFollowUp || hh.followUp, due = follow && follow <= todayISO();
+  return '<div class="td-card"><h5>On hold</h5><div class="td-rows" style="display:block;padding:6px 12px;">'
+    + row('Category', esc((HOLD_REASONS[code] || {}).label || holdReasonLabel(t)))
+    + row('Reason', esc(t.holdReason || '—'))
+    + row('Waiting on', esc(hh.waitingOnPerson || '—'))
+    + row('Held for', esc(age) + ' <span style="font-weight:400;color:var(--text-faint);">(since ' + esc(fmtStamp(t.heldAt || hh.heldAt)) + ')</span>')
+    + (q && !q.replyAt && (HOLD_REASONS[code] || {}).clientRelated ? row('Client response', 'pending for ' + esc(holdAgeText(q.sentTs || q.sentAt))) : '')
+    + row('Follow-up', follow ? esc(fmtDate(follow)) + (due ? ' <span style="color:var(--coral);">· due</span>' : '') : '—')
+    + (hh.expectedResponseDate ? row('Reply expected by', esc(fmtDate(hh.expectedResponseDate))) : '')
+    + row('Processor responsibility', paused ? 'paused since ' + esc(fmtStamp(q.sentTs || q.sentAt)) : q && q.replyAt ? 'not paused — the reply has arrived' : pause === 'pending' ? '<span style="color:#B45309;">pause awaiting manager approval</span>' : pause === 'rejected' ? 'not paused — a manager did not approve it' : 'not paused')
+    + row('Client commitment', t.clientDate ? esc(fmtDate(t.clientDate)) + ' <span style="font-weight:400;color:var(--text-faint);">· never moved by a hold</span>' : '—')
+    + row('Capacity & allocated hours', 'unchanged')
+    + '</div></div>';
 }
 function openRecordQueryModal(id){
   const t = findTask(id); if(!t) return;
@@ -8788,58 +8786,79 @@ async function submitResumeWithReply(taskId, qid){
     showToast('success', 'Resumed', 'Reply logged — press play to start the clock again.');
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
+// The Put on Hold box. A category, a reason, who it waits on and a follow-up date are all required. A client query is recorded ONLY if the
+// owner ticks that one was really sent and gives how, when and the evidence. Putting a task on hold never changes the seven-hour capacity,
+// the allocated hours or the client commitment date.
+function holdWaitingFieldHtml(t, code){
+  const m = HOLD_REASONS[code] || {}, party = m.party;
+  if(party === 'none') return '';
+  const label = '<label for="holdWaiting">Waiting on <span class="req-mark">*</span></label>';
+  if(party === 'manager'){
+    const mgrs = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && e.id !== t.assignedTo && canReceiveNewWork(e)).sort((a, b) => a.name.localeCompare(b.name));
+    return '<div class="field">' + label + '<select id="holdWaiting"><option value="">— Choose the manager —</option>' + mgrs.map(e => '<option value="' + esc(e.id) + '">' + esc(e.name) + '</option>').join('') + '</select></div>';
+  }
+  if(party === 'reviewer'){
+    const rv = eligibleReviewersFor(t.assignedTo).slice().sort((a, b) => a.name.localeCompare(b.name));
+    return '<div class="field">' + label + '<select id="holdWaiting"><option value="">— Choose the reviewer —</option>' + rv.map(e => '<option value="' + esc(e.id) + '"' + (e.id === t.reviewerId ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('') + '</select></div>';
+  }
+  const dflt = party === 'client' ? (t.clientName || '') : '';
+  const ph = code === 'EXTERNAL_AUTHORITY' ? 'e.g. IRD, the bank, the Companies Office' : party === 'client' ? 'Who at the client' : 'Who or what';
+  return '<div class="field">' + label + '<input id="holdWaiting" maxlength="120" value="' + esc(dflt) + '" placeholder="' + esc(ph) + '"></div>';
+}
 function openHoldModal(id){
   const t = findTask(id);
   if(!t) return;
-  // A screenshot attached for a previous hold (even one that was cancelled,
-  // or failed to submit) must not carry over to whatever task this modal is
-  // opened for next — the file input below always starts empty regardless.
   _holdShotData = null;
   const iAmManager = empManagesWork(currentViewer(), t.assignedTo);
-  const opts = Object.entries(HOLD_REASONS)
-    .filter(([, m]) => !m.managerOnly || iAmManager)
-    .map(([code, m]) => `<option value="${code}">${esc(m.label)}${m.exempting ? '  ·  pauses the client clock' : ''}</option>`).join('');
+  const opts = HOLD_CATEGORY_CODES.map(code => '<option value="' + code + '">' + esc(HOLD_REASONS[code].label) + '</option>').join('')
+    + (iAmManager ? '<option value="CAPACITY">' + esc(HOLD_REASONS.CAPACITY.label) + '</option>' : '');
   document.getElementById('modalBox').innerHTML = `
     <h3>Put on hold — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(clientLabel(t))} · It stays on the list as pending. Time already logged is kept; when it resumes, new time adds on top — the agreed hours don't change.</div>
-    <div class="field"><label>Reason</label>
-      <select id="holdReasonCode" onchange="_holdReasonChanged()"><option value="" selected disabled>— Choose the reason —</option>${opts}</select></div>
-    <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
+    <div class="modal-sub">${esc(clientLabel(t))} · It leaves your work queue and stays open until it is resumed. <b>Your seven-hour capacity, the allocated hours and the client commitment date do not change.</b></div>
+    <div class="field"><label for="holdReasonCode">Why is it on hold? <span class="req-mark">*</span></label>
+      <select id="holdReasonCode" onchange="_holdReasonChanged()"><option value="" selected disabled>— Choose the category —</option>${opts}</select></div>
+    <div class="field"><label for="holdReason">Reason, in detail <span class="req-mark">*</span></label>
       <textarea id="holdReason" rows="2" placeholder="e.g. asked which entity owns the vehicle for GST"></textarea></div>
+    <div id="holdWaitingBox"></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="field" style="flex:1;min-width:170px;"><label for="holdFollow" id="holdFollowLabel">Follow up on <span class="req-mark">*</span></label>
+        <input type="date" id="holdFollow" min="${esc(todayISO())}" value="${esc(addDaysISO(2))}"></div>
+      <div class="field" style="flex:1;min-width:170px;"><label for="holdExpected">Reply expected by <span style="color:var(--text-faint);">(optional)</span></label>
+        <input type="date" id="holdExpected" min="${esc(todayISO())}"></div>
+    </div>
     <div id="holdExemptBox" style="display:none;">
-      <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="qConfirm" style="margin-top:3px;" onchange="document.getElementById('qFields').style.display = this.checked ? '' : 'none'"><span><b>I sent the client a query — pause the client commitment date.</b> <span style="color:var(--text-dim);">Leave this unticked unless you really did. Nothing is paused for you, and you can record the query later from the task.</span></span></label>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="qConfirm" style="margin-top:3px;" onchange="document.getElementById('qFields').style.display = this.checked ? '' : 'none'"><span><b id="qConfirmLabel">I really sent a query — record it.</b> <span style="color:var(--text-dim);">Leave this unticked unless you did. Nothing is recorded or paused for you. A recorded query pauses <i>your own</i> responsibility only once a manager approves it — never the client date.</span></span></label>
       <div id="qFields" style="display:none;">${clientQueryFieldsHtml()}</div>
     </div>
-    <div id="holdV2" style="display:none;">
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div class="field" style="flex:1;min-width:170px;"><label for="holdResp">Who is responsible for the next step? <span class="req-mark">*</span></label>
-          <select id="holdResp"><option value="client">Client</option><option value="employee">Employee</option><option value="reviewer">Reviewer</option><option value="manager">Manager</option><option value="third_party">IRD / bank / third party</option><option value="capacity">Capacity — parked by manager</option></select></div>
-        <div class="field" style="flex:1;min-width:170px;"><label for="holdFollow">Follow up on <span class="req-mark">*</span></label>
-          <input type="date" id="holdFollow" min="${esc(todayISO())}" value="${esc(addDaysISO(2))}"></div>
-      </div>
-      <div id="holdClocks" style="font-size:12.5px;color:var(--text-dim);margin:-2px 0 10px;"></div>
-    </div>
-    <div class="field"><label>Screenshot or attachment (optional)</label>
+    <div class="field"><label for="holdShot">Screenshot or attachment (optional)</label>
       <input type="file" id="holdShot" accept="image/*">
       <div id="holdShotPreview" style="margin-top:8px;"></div></div>
-    <div class="modal-error" id="holdErr"></div>
+    <div class="modal-error" id="holdErr" role="alert"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" onclick="submitHold('${id}')">Put on Hold</button>
+      <button class="btn primary" onclick="submitHold('${esc(id)}')">Put on Hold</button>
     </div>`;
   openModal();
   document.getElementById('holdShot').addEventListener('change', e => previewHoldShot(e.target));
-  const v2 = document.getElementById('holdV2'); if(v2 && atV2On()) v2.style.display = '';
-  _holdReasonChanged();
+  window.__holdTask = id;
 }
-const HOLD_RESP_DEFAULT = { CLIENT_QUERY:'client', CLIENT_DOCS:'client', THIRD_PARTY:'third_party', INTERNAL_REVIEW:'reviewer', CAPACITY:'manager', BLOCKED_OTHER:'employee' };
-// The fields for recording a client query — nothing is pre-filled: the owner says how, and the real date and time it was sent.
+function _holdReasonChanged(){
+  const code = document.getElementById('holdReasonCode').value, m = HOLD_REASONS[code] || {}, t = findTask(window.__holdTask);
+  const box = document.getElementById('holdWaitingBox'); if(box && t) box.innerHTML = holdWaitingFieldHtml(t, code);
+  document.getElementById('holdExemptBox').style.display = m.exempting ? 'block' : 'none';
+  const lbl = document.getElementById('qConfirmLabel'); if(lbl) lbl.textContent = code === 'EXTERNAL_AUTHORITY' ? 'I really sent a request to them — record it.' : 'I really sent the client a query — record it.';
+  const qsf = document.getElementById('qSourceField'); if(qsf) qsf.style.display = code === 'EXTERNAL_AUTHORITY' ? 'none' : '';
+  const fl = document.getElementById('holdFollowLabel'); if(fl) fl.innerHTML = (code === 'SCHEDULED_FUTURE' ? 'Scheduled for' : 'Follow up on') + ' <span class="req-mark">*</span>';
+  const f = document.getElementById('holdFollow'); if(f && code === 'SCHEDULED_FUTURE'){ f.min = addDaysISO(1); if(f.value <= todayISO()) f.value = addDaysISO(7); } else if(f){ f.min = todayISO(); }
+}
+// The fields for recording a client query — nothing is pre-filled: how, the real date and time it was sent, and the evidence.
 function clientQueryFieldsHtml(){
   return '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-    + '<div class="field" id="qSourceField" style="flex:1;min-width:150px;"><label for="qSource">How did you ask the client? <span class="req-mark">*</span></label><select id="qSource"><option value="" selected disabled>— Choose —</option><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>'
+    + '<div class="field" id="qSourceField" style="flex:1;min-width:150px;"><label for="qSource">How did you ask? <span class="req-mark">*</span></label><select id="qSource"><option value="" selected disabled>— Choose —</option><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>'
     + '<div class="field" style="flex:1;min-width:150px;"><label for="qSentAt">Date sent <span class="req-mark">*</span></label><input type="date" id="qSentAt" max="' + esc(todayISO()) + '"></div>'
     + '<div class="field" style="flex:1;min-width:120px;"><label for="qSentTime">Time sent (NZ) <span class="req-mark">*</span></label><input type="time" id="qSentTime"></div>'
-    + '</div><button type="button" class="btn small" style="margin:-2px 0 8px;" onclick="qUseNow()">Use the current date and time</button>';
+    + '</div><button type="button" class="btn small" style="margin:-2px 0 8px;" onclick="qUseNow()">Use the current date and time</button>'
+    + '<div class="field"><label for="qEvidence">Evidence <span class="req-mark">*</span></label><input id="qEvidence" maxlength="500" placeholder="Email subject or link, message reference, or who you spoke to and when"></div>';
 }
 function qUseNow(){
   const d = document.getElementById('qSentAt'), t = document.getElementById('qSentTime');
@@ -8849,23 +8868,12 @@ function qUseNow(){
 // Read the query fields; returns { error } or the values to send.
 function readQueryFields(reasonCode){
   const v = id => (document.getElementById(id) || {}).value || '';
-  const q = { querySource: reasonCode === 'THIRD_PARTY' ? 'manual' : v('qSource'), querySentAt: v('qSentAt'), querySentTime: v('qSentTime') };
-  if(reasonCode !== 'THIRD_PARTY' && !q.querySource) return { error: 'Say how you asked the client (email, phone, WhatsApp or in person).' };
-  if(!q.querySentAt || !q.querySentTime) return { error: 'Say the date and the time the query was sent — it is never filled in for you.' };
+  const noSource = reasonCode === 'EXTERNAL_AUTHORITY' || reasonCode === 'THIRD_PARTY';
+  const q = { querySource: noSource ? 'manual' : v('qSource'), querySentAt: v('qSentAt'), querySentTime: v('qSentTime'), queryEvidence: v('qEvidence').trim() };
+  if(!noSource && !q.querySource) return { error: 'Say how you asked (email, phone, WhatsApp or in person).' };
+  if(!q.querySentAt || !q.querySentTime) return { error: 'Say the date and the time it was sent — it is never filled in for you.' };
+  if(q.queryEvidence.length < 3) return { error: 'Give the evidence — an email subject or link, a message reference, or who you spoke to and when.' };
   return q;
-}
-function _holdReasonChanged(){
-  const code = document.getElementById('holdReasonCode').value;
-  const m = HOLD_REASONS[code] || {};
-  const lbl = document.getElementById('holdDetailLabel');
-  lbl.innerHTML = m.needsDetail
-    ? 'Detail <span style="color:var(--flag,#C2410C);">(required)</span>'
-    : 'Detail <span style="color:var(--text-faint);">(optional)</span>';
-  document.getElementById('holdExemptBox').style.display = m.exempting ? 'block' : 'none';
-  const qsf = document.getElementById('qSourceField'); if(qsf) qsf.style.display = code === 'THIRD_PARTY' ? 'none' : '';   // IRD / bank / third party: nothing was "asked of the client"
-  const resp = document.getElementById('holdResp'); if(resp) resp.value = HOLD_RESP_DEFAULT[code] || 'employee';
-  const ck = document.getElementById('holdClocks');
-  if(ck) ck.innerHTML = '⏸ Your work timer stops now. ' + (m.exempting ? 'The client commitment date is <b>only paused if you tick the box above</b> and record the query.' : '▶ The <b>client commitment clock keeps running</b> — this is an internal wait.');
 }
 let _holdShotData = null;
 async function previewHoldShot(fileEl){
@@ -8899,35 +8907,135 @@ async function submitHold(id){
   const reasonCode = document.getElementById('holdReasonCode').value;
   const detail = (document.getElementById('holdReason').value || '').trim();
   const errEl = document.getElementById('holdErr');
-  if(!reasonCode){ errEl.textContent = 'Choose why the task is going on hold.'; errEl.style.display = 'block'; return; }
-  if((HOLD_REASONS[reasonCode]||{}).needsDetail && !detail){
-    errEl.textContent = 'This reason needs a short note.'; errEl.style.display = 'block'; return;
+  const fail = msg => { errEl.textContent = msg; errEl.style.display = 'block'; };
+  const m = HOLD_REASONS[reasonCode] || {};
+  if(!reasonCode) return fail('Choose why the task is going on hold.');
+  if(detail.length < 3) return fail('Give the reason in a few words — what exactly is it waiting on?');
+  const body = { category: reasonCode, detail, screenshot: _holdShotData || undefined };
+  if(m.party && m.party !== 'none'){
+    const w = document.getElementById('holdWaiting'), wv = w ? w.value.trim() : '';
+    if(!wv) return fail('Say who the task is waiting on.');
+    if(w.tagName === 'SELECT') body.waitingOnId = wv; else body.waitingOnPerson = wv;
   }
-  const body = { reasonCode, detail, screenshot: _holdShotData || undefined };
-  if(atV2On()){
-    body.responsibility = (document.getElementById('holdResp') || {}).value;
-    body.followUpDate = (document.getElementById('holdFollow') || {}).value;
-    if(!body.followUpDate){ errEl.textContent = 'Pick the date you will follow this up.'; errEl.style.display = 'block'; return; }
-  }
-  const recording = !!((HOLD_REASONS[reasonCode]||{}).exempting && (document.getElementById('qConfirm') || {}).checked);
+  body.followUpDate = (document.getElementById('holdFollow') || {}).value;
+  if(!body.followUpDate) return fail(reasonCode === 'SCHEDULED_FUTURE' ? 'Pick the date it is scheduled for.' : 'Pick the date you will follow this up.');
+  const ex = (document.getElementById('holdExpected') || {}).value; if(ex) body.expectedResponseDate = ex;
+  const recording = !!(m.exempting && (document.getElementById('qConfirm') || {}).checked);
   if(recording){
     const qf = readQueryFields(reasonCode);
-    if(qf.error){ errEl.textContent = qf.error; errEl.style.display = 'block'; return; }
+    if(qf.error) return fail(qf.error);
     Object.assign(body, qf, { queryConfirmed: true });
   }
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify(body) });
     _holdShotData = null;
-    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
-    showToast('success', 'On hold', recording ? 'Client commitment date paused.' : 'Stays on the list as pending until resumed. The commitment date was not paused.');
-  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true }); if(typeof renderToday === 'function' && todayViewActive()) renderToday(true);
+    showToast('success', 'On hold', recording ? 'Query recorded — a manager has to approve the pause of your responsibility.' : 'It has left your work queue. Nothing else changed: capacity, hours and the client date stay as they were.');
+  } catch(e){ fail(e.message); }
 }
-async function unholdTask(id){
+// Resume: closes the hold, restores the status it had, and says so. An open client query asks for the reply first (so its wait is closed properly).
+async function unholdTask(id, reason){
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/unhold`, { method:'POST' });
-    await refreshTasks(); await refreshActivity({ silent:true });
-    showToast('success', 'Back on the list', 'Press play on the task to start the clock again.');
+    await api(`/api/tasks/${encodeURIComponent(id)}/unhold`, { method:'POST', body: JSON.stringify({ reason: reason || '' }) });
+    await refreshTasks(); await refreshActivity({ silent:true }); if(typeof todayViewActive === 'function' && todayViewActive()) renderToday(true);
+    showToast('success', 'Resumed', 'It is back in your work queue. Press play to start the clock.');
   } catch(e){ showToast('error', 'Could not resume', e.message); }
+}
+function openResumeModal(id){
+  const t = findTask(id); if(!t) return;
+  const q = openQuery(t);
+  if(q){ return openResumeReplyModal(id, q.id); }
+  const dest = t.reviewStatus === 'error' ? 'Fix Needed' : t.preHoldStatus === 'awaiting_acceptance' ? 'To Do' : 'In Progress';
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Resume — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · It goes back to <b>${dest}</b> and into your work queue. Nothing is completed or credited by resuming.</div>
+    <div class="field"><label for="rsmReason">Note <span style="color:var(--text-faint);">(optional)</span></label><input id="rsmReason" maxlength="300" placeholder="e.g. client sent the statements"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="rsmGo">Resume</button></div>`;
+  openModal();
+  document.getElementById('rsmGo').onclick = () => { const r = (document.getElementById('rsmReason') || {}).value || ''; closeModal(); unholdTask(id, r); };
+}
+// Mark the dependency as resolved: the task becomes Ready to Resume (the processor still resumes it).
+function openHoldResolvedModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Ready to resume — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · ${esc(holdReasonLabel(t))}</div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">Use this when what the task was waiting for has arrived. It moves to <b>Ready to Resume</b> and the processor is told. It does not resume by itself.</p>
+    <div class="field"><label for="hrNote">What arrived? <span style="color:var(--text-faint);">(optional)</span></label><input id="hrNote" maxlength="300" placeholder="e.g. manager confirmed the treatment"></div>
+    <div class="modal-error" id="hrErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="hrGo">Mark ready to resume</button></div>`;
+  openModal();
+  document.getElementById('hrGo').onclick = async () => {
+    try { await api('/api/tasks/' + encodeURIComponent(id) + '/hold-resolved', { method:'POST', body: JSON.stringify({ note: document.getElementById('hrNote').value }) }); closeModal(); await refreshTasks(); if(todayViewActive()) renderToday(true); showToast('success', 'Ready to resume', 'The processor has been told.'); }
+    catch(e){ const x = document.getElementById('hrErr'); x.textContent = e.message; x.style.display = 'block'; }
+  };
+}
+// Follow-up date, expected reply, or more evidence on the active hold — each change is kept in the hold's own history.
+function openHoldUpdateModal(id){
+  const t = findTask(id); if(!t) return;
+  const h = (t.holdHistory || [])[(t.holdHistory || []).length - 1] || {};
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Update the hold — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · ${esc(holdReasonLabel(t))}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="field" style="flex:1;min-width:170px;"><label for="huFollow">Follow up on</label><input type="date" id="huFollow" min="${esc(todayISO())}" value="${esc(t.holdFollowUp || h.followUp || '')}"></div>
+      <div class="field" style="flex:1;min-width:170px;"><label for="huExpected">Reply expected by</label><input type="date" id="huExpected" min="${esc(todayISO())}" value="${esc(h.expectedResponseDate || '')}"></div>
+    </div>
+    <div class="field"><label for="huEvidence">Add evidence <span style="color:var(--text-faint);">(optional)</span></label><input id="huEvidence" maxlength="500" placeholder="Email subject or link, message reference, or who you spoke to and when"></div>
+    <div class="modal-error" id="huErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="huGo">Save</button></div>`;
+  openModal();
+  document.getElementById('huGo').onclick = async () => {
+    const body = {}, f = document.getElementById('huFollow').value, e = document.getElementById('huExpected').value, ev = document.getElementById('huEvidence').value.trim();
+    if(f && f !== (t.holdFollowUp || h.followUp)) body.followUpDate = f;
+    if((e || '') !== (h.expectedResponseDate || '')) body.expectedResponseDate = e || null;
+    if(ev) body.evidence = ev;
+    const x = document.getElementById('huErr');
+    if(!Object.keys(body).length){ x.textContent = 'Change something first.'; x.style.display = 'block'; return; }
+    try { await api('/api/tasks/' + encodeURIComponent(id) + '/hold-update', { method:'POST', body: JSON.stringify(body) }); closeModal(); await refreshTasks(); if(todayViewActive()) renderToday(true); showToast('success', 'Saved', 'The hold history keeps the change.'); }
+    catch(err){ x.textContent = err.message; x.style.display = 'block'; }
+  };
+}
+// Ask for a new commitment date: nothing changes by itself — a manager decides.
+function openDateRequestModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Request a new commitment date — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · Internal ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'} · Client ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">This only sends a request to your manager. <b>No date changes until a manager approves it.</b> Until then the dates stay as agreed and show as at risk or missed.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="field" style="flex:1;min-width:170px;"><label for="drInternal">New internal date</label><input type="date" id="drInternal" min="${esc(todayISO())}"></div>
+      ${t.clientDate ? `<div class="field" style="flex:1;min-width:170px;"><label for="drClient">New client date</label><input type="date" id="drClient" min="${esc(todayISO())}"></div>` : ''}
+    </div>
+    <div class="field"><label for="drReason">Why do you need it? <span class="req-mark">*</span></label><input id="drReason" maxlength="400"></div>
+    <div class="modal-error" id="drErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="drGo">Send request</button></div>`;
+  openModal();
+  document.getElementById('drGo').onclick = async () => {
+    const x = document.getElementById('drErr'), body = { internalDeadline: document.getElementById('drInternal').value || undefined, clientDate: (document.getElementById('drClient') || {}).value || undefined, reason: document.getElementById('drReason').value };
+    try { await api('/api/tasks/' + encodeURIComponent(id) + '/date-request', { method:'POST', body: JSON.stringify(body) }); closeModal(); showToast('success', 'Request sent', 'Your manager has been told. Nothing has changed yet.'); }
+    catch(err){ x.textContent = err.message; x.style.display = 'block'; }
+  };
+}
+// A manager approves or rejects the pause of the processor's responsibility.
+function openPauseDecisionModal(id){
+  const t = findTask(id); if(!t) return;
+  const q = (t.queries || []).find(x => x.pauseStatus === 'pending' && !x.dismissedAt);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Pause of responsibility — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · ${esc(holdReasonLabel(t))}</div>
+    <div style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:12px 14px;margin:10px 0;font-size:13.5px;line-height:1.6;">
+      Query sent <b>${q ? esc(fmtStamp(q.sentTs || q.sentAt)) : '—'}</b>${q && q.source && q.source !== 'manual' ? ' by ' + esc(q.source) : ''}<br>Evidence: <b>${q ? esc(q.evidence || '—') : '—'}</b></div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">Approving pauses the processor's own responsibility from the time the query was sent. It <b>never</b> moves the client date.</p>
+    <div class="field"><label for="pdNote">Note <span style="color:var(--text-faint);">(required if not approved)</span></label><input id="pdNote" maxlength="300"></div>
+    <div class="modal-error" id="pdErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button><button class="btn" style="border-color:var(--coral);color:#C2410C;" id="pdNo">Do not approve</button><button class="btn primary" id="pdYes">Approve the pause</button></div>`;
+  openModal();
+  const go = approve => async () => {
+    try { await api('/api/tasks/' + encodeURIComponent(id) + '/hold-pause', { method:'POST', body: JSON.stringify({ approve, note: document.getElementById('pdNote').value }) }); closeModal(); await refreshTasks(); if(todayViewActive()) renderToday(true); showToast('success', approve ? 'Pause approved' : 'Pause not approved', 'The processor has been told.'); }
+    catch(e){ const x = document.getElementById('pdErr'); x.textContent = e.message; x.style.display = 'block'; }
+  };
+  document.getElementById('pdYes').onclick = go(true); document.getElementById('pdNo').onclick = go(false);
 }
 function openHoldDetailModal(id){
   const t = findTask(id);
@@ -8935,18 +9043,13 @@ function openHoldDetailModal(id){
   const hist = (t.holdHistory || []).slice().reverse();
   document.getElementById('modalBox').innerHTML = `
     <h3>On hold — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(t.clientName)||'—'} · Held ${t.holdCount || 1} time${(t.holdCount||1) > 1 ? 's' : ''} · Agreed ${t.tat} hrs, ${displayedLogged(t).toFixed(1)} hrs logged so far</div>
-    <div style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;margin:12px 0;font-size:13.5px;line-height:1.6;">
-      <b style="color:var(--text);">${esc(holdReasonLabel(t))}</b>${(HOLD_REASONS[t.holdReasonCode]||{}).exempting ? ' <span style="color:var(--teal);font-size:12px;">· client commitment clock paused</span>' : ''}
-      ${t.holdReason && t.holdReason !== (HOLD_REASONS[t.holdReasonCode]||{}).label ? `<div style="margin-top:4px;color:var(--text-dim);">${esc(t.holdReason)}</div>` : ''}
-      <div id="holdShotHolder" style="margin-top:10px;">${t.hasHoldScreenshot ? '<span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span>' : ''}</div>
-    </div>
+    <div class="modal-sub">${esc(t.clientName)||'—'} · Held ${t.holdCount || 1} time${(t.holdCount||1) > 1 ? 's' : ''} · Agreed ${t.tat} hrs</div>
+    ${t.status === 'on_hold' ? holdSummaryHtml(t) : ''}
+    <div id="holdShotHolder" style="margin-top:10px;">${t.hasHoldScreenshot ? '<span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span>' : ''}</div>
     ${queryDetailHtml(t)}
-    ${hist.length > 1 ? `<div class="label" style="margin-bottom:6px;">History</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${fmtDate((h.heldAt||'').slice(0,10))} — ${esc((HOLD_REASONS[h.reasonCode]||{}).label || h.reason || '')}${h.resumedAt ? ' <span style="color:var(--text-faint);">(resumed)</span>' : ''}</li>`).join('')}</ul>` : ''}
+    ${hist.length > 0 ? `<div class="label" style="margin:12px 0 6px;">Hold history</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${esc(fmtStamp(h.heldAt))} — ${esc((HOLD_REASONS[h.reasonCode] || {}).label || h.reason || 'On hold')}${h.waitingOnPerson ? ' · waiting on ' + esc(h.waitingOnPerson) : ''}${h.resumedAt ? ' · resumed ' + esc(fmtStamp(h.resumedTs || h.resumedAt)) + (h.heldHours != null ? ' after ' + h.heldHours.toFixed(1) + ' h' : '') : ' · <b>active</b>'}</li>`).join('')}</ul>` : ''}
     <div class="modal-actions">
-      ${iCanHold(t) ? (openQuery(t)
-        ? `<button class="btn primary" onclick="openResumeReplyModal('${t.id}','${openQuery(t).id}')">Resume</button>`
-        : `<button class="btn primary" onclick="unholdTask('${t.id}'); closeModal();">Resume</button>`) : ''}
+      ${t.status === 'on_hold' && iCanHold(t) ? `<button class="btn primary" onclick="closeModal(); openResumeModal('${esc(id)}')">Resume</button>` : ''}
       <button class="btn" onclick="closeModal()">Close</button>
     </div>`;
   openModal();
@@ -10905,9 +11008,9 @@ function productivityCardsHtml(p, opts){
   const commitmentSub = p.commitmentTotal ? `${p.commitmentMet}/${p.commitmentTotal} on time` : 'no dated tasks in period';
   return `<div class="top-grid">
     ${card('Productivity', pctBig, p.notScorable ? 'No available capacity in this period' : null, pctColor)}
-    ${card('Qualifying Completed Allocated Hours', p.qualifiedHours.toFixed(1)+'h', null)}
-    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', capacitySubHtml(p))}
-    ${card('Capacity Not Converted Into Completed Output', p.capacityNotConverted.toFixed(1)+'h', notConvertedSubHtml(p))}
+    ${card('Reviewed-clean allocated hours', p.qualifiedHours.toFixed(1)+'h', (p.qualifiedTasks || []).some(r => r.qualifyingEventType === 'admin_completed') ? 'includes completed admin allocated hours' : 'allocated, not time worked')}
+    ${card('Eligible capacity hours', p.capacityHours.toFixed(1)+'h', capacitySubHtml(p))}
+    ${card('Eligible capacity not yet converted', p.capacityNotConverted.toFixed(1)+'h', notConvertedSubHtml(p))}
     ${card('Internal Commitment Met', commitmentPct, commitmentSub, p.commitmentPct==null?null:scoreColor(p.commitmentPct))}
   </div>
   <p style="font-size:12px;color:var(--text-faint);margin:10px 0 0;max-width:70ch;line-height:1.5;">Productivity shows completed allocated hours as a percentage of adjusted capacity. A lower percentage does not automatically mean poor employee performance — capacity not yet converted into completed output may include work still in progress, work awaiting review, or capacity management hasn't allocated. Not an employee penalty.</p>
@@ -10939,38 +11042,57 @@ const STAGE_LABELS = {
   sent_on_time:'Sent on time', sent_late:'Sent late', not_sent:'Not sent', sending_not_required:'Not required',
 };
 const QUALIFYING_EVENT_LABELS = {
-  sent_for_review:'Sent for review', marked_done:'Marked done', clean_review:'Clean review', no_review_authorized:'No-review authorised',
-  report_dispatched:'Report sent to client', self_certified_reviewer:'Self-certified (reviewer)', no_review_needed:'Closed (no review needed)',
-  month_close:'Held at month-end (hours banked)',
+  clean_review: 'Reviewed Clean', admin_completed: 'Completed (admin work)', manager_exception_no_review: 'Closed — manager exception',
+  // older records only
+  sent_for_review: 'Sent for review', marked_done: 'Marked done', no_review_authorized: 'No-review authorised', report_dispatched: 'Report sent to client',
+  self_certified_reviewer: 'Self-certified (reviewer)', no_review_needed: 'Closed (no review needed)', month_close: 'Banked at month-end (no longer counted)',
 };
 // Plain-language meaning of each "Excluded" reason, shown under it.
 const EXCLUSION_HELP = {
-  'Review pending': "It was sent for review but the reviewer hasn't marked it clean or with errors yet. It counts once the review is done.",
-  'Review contains errors': 'The reviewer found errors. It counts again once it is fixed and passes review.',
+  'Review pending': "It was handed in but the reviewer has not marked it Reviewed Clean yet. It counts, in full, on the day it is approved clean.",
+  'Returned for correction': 'The reviewer sent it back. It counts again, in full, once the corrected work is approved clean.',
+  'Review contains errors': 'The reviewer sent it back. It counts again, in full, once the corrected work is approved clean.',
   'Not yet delivered': 'The work is not finished yet.',
-  'In progress': 'The work is not finished yet.',
-  'On hold': "On hold — not counted until it's finished (or banked at month-end).",
-  'Needs rework': 'Sent back for rework — not counted until it is fixed and passes review.',
-  'Awaiting acceptance': "The person hasn't accepted the task yet.",
-  'Window proposed': 'A new date was proposed and is waiting for approval.',
+  'Not completed — in progress': 'The work is not finished yet.',
+  'Not completed — awaiting acceptance': "The person hasn't accepted the task yet.",
+  'Not completed — new date proposed': 'A new date was proposed and is waiting for approval.',
+  'Not completed — assignment awaiting approval': 'The assignment is waiting for a manager to approve it.',
+  'On hold': 'On hold — it earns nothing until it is finished and approved clean. Putting work on hold never reduces capacity.',
+  'Cancelled': 'The task was cancelled.',
+  'Client task closed without review — no manager exception recorded': 'Client work must be reviewed. It only counts if an authorised manager records an exception (who, when and why).',
   'Missing allocated-hours snapshot': 'A data problem: this task has no agreed hours recorded, so it cannot be credited.',
   'Invalid completion timestamp': 'A data problem: this task has no valid completion time, so it cannot be credited.',
+  // older wording, kept so old rows still explain themselves
+  'Needs rework': 'Sent back for rework — not counted until it is fixed and passes review.',
+  'In progress': 'The work is not finished yet.', 'Awaiting acceptance': "The person hasn't accepted the task yet.", 'Window proposed': 'A new date was proposed and is waiting for approval.',
 };
+const exclusionHelp = r => EXCLUSION_HELP[r] || (/^Clean review outside selected period/.test(r || '') ? 'It was approved clean on a day outside the period you picked, so it counts in that other period.' : '');
 function stageLabel(s){ return s ? esc(STAGE_LABELS[s] || s) : '<span style="color:var(--text-faint);">—</span>'; }
-function taskCalcTableHtml(rows, showReason){
+function taskCalcTableHtml(rows, excluded){
   if(!rows.length) return `<p style="font-size:12.5px;color:var(--text-faint);padding:8px 0;">None.</p>`;
+  const th = (t, right) => '<th style="padding:5px 6px;' + (right ? 'text-align:right;' : '') + '">' + t + '</th>';
+  const head = excluded
+    ? th('Task') + th('Client') + th('Allocated', 1) + th('Current status') + th('Why it earns nothing') + th('Who acts next') + th('Next action') + th('Report sent <span style="text-transform:none;">(separate)</span>')
+    : th('Task') + th('Client') + th('Review') + th('Reviewed-clean date') + th('Credit', 1) + th('Report sent <span style="text-transform:none;">(separate)</span>');
+  const reviewLbl = r => r.kind === 'internal' && !r.clientName || r.clientName === 'Admin task' ? 'Not required (admin work)' : (r.stages && r.stages.reviewer === 'done' ? 'Closed without review' : 'Required');
   return `<div style="overflow-x:auto;max-height:26vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-    <thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">
-      <th style="padding:5px 6px 5px 0;">Task</th><th style="padding:5px 6px;">Client</th><th style="padding:5px 6px;">Qualifying event</th><th style="padding:5px 6px;">Processor</th><th style="padding:5px 6px;">Reviewer</th><th style="padding:5px 6px;">Report</th><th style="padding:5px 6px;text-align:right;">Hours</th>${showReason?'<th style="padding:5px 6px;">Reason</th>':''}</tr></thead>
-    <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--panel-border);">
-      <td style="padding:5px 6px 5px 0;font-weight:600;">${esc(r.name)}${r.dataException?' <span title="Data exception" style="color:var(--coral);">⚠</span>':''}</td>
+    <thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">${head}</tr></thead>
+    <tbody>${rows.map(r => excluded ? `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:5px 6px;font-weight:600;">${esc(r.name)}${r.dataException?' <span title="Data exception" style="color:var(--coral);">⚠</span>':''}</td>
       <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.clientName)}</td>
-      <td style="padding:5px 6px;color:var(--text-dim);">${r.qualifyingEventType?esc(QUALIFYING_EVENT_LABELS[r.qualifyingEventType]||r.qualifyingEventType)+(r.qualifyingEventAt?' · '+fmtDate(dayOf(r.qualifyingEventAt)):''):'—'}</td>
-      <td style="padding:5px 6px;">${stageLabel(r.stages.processor)}</td>
-      <td style="padding:5px 6px;">${stageLabel(r.stages.reviewer)}</td>
-      <td style="padding:5px 6px;">${stageLabel(r.stages.sender)}</td>
-      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${(r.qualifies ? r.creditedHours : r.allocatedHours).toFixed(1)}h${r.qualifies && Math.abs(r.creditedHours - r.allocatedHours) > 0.05 ? ` <span style="color:var(--text-faint);" title="Part of this task's ${r.allocatedHours.toFixed(1)}h was credited at a month-end while it was on hold">(of ${r.allocatedHours.toFixed(1)}h)</span>` : ''}${r.zeroHourTask?' <span style="color:var(--text-faint);">(0h)</span>':''}</td>
-      ${showReason?`<td style="padding:5px 6px;color:var(--coral);">${esc(r.exclusionReason||'')}${EXCLUSION_HELP[r.exclusionReason]?`<div style="color:var(--text-faint);font-size:11.5px;margin-top:2px;">${esc(EXCLUSION_HELP[r.exclusionReason])}</div>`:''}</td>`:''}
+      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${(r.allocatedHours||0).toFixed(1)}h</td>
+      <td style="padding:5px 6px;">${esc(r.primaryStatus || (r.status||'').replace('_',' '))}</td>
+      <td style="padding:5px 6px;color:var(--coral);">${esc(r.exclusionReason||'')}${exclusionHelp(r.exclusionReason)?`<div style="color:var(--text-faint);font-size:11.5px;margin-top:2px;">${esc(exclusionHelp(r.exclusionReason))}</div>`:''}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.actionOwner || '—')}</td>
+      <td style="padding:5px 6px;color:var(--text-faint);">${esc(r.nextAction || '—')}</td>
+      <td style="padding:5px 6px;">${stageLabel(r.stages && r.stages.sender)}</td>
+    </tr>` : `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:5px 6px;font-weight:600;">${esc(r.name)}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.clientName)}</td>
+      <td style="padding:5px 6px;">${esc(reviewLbl(r))} · ${stageLabel(r.stages && r.stages.reviewer)}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${r.qualifyingEventAt ? esc(fmtDate(dayOf(r.qualifyingEventAt))) : '—'} <span style="color:var(--text-faint);">· ${esc(QUALIFYING_EVENT_LABELS[r.qualifyingEventType] || r.qualifyingEventType || '')}</span></td>
+      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${(r.creditedHours||0).toFixed(1)}h <span style="color:var(--text-faint);">(of ${(r.allocatedHours||0).toFixed(1)}h)</span></td>
+      <td style="padding:5px 6px;">${stageLabel(r.stages && r.stages.sender)}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
@@ -10995,22 +11117,37 @@ function openWorkTableHtml(rows){
 // the same server-computed rows, never recomputed client-side), the
 // capacity-not-converted breakdown, and a missed-Internal-Commitment list
 // (filtered client-side from the same rows — no separate endpoint needed).
+// Capacity, day by day: standard hours, every deduction, the final hours — and the record each deduction came from.
+function capacityDaysHtml(p){
+  const rows = p.capacityDays;
+  if(!rows || !rows.length) return '<p style="font-size:12.5px;color:var(--text-faint);padding:6px 0;">The day-by-day list is not loaded for this view — open the person\'s Report Card.</p>';
+  const h = n => n ? (Math.round(n * 100) / 100) + '' : '—';
+  const sum = rows.reduce((n, r) => n + r.finalHours, 0);
+  return '<div style="overflow-x:auto;max-height:28vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;"><caption class="sr-only">Eligible capacity, day by day</caption>'
+    + '<thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);"><th style="padding:5px 6px;">Date</th><th style="padding:5px 6px;">Day</th><th style="padding:5px 6px;text-align:right;">Standard</th><th style="padding:5px 6px;text-align:right;">Leave</th><th style="padding:5px 6px;text-align:right;">Workshop</th><th style="padding:5px 6px;text-align:right;">Weekly off</th><th style="padding:5px 6px;text-align:right;">Other</th><th style="padding:5px 6px;text-align:right;">Final</th><th style="padding:5px 6px;">Reason</th><th style="padding:5px 6px;">Source</th></tr></thead><tbody>'
+    + rows.map(r => '<tr style="border-top:1px solid var(--panel-border);' + (r.finalHours === 0 ? 'color:var(--text-faint);' : '') + '"><td style="padding:4px 6px;white-space:nowrap;">' + esc(fmtDate(r.date)) + '</td><td style="padding:4px 6px;">' + esc(r.day) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.standardHours) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.leaveDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.workshopDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.weeklyOffDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.otherDeduction) + '</td><td style="padding:4px 6px;text-align:right;font-weight:700;">' + h(r.finalHours) + '</td><td style="padding:4px 6px;">' + esc(r.reason) + '</td><td style="padding:4px 6px;color:var(--text-faint);">' + esc(r.source ? r.source.label : '—') + '</td></tr>').join('')
+    + '</tbody><tfoot><tr style="border-top:2px solid var(--panel-border);font-weight:700;"><td colspan="7" style="padding:5px 6px;">Eligible capacity</td><td style="padding:5px 6px;text-align:right;">' + h(sum) + '</td><td colspan="2"></td></tr></tfoot></table></div>';
+}
 function openProductivityCalcModal(p){
   if(!p) return;
   const allRows = (p.qualifiedTasks||[]).concat(p.excludedTasks||[]);
   const missedCommitment = allRows.filter(r => r.stages && r.stages.processor === 'missed');
+  const adminH = (p.qualifiedTasks||[]).filter(r => r.qualifyingEventType === 'admin_completed').reduce((n, r) => n + (r.creditedHours || 0), 0);
   document.getElementById('modalBox').innerHTML = `
     <div class="calc-modal">
     <h3>${esc(p.name)} — calculation</h3>
-    <div class="modal-sub">${p.capacityHours.toFixed(1)}h capacity · ${p.qualifiedHours.toFixed(1)}h qualified${p.notScorable?' · not scorable — no available capacity in this period':''}</div>
+    <div class="modal-sub">${p.capacityHours.toFixed(1)}h eligible capacity · ${p.qualifiedHours.toFixed(1)}h reviewed-clean allocated${adminH ? ' (incl. ' + adminH.toFixed(1) + 'h completed admin work)' : ''}${p.notScorable?' · not scorable — no available capacity in this period':''}</div>
+    <div style="font-size:12.5px;color:var(--text-dim);margin:8px 0 0;line-height:1.5;">Productivity % = reviewed-clean allocated hours ÷ eligible capacity hours × 100. A task counts its <b>full</b> allocated hours on the day it is approved Reviewed Clean, or nothing. Report Sent, time worked, punch time and on-hold time are never part of it.</div>
     <div style="font-size:13px;font-weight:600;margin:14px 0 6px;">Qualified — full allocated hours credited</div>
     ${taskCalcTableHtml(p.qualifiedTasks, false)}
     <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Excluded — zero hours credited</div>
     ${taskCalcTableHtml(p.excludedTasks, true)}
-    <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Internal Commitment — missed (${missedCommitment.length})</div>
+    <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Eligible capacity — day by day</div>
+    ${capacityDaysHtml(p)}
+    <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Internal commitment — submitted late (${missedCommitment.length}) <span style="font-weight:400;color:var(--text-faint);">separate from productivity</span></div>
     ${taskCalcTableHtml(missedCommitment, false)}
     <div style="margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:12.5px;color:var(--text-dim);">
-      Capacity ${p.capacityHours.toFixed(1)}h · Capacity not converted ${p.capacityNotConverted.toFixed(1)}h (${notConvertedSubHtml(p)}) — not an employee penalty
+      Eligible capacity ${p.capacityHours.toFixed(1)}h · Eligible capacity not yet converted ${p.capacityNotConverted.toFixed(1)}h (${notConvertedSubHtml(p)}) — not an employee penalty
     </div>
     <div class="modal-actions" style="margin-top:16px;">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -11362,9 +11499,11 @@ function downloadCardsCsv(){
   a.download = `monthly-cards-${d.period}${_cardsGroup === 'all' ? '' : '-' + _cardsGroup}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
 }
+let _prodSeq = 0;
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
   if(!body) return;
+  const seq = ++_prodSeq;
   renderProdGroupTabs();
   const adminGroup = _prodGroup === 'admin';
   document.getElementById('prodHoursWrap').style.display = adminGroup ? 'none' : '';
@@ -11373,7 +11512,8 @@ async function renderProductivityView(){
   if(adminGroup){ await renderAdminProductivity(reqFrom, to); return; }
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&group=${_prodGroup}${_prodFirm ? '&scope=firm' : ''}`); }
-  catch(e){ body.innerHTML = `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
+  catch(e){ if(seq !== _prodSeq) return; body.innerHTML = `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
+  if(seq !== _prodSeq) return;                             // the latest selection wins
   _prodData = data;
   document.getElementById('prodTotals').innerHTML = productivityCardsHtml(data.totals, { hideCalcLink: true });
   const rows = data.people.slice().sort((a,b) => (b.productivityPct??-1) - (a.productivityPct??-1));
@@ -12130,321 +12270,295 @@ function setDone(id){ return (document.getElementById(id) || {}).value || undefi
    ========================================================================= */
 let _fvReportRows = { key:null, rows:[] };
 let _fvProdRows = { key:null, rows:[] };
-let fvTileData = {};
-// Click any Founder KPI tile to see the tasks behind it (same scope + period).
-function openFvTileList(key){
-  const d = fvTileData[key];
-  if(!d) return;
-  taskListModal(d.title, `${dashScopeLabel('fv')} · ${dashPeriodLabel('fv')}`, d.list || [], { empty: 'Nothing here for this scope and period.' });
+/* =========================================================================
+   FOUNDER DASHBOARD — the same master-detail layout as Parvinder's, with the whole firm in view.
+   Three views (Today · Founder View · Review & Decisions); only ONE is on screen at a time and only the active one is built. Inside a view
+   only one tile / list / detail is open. Every number comes from /api/founder/dashboard (one shared metric service); a tile's count IS
+   the list it opens, and the CSV export carries the same records.
+   ========================================================================= */
+let _fd = null, _fdView = 'founder', _fdScope = { kind:'firm', value:'' }, _fdPeriod = { preset:'month', from:'', to:'' }, _fdCompare = true;
+let _fdTile = null, _fdSel = null, _fdPerfBy = 'team', _fdPerfSort = { k:'label', dir:1 }, _fdPerfSel = null, _fdDrill = null, _fdDrillEmp = null, _fdMoreOpen = false, _fdElig = null, _fdCards = {};
+const FD_VIEWS = [['today', 'Today'], ['founder', 'Founder View'], ['review', 'Review & Decisions']];
+function fdQuery(extra){
+  const p = new URLSearchParams({ scopeKind:_fdScope.kind, scopeValue:_fdScope.value || '', preset:_fdPeriod.preset });
+  if(_fdPeriod.preset === 'custom'){ if(_fdPeriod.from) p.set('from', _fdPeriod.from); if(_fdPeriod.to) p.set('to', _fdPeriod.to); }
+  Object.entries(extra || {}).forEach(([k, v]) => { if(v) p.set(k, v); });
+  return p.toString();
 }
-/* Global firm search on the Founder Dashboard: type a client, task or
-   person and see where it lives — the client's owner and open count, and
-   every matching task with its assignee, status and due date. */
-function renderFvSearch(){
-  const inp = document.getElementById('fvSearch');
-  const panel = document.getElementById('fvSearchPanel');
-  const clr = document.getElementById('fvSearchClear');
-  if(!inp || !panel) return;
-  const q = (inp.value || '').trim().toLowerCase();
-  clr.style.display = q ? '' : 'none';
-  if(q.length < 2){ panel.style.display = 'none'; panel.innerHTML = ''; return; }
-
-  const clientHits = clients.filter(c => c.name.toLowerCase().includes(q)).slice(0, 20);
-  const personHits = employees.filter(e => e.name.toLowerCase().includes(q) || (e.email||'').toLowerCase().includes(q)).slice(0, 10);
-  const taskHits = tasks.filter(t =>
-    (t.name||'').toLowerCase().includes(q) ||
-    (t.clientName||'').toLowerCase().includes(q) ||
-    (t.scope||'').toLowerCase().includes(q) ||
-    (empById(t.assignedTo)?.name||'').toLowerCase().includes(q) ||
-    (t.id||'').toLowerCase().includes(q)
-  ).sort(taskNewest).slice(0, 40);
-
-  let html = '';
-  if(clientHits.length){
-    html += `<div class="fv-hit-group"><h4>Clients · ${clientHits.length}</h4>` + clientHits.map(c => {
-      const owner = empById(c.ownerId);
-      const open = tasks.filter(t => t.clientId === c.id && t.status !== 'completed').length;
-      const done = tasks.filter(t => t.clientId === c.id && t.status === 'completed').length;
-      return `<div class="fv-hit"><span>${owner ? '●' : '⚠'}</span>
-        <span class="g"><b>${esc(c.name)}</b><div class="m">Owner: ${owner ? esc(owner.name) : 'no owner'} · ${open} open · ${done} completed</div></span>
-        <button class="btn small" onclick="document.getElementById('fvSearch').value=${JSON.stringify(c.name)};renderFvSearch();">Tasks →</button></div>`;
-    }).join('') + `</div>`;
-  }
-  if(personHits.length){
-    html += `<div class="fv-hit-group"><h4>People · ${personHits.length}</h4>` + personHits.map(e => {
-      const open = tasks.filter(t => t.assignedTo === e.id && t.status !== 'completed').length;
-      return `<div class="fv-hit"><span class="mini-avatar">${esc((e.name||'?').split(' ').map(w=>w[0]).slice(0,2).join(''))}</span>
-        <span class="g"><b>${esc(e.name)}</b><div class="m">${esc(e.jobTitle||'')} · ${esc((e.team||'').trim()||'Unassigned')} · ${open} open task${open===1?'':'s'}</div></span>
-        <button class="btn small" onclick="openWorkLog('${e.id}')">Work log</button></div>`;
-    }).join('') + `</div>`;
-  }
-  if(taskHits.length){
-    html += `<div class="fv-hit-group"><h4>Tasks · ${taskHits.length}${taskHits.length===40?'+':''}</h4>` + taskHits.map(t => {
-      const a = empById(t.assignedTo);
-      const overdue = t.internalDeadline && t.internalDeadline < todayISO() && t.status !== 'completed';
-      return `<div class="fv-hit" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
-        <span class="g"><b>${esc(t.name)}</b><div class="m">${esc(clientLabel(t))} · ${a ? esc(a.name) : 'Unassigned'} · due ${fmtDate(t.internalDeadline)}${overdue ? ' · <span style="color:#C2410C;font-weight:700;">overdue</span>' : ''}</div></span>
-        ${statusBadge(t)}</div>`;
-    }).join('') + `</div>`;
-  }
-  panel.innerHTML = html || `<div style="font-size:13.5px;color:var(--text-faint);padding:6px 4px;">No client, person or task matches “${esc(inp.value)}”.</div>`;
-  panel.style.display = '';
+function fdReset(keepFilters){ _fdTile = null; _fdSel = null; _fdPerfSel = null; _fdDrill = null; _fdDrillEmp = null; window.__fdMobileOpen = false; }
+async function renderFounderView(quiet){
+  const box = document.getElementById('fdRoot'); if(!box) return;
+  if(!(isSuperAdmin && session && session.isFounder)){ box.innerHTML = '<div class="td-empty">The Founder dashboard is for the founder only.</div>'; return; }
+  if(!quiet && !_fd) box.innerHTML = '<div class="td-empty" role="status">Calculating firm performance…</div>';
+  try { _fd = await api('/api/founder/dashboard?' + fdQuery()); }
+  catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Performance data could not be loaded. <button type="button" class="btn small td-act" onclick="renderFounderView()">Retry</button><div style="margin-top:6px;font-size:12px;">' + esc(e.message) + '</div></div>'; return; }
+  drawFounder();
 }
-async function renderFounderView(){
-  if(!isSuperAdmin || !document.getElementById('fvOwnerPerfWrap')) return;
-  populateScopeSelect('fvView', 'fv', false);
-  document.getElementById('fvView').value = [...document.getElementById('fvView').options].some(o=>o.value===dashScope.fv.view) ? dashScope.fv.view : (dashScope.fv.view = 'firm');
-  const r = dashPeriod('fv'), prev = { start:r.prevStart, end:r.prevEnd };
-  const people = dashPeople('fv', false);
-  const peopleIds = new Set(people.map(e=>e.id));
-  const scoped = dashScopedTasks('fv', false);
-  const isPerson = dashScope.fv.view.startsWith('p:');
-  const isTeam = dashScope.fv.view.startsWith('t:');
-  const setD = (id, html) => { const e = document.getElementById(id); if(e) e.innerHTML = html; };
-  const setT = (id, txt) => { const e = document.getElementById(id); if(e) e.textContent = txt; };
-
-  document.getElementById('fvCrumb').innerHTML = `<b>Scope:</b> ${esc(dashScopeLabel('fv'))} · ${esc(dashPeriodLabel('fv'))}`;
-  document.getElementById('fvInOutNote').textContent = dashPeriodLabel('fv') + ' · by week';
-  document.getElementById('fvSrcNote').textContent = dashPeriodLabel('fv');
-
-  // ---- KPI strip ----
-  const completedIn = (rr) => scoped.filter(t => t.status === 'completed' && dashInRange(t.completedAt, rr));
-  const cIn = completedIn(r), cPrev = completedIn(prev);
-  setT('fvTasksCompleted', cIn.length.toLocaleString());
-  setD('fvTasksCompletedSub', dashDeltaHtml(cIn.length, cPrev.length, { key:'fv', fallback:'in this period' }));
-
-  // On-time % is judged only against work that HAD a client date — internal
-  // tasks and anything with no agreed client date can't be early or late.
-  const cInDated = cIn.filter(t => t.clientDate);
-  const cPrevDated = cPrev.filter(t => t.clientDate);
-  const otIn = cInDated.filter(t => t.commitmentOutcome === 'met');
-  const otPct = cInDated.length ? Math.round(otIn.length/cInDated.length*100) : null;
-  const otPrev = cPrevDated.filter(t => t.commitmentOutcome === 'met');
-  const otPctPrev = cPrevDated.length ? Math.round(otPrev.length/cPrevDated.length*100) : null;
-  setT('fvOnTimePct', otPct === null ? '—' : otPct + '%');
-  setD('fvOnTimeSub', cInDated.length ? `${otIn.length} of ${cInDated.length} with a client date` + (dashScope.fv.cmp && otPctPrev != null ? ` · <span class="${otPct>=otPctPrev?'dn':'up'}">${otPct>=otPctPrev?'▲':'▼'}</span> vs ${otPctPrev}%` : '') : 'No client-dated work');
-
-  const qReq = cIn.filter(t => (t.reworkCount||0) > 0).length;
-  const qPct = cIn.length ? Math.round((cIn.length - qReq)/cIn.length*100) : null;
-  setT('fvQualityPct', qPct === null ? '—' : qPct + '%');
-  setD('fvQualitySub', cIn.length ? `${qReq} required rework` : 'No completed tasks');
-
-  let reportRows = [];
-  try {
-    const cacheKey = r.days + '|' + r.start;
-    if(_fvReportRows.key === cacheKey){ reportRows = _fvReportRows.rows; }
-    else { const data = await api('/api/reports/summary?days=' + Math.min(3650, r.days)); reportRows = data.rows || []; _fvReportRows = { key:cacheKey, rows:reportRows }; }
-  } catch(e){ reportRows = []; }
-  const scopedRows = reportRows.filter(row => peopleIds.has(row.id));
-
-  // Team Productivity = worked hours ÷ capacity hours (leave-aware, server
-  // computed) for whoever's in scope — same precise basis as the Manager
-  // Dashboard, not the online-shift-time ratio this used to show.
-  let prodPct = null, prodSub = 'No capacity in this period';
-  try {
-    const prodCacheKey = r.days + '|' + r.start;
-    let prodRows;
-    if(_fvProdRows.key === prodCacheKey){ prodRows = _fvProdRows.rows; }
-    else {
-      const [ey, em, ed] = r.end.split('-').map(Number);
-      const lastDay = new Date(ey, em - 1, ed - 1);
-      const toISO = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`;
-      const data = await api(`/api/productivity?from=${r.start}&to=${toISO}&full=1`);
-      prodRows = data.people || [];
-      _fvProdRows = { key: prodCacheKey, rows: prodRows };
+const fdN = v => v == null ? 'Not available' : (typeof v === 'number' ? (Math.round(v * 10) / 10).toLocaleString('en-NZ') : v);
+const fdPct = v => v == null ? 'Not available' : (Math.round(v * 10) / 10) + '%';
+function fdGreeting(){ const h = Number(new Date().toLocaleTimeString('en-GB', { timeZone:'Pacific/Auckland', hour:'2-digit', hour12:false }).slice(0, 2)) % 24; return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; }
+function fdSelect2(id, label, opts, val, on){ return '<label class="flt-f"><span>' + label + '</span><select id="' + id + '" onchange="' + on + '">' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select></label>'; }
+function fdFilterBar(){
+  const F = _fd.filters, kind = _fdScope.kind;
+  const valOpts = kind === 'team' ? F.teams.map(t => [t, t]) : kind === 'manager' ? F.managers.map(m => [m.id, m.name]) : kind === 'employee' ? F.employees.map(e => [e.id, e.name]) : [];
+  return '<div class="flt-bar fd-filters" role="group" aria-label="Founder dashboard filters">'
+    + fdSelect2('fdScopeKind', 'Scope', [['firm', 'Whole firm'], ['team', 'Team'], ['manager', 'Manager'], ['employee', 'Employee']], kind, 'fdSetScope(this.value,\'\')')
+    + (kind === 'firm' ? '' : fdSelect2('fdScopeVal', kind === 'team' ? 'Team' : kind === 'manager' ? 'Manager' : 'Employee', [['', 'Choose…']].concat(valOpts), _fdScope.value, 'fdSetScope(document.getElementById(\'fdScopeKind\').value, this.value)'))
+    + fdSelect2('fdPeriod', 'Period', F.periods, _fdPeriod.preset, 'fdSetPeriod(this.value)')
+    + (_fdPeriod.preset === 'custom' ? '<label class="flt-f"><span>From</span><input type="date" id="fdFrom" value="' + esc(_fdPeriod.from) + '" onchange="fdSetRange()"></label><label class="flt-f"><span>To</span><input type="date" id="fdTo" value="' + esc(_fdPeriod.to) + '" onchange="fdSetRange()"></label>' : '')
+    + '<label class="flt-f" style="flex-direction:row;align-items:center;gap:6px;"><input type="checkbox" id="fdCompare"' + (_fdCompare ? ' checked' : '') + ' onchange="fdSetCompare(this.checked)"><span>Compare with the previous period</span></label>'
+    + '<span class="fd-crumb"><b>' + esc(_fd.scope.label) + '</b> · ' + esc(_fd.period.label) + (_fd.period.elapsedOnly ? ' <span class="tm-sub">(counted only through today)</span>' : '') + '</span></div>';
+}
+function fdSetScope(kind, value){ _fdScope = { kind, value: value || '' }; fdReset(); if(kind === 'firm' || value) renderFounderView(); else drawFounder(); }
+function fdSetPeriod(p){ _fdPeriod.preset = p; if(p === 'custom' && !_fdPeriod.from){ _fdPeriod.from = _fd.period.from; _fdPeriod.to = _fd.period.to; } fdReset(); renderFounderView(); }
+function fdSetRange(){ _fdPeriod.from = document.getElementById('fdFrom').value; _fdPeriod.to = document.getElementById('fdTo').value; fdReset(); renderFounderView(); }
+function fdSetCompare(on){ _fdCompare = !!on; drawFounder(); }
+function fdTabs(){
+  return '<div class="td-seg" role="tablist" aria-label="Founder dashboard view" onkeydown="fdTabKey(event)">' + FD_VIEWS.map(([k, l]) => '<button type="button" role="tab" id="fdTab_' + k + '" class="' + (_fdView === k ? 'on' : '') + '" aria-selected="' + (_fdView === k) + '" aria-controls="fdPanel" tabindex="' + (_fdView === k ? 0 : -1) + '" data-k="' + k + '" onclick="fdSetView(this.dataset.k)">' + l + '</button>').join('') + '</div>';
+}
+function fdTabKey(e){
+  const i = FD_VIEWS.findIndex(x => x[0] === _fdView);
+  const to = e.key === 'ArrowRight' ? (i + 1) % 3 : e.key === 'ArrowLeft' ? (i + 2) % 3 : e.key === 'Home' ? 0 : e.key === 'End' ? 2 : -1;
+  if(to < 0) return; e.preventDefault(); fdSetView(FD_VIEWS[to][0], true);
+}
+// Changing view closes EVERYTHING of the old one — tile, list, detail, drill-down — so nothing is left underneath the new view.
+function fdSetView(v, focus){
+  if(v === _fdView && !focus) return;
+  _fdView = v; fdReset(); _fdAttnAll = false;
+  drawFounder();
+  if(focus){ const b = document.getElementById('fdTab_' + v); if(b) b.focus(); }
+}
+let _fdAttnAll = false;
+function drawFounder(){
+  const box = document.getElementById('fdRoot'); if(!box || !_fd) return;
+  const dateLabel = new Date(_fd.asOf + 'T12:00:00').toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(fdGreeting()) + ', ' + esc((_fd.name || '').split(' ')[0]) + '</h2><div class="td-date">' + esc(dateLabel) + ' · New Zealand time</div></div>' + fdTabs() + '</div>'
+    + (_fdView === 'today' ? '' : fdFilterBar())
+    + '<div id="fdPanel" role="tabpanel" aria-labelledby="fdTab_' + _fdView + '"></div>';
+  fdDrawBody();
+}
+function fdDrawBody(){
+  const p = document.getElementById('fdPanel'); if(!p || !_fd) return;
+  const V = _fd.views;
+  const tiles = _fdView === 'today' ? V.today.tiles : _fdView === 'review' ? V.review.tiles : V.founder.actionTiles;
+  const intro = _fdView === 'today' ? '<div class="fd-note">Only <b>your own</b> responsibilities — not the firm.</div>' : _fdView === 'review' ? '<div class="fd-note">What waits for <b>your</b> review or decision, and where reviews are stuck across the firm.</div>' : '';
+  p.innerHTML = intro + '<div class="td-counts fd-tiles" role="group" aria-label="Summary tiles">' + fdTilesHtml(tiles) + '</div>'
+    + (_fdView === 'founder' ? fdKpiHtml() : '')
+    + '<div id="fdDrill">' + fdDrillHtml() + '</div>'
+    + (_fdView === 'founder' ? fdFounderRest() : '');
+}
+function fdTilesHtml(tiles){
+  return tiles.map(t => {
+    const key = 'tile:' + t.key, on = _fdTile === key, n = t.ids.length;
+    const hot = n && ['at_risk', 'reviews_overdue', 'reports_not_sent', 'team_overdue', 'blocked', 'my_overdue', 'reviews_overdue2'].includes(t.key);
+    return '<button type="button" class="td-count' + (on ? ' on' : '') + (hot ? ' hot' : '') + '" data-k="' + key + '" onclick="fdOpen(this.dataset.k)" aria-pressed="' + on + '" aria-label="' + esc(t.label + ', ' + n + (n === 1 ? ' task' : ' tasks') + '. ' + t.scope + '. ' + (on ? 'Showing. Press to close.' : 'Show the tasks.')) + '"><span class="n">' + n + '</span><span class="l">' + esc(t.label) + '</span><span class="sc">' + esc(t.scope) + '</span></button>';
+  }).join('');
+}
+function fdKpiHtml(){
+  const K = _fd.views.founder.kpis;
+  return '<h3 class="fd-h">Key measures <span class="tm-sub">' + esc(_fd.scope.label) + ' · ' + esc(_fd.period.label) + '</span></h3><div class="fd-kpis" role="group" aria-label="Key measures">' + K.map(k => {
+    const key = 'kpi:' + k.key, on = _fdTile === key;
+    const main = !k.available ? '<span class="fd-na">Not available</span>' : '<span class="fd-val">' + (k.unit === '%' ? fdPct(k.value) : (k.key === 'backlog' && k.value > 0 ? '+' : '') + fdN(k.value) + '<small> ' + (k.key === 'open' || k.key === 'backlog' ? 'tasks' : '') + '</small>') + '</span>';
+    const calc = k.key === 'productivity' ? fdN(k.numerator) + ' qualified allocated hours ÷ ' + fdN(k.denominator) + ' eligible capacity hours'
+      : k.key === 'backlog' ? (k.extra.created + ' created − ' + k.extra.completed + ' completed')
+      : k.key === 'open' ? 'open tasks right now' : (k.denominator == null ? '' : k.numerator + ' of ' + k.denominator);
+    const basis = k.basis || (k.key === 'open' ? '' : _fd.period.label);
+    let cmp = '';
+    if(_fdCompare && k.prev){
+      if(k.key === 'backlog') cmp = 'Previous period: ' + (k.prev.value > 0 ? '+' : '') + k.prev.value;
+      else if(k.prev.value == null) cmp = 'Previous period: not available';
+      else { const dl = k.prev.delta; cmp = 'Previous period: ' + fdPct(k.prev.value) + (dl == null ? '' : ' · ' + (dl > 0 ? '▲ up ' : dl < 0 ? '▼ down ' : '= same, ') + Math.abs(dl) + ' pts'); }
     }
-    const scopedProd = prodRows.filter(p => peopleIds.has(p.id));
-    const sumWorked = scopedProd.reduce((s,p) => s + (p.workedHours||0), 0);
-    const sumCap = scopedProd.reduce((s,p) => s + (p.capacityHours||0), 0);
-    prodPct = sumCap > 0 ? Math.round(sumWorked/sumCap*100) : null;
-    prodSub = sumCap > 0 ? `${sumWorked.toFixed(0)}h worked / ${sumCap.toFixed(0)}h capacity` : 'No capacity in this period';
-  } catch(e){ /* keep defaults */ }
-  setT('fvProductivityPct', prodPct === null ? '—' : prodPct + '%');
-  setD('fvProductivitySub', prodSub);
-
-  const openScoped = scoped.filter(t => t.status !== 'completed' && t.status !== 'cancelled');
-  const today = todayISO();
-  const overdue = openScoped.filter(t => t.internalDeadline && t.internalDeadline < today);
-  setT('fvOpen', openScoped.length);
-  setD('fvOpenSub', `${people.length} ${isPerson?'person':'people'} in scope`);
-  setT('fvOverdue', overdue.length);
-  setD('fvOverdueSub', overdue.length ? `${Math.round(overdue.reduce((s,t)=>s+(new Date(today)-new Date(t.internalDeadline))/86400000,0)/overdue.length)}d avg` : 'none 🎉');
-  const unassigned = (dashScope.fv.view === 'firm') ? tasks.filter(t => !t.assignedTo && t.status !== 'completed') : [];
-  setT('fvUnassigned', unassigned.length);
-  setD('fvUnassignedSub', unassigned.length ? 'need an owner' : (dashScope.fv.view === 'firm' ? 'all assigned' : 'n/a in this scope'));
-  const turnList = cIn.filter(t => t.assignedAt && t.completedAt);
-  const turns = turnList.map(t => (new Date(t.completedAt) - new Date(t.assignedAt)) / 86400000).filter(d => d >= 0);
-  const avgTurn = turns.length ? (turns.reduce((a,b)=>a+b,0)/turns.length) : null;
-  setT('fvTurnaround', avgTurn === null ? '—' : avgTurn.toFixed(1) + ' d');
-  setD('fvTurnaroundSub', turns.length ? `over ${turns.length} completed` : 'no completed work');
-
-  // Everything the KPI tiles drill into — same scope, same period.
-  fvTileData = {
-    completed:  { title: 'Tasks completed',      list: cIn },
-    ontime:     { title: 'Delivered on time',    list: cInDated.filter(t => t.commitmentOutcome === 'met') },
-    quality:    { title: 'Needed rework',        list: cIn.filter(t => (t.reworkCount||0) > 0) },
-    productivity:{ title:'Completed work (hours vs shift)', list: cIn },
-    open:       { title: 'Open tasks',           list: openScoped },
-    overdue:    { title: 'Overdue',              list: overdue },
-    unassigned: { title: 'Unassigned',           list: unassigned },
-    turnaround: { title: 'Completed — turnaround', list: turnList },
-  };
-
-  // ---- work in vs out (8 buckets across the period) ----
-  const inout = document.getElementById('fvInOut');
-  const startMs = new Date(r.start).getTime(), endMs = Math.min(Date.now(), new Date(r.end).getTime());
-  const buckets = 8, step = Math.max(86400000, (endMs - startMs) / buckets);
-  const io = Array.from({length:buckets}, () => ({ created:0, done:0 }));
-  scoped.forEach(t => {
-    if(t.assignedAt){ const b = Math.floor((new Date(t.assignedAt) - startMs) / step); if(b >= 0 && b < buckets) io[b].created++; }
-    if(t.status === 'completed' && t.completedAt){ const b = Math.floor((new Date(t.completedAt) - startMs) / step); if(b >= 0 && b < buckets) io[b].done++; }
-  });
-  const ioMax = Math.max(1, ...io.flatMap(x => [x.created, x.done]));
-  inout.innerHTML = io.map((x,i) => `<div class="col">
-      <div class="io-nums"><span class="a">${x.created || ''}</span><span class="b">${x.done || ''}</span></div>
-      <div class="bb"><div class="bar a" style="height:${x.created/ioMax*100}%" title="${x.created} created"></div><div class="bar b" style="height:${x.done/ioMax*100}%" title="${x.done} completed"></div></div>
-      <div class="cl">${i+1}</div>
-    </div>`).join('');
-  const ioTotCreated = io.reduce((s,x)=>s+x.created,0), ioTotDone = io.reduce((s,x)=>s+x.done,0);
-  setD('fvInOutLegend', `<span class="a"><i></i>Created <b>${ioTotCreated}</b></span><span class="b"><i></i>Completed <b>${ioTotDone}</b></span><span style="color:var(--text-faint);">Backlog moved ${ioTotCreated-ioTotDone>=0?'+':''}${ioTotCreated-ioTotDone}</span>`);
-
-  // ---- needs attention ----
-  const stalled = openScoped.filter(t => t.status === 'accepted' && !t.timerStartedAt && !(t.logged > 0) && t.acceptedAt && (Date.now() - new Date(t.acceptedAt)) > 3*86400000);
-  const attnItems = [
-    ...overdue.map(t => ({ t, cls:'od', tag: Math.max(1,Math.round((new Date(today)-new Date(t.internalDeadline))/86400000)) + 'd overdue' })),
-    ...stalled.filter(t => !overdue.includes(t)).map(t => ({ t, cls:'sl', tag:'stalled' })),
-    ...unassigned.map(t => ({ t, cls:'un', tag:'unassigned' })),
-  ].slice(0, 12);
-  setT('fvAttnCount', attnItems.length + ' item' + (attnItems.length===1?'':'s'));
-  setD('fvAttn', attnItems.length ? attnItems.map(({t,cls,tag}) => {
-    const a = empById(t.assignedTo);
-    return `<div class="row ${cls}"><span class="st"></span><div class="bd"><div class="n">${esc(t.name)}</div><div class="s">${a ? esc(a.name) : 'Unassigned'}${t.clientName ? ' · ' + esc(t.clientName) : ''}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}</div></div><span class="tg">${esc(tag)}</span></div>`;
-  }).join('') : '<div style="font-size:14px;color:var(--text-faint);padding:14px 0;">Nothing needs attention here. 🎉</div>');
-
-  // ---- owner / person performance ----
-  document.getElementById('fvOwnerPerfTitle').textContent = isPerson ? esc(dashScopeLabel('fv')) + ' — this period'
-    : isTeam ? esc(dashScopeLabel('fv')) + ' — owner performance' : 'Owner performance';
-  const commitFor = (id) => {
-    const done = scoped.filter(t => t.assignedTo === id && t.status === 'completed' && t.clientDate && t.completedAt && dashInRange(t.completedAt, r));
-    if(!done.length) return null;
-    return Math.round(done.filter(t => t.commitmentOutcome === 'met').length / done.length * 100);
-  };
-  const perfRows = scopedRows.filter(x => x.delivered > 0).sort((a,b) => (b.onTimeRate ?? -1) - (a.onTimeRate ?? -1));
-  const perfWrap = document.getElementById('fvOwnerPerfWrap');
-  if(perfRows.length === 0){
-    perfWrap.innerHTML = `<div style="font-size:14px;color:var(--text-faint);padding:18px 0;">No completed work in this scope yet.</div>`;
-  } else {
-    perfWrap.innerHTML = perfRows.map(x => {
-      const ot = x.onTimeRate;
-      const col = ot === null ? 'var(--line)' : ot >= 85 ? 'var(--teal)' : ot >= 60 ? 'var(--amber)' : 'var(--coral)';
-      const cm = commitFor(x.id);
-      return `<div class="pr"><span class="av">${esc(dInitials(x.name))}</span><span class="pm">
-        <span class="pt"><b>${esc(x.name)}</b><span class="r">${ot === null ? 'no client-dated work' : ot + '% on-time'}</span></span>
-        <span class="track"><span class="fl" style="width:${ot === null ? 0 : Math.min(100,ot)}%;background:${col}"></span></span>
-        <span class="ps"><span>${x.delivered} task${x.delivered===1?'':'s'}</span><span>Accuracy ${x.cleanRate==null?'—':x.cleanRate+'%'}</span><span>Prod. ${x.productivityPct==null?'—':x.productivityPct+'%'}</span><span>Commit ${cm==null?'—':cm+'%'}</span></span>
-      </span></div>`;
-    }).join('');
-  }
-
-  // ---- fault breakdown (scoped, in period) ----
-  const cases = [];
-  scoped.forEach(t => {
-    (t.reworkHistory||[]).forEach(h => { if(dashInRange(h.startedAt, r)) cases.push(h.faultType); });
-    if(t.reviewStatus === 'error' && dashInRange(t.reviewedAt, r)) cases.push(t.faultType);
-  });
-  const proc = cases.filter(f => f === 'processor').length, sop = cases.filter(f => f === 'sop').length, oth = cases.filter(f => f === 'other').length;
-  const totCases = proc + sop + oth, uncl = cases.length - totCases;
-  document.getElementById('fvReworkCasesNote').textContent = totCases
-    ? `${totCases} rework case${totCases===1?'':'s'} in this period${uncl ? ` (${uncl} pre-fault-tracking, not shown)` : ''}`
-    : 'No rework cases in this period.';
-  const fw = document.getElementById('fvFaultWrap');
-  if(totCases === 0){
-    fw.innerHTML = `<div style="font-size:14px;color:var(--text-faint);padding:8px 0;">Nothing to break down.</div>`;
-  } else {
-    const pp = Math.round(proc/totCases*100), sp = Math.round(sop/totCases*100), op = Math.max(0, 100 - pp - sp);
-    fw.innerHTML = `
-      <div class="fault-card"><div class="fc-top"><span class="fc-label">Processor fault</span><span class="fc-num" style="color:var(--coral);">${proc} <small>(${pp}%)</small></span></div>
-        <div class="fault-bar-track"><div class="fault-bar-fill" style="width:${pp}%;background:var(--coral);"></div></div>
-        <div class="fc-note">Owner made a mistake despite the SOP being clear. Feeds individual accuracy scores.</div></div>
-      <div class="fault-card"><div class="fc-top"><span class="fc-label">SOP / Manager fault</span><span class="fc-num" style="color:var(--amber);">${sop} <small>(${sp}%)</small></span></div>
-        <div class="fault-bar-track"><div class="fault-bar-fill" style="width:${sp}%;background:var(--amber);"></div></div>
-        <div class="fc-note">SOP was unclear, missing, or wrong. Manager owns fixing it.</div></div>${oth ? `
-      <div class="fault-card"><div class="fc-top"><span class="fc-label">Other cause</span><span class="fc-num" style="color:var(--text-dim);">${oth} <small>(${op}%)</small></span></div>
-        <div class="fault-bar-track"><div class="fault-bar-fill" style="width:${op}%;background:var(--text-faint);"></div></div>
-        <div class="fc-note">Not the processor's mistake and not an SOP problem — the reviewer explained it in the note.</div></div>` : ''}`;
-  }
-
-  // ---- by team ----
-  const teamNames = isPerson ? [] : (isTeam ? [dashScope.fv.view.slice(2)] : teamListForScope());
-  const byTeamRows = teamNames.map(tn => {
-    const memSet = new Set(employees.filter(e => empInTeam(e, tn)).map(e => e.id));
-    const teamTasks = tasks.filter(t => memSet.has(t.assignedTo));
-    const open = teamTasks.filter(t => t.status !== 'completed');
-    const done = teamTasks.filter(t => t.status === 'completed' && dashInRange(t.completedAt, r));
-    const created = teamTasks.filter(t => dashInRange(t.assignedAt, r));
-    const od = open.filter(t => t.internalDeadline && t.internalDeadline < today).length;
-    return { tn, open: open.length, od, done: done.length, created: created.length };
-  }).filter(x => x.open > 0 || x.done > 0 || x.created > 0).sort((a,b) => b.open - a.open);
-  const btMax = Math.max(1, ...byTeamRows.map(x => x.open));
-  setD('fvByTeam', byTeamRows.length ? byTeamRows.map(x =>
-    `<div class="d-hb"><span class="nm">${esc(x.tn)}</span><span class="tk"><span class="f od" style="width:${x.od/btMax*100}%"></span><span class="f" style="width:${(x.open-x.od)/btMax*100}%"></span></span><span class="vl">${x.open} open${x.od?` · ${x.od} overdue`:''} · ${x.created} in / ${x.done} done</span></div>`
-  ).join('') : '<div style="font-size:13px;color:var(--text-faint);padding:10px 0;">No work by team in this scope.</div>');
-
-  // ---- client ownership ----
-  const co = document.getElementById('fvClientOwn');
-  if(!clients.length){ co.innerHTML = '<div style="font-size:13px;color:var(--text-faint);">No clients on file.</div>'; }
-  else {
-    const unowned = clients.filter(c => !c.ownerId);
-    const rows = clients.slice().sort((a,b)=>a.name.localeCompare(b.name)).slice(0, 12).map(c => {
-      const owner = empById(c.ownerId);
-      const open = tasks.filter(t => t.clientId === c.id && t.status !== 'completed').length;
-      return `<div class="flag-row" style="${owner?'':'color:#C2410C;'}"><span>${owner?'●':'⚠'}</span><span>${esc(c.name)}${open?` <span style="color:var(--text-faint);">· ${open} open</span>`:''}</span><span class="flag-count" style="${owner?'background:var(--teal-dim);color:var(--teal);':''}">${owner?esc(owner.name):'No owner'}</span></div>`;
-    }).join('');
-    co.innerHTML = (unowned.length ? `<div class="banner warn" style="margin-bottom:10px;font-size:13px;"><span>⚠</span><span><b>${unowned.length} without an owner:</b> ${unowned.map(c=>esc(c.name)).join(', ')}</span></div>` : `<div class="banner" style="margin-bottom:10px;font-size:13px;"><span>✓</span><span>Every client has an owner.</span></div>`) + rows;
-  }
-
-  // ---- source donut ----
-  const srcIn = scoped.filter(t => dashInRange(t.assignedAt, r));
-  const bySrc = { call:0, slack_message:0, manual:0 };
-  srcIn.forEach(t => { bySrc[t.source || 'manual'] = (bySrc[t.source || 'manual'] || 0) + 1; });
-  const srcTot = bySrc.call + bySrc.slack_message + bySrc.manual;
-  const seg = (n) => srcTot ? (n/srcTot*100) : 0;
-  document.getElementById('fvSource').innerHTML = `
-    <div class="donut-ring" style="background:conic-gradient(var(--purple) 0 ${seg(bySrc.call)}%, var(--teal) 0 ${seg(bySrc.call)+seg(bySrc.slack_message)}%, var(--amber) 0 100%);">
-      <div class="donut-ring-hole"><b>${srcTot}</b><span>tasks</span></div>
-    </div>
-    <div class="donut-legend">
-      <div class="donut-legend-item"><span class="dot" style="background:var(--purple);"></span>Calls <b>${bySrc.call}</b></div>
-      <div class="donut-legend-item"><span class="dot" style="background:var(--teal);"></span>Slack <b>${bySrc.slack_message}</b></div>
-      <div class="donut-legend-item"><span class="dot" style="background:var(--amber);"></span>Manual <b>${bySrc.manual}</b></div>
-    </div>`;
-
-  // ---- team capacity (from the workload feed, scoped) ----
-  const cap = document.getElementById('fvCapacity');
-  const capRows = (workload || []).filter(w => peopleIds.has(w.id) || isPerson === false && dashScope.fv.view === 'firm').filter(w => peopleIds.size === 0 || peopleIds.has(w.id));
-  const capUse = (capRows.length ? capRows : (workload||[]).filter(w => peopleIds.has(w.id))).slice().sort((a,b) => (b.peakHours||0) - (a.peakHours||0));
-  const capMax = Math.max(1, ...capUse.map(w => w.peakHours || 0));
-  cap.innerHTML = capUse.length ? capUse.map(w => {
-    const done = (w.hoursDoneToday ?? w.todayHours ?? 0);
-    const pct = Math.min(100, Math.round(((w.peakHours||0)/capMax)*100));
-    const tag = w.busyUntil ? `<span class="cap-tag busy">Latest deadline ${fmtDate(w.busyUntil)}</span>` : `<span class="cap-tag free">No open deadlines</span>`;
-    return `<div class="cap-row"><div class="cap-avatar">${esc(dInitials(w.name))}</div><div class="cap-main">
-      <div class="cap-top"><span class="cap-name">${esc(w.name)}</span><span class="cap-hours">${done}h done today${w.peakHours ? ' · ' + w.peakHours + 'h peak' : ''}</span></div>
-      <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%;background:var(--teal);"></div></div>
-      <div class="cap-sub"><span>${w.activeCount} active${w.peakDate?' · busiest '+fmtDate(w.peakDate):''}</span>${tag}</div></div></div>`;
-  }).join('') : '<div style="font-size:14px;color:var(--text-faint);padding:12px 0;">Nobody in scope has active work.</div>';
-
-  // ---- recent activity ----
-  const feed = document.getElementById('fvFeed');
-  const acts = (activityLog || []).slice(0, 8);
-  feed.innerHTML = acts.length ? acts.map(a => {
-    const ts = a.ts ? new Date(a.ts) : null;
-    const hm = ts ? ts.toLocaleTimeString('en-NZ', { hour:'2-digit', minute:'2-digit' }) : '';
-    return `<div class="fi"><span class="ft">${hm}</span><span>${a.text}</span></div>`;
-  }).join('') : '<div style="font-size:13px;color:var(--text-faint);padding:10px 0;">No recent activity.</div>';
-
-  renderFvSearch(); // keep any active search fresh against the latest data
+    return '<button type="button" class="fd-kpi' + (on ? ' on' : '') + '" data-k="' + key + '" onclick="fdOpen(this.dataset.k)" aria-pressed="' + on + '" title="' + esc(k.calc) + '" aria-label="' + esc(k.label + ': ' + (k.available ? fdN(k.value) + (k.unit === '%' ? ' percent' : '') : 'not available') + '. ' + calc + '. ' + k.calc) + '">'
+      + '<span class="fd-kl">' + esc(k.label) + ' <span class="fd-i" aria-hidden="true">ⓘ</span></span>' + main
+      + '<span class="fd-kc">' + esc(k.available ? calc : (k.why || '')) + '</span><span class="fd-kb">' + esc(basis) + '</span>' + (cmp ? '<span class="fd-kp">' + esc(cmp) + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
 }
+/* ---- what a tile / KPI / drill-down opens ---- */
+function fdListFor(key){
+  const V = _fd.views, all = [...V.today.tiles, ...V.review.tiles, ...V.founder.actionTiles];
+  if(key.startsWith('tile:')){ const t = all.find(x => 'tile:' + x.key === key); return t && { title:t.label, ids:t.ids, note:t.hint || t.scope, section:t.key, dateLabel:'Client commitment date' }; }
+  if(key.startsWith('kpi:')){ const k = V.founder.kpis.find(x => 'kpi:' + x.key === key); return k && { title:k.label, ids:k.ids, note:k.calc + (k.basis ? ' ' + k.basis + '.' : ''), section:'kpi:' + k.key, dateLabel:'Client commitment date', kpi:k }; }
+  if(key === 'attn') return { title:'Needs founder attention — all records', ids:V.founder.attention.all.map(a => a.id), note:'Most serious first.', section:'attention', attention:true };
+  if(key.startsWith('cap:')){ const b = V.founder.capacity.bottlenecks.find(x => 'cap:' + x.key === key); return b && { title:'Bottleneck — ' + b.label, ids:b.ids, note:b.count + ' tasks · ' + b.hours + ' allocated hours · oldest ' + b.oldestDays + ' days', section:null, dateLabel:'Client commitment date' }; }
+  if(key.startsWith('ins:')){ const x = [...V.founder.insights.failures, ...V.founder.insights.sources].find(i => 'ins:' + i.label === key); return x && { title:x.label, ids:x.ids, note:'Records behind this number.', section:null, dateLabel:'Client commitment date' }; }
+  if(key.startsWith('perf:')){ const [, gk, field] = key.split(':'); const g = [..._fd.views.founder.performance.byTeam, ..._fd.views.founder.performance.byManager, ..._fd.views.founder.performance.byEmployee].find(x => x.key === gk); return g && g[field] && { title:g.label + ' — ' + ({ reportsNotSent:'reports not sent', overdue:'overdue tasks', blocked:'blocked tasks', attention:'needs founder attention' }[field]), ids:g[field].ids, note:'Exactly the records counted in the table.', section:null, dateLabel:'Client commitment date' }; }
+  return null;
+}
+function fdOpen(key){
+  const same = _fdTile === key; fdReset(); _fdAttnAll = false;
+  if(same){ fdDrawBody(); return; }
+  _fdTile = key;
+  if(key === 'kpi:productivity'){ fdLoadDrill(); return; }
+  fdDrawBody();
+}
+async function fdLoadDrill(emp){
+  _fdDrillEmp = emp || null;
+  try { _fdDrill = await api('/api/founder/productivity?' + fdQuery(emp ? { employee:emp } : {})); }
+  catch(e){ _fdDrill = { error:e.message }; }
+  fdDrawBody();
+}
+const FD_ROWHEAD = dateLabel => colHeadHtml(dateLabel);
+function fdRowHtml(r){
+  const when = r.clientDate ? fmtDate(r.clientDate) : (r.internalDeadline ? 'Due ' + fmtDate(r.internalDeadline) : '—');
+  return '<div class="td-card td-row' + (_fdSel === r.id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + esc(r.id) + '" onclick="fdSelect(this.dataset.id)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();fdSelect(this.dataset.id);}" title="' + esc(r.status + ' — ' + r.waitingOn) + '">'
+    + '<span class="tr-name">' + esc(r.clientName || 'Admin task') + '</span><span class="tr-work">' + esc(r.name) + '</span><span class="tr-who">' + esc(r.assigneeName || 'Unassigned') + '</span><span class="tr-st">' + esc(r.status) + '</span>'
+    + '<span class="tr-date"><span class="tr-dt">' + esc(when) + '</span>' + tdRiskTag(r) + '</span><span class="tr-link">' + linkCellHtml(r) + '</span></div>';
+}
+function fdAttnRowHtml(a){
+  const due = (a.clientDate ? 'Client ' + fmtDate(a.clientDate) : '') + (a.clientDate && a.internalDeadline ? ' · ' : '') + (a.internalDeadline ? 'Internal ' + fmtDate(a.internalDeadline) : '');
+  return '<div class="td-card fd-arow' + (_fdSel === a.id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + esc(a.id) + '" onclick="fdSelect(this.dataset.id)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();fdSelect(this.dataset.id);}">'
+    + '<span class="fd-sev ' + a.severity + '"><b>' + esc(a.severityLabel) + '</b></span><span><b>' + esc(a.issue) + '</b>' + (a.also.length ? '<span class="tm-sub">also: ' + esc(a.also.join(', ')) + '</span>' : '') + '</span>'
+    + '<span class="tr-work"><b>' + esc(a.clientName || 'Admin task') + '</b> — ' + esc(a.name) + '</span><span>' + esc(a.employee || 'Unassigned') + '<span class="tm-sub">Reviewer: ' + esc(a.reviewer || '—') + (a.manager ? ' · Manager: ' + esc(a.manager) : '') + '</span></span>'
+    + '<span>' + esc(due || '—') + '</span><span>' + esc(a.status) + '<span class="tm-sub">' + (a.daysOverdue ? a.daysOverdue + ' day' + (a.daysOverdue === 1 ? '' : 's') + ' overdue' : 'not overdue yet') + (a.blocker ? ' · ' + esc(a.blocker) : '') + '</span></span>'
+    + '<span>' + esc(a.requiredAction) + '</span></div>';
+}
+const FD_ATTNHEAD = '<div class="fd-arow fd-ahead" aria-hidden="true"><span>Severity</span><span>Issue</span><span>Client — Work</span><span>Processor</span><span>Due dates</span><span>Status</span><span>Required action</span></div>';
+function fdDrillHtml(){
+  if(!_fdTile) return '';
+  if(_fdTile === 'kpi:productivity') return fdProdDrillHtml();
+  const L = fdListFor(_fdTile); if(!L) return '';
+  const rows = L.ids.map(id => _fd.rows[id]).filter(Boolean);
+  const attn = L.attention ? _fd.views.founder.attention.all : null;
+  const list = L.ids.length
+    ? (attn ? FD_ATTNHEAD + '<div role="list">' + attn.map(fdAttnRowHtml).join('') + '</div>' : FD_ROWHEAD(L.dateLabel || 'Client commitment date') + '<div role="list">' + rows.map(fdRowHtml).join('') + '</div>')
+    : '<div class="td-empty">Nothing here for this scope and period.</div>';
+  return '<div class="fd-drill"><div class="fd-dh"><div><b>' + esc(L.title) + '</b> <span class="tm-sub">' + L.ids.length + ' record' + (L.ids.length === 1 ? '' : 's') + ' — ' + esc(L.note || '') + '</span></div><div class="fd-dact">'
+    + (L.section ? '<button type="button" class="btn small td-act" data-s="' + esc(L.section) + '" onclick="fdExport(this.dataset.s)">Download CSV</button>' : '')
+    + '<button type="button" class="btn small td-act" onclick="fdOpen(\'' + esc(_fdTile) + '\')">Close</button></div></div>'
+    + '<div class="td-grid fd-grid' + (_fdSel ? ' has-sel' : '') + '"><div class="td-list" role="list">' + list + '</div><div class="td-detail" id="fdDetail" aria-live="polite">' + fdDetailHtml() + '</div></div></div>';
+}
+async function fdSelect(id){
+  _fdSel = id; window.__fdMobileOpen = true;
+  document.querySelectorAll('#fdDrill .td-card').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
+  const g = document.querySelector('#fdDrill .fd-grid'); if(g){ g.classList.add('has-sel'); g.classList.add('show-detail'); }
+  if(!_fdCards[id]){
+    try { const r = await api('/api/workflow/tasks?ids=' + encodeURIComponent(id) + '&pageSize=25'); if(r.rows && r.rows[0]) _fdCards[id] = r.rows[0]; } catch(e){ /* the compact row still shows */ }
+  }
+  const d = document.getElementById('fdDetail'); if(d && _fdSel === id) d.innerHTML = fdDetailHtml();
+}
+function fdDetailHtml(){
+  if(!_fdSel) return '';
+  const c = _fdCards[_fdSel] || _fd.rows[_fdSel] && Object.assign({ tracker:{ applicable:false, steps:[] }, waitingOn:{ label:'—', ownerName:null, kind:'none' }, commitment:{ label:'—' }, nextAction:'', clientRisk:{ label:'' }, subState:null, kindLabel:'' }, _fd.rows[_fdSel]);
+  if(!c) return '<div class="td-empty">Loading the task details…</div>';
+  return tdDetailHtml(_fdSel, c).replace('onclick="tdBack()"', 'onclick="fdCloseDetail()"');
+}
+function fdCloseDetail(){ _fdSel = null; window.__fdMobileOpen = false; fdDrawBody(); }
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && fdActive() && _fdSel){ const ov = document.getElementById('modalOverlay'); if(ov && ov.classList.contains('active')) return; fdCloseDetail(); } });
+function fdActiveView(){ const v = document.getElementById('view-founder'); return !!(v && v.classList.contains('active')); }
+function fdActive(){ return fdActiveView(); }
+/* ---- productivity drill-down: employees, then one employee's qualifying and excluded tasks ---- */
+function fdProdDrillHtml(){
+  const D = _fdDrill;
+  if(!D) return '<div class="fd-drill"><div class="td-empty" role="status">Calculating firm performance…</div></div>';
+  if(D.error) return '<div class="fd-drill"><div class="td-empty" role="alert">Performance data could not be loaded. ' + esc(D.error) + ' <button type="button" class="btn small td-act" onclick="fdLoadDrill()">Retry</button></div></div>';
+  const T = D.totals;
+  const head = '<div class="fd-dh"><div><b>Reviewed-Clean Productivity — by employee</b> <span class="tm-sub">' + esc(D.period.label) + ' · ' + esc(D.scope.label) + '</span><div class="tm-sub">' + esc(D.formula) + '</div></div><div class="fd-dact"><button type="button" class="btn small td-act" data-s="productivity" onclick="fdExport(this.dataset.s)">Download CSV</button><button type="button" class="btn small td-act" onclick="fdOpen(\'kpi:productivity\')">Close</button></div></div>';
+  if(!D.table.length) return '<div class="fd-drill">' + head + '<div class="td-empty">' + (D.period.empty ? 'Productivity cannot be calculated because no working days have elapsed in this period yet.' : 'No eligible employees in this scope.') + '</div></div>';
+  const rows = D.table.map(r => '<tr class="' + (_fdDrillEmp === r.id ? 'sel' : '') + '"><th scope="row" data-l="Employee">' + esc(r.name) + '</th><td data-l="Team">' + esc(r.team) + '</td><td data-l="Eligible working days">' + fdN(r.eligibleWorkingDays) + '</td><td data-l="Approved leave">' + fdN(r.approvedLeaveDays) + '</td><td data-l="Weekly offs">' + r.weeklyOffs + '</td><td data-l="Workshop Saturdays">' + r.workshopSaturdays + '</td><td data-l="Other exclusions">' + fdN(r.otherExclusions) + '</td><td data-l="Eligible capacity">' + fdN(r.eligibleCapacityHours) + ' h</td><td data-l="Reviewed-clean hours">' + fdN(r.qualifiedHours) + ' h</td><td data-l="Productivity"><b>' + fdPct(r.productivityPct) + '</b></td><td data-l="Qualifying tasks">' + r.qualifyingTasks + '</td><td data-l="Excluded tasks">' + r.excludedTasks + '</td><td><button type="button" class="btn small td-act" data-id="' + esc(r.id) + '" onclick="fdLoadDrill(this.dataset.id)">View details</button></td></tr>').join('');
+  const total = '<tr class="fd-total"><th scope="row">Total (scope)</th><td></td><td></td><td>' + fdN(T.leaveDays) + '</td><td></td><td></td><td></td><td>' + fdN(T.capacityHours) + ' h</td><td>' + fdN(T.qualifiedHours) + ' h</td><td><b>' + fdPct(T.capacityHours > 0 ? T.qualifiedHours / T.capacityHours * 100 : null) + '</b></td><td></td><td></td><td></td></tr>';
+  const excl = D.excludedPeople.length ? '<div class="tm-sub" style="margin-top:8px;">Not counted: ' + D.excludedPeople.map(p => esc(p.name) + ' (' + esc(p.reason) + ')').join(' · ') + '</div>' : '';
+  return '<div class="fd-drill">' + head + '<div class="tm-scroll"><table class="tm-table"><thead><tr><th>Employee</th><th>Team</th><th>Eligible working days</th><th>Approved leave</th><th>Weekly offs</th><th>Workshop Saturdays</th><th>Other exclusions</th><th>Eligible capacity</th><th>Reviewed-clean hours</th><th>Productivity</th><th>Qualifying tasks</th><th>Excluded tasks</th><th><span class="sr-only">Action</span></th></tr></thead><tbody>' + rows + total + '</tbody></table></div>' + excl + fdProdDetailHtml() + '</div>';
+}
+function fdProdDetailHtml(){
+  const D = _fdDrill; if(!D || !D.detail) return '';
+  const t = r => '<tr class="' + (r.qualification === 'Included' ? 'fd-inc' : 'fd-exc') + '"><th scope="row" data-l="Task">' + esc(r.clientName || 'Admin task') + ' — ' + esc(r.name) + '<div class="tm-sub">' + esc(r.id) + (r.taskType ? ' · ' + esc(r.taskType) : '') + '</div></th><td data-l="Assignee">' + esc(r.assignee) + '</td><td data-l="Reviewer">' + esc(r.reviewer || '—') + '</td><td data-l="Allocated hours">' + fdN(r.allocatedHours) + ' h</td><td data-l="Internal due">' + (r.internalDeadline ? fmtDate(r.internalDeadline) : '—') + '</td><td data-l="Client commitment">' + (r.clientDate ? fmtDate(r.clientDate) : '—') + '</td><td data-l="Submitted">' + (r.submittedAt ? fmtDate(dayOf(r.submittedAt)) : '—') + '</td><td data-l="Review decision">' + esc(r.reviewDecision) + (r.reviewCompletedAt ? '<div class="tm-sub">' + fmtDate(dayOf(r.reviewCompletedAt)) + '</div>' : '') + '</td><td data-l="Reviewed clean">' + (r.reviewedCleanAt ? fmtDate(dayOf(r.reviewedCleanAt)) : '—') + '</td><td data-l="Report Sent">' + esc(r.reportStatus) + '</td><td data-l="Qualification"><b>' + (r.qualification === 'Included' ? '✓ Included' : '✕ Excluded') + '</b><div class="tm-sub">' + esc(r.reason) + '</div></td><td data-l="Credited">' + fdN(r.creditedHours) + ' h</td></tr>';
+  const head = '<thead><tr><th>Task</th><th>Assignee</th><th>Reviewer</th><th>Allocated</th><th>Internal due</th><th>Client commitment</th><th>Submitted</th><th>Review decision</th><th>Reviewed clean</th><th>Report Sent (separate)</th><th>Qualification and reason</th><th>Credited</th></tr></thead>';
+  const body = [...D.detail.qualifying, ...D.detail.excluded];
+  return '<div class="fd-dh" style="margin-top:14px;"><div><b>' + esc(D.detail.name) + ' — qualifying and excluded tasks</b> <span class="tm-sub">' + D.detail.qualifying.length + ' included · ' + D.detail.excluded.length + ' excluded · Report Sent is shown for information and never changes productivity</span></div><div class="fd-dact"><button type="button" class="btn small td-act" data-id="' + esc(D.detail.id) + '" onclick="fdExport(\'productivity_tasks\', this.dataset.id)">Download CSV</button></div></div>'
+    + (body.length ? '<div class="tm-scroll"><table class="tm-table fd-tasks">' + head + '<tbody>' + body.map(t).join('') + '</tbody></table></div>' : '<div class="td-empty">No qualifying reviewed-clean work exists for this scope and period.</div>');
+}
+async function fdExport(section, emp){
+  try {
+    const r = await fetch(API_BASE + '/api/founder/export?' + fdQuery({ section, employee: emp || _fdDrillEmp || '', by: _fdPerfBy === 'team' ? 'team' : _fdPerfBy === 'manager' ? 'manager' : 'employee' }), { headers:{ Authorization:'Bearer ' + authToken } });
+    if(!r.ok){ let m = 'The file could not be created.'; try { m = (await r.json()).error || m; } catch(e){} showToast('error', 'Download failed', m); return; }
+    const blob = await r.blob(), a = document.createElement('a'), cd = r.headers.get('Content-Disposition') || '', nm = (/filename="([^"]+)"/.exec(cd) || [])[1] || 'founder-export.csv';
+    a.href = URL.createObjectURL(blob); a.download = nm; document.body.appendChild(a); a.click(); a.remove();
+  } catch(e){ showToast('error', 'Download failed', e.message); }
+}
+/* ---- the rest of Founder View: attention queue, performance table, capacity, more insights ---- */
+function fdFounderRest(){ return fdAttnPanel() + fdPerfPanel() + fdCapacityPanel() + fdMorePanel(); }
+function fdAttnPanel(){
+  const A = _fd.views.founder.attention;
+  const shown = A.shown;
+  return '<section class="fd-sec" aria-labelledby="fdAttnH"><div class="fd-dh"><h3 class="fd-h" id="fdAttnH">Needs founder attention</h3><div class="fd-dact">'
+    + (A.total > shown.length ? '<button type="button" class="btn small td-act" onclick="fdOpen(\'attn\')">View all ' + A.total + '</button>' : '') + (A.total ? '<button type="button" class="btn small td-act" data-s="attention" onclick="fdExport(this.dataset.s)">Download CSV</button>' : '') + '</div></div>'
+    + '<div class="tm-sub" style="margin:0 0 8px;">' + (A.total ? (A.total > shown.length ? 'Showing highest-risk ' + shown.length + ' of ' + A.total + ' records' : 'All ' + A.total + ' record' + (A.total === 1 ? '' : 's')) + ' — the most serious first.' : '') + '</div>'
+    + (A.total ? '<div class="td-list fd-alist">' + FD_ATTNHEAD + '<div role="list">' + shown.map(fdAttnRowHtml).join('') + '</div></div>' : '<div class="td-empty">Nothing needs your attention in this scope.</div>')
+    + (_fdSel && !_fdTile ? '<div class="fd-drill" style="margin-top:10px;"><div class="td-detail" id="fdDetail" aria-live="polite" style="display:block;">' + fdDetailHtml() + '</div></div>' : '') + '</section>';
+}
+function fdPerfRows(){ const P = _fd.views.founder.performance; return _fdPerfBy === 'team' ? P.byTeam : _fdPerfBy === 'manager' ? P.byManager : P.byEmployee; }
+function fdPerfCell(c, big){ return c.value == null ? '<span class="fd-na">Not available</span>' : '<b>' + fdPct(c.value) + '</b><span class="tm-sub">' + fdN(c.numerator) + (big ? ' h ÷ ' + fdN(c.denominator) + ' h' : ' ÷ ' + fdN(c.denominator)) + '</span>'; }
+function fdPerfPanel(){
+  const rows = fdPerfRows().slice(), k = _fdPerfSort.k, dir = _fdPerfSort.dir;
+  const val = r => k === 'label' ? r.label.toLowerCase() : ['productivity', 'internal', 'delivery', 'firstPass'].includes(k) ? (r[k].value == null ? -1 : r[k].value) : (r[k] ? r[k].count : 0);
+  rows.sort((a, b) => (val(a) < val(b) ? -1 : val(a) > val(b) ? 1 : 0) * dir);
+  const th = (key, label) => '<th scope="col" aria-sort="' + (k === key ? (dir > 0 ? 'ascending' : 'descending') : 'none') + '"><button type="button" class="fd-sort" data-k="' + key + '" onclick="fdSort(this.dataset.k)">' + label + (k === key ? (dir > 0 ? ' ▲' : ' ▼') : '') + '</button></th>';
+  const cnt = (r, f) => r[f].count ? '<button type="button" class="tm-num" data-k="perf:' + esc(r.key) + ':' + f + '" onclick="fdOpen(this.dataset.k)" title="Show these records">' + r[f].count + '</button>' : '<span class="tm-zero">0</span>';
+  const body = rows.map(r => '<tr class="' + (_fdPerfSel === r.key ? 'sel' : '') + '"><th scope="row" data-l="Name">' + esc(r.label) + '<div class="tm-sub">' + r.people + ' ' + (r.people === 1 ? 'person' : 'people') + (r.team ? ' · ' + esc(r.team) : '') + '</div></th><td data-l="Reviewed-clean productivity">' + fdPerfCell(r.productivity, true) + '</td><td data-l="Internal commitment">' + fdPerfCell(r.internal) + '</td><td data-l="Client delivery">' + fdPerfCell(r.delivery) + '</td><td data-l="First-pass approval">' + fdPerfCell(r.firstPass) + '</td><td data-l="Reports not sent">' + cnt(r, 'reportsNotSent') + '</td><td data-l="Overdue">' + cnt(r, 'overdue') + '</td><td data-l="Blocked">' + cnt(r, 'blocked') + '</td><td data-l="Founder attention">' + cnt(r, 'attention') + '</td><td><button type="button" class="btn small td-act" data-k="' + esc(r.key) + '" onclick="fdPerfOpen(this.dataset.k)">Open details</button></td></tr>').join('');
+  const by = ['team', 'manager', 'employee'].map(x => '<button type="button" class="' + (_fdPerfBy === x ? 'on' : '') + '" aria-pressed="' + (_fdPerfBy === x) + '" data-b="' + x + '" onclick="fdPerfBy(this.dataset.b)">By ' + x + '</button>').join('');
+  return '<section class="fd-sec" aria-labelledby="fdPerfH"><div class="fd-dh"><h3 class="fd-h" id="fdPerfH">Team and employee performance</h3><div class="fd-dact"><div class="td-seg" role="group" aria-label="Group by">' + by + '</div><button type="button" class="btn small td-act" data-s="performance" onclick="fdExport(this.dataset.s)">Download CSV</button></div></div>'
+    + '<div class="tm-sub" style="margin:0 0 8px;">Every figure here is the same one used everywhere else for the same people and period. Hours ÷ hours — never an average of percentages.</div>'
+    + (rows.length ? '<div class="td-grid fd-grid' + (_fdPerfSel ? ' has-sel' : '') + '"><div class="tm-scroll fd-pwrap"><table class="tm-table fd-ptable"><thead><tr>' + th('label', 'Name') + th('productivity', 'Reviewed-clean productivity') + th('internal', 'Internal commitment') + th('delivery', 'Client delivery') + th('firstPass', 'First-pass approval') + th('reportsNotSent', 'Reports not sent') + th('overdue', 'Overdue') + th('blocked', 'Blocked') + th('attention', 'Founder attention') + '<th><span class="sr-only">Details</span></th></tr></thead><tbody>' + body + '</tbody></table></div><div class="td-detail" id="fdPerfDetail" aria-live="polite">' + fdPerfDetailHtml() + '</div></div>' : '<div class="td-empty">No eligible employees in this scope.</div>')
+    + '</section>';
+}
+function fdSort(k){ _fdPerfSort = { k, dir: _fdPerfSort.k === k ? -_fdPerfSort.dir : (k === 'label' ? 1 : -1) }; fdDrawBody(); }
+function fdPerfBy(b){ _fdPerfBy = b; _fdPerfSel = null; fdDrawBody(); }
+function fdPerfOpen(key){ _fdPerfSel = (_fdPerfSel === key) ? null : key; fdDrawBody(); const d = document.getElementById('fdPerfDetail'); if(d && _fdPerfSel) d.scrollIntoView({ block:'nearest' }); }
+function fdPerfDetailHtml(){
+  const g = _fdPerfSel && fdPerfRows().find(x => x.key === _fdPerfSel); if(!g) return '';
+  const line = (l, c, big) => '<div><b>' + l + '</b><span>' + (c.value == null ? '<span class="fd-na">Not available</span>' : fdPct(c.value) + ' <span class="tm-sub">' + fdN(c.numerator) + (big ? ' h ÷ ' + fdN(c.denominator) + ' h' : ' of ' + fdN(c.denominator)) + '</span>') + '</span></div>';
+  const cnt = (l, f) => '<div><b>' + l + '</b><span>' + (g[f].count ? '<button type="button" class="tm-num" data-k="perf:' + esc(g.key) + ':' + f + '" onclick="fdOpen(this.dataset.k)">' + g[f].count + ' — show</button>' : '0') + '</span></div>';
+  const members = g.memberIds.length > 1 ? '<div class="tm-sub" style="margin-top:8px;">People: ' + g.memberIds.map(id => esc(((_fd.eligibleEmployees.find(e => e.id === id)) || {}).name || id)).join(', ') + '</div>' : '';
+  return '<button type="button" class="btn td-back td-act" onclick="fdPerfOpen(\'' + esc(g.key) + '\')">← Close details</button><h3 style="margin:2px 0 8px;">' + esc(g.label) + '</h3><div class="td-card"><h5>' + esc(_fd.period.label) + '</h5><div class="td-rows">'
+    + line('Reviewed-clean productivity', g.productivity, true) + line('Internal commitment', g.internal) + line('Client delivery (Report Sent)', g.delivery) + line('First-pass approval', g.firstPass)
+    + cnt('Reports not sent', 'reportsNotSent') + cnt('Overdue tasks', 'overdue') + cnt('Blocked tasks', 'blocked') + cnt('Needs founder attention', 'attention') + '<div><b>Open tasks</b><span>' + g.openTasks + '</span></div></div></div>' + members
+    + (_fdPerfBy === 'employee' ? '<div style="margin-top:10px;"><button type="button" class="btn td-act" data-id="' + esc(g.memberIds[0]) + '" onclick="fdProdFor(this.dataset.id)">See qualifying and excluded tasks</button></div>' : '');
+}
+function fdProdFor(emp){ fdReset(); _fdTile = 'kpi:productivity'; fdLoadDrill(emp); const d = document.getElementById('fdDrill'); if(d) d.scrollIntoView({ block:'nearest' }); }
+function fdCapacityPanel(){
+  const C = _fd.views.founder.capacity, row = (l, v) => '<div><b>' + l + '</b><span>' + fdN(v) + ' h</span></div>';
+  return '<section class="fd-sec" aria-labelledby="fdCapH"><h3 class="fd-h" id="fdCapH">Capacity and bottlenecks <span class="tm-sub">' + esc(_fd.period.label) + '</span></h3><div class="fd-capgrid"><div class="td-card"><h5>Capacity (hours)</h5><div class="td-rows">'
+    + row('Total eligible capacity', C.eligibleCapacityHours) + row('Reviewed-clean allocated hours', C.reviewedCleanHours) + row('Open allocated hours (workload, not productivity)', C.openAllocatedHours) + row('Completed but not qualifying', C.nonQualifyingCompletedHours) + row('Unallocated capacity', C.unallocatedCapacityHours)
+    + '</div><div class="tm-sub" style="padding:6px 12px;">' + esc(C.note) + '</div></div><div class="td-card"><h5>Where work is waiting (' + esc(_fd.views.founder.actionTiles[0].hint) + ')</h5><div class="td-rows">'
+    + C.bottlenecks.map(b => '<div><b>' + esc(b.label) + '</b><span>' + (b.count ? '<button type="button" class="tm-num" data-k="cap:' + b.key + '" onclick="fdOpen(this.dataset.k)">' + b.count + ' tasks</button> · ' + fdN(b.hours) + ' h · oldest ' + b.oldestDays + ' d' : '0') + '</span></div>').join('') + '</div></div></div></section>';
+}
+function fdMorePanel(){
+  const I = _fd.views.founder.insights, list = (arr, empty) => arr.length ? arr.map(x => '<div class="fd-ir"><span>' + esc(x.label) + '</span><button type="button" class="tm-num" data-k="ins:' + esc(x.label) + '" onclick="fdOpen(this.dataset.k)">' + x.count + '</button></div>').join('') : '<div class="td-empty" style="padding:6px 0;">' + empty + '</div>';
+  return '<details class="fd-sec fd-more" id="fdMore"' + (_fdMoreOpen ? ' open' : '') + ' ontoggle="fdMoreToggle(this)"><summary><h3 class="fd-h" style="display:inline;">More insights</h3> <span class="tm-sub">recent activity · client ownership · work source · failures · who counts in productivity</span></summary>'
+    + '<div class="fd-capgrid"><div class="td-card"><h5>Where the failures came from</h5><div class="td-rows" style="display:block;padding:6px 12px;">' + list(I.failures, 'No returns in this period.') + '</div></div>'
+    + '<div class="td-card"><h5>Where new work came from <span class="tm-sub">(' + esc(I.createdNote) + ')</span></h5><div class="td-rows" style="display:block;padding:6px 12px;">' + list(I.sources, 'No tasks were created in this period.') + '</div></div>'
+    + '<div class="td-card"><h5>Client ownership</h5><div class="td-rows" style="display:block;padding:6px 12px;">' + (I.clientOwnership.length ? I.clientOwnership.map(c => '<div class="fd-ir"><span>' + esc(c.owner) + '</span><b>' + c.count + ' client' + (c.count === 1 ? '' : 's') + '</b></div>').join('') : '<div class="td-empty">No clients.</div>') + '</div></div>'
+    + '<div class="td-card"><h5>Recent activity</h5><div class="td-rows" style="display:block;padding:6px 12px;">' + (I.recentActivity.length ? I.recentActivity.map(a => '<div class="fd-ir"><span>' + esc(a.text) + '</span><span class="tm-sub">' + esc(new Date(a.at).toLocaleString('en-NZ', { day:'2-digit', month:'short', hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' })) + '</span></div>').join('') : '<div class="td-empty">Nothing yet.</div>') + '</div></div></div>'
+    + '<div class="td-card" style="margin-top:10px;"><h5>Who counts in productivity and capacity</h5><div id="fdElig" style="padding:6px 12px;">' + fdEligHtml() + '</div></div>'
+    + '<div class="td-card" style="margin-top:10px;"><h5>Data check</h5><div style="padding:6px 12px;"><p class="tm-sub" style="margin:0 0 8px;">Compares every number on this dashboard with every other (tiles with lists, the productivity table with the KPI, capacity parts with the whole, duplicates, excluded users). Read-only.</p><button type="button" class="btn" onclick="fdRunCheck()">Run data check</button><div id="fdCheck" aria-live="polite" style="margin-top:8px;"></div></div></div></details>';
+}
+async function fdRunCheck(){
+  const box = document.getElementById('fdCheck'); if(!box) return; box.innerHTML = '<div class="td-empty">Checking…</div>';
+  try {
+    const r = await api('/api/founder/reconcile?' + fdQuery());
+    box.innerHTML = '<div class="banner' + (r.allPass ? '' : ' warn') + '" style="margin:0 0 8px;font-size:13px;"><span>' + (r.allPass ? '✓' : '⚠') + '</span><span><b>' + (r.allPass ? 'Every check agrees' : r.failed + ' check' + (r.failed === 1 ? '' : 's') + ' disagree') + '</b> — ' + esc(r.scope) + ', ' + esc(r.period) + '</span></div>'
+      + '<div class="tm-scroll"><table class="tm-table"><thead><tr><th>Check</th><th>Result</th><th>Figures</th></tr></thead><tbody>' + r.checks.slice().sort((a, b) => a.pass - b.pass).map(c => '<tr><th scope="row" data-l="Check">' + esc(c.name) + '</th><td data-l="Result"><b>' + (c.pass ? '✓ Agrees' : '✕ Disagrees') + '</b></td><td data-l="Figures">' + esc(c.detail) + '</td></tr>').join('') + '</tbody></table></div>';
+  } catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not run the check: ' + esc(e.message) + ' <button type="button" class="btn" onclick="fdRunCheck()">Try again</button></div>'; }
+}
+async function fdMoreToggle(el){ _fdMoreOpen = el.open; if(el.open && !_fdElig){ try { _fdElig = await api('/api/founder/eligibility'); } catch(e){ _fdElig = { error:e.message }; } const b = document.getElementById('fdElig'); if(b) b.innerHTML = fdEligHtml(); } }
+function fdEligHtml(){
+  const E = _fdElig; if(!E) return '<div class="td-empty">Open this section to load it.</div>';
+  if(E.error) return '<div class="td-empty" role="alert">' + esc(E.error) + '</div>';
+  const emps = E.people.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const dups = E.duplicates.length ? '<div class="banner warn" style="margin:6px 0;font-size:13px;"><span>⚠</span><span><b>Possible duplicate profiles</b> — confirm below: ' + E.duplicates.map(d => esc(d.a.name) + ' / ' + esc(d.b.name)).join('; ') + '</span></div>' : '';
+  const dupOpts = id => '<option value="">Not a duplicate</option>' + emps.filter(x => x.id !== id).map(x => '<option value="' + esc(x.id) + '">' + esc(x.name) + '</option>').join('');
+  return dups + '<div class="tm-scroll"><table class="tm-table"><thead><tr><th>Person</th><th>Counted?</th><th>Why</th><th>Include / exclude</th><th>Duplicate of</th></tr></thead><tbody>' + emps.map(p => '<tr><th scope="row" data-l="Person">' + esc(p.name) + '<div class="tm-sub">' + esc(p.team) + '</div></th><td data-l="Counted?"><b>' + (p.included ? '✓ Counted' : '✕ Not counted') + '</b></td><td data-l="Why">' + esc(p.reason || 'Standard processing capacity') + '</td><td data-l="Include / exclude"><select aria-label="Include ' + esc(p.name) + ' in productivity capacity" data-id="' + esc(p.id) + '" onchange="fdSetCounts(this.dataset.id, this.value)"><option value="">Default rules</option><option value="true">Always include</option><option value="false">Never include</option></select></td><td data-l="Duplicate of"><select aria-label="' + esc(p.name) + ' is a duplicate of" data-id="' + esc(p.id) + '" onchange="fdSetDup(this.dataset.id, this.value)">' + dupOpts(p.id) + '</select></td></tr>').join('') + '</tbody></table></div><div class="tm-sub" style="margin-top:6px;">Changing a setting recalculates every dashboard and report at once. Nothing is deleted — history stays exactly as it was.</div>';
+}
+async function fdSetCounts(id, v){
+  try { await api('/api/employees/' + encodeURIComponent(id), { method:'PATCH', body: JSON.stringify({ countsInProductivity: v === '' ? null : v === 'true' }) }); showToast('success', 'Saved', 'Productivity eligibility updated everywhere.'); _fdElig = null; await renderFounderView(true); const o = document.getElementById('fdMore'); if(o && _fdMoreOpen){ o.open = true; fdMoreToggle(o); } }
+  catch(e){ showToast('error', 'Could not save', e.message); }
+}
+async function fdSetDup(id, v){
+  try { await api('/api/employees/' + encodeURIComponent(id), { method:'PATCH', body: JSON.stringify({ duplicateOf: v || null }) }); showToast('success', 'Saved', v ? 'This profile is now counted under the real one.' : 'Duplicate mapping cleared.'); _fdElig = null; await renderFounderView(true); const o = document.getElementById('fdMore'); if(o && _fdMoreOpen){ o.open = true; fdMoreToggle(o); } }
+  catch(e){ showToast('error', 'Could not save', e.message); }
+}
+
 function renderRiskFlags(){
   const wrap = document.getElementById('riskFlagsWrap');
   const _t = mgTasks();
@@ -12783,6 +12897,7 @@ function openReviewV2(id){
     + fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '<span class="rq-no">Missing</span>')
     + '</div>'
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 8px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Earlier files from reviews</b>' + reviewFilesByRoundHtml(t) + '</div>' : '')
+    + ((t.correctionAttachments || []).length ? '<div style="margin:0 0 8px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Corrected files from the processor</b>' + correctionFilesHtml(t) + '</div>' : '')
     + (hist.length ? '<div style="margin:8px 0 0;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Previous review history</b>' + hist.map(h => '<div style="font-size:13px;color:var(--text-dim);padding:3px 0;">' + h.text + '</div>').join('') + '</div>' : '')
     + '</div>'
     + '<div class="rv2-sec"><h4>B · Your decision</h4><div class="rv2-pick" role="radiogroup" aria-label="Review decision — choose one">'
@@ -13036,6 +13151,18 @@ async function previewAttachment(id, name, mime){
   } catch(e){ const b = document.getElementById('pvBody'); if(b) b.innerHTML = '<div class="modal-error" style="display:block;">' + esc(e.message) + '</div>'; }
 }
 // Every round's reviewer files, newest round first, so earlier files are never lost after a resubmission.
+// The processor's corrected files — newest round first, each with who uploaded it and when. Earlier rounds are never replaced.
+function correctionFilesHtml(t){
+  const list = t.correctionAttachments || [];
+  if(!list.length) return '';
+  const round = a => a.cycle != null ? a.cycle : 0;
+  const rounds = [...new Set(list.map(round))].sort((a, b) => b - a);
+  return rounds.map(r => '<div style="margin-top:6px;"><div style="font-size:12px;color:var(--text-faint);">Correction ' + (r || 1) + (r === rounds[0] ? ' — latest' : '') + '</div>'
+    + list.filter(a => round(a) === r).map(a => '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-top:6px;border:1px solid var(--panel-border);border-radius:8px;">'
+      + '<span style="font-size:18px;">' + fileIcon(a) + '</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(a.name) + ' <span style="color:var(--text-faint);font-size:12px;">· ' + fmtBytes(a.size) + ' · ' + esc((empById(a.uploaderId) || {}).name || '—') + ' · ' + esc(fmtStamp(a.uploadedAt)) + '</span></span>'
+      + (/^(application\/pdf|image\/)/.test(a.mime || '') ? '<button type="button" class="btn" onclick="previewAttachment(\'' + esc(a.id) + '\', \'' + esc(a.name).replace(/'/g, '&#39;') + '\', \'' + esc(a.mime) + '\')">Preview</button>' : '')
+      + '<button type="button" class="btn" onclick="downloadAttachment(\'' + esc(a.id) + '\', \'' + esc(a.name).replace(/'/g, '&#39;') + '\')">⬇ Download</button></div>').join('') + '</div>').join('');
+}
 function reviewFilesByRoundHtml(t){
   const list = t.reviewAttachments || [];
   if(!list.length) return '';
@@ -13494,9 +13621,11 @@ function taskTimelineEvents(t){
 
   (t.holdHistory||[]).forEach((h, hi, holds) => {
     const lbl = (HOLD_REASONS[h.reasonCode]||{}).label;
-    const ex = (HOLD_REASONS[h.reasonCode]||{}).exempting ? ' — client clock paused' : '';
-    push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold${lbl ? ': ' + esc(lbl) : ''}${ex}${h.reason && h.reason !== lbl ? ' — “'+esc(h.reason)+'”' : ''}${h.hasShot ? ' (screenshot)' : ''}.`);
-    if(h.resumedAt) push(h.resumedTs || h.resumedAt, '▶', `Taken off hold.`, '', h.resumedTs ? '' : nextHoldCap(holds, hi, h.resumedAt));
+    const bits = [h.waitingOnPerson ? 'waiting on <b>' + esc(h.waitingOnPerson) + '</b>' : '', h.followUp ? 'follow-up ' + fmtDate(h.followUp) : '', h.expectedResponseDate ? 'reply expected ' + fmtDate(h.expectedResponseDate) : ''].filter(Boolean).join(' · ');
+    push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold${lbl ? ': ' + esc(lbl) : ''}${h.reason && h.reason !== lbl ? ' — “'+esc(h.reason)+'”' : ''}${bits ? ' · ' + bits : ''}${h.hasShot ? ' (screenshot)' : ''}.${h.responsibilityPaused ? ' Responsibility paused.' : ''}`);
+    (h.updates || []).forEach(u => push(u.at, '✏', `<b>${esc(u.byName || '—')}</b> updated the hold${u.followUpTo ? ' — follow-up ' + fmtDate(u.followUpTo) : ''}${u.expectedTo !== undefined ? ' — reply expected ' + (u.expectedTo ? fmtDate(u.expectedTo) : 'not set') : ''}${u.evidence ? ' — evidence: “' + esc(u.evidence) + '”' : ''}.`));
+    if(h.resolvedAt) push(h.resolvedAt, '✅', `<b>${esc(nm(h.resolvedBy) || '—')}</b> marked it ready to resume${h.resolvedNote ? ' — “' + esc(h.resolvedNote) + '”' : ''}.`);
+    if(h.resumedAt) push(h.resumedTs || h.resumedAt, '▶', `${h.resumedBy ? '<b>' + esc(nm(h.resumedBy) || '—') + '</b> resumed it' : 'Taken off hold'}${h.statusAfterResume ? ' — back to ' + ({ awaiting_acceptance: 'To Do', accepted: 'In Progress', rework: 'Fix Needed' }[h.statusAfterResume] || 'In Progress') : ''}${h.heldHours != null ? ' after ' + h.heldHours.toFixed(1) + ' h on hold' : ''}${h.resumeReason ? ' — “' + esc(h.resumeReason) + '”' : ''}.`, '', h.resumedTs ? '' : nextHoldCap(holds, hi, h.resumedAt));
   });
   (t.dateHistory||[]).forEach(h => {
     const bits = [];
@@ -13539,6 +13668,8 @@ function taskTimelineEvents(t){
     if(h.endedAt && !(t.submissions || []).some(x => x.kind === 'resubmit' && x.at === h.endedAt)) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
   });
 
+  // a manager's exception to the review rule is part of the record: who, when and why
+  if(t.noReviewAuthorizedAt) push(t.noReviewAuthorizedAt, '🛡', `<b>${esc(nm(t.noReviewAuthorizedBy) || '—')}</b> authorised this task to go without a review — an exception to the rule${t.noReviewAuthorizedReason ? ': “' + esc(t.noReviewAuthorizedReason) + '”' : ''}.`);
   const effInternal = t.effectiveInternalDate || t.internalDeadline || null;
   const internalNote = (whenIso, first) => {
     if(!effInternal) return '';
@@ -13683,7 +13814,7 @@ async function dismissQueries(){
     await refreshTasks(); openQueryAudit();
   } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
 }
-const DQ_LABEL = { duplicate_user:'Possible duplicate people', system_or_test_user:'Test / shared logins', hr_in_productivity:'HR login in Productivity', missing_client:'Client Task with no client', fake_client_value:'Placeholder client name', wrong_classification:'Client / Admin mixed up', zero_allocated_hours:'Zero or missing hours', missing_internal_due:'No internal due date', email_in_title:'Email address in a title', phone_in_title:'Phone number in a title', possible_misspelling:'Possible misspelling', duplicate_task_type:'Duplicate task types' };
+const DQ_LABEL = { client_closed_no_review:'Client task closed without review (no manager exception)', duplicate_user:'Possible duplicate people', system_or_test_user:'Test / shared logins', hr_in_productivity:'HR login in Productivity', missing_client:'Client Task with no client', fake_client_value:'Placeholder client name', wrong_classification:'Client / Admin mixed up', zero_allocated_hours:'Zero or missing hours', missing_internal_due:'No internal due date', email_in_title:'Email address in a title', phone_in_title:'Phone number in a title', possible_misspelling:'Possible misspelling', duplicate_task_type:'Duplicate task types' };
 async function openDataQuality(){
   document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="td-empty">Checking…</div>'; openModal();
   let r; try { r = await api('/api/admin/data-quality'); } catch(e){ document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="modal-error" style="display:block;">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>'; return; }
@@ -13815,6 +13946,7 @@ async function submitCorrectName(id){
    of a reviewer.
    ========================================================================= */
 function openReworkDetailModal(id){
+  _rsFiles = [];
   const t = findTask(id);
   if(!t) return;
   const reviewer = empById(t.reviewedBy);
@@ -13832,6 +13964,7 @@ function openReworkDetailModal(id){
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
     <div class="field" style="margin-bottom:10px;"><label for="rsReviewer">Send for re-review to</label><select id="rsReviewer">${reviewerOptionsHtml(t, t.reviewerId)}</select></div>
+    <div class="field" style="margin-bottom:10px;"><label for="rsFilesInput">Corrected file(s) <span style="color:var(--text-faint);font-weight:400;">(optional)</span></label><input type="file" id="rsFilesInput" multiple accept="${ATTACH_ACCEPT}" onchange="addRsFiles(this)"><div id="rsFilesList" style="margin-top:6px;"></div><div class="modal-error" id="rsFilesErr" role="alert"></div></div>
     <p style="font-size:13.5px; color:var(--text-dim); line-height:1.6; margin-bottom:16px;">Fix the issue above, then resubmit — this puts it back in front of a reviewer and the completion date used for commitment tracking will be updated to when you resubmit.</p>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -13846,14 +13979,19 @@ function openReworkDetailModal(id){
     }).catch(() => { const h = document.getElementById('reviewShotHolder'); if(h) h.textContent = ''; });
   }
 }
+let _rsFiles = [];
+function addRsFiles(el){ return pickAndUpload(el, _rsFiles, ATTACH_MAX, 'rsFilesList', 'rsFilesErr', 'removeRsFile'); }
+function removeRsFile(i){ _rsFiles.splice(i, 1); const b = document.getElementById('rsFilesList'); if(b) b.innerHTML = attachChipsHtml(_rsFiles, 'removeRsFile'); }
 async function submitResubmit(id){
   const t = findTask(id), sel = document.getElementById('rsReviewer'), body = {};
+  if(_rsFiles.length) body.attachmentIds = _rsFiles.map(f => f.id);
   if(sel && sel.value && t && sel.value !== t.reviewerId) body.reviewerId = sel.value;     // only when a different reviewer was chosen
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/resubmit`, { method:'POST', body: JSON.stringify(body) });
     closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
+    _rsFiles = [];
     showToast('success', 'Resubmitted', body.reviewerId ? 'Sent for re-review to ' + ((empById(body.reviewerId) || {}).name || 'the new reviewer') + '.' : 'Sent back for re-review.');
   } catch(e){
     showToast('error', 'Could not resubmit', e.message);
@@ -13902,11 +14040,18 @@ function _rcRange(){
   return { from: iso(from), to: iso(now), period: p };
 }
 
+let _rcSeq = 0;
 async function renderReportCard(){
   const { from: reqFrom, to, period } = _rcRange();
+  const seq = ++_rcSeq;                                   // every change of person or period starts a NEW calculation; only the newest may draw
+  _rcData = null;                                          // nothing from the previous selection can be shown under the new one
+  const cards = document.getElementById('rcCards'); if(cards) cards.innerHTML = '<div class="td-empty" role="status">Calculating…</div>';
+  ['rcReportSent', 'rcOpenWork'].forEach(i => { const e = document.getElementById(i); if(e) e.innerHTML = ''; });
+  const role = document.getElementById('rcRole'); if(role) role.textContent = 'Calculating…';
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&full=1`); }
-  catch(e){ document.getElementById('rcCards').innerHTML = `<p style="color:var(--text-faint);">${esc(e.message)}</p>`; return; }
+  catch(e){ if(seq !== _rcSeq) return; document.getElementById('rcCards').innerHTML = `<p style="color:var(--text-faint);" role="alert">${esc(e.message)}</p>`; return; }
+  if(seq !== _rcSeq) return;                               // a newer selection has been made while this was loading — ignore this result
   _rcData = data;
   // the server floors the window at go-live (7 Sept 2026) — there's no real
   // data before then. Use the effective range it returns for every label.

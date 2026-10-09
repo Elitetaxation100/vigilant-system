@@ -59,7 +59,7 @@ test('only the founder can run the alert sweep', async () => {
 test('a hold follow-up that has come due raises ONE alert, is not repeated, resolves itself, and re-raises if it happens again', async () => {
   const t = (await create({})).j.task;
   await http('POST', T(t.id) + '/accept', { token: RJ });
-  const hold = () => http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_DOCS', responsibility: 'client', followUpDate: day(0) } });
+  const hold = () => http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_DOCS', detail: 'waiting for the statements', responsibility: 'client', followUpDate: day(0) } });
   assert.equal((await hold()).status, 200);
   const r1 = await sweep(); assert.ok(r1.raised >= 1);
   const n1 = await inbox(PK, t.id); assert.equal(n1.length, 1); assert.match(n1[0].text, /follow-up is due/i);
@@ -77,7 +77,7 @@ test('a hold follow-up that has come due raises ONE alert, is not repeated, reso
 test('a future follow-up date is not an alert yet', async () => {
   const t = (await create({})).j.task;
   await http('POST', T(t.id) + '/accept', { token: RJ });
-  await http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_DOCS', responsibility: 'client', followUpDate: day(4) } });
+  await http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_DOCS', detail: 'waiting for the statements', responsibility: 'client', followUpDate: day(4) } });
   await sweep();
   assert.equal((await inbox(PK, t.id)).length, 0);
 });
@@ -139,7 +139,7 @@ test('measures: the window is clamped, a manager sees only their team, an employ
 test('the team page shows the follow-up exception, and measures never reach Today', async () => {
   const t = (await create({})).j.task;
   await http('POST', T(t.id) + '/accept', { token: RJ });
-  await http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'THIRD_PARTY', detail: 'IRD reply pending', responsibility: 'third_party', followUpDate: day(0) } });
+  await http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'THIRD_PARTY', detail: 'IRD reply pending', waitingOnPerson: 'IRD', responsibility: 'third_party', followUpDate: day(0) } });
   const team = (await http('GET', '/api/workflow/team', { token: SH })).j;
   assert.ok(team.attention.some(a => a.id === t.id && a.type === 'followup_due'));
   const td = (await http('GET', '/api/workflow/today', { token: SH })).j;

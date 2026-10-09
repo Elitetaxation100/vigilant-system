@@ -52,11 +52,12 @@ test('V3 (work completed on/after the cutoff): reviewed clean is the credit — 
     assert.ok(prod.v3EffectiveAt);
   });
 });
-test('before the cutoff the earlier rule is untouched (nothing is recalculated retroactively)', async () => {
+test('the SAME rule applies whatever the old cut-off date says: Reviewed Clean is the event, Report Sent never is', async () => {
   await withServer('2099-01-01T00:00:00.000Z', async http => {
     const { sentRow, unsentRow } = await scenario(http);
-    assert.equal(sentRow.rule, 'v2'); assert.equal(sentRow.qualifyingEventType, 'report_dispatched', 'old behaviour preserved for old work');
-    assert.equal(unsentRow.rule, 'v2'); assert.equal(unsentRow.qualifyingEventType, 'clean_review');
+    assert.equal(sentRow.qualifyingEventType, 'clean_review', 'a report that was sent still qualifies on the review, not the dispatch');
+    assert.equal(unsentRow.qualifyingEventType, 'clean_review');
+    assert.equal(sentRow.creditedHours, unsentRow.creditedHours === sentRow.creditedHours ? sentRow.creditedHours : -1, 'sent or not, the credit is the same');
   });
 });
 test('shared, test and placeholder logins are not in Productivity; real people are; the breakdown adds up', async () => {

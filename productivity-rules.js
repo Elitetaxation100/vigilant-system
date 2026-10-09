@@ -40,7 +40,34 @@ function splitNotConverted(notConverted, openHours, nonQualifyingCompletedHours)
   return { total, openAllocated: open, nonQualifyingCompleted: nonQual, unallocated, reconciles: Math.abs(open + nonQual + unallocated - total) < 0.011 };
 }
 
+// Team / firm totals from per-person results. The percentage is summed hours over summed capacity — a person with more capacity
+// weighs more; it is NEVER an average of individual percentages. Used by /api/productivity AND the Founder dashboard, so they cannot differ.
+function aggregateTotals(people, extra) {
+  const sum = k => people.reduce((s, p) => s + (p[k] || 0), 0);
+  const totalQualified = sum('qualifiedHours'), totalCap = sum('capacityHours');
+  const rawTotalPct = totalCap > 0 ? (totalQualified / totalCap) * 100 : null;
+  const reportPoints = sum('reportPoints'), reportMax = sum('reportMaxPoints');
+  const commitmentMet = sum('commitmentMet'), commitmentTotal = sum('commitmentTotal');
+  const k = f => r2(people.reduce((n, p) => n + ((p.notConvertedBreakdown || {})[f] || 0), 0));
+  const b = { total: k('total'), openAllocated: k('openAllocated'), nonQualifyingCompleted: k('nonQualifyingCompleted'), unallocated: k('unallocated') };
+  return {
+    capacityHours: r2(totalCap), qualifiedHours: r2(totalQualified),
+    productivityPct: rawTotalPct == null ? null : Math.min(100, Math.round(rawTotalPct * 10) / 10),
+    rawUtilisationPct: rawTotalPct == null ? null : Math.round(rawTotalPct * 10) / 10,
+    additionalHours: rawTotalPct != null && rawTotalPct > 100 ? r2(totalQualified - totalCap) : 0,
+    notScorable: totalCap <= 0,
+    leaveDays: r2(sum('leaveDays')),
+    commitmentMet, commitmentTotal, commitmentPct: commitmentTotal > 0 ? Math.round((commitmentMet / commitmentTotal) * 1000) / 10 : null,
+    reportsRequired: sum('reportsRequired'), reportsOnTime: sum('reportsOnTime'), reportsLate: sum('reportsLate'), reportsReadyNotSent: sum('reportsReadyNotSent'), reportsNoDate: sum('reportsNoDate'),
+    reportPoints, reportMaxPoints: reportMax, reportSentRate: reportMax > 0 ? Math.round((reportPoints / reportMax) * 1000) / 10 : null,
+    outstandingReports: sum('outstandingReports'),
+    capacityNotConverted: r2(sum('capacityNotConverted')), assignedOpenHours: r2(sum('assignedOpenHours')), trulyUnallocatedHours: r2(sum('trulyUnallocatedHours')),
+    notConvertedBreakdown: { ...b, reconciles: people.every(p => (p.notConvertedBreakdown || {}).reconciles !== false) && Math.abs(b.openAllocated + b.nonQualifyingCompleted + b.unallocated - b.total) < 0.05 },
+    ...(extra || {}),
+  };
+}
+
 // V3 applies to work COMPLETED on/after the cutoff; earlier work keeps the rule it was counted under.
 const v3Applies = (completedAtMs, v3AtIso) => Number.isFinite(completedAtMs) && completedAtMs >= Date.parse(v3AtIso);
 
-module.exports = { capacityDays, splitNotConverted, v3Applies, r2 };
+module.exports = { capacityDays, splitNotConverted, aggregateTotals, v3Applies, r2 };

@@ -178,7 +178,7 @@ test('screenshots move out of the state into the file store and still display', 
   await http('POST', `/api/tasks/${enc(t3.id)}/accept`, { token: RJ });
   const filesBefore = (await http('GET', '/api/admin/storage-health', { token: SA })).j.files.files;
   const shot = 'data:image/png;base64,' + png.toString('base64');
-  const h = await http('POST', `/api/tasks/${enc(t3.id)}/hold`, { token: RJ, body: { reasonCode: 'INTERNAL_REVIEW', screenshot: shot } });
+  const h = await http('POST', `/api/tasks/${enc(t3.id)}/hold`, { token: RJ, body: { reasonCode: 'INTERNAL_REVIEW', detail: 'waiting for the partner', waitingOnPerson: 'Parvinder Kumar', followUpDate: due, screenshot: shot } });
   assert.equal(h.status, 200, JSON.stringify(h.j));
   assert.equal(h.j.task.hasHoldScreenshot, true);
   // a mark with a snip
