@@ -291,6 +291,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .td-colhead{ display:grid; grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); gap:8px; align-items:center; padding:7px 12px; background:var(--purple-dim); color:var(--purple); font-weight:800; font-size:12px; letter-spacing:.04em; text-transform:uppercase; border-top:1px solid var(--panel-border); border-bottom:1px solid var(--panel-border); }
 .td-list .td-row{ grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); }
 .td-row .tr-name, .td-row .tr-work, .td-row .tr-who, .td-row .tr-st, .td-row .tr-link{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
 .td-row .tr-name{ font-weight:700; } .td-row .tr-work{ color:var(--text); } .td-row .tr-who{ font-size:13px; color:var(--text); } .td-row .tr-st{ font-size:12px; color:var(--text-dim); }
 .td-row .tr-date{ display:flex; gap:6px; align-items:center; text-align:left; font-size:12.5px; color:var(--text); white-space:nowrap; min-width:0; }
 .td-row .tr-date{ flex-wrap:wrap; row-gap:2px; }
@@ -7826,7 +7827,7 @@ function tdCardHtml(id, note){
   const sid = esc(id);
   return '<div class="td-card td-row' + (_tdSel === id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();tdSelect(\'' + sid + '\');}" title="' + esc(tip) + '" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status + '. ' + tip) + '">'
     + '<span class="tr-name">' + esc(c.clientName || 'Admin task') + '</span>'
-    + '<span class="tr-work">' + esc(c.name) + '</span>'
+    + '<span class="tr-work"><button type="button" class="tr-open" data-id="' + sid + '" aria-label="Open ' + esc(c.name) + ' for ' + esc(c.clientName || 'admin task') + ', ' + esc(c.primaryStatus || c.status) + '" onclick="event.stopPropagation(); tdSelect(this.dataset.id)">' + esc(c.name) + '</button></span>'
     + '<span class="tr-who">' + esc(processor) + '</span>'
     + '<span class="tr-st">' + esc(c.primaryStatus || c.status) + (c.hold ? '<span class="tm-sub" style="display:block;">Held ' + esc(c.hold.ageText) + (c.hold.waitingOnPerson ? ' · ' + esc(c.hold.waitingOnPerson) : '') + (c.hold.responsibilityPaused ? ' · responsibility paused' : '') + '</span>' : '') + '</span>'
     + '<span class="tr-date"><span class="tr-dt">' + esc(when) + '</span>' + tdRiskTag(c) + '</span>'
@@ -7940,7 +7941,7 @@ function tdTilesHtml(){
   }).join('');
 }
 // Redraw everything BELOW the tabs and search box (so typing in the search box never loses focus).
-// Allocated hours (the estimate agreed for each task), in the words they mean — never "hours done" and never actual time spent.
+// Allocated hours (the estimate agreed for each task), in the words they mean — never presented as work completed and never actual time spent.
 function procStripHtml(){
   const M = _today.modes.processor; if(!M) return '';
   const tile = k => (M.tiles.find(x => x.key === k) || { ids: [] }).ids;
@@ -7994,6 +7995,7 @@ function tdSelect(id){
   document.querySelectorAll('#tdList .td-card').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
   const d = document.getElementById('tdDetail'); if(d) d.innerHTML = tdDetailHtml(id);
   const g = document.getElementById('tdGrid'); if(g){ g.classList.add('show-detail'); g.classList.add('has-sel'); }
+  const h = d && d.querySelector('h3'); if(h){ h.setAttribute('tabindex', '-1'); try { h.focus({ preventScroll: true }); } catch(e){ h.focus(); } }   // keyboard and screen-reader users land on the task they opened
 }
 // Close the details: nothing stays selected, and the list goes back to the full width.
 function tdBack(){ _tdSel = null; window.__tdMobileOpen = false; tdDrawBody(); }
@@ -8055,6 +8057,8 @@ function tdDetailHtml(id, given){
   }
   const links = grp('Links', sheet, cash);
   const holdBox = (t && t.status === 'on_hold') ? holdSummaryHtml(t) : '';
+  const reviewResult = !t ? '' : t.reviewStatus === 'clean' ? 'Reviewed Clean' : t.reviewStatus === 'error' ? 'Returned for correction' : t.reviewStatus === 'done' ? 'Closed without review' : (t.status === 'completed' ? 'Pending — with the reviewer' : 'Not yet submitted');
+  const reviewBox = grp('Review & report', fact('Latest review result', esc(reviewResult) + (t && t.reviewedAt && t.reviewStatus ? '<span class="sub">' + esc((empById(t.reviewedBy) || {}).name || '') + ' · ' + esc(fmtStamp(t.reviewedAt)) + '</span>' : '')), fact('Review notes', t && t.reviewNote ? esc(t.reviewNote) : ''), fact('Manager', esc(c.managerName || '')), fact('Action owner', esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' <span class="sub">' + esc(c.waitingOn.ownerName) + '</span>' : '')), fact('Report Sent', c.reportStatus ? stageLabel(c.reportStatus) + '<span class="sub">separate from productivity</span>' : ''));
   const btn = (fn, label) => '<button type="button" class="btn td-act" onclick="' + fn + '(\'' + esc(id) + '\')">' + label + '</button>';
   const stateBtns = !t ? '' : [
     (c.hold && c.hold.pauseRequested && isAdmin && t.assignedTo !== currentViewerId) ? btn('openPauseDecisionModal', 'Review pause request') : '',
@@ -8069,6 +8073,7 @@ function tdDetailHtml(id, given){
   body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + stateBtns + mgrBtns + (iCanChangeReviewer(t) ? '<button type="button" class="btn td-act" onclick="openChangeReviewerModal(\'' + esc(id) + '\')" title="Send this to a different reviewer">Change reviewer</button>' : '') + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
     + (mineOpen ? '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>' : '')
     + holdBox
+    + reviewBox
     + links
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
     + ((t.correctionAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Corrected files from the processor</b>' + correctionFilesHtml(t) + '</div>' : '')

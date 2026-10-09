@@ -264,6 +264,8 @@ function cardBase(t, deps) {
     holdStart: t.heldAt || null, holdFollowUp: t.holdFollowUp || null, submittedAt: t.completedAt || null,
     sortAt: latestOf([t.createdAt, t.assignedAt, t.completedAt, t.reviewedAt, t.heldAt, t.escalation && t.escalation.at, t.sentToClientAt]),
     hold: null, readyToResume: st === 'On Hold' && !!t.holdResolvedAt, badges: [],
+    managerName: deps.managerNameOf ? deps.managerNameOf(t) : null,
+    reportStatus: (() => { const r = deps.reportInfo ? deps.reportInfo(t) : null; return r ? (r.eligible ? r.outcome : r.reason) : null; })(),
   };
 }
 // (the hold + badges need the finished card, so they are attached here)

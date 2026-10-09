@@ -6423,7 +6423,8 @@ function workflowDeps(state, me, extra) {
     today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
-    reportInfo: reportSentFor, queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays, ...(extra || {}),
+    reportInfo: reportSentFor, queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays,
+    managerNameOf: t => { const m = t.assignedTo ? managersOfEmployee(state, t.assignedTo)[0] : null; return m ? m.name : null; }, ...(extra || {}),
   };
 }
 // Every task in the manager's world, as enriched cards. Only managers/founders reach this (requireAdmin).
