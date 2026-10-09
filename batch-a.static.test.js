@@ -67,3 +67,9 @@ test('work assigned to me: Accept, Start, Mark Done, Send for review, Hold / que
   assert.match(html, /<button type="button" class="btn small primary td-act" style="margin-top:4px;" onclick="acceptTask/, 'an Accept button right on the Tasks row');
   assert.match(html, /const tdDefaultOpen = \(\) => _tdMode === 'today' \? 'my_work'/, 'My work starts open on Today');
 });
+
+test('task history: a task on hold says On hold (not In rework), and a day-only resume never jumps after a later same-day hold', () => {
+  assert.ok(html.includes("const stateNow = t.status === 'on_hold' ? 'On hold'"), 'on hold wins over the correction state');
+  assert.ok(html.includes('nextHoldCap'), 'day-only resume events are capped before the next hold');
+  assert.ok(html.includes("e.cap ? new Date(new Date(e.cap).getTime() - 1)"), 'the sort honours the cap');
+});
