@@ -94,7 +94,7 @@ test('REVIEWED CLEAN counts its allocated hours; submitted, returned and on-hold
   const ret = await mk('Returned', 'ranjit', { tat: 1 }); await submit(ret, RJ);
   assert.equal((await http('POST', T(ret.id) + '/review', { token: PK, body: { status: 'error', note: 'redo', faultType: 'processor' } })).status, 200);
   const held = await mk('On hold', 'ranjit', { tat: 1 }); assert.equal((await http('POST', T(held.id) + '/accept', { token: RJ })).status, 200);
-  assert.equal((await http('POST', T(held.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_DOCS', detail: 'waiting' } })).status, 200);
+  assert.equal((await http('POST', T(held.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_DOCS', detail: 'waiting', followUpDate: day(2) } })).status, 200);
   const D = await drill({ employee: emp('ranjit').id }), row = rowOf(D, 'Ranjit');
   assert.equal(Math.round((row.qualifiedHours - before.qualifiedHours) * 100) / 100, 2, 'only the reviewed-clean 2 h');
   assert.ok(qualifiedIds(D).includes(a.id)); assert.ok(![pending.id, ret.id, held.id].some(id => qualifiedIds(D).includes(id)));

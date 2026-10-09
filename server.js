@@ -20,6 +20,7 @@ const spaceWatch = require('./space-watch');
 const prodRules = require('./productivity-rules');
 const dataQuality = require('./data-quality');
 const workflow = require('./workflow');
+const holdModel = require('./hold-model');
 const mgr = require('./manager-views');
 const founderMetrics = require('./founder-metrics');
 const crmHealth = require('./crm-health');
@@ -86,15 +87,14 @@ async function sendPush(state, empId, payload) {
 // `exempting` codes freeze the client commitment clock (Phase 2); the rest
 // are internal and keep it running. `needsDetail` requires free text.
 // ---------------------------------------------------------------------------
-const HOLD_REASONS = {
-  CLIENT_QUERY:    { label: 'Awaiting client answer to a query',        exempting: true,  needsDetail: false },
-  CLIENT_DOCS:     { label: 'Awaiting documents / records from client', exempting: true,  needsDetail: false },
-  THIRD_PARTY:     { label: 'Awaiting IRD / bank / third party',        exempting: true,  needsDetail: true  },
-  INTERNAL_REVIEW: { label: 'Blocked on a reviewer or partner sign-off', exempting: false, needsDetail: false },
-  CAPACITY:        { label: 'Re-prioritised — parked by manager',        exempting: false, needsDetail: false, managerOnly: true },
-  BLOCKED_OTHER:   { label: 'Other',                                     exempting: false, needsDetail: true  },
-};
-const EXEMPTING_REASONS = new Set(Object.keys(HOLD_REASONS).filter(k => HOLD_REASONS[k].exempting));
+// (the structured categories live in hold-model.js; this table is the same data in the shape the routes below use)
+const HOLD_REASONS = Object.fromEntries([
+  ...holdModel.CATEGORIES.map(c => [c.code, { label: c.label, exempting: c.external, needsDetail: true, kind: c.kind, clientRelated: c.clientRelated }]),
+  ...Object.entries(holdModel.LEGACY).map(([k, c]) => [k, { label: c.label, exempting: c.external, needsDetail: k === 'THIRD_PARTY' || k === 'BLOCKED_OTHER', kind: c.kind, clientRelated: c.clientRelated, managerOnly: !!c.managerOnly, legacy: true }]),
+]);
+// "exempting" = a verified EXTERNAL dependency. Only these may ever pause the processor's responsibility (and only with a recorded, approved query).
+const EXTERNAL_HOLD_CODES = new Set(holdModel.EXTERNAL_CODES);
+const EXEMPTING_REASONS = EXTERNAL_HOLD_CODES;
 // Working days between the internal due date and what the client is told.
 const DISPATCH_BUFFER_WD = 3;
 
@@ -454,17 +454,18 @@ function taskShiftDays(t) {
   let shift = 0;
   for (const q of (t.queries || [])) {
     if (q.dismissedAt || !EXEMPTING_REASONS.has(q.reasonCode)) continue;
+    if (q.pauseStatus === 'pending' || q.pauseStatus === 'rejected') continue;       // responsibility is only paused once a manager has approved it
     shift += cal.queryShift(q, today).shift;
   }
   return shift;
 }
+// The client commitment date is exactly what was agreed. A hold or a client query never moves it — only an authorised manager change
+// (Edit dates) does. (A verified external wait pauses the PROCESSOR's own internal responsibility instead — see internalDueOf in workflow.js.)
 function effectiveClientDate(t) {
-  if (!t.clientDate) return null;
-  const s = taskShiftDays(t);
-  return s > 0 ? cal.addWorkingDays(t.clientDate, s) : t.clientDate;
+  return t.clientDate || null;
 }
 function anyQueryOpen(t) {
-  return (t.queries || []).some(q => !q.dismissedAt && EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
+  return (t.queries || []).some(q => !q.dismissedAt && q.pauseStatus !== 'rejected' && EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
 }
 // A client query — and the freeze of the client commitment date that comes with it — is only ever recorded by the task's owner (or their
 // manager), on purpose, with the real date AND time it was sent. A hold alone never opens one, and nothing is stamped at midnight.
@@ -481,15 +482,18 @@ function nzLocalToIso(day, hhmm) {
 }
 // Validate what the owner typed for a client query. Returns { error } or { source, sentAt, sentTs }.
 function parseQueryInput(body, reasonCode) {
-  const source = reasonCode === 'THIRD_PARTY' ? 'manual' : String(body.querySource || '');
-  if (reasonCode !== 'THIRD_PARTY' && !['email', 'phone', 'whatsapp', 'in_person'].includes(source)) return { error: 'Say how you asked the client — email, phone, WhatsApp or in person.' };
+  const noSource = ['THIRD_PARTY', 'EXTERNAL_AUTHORITY'].includes(reasonCode);
+  const source = noSource ? 'manual' : String(body.querySource || '');
+  const evidence = String(body.queryEvidence || '').trim();
+  if (evidence.length < 3) return { error: 'Give the evidence for the query — the email subject, message reference or link, or a short note of the call (who, when).' };
+  if (!noSource && !['email', 'phone', 'whatsapp', 'in_person'].includes(source)) return { error: 'Say how you asked the client — email, phone, WhatsApp or in person.' };
   const day = String(body.querySentAt || '').slice(0, 10), time = String(body.querySentTime || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !time) return { error: 'Say the date and the time the query was sent — it is never filled in for you.' };
   if (day > todayISO()) return { error: "The query can't be dated in the future." };
   const ts = nzLocalToIso(day, time);
   if (!ts) return { error: 'That is not a valid New Zealand date and time.' };
   if (Date.parse(ts) > Date.now() + 5 * 60000) return { error: "The query can't be timed in the future." };
-  return { source, sentAt: day, sentTs: ts };
+  return { source, sentAt: day, sentTs: ts, evidence: evidence.slice(0, 500) };
 }
 // Who reviews a task can be changed by the person doing the work (when handing it back, or while it waits). Every change is kept in
 // t.reviewerHistory and the new reviewer is told (the old one simply stops having it waiting). Returns { error } or { changed, from, to }.
@@ -541,11 +545,13 @@ function commitmentOutcome(t) {
 // credit — used by the Exceptions/Open Work section and the drill-down's
 // excluded-task table (spec §6/§13).
 const OPEN_STATUS_REASONS = {
-  awaiting_acceptance: 'Awaiting acceptance',
-  accepted: 'In progress',
+  awaiting_acceptance: 'Not completed — awaiting acceptance',
+  accepted: 'Not completed — in progress',
   on_hold: 'On hold',
-  rework: 'Needs rework',
-  window_proposed: 'Window proposed',
+  rework: 'Returned for correction',
+  window_proposed: 'Not completed — new date proposed',
+  pending_approval: 'Not completed — assignment awaiting approval',
+  cancelled: 'Cancelled',
 };
 
 // ---------------------------------------------------------------------------
@@ -606,25 +612,17 @@ function productivityQualifies(state, t, v2At, reportInfo) {
     return exclude(OPEN_STATUS_REASONS[t.status] || 'Not yet delivered');
   }
 
-  // Missing/invalid allocated-hours snapshot is a data exception, never a
-  // silent zero-hour "qualify" — a genuinely zero-hour task (snapshot === 0,
-  // explicitly valid) still qualifies, just credits nothing (zeroHourTask).
+  // Missing/invalid allocated-hours snapshot is a data exception, never a silent zero-hour "qualify" — a genuinely zero-hour task
+  // (snapshot === 0, explicitly valid) still qualifies, just credits nothing (zeroHourTask).
   const rawSnapshot = t.productivityAllocatedHoursSnapshot;
   const snapshotNum = Number(rawSnapshot);
   const snapshotValid = rawSnapshot !== null && rawSnapshot !== undefined && Number.isFinite(snapshotNum) && snapshotNum >= 0;
   if (!snapshotValid) return exclude('Missing allocated-hours snapshot', { dataException: true });
-  // If this task was on hold through one or more manual month-closes (see
-  // closeMonthOnHoldCredits), those already paid out actual-hours credit to
-  // earlier periods — subtract that back out here so the task's completion
-  // period doesn't ALSO get its full original estimate, which would double
-  // -count the same work. What's left over is what completion actually
-  // still earns.
-  const bankedHours = (t.monthCloseCredits || []).reduce((s, c) => s + (Number(c.hours) || 0), 0);
-  const creditHours = Math.max(0, Math.round((snapshotNum - bankedHours) * 100) / 100);
+  // FULL allocated hours or nothing. There is no partial credit: hours banked for held work at a month-close, hours "so far", or a share
+  // of the estimate are never credited — a task earns its whole allocated hours on its qualifying event, once.
+  const creditHours = Math.round(snapshotNum * 100) / 100;
 
-  const completedMs = Date.parse(t.completedAt);
-  const cutoffMs = Date.parse(v2At);
-  if (!Number.isFinite(completedMs)) return exclude('Invalid completion timestamp', { dataException: true });
+  if (!Number.isFinite(Date.parse(t.completedAt))) return exclude('Invalid completion timestamp', { dataException: true });
 
   const qualify = (rule, eventType, eventAt) => ({
     ...base, qualifies: true, creditedHours: creditHours, exclusionReason: null, dataException: false,
@@ -632,32 +630,23 @@ function productivityQualifies(state, t, v2At, reportInfo) {
     zeroHourTask: creditHours === 0,
   });
 
-  if (completedMs < cutoffMs) {
-    // Historical rule — unconditional on review outcome or dispatch.
-    const type = t.reviewStatus === 'done' ? 'marked_done' : 'sent_for_review';
-    return qualify('historical', type, t.completedAt);
+  // ONE rule for every period (no date cut-offs): work that needs a review qualifies only when the final work is Reviewed Clean, on the
+  // Reviewed Clean timestamp. The Report Sent step is a separate measure and never unlocks, moves or removes productivity.
+  if (t.reviewStatus === 'error') return exclude('Returned for correction');
+  if (!workflow.isClientTask(t)) {
+    // genuinely administrative work (no client): counts when it reaches its valid completed state
+    if (t.reviewStatus === 'clean') return qualify('v3', 'clean_review', t.reviewedAt || t.completedAt);
+    if (t.reviewStatus === 'done') return qualify('v3', 'admin_completed', t.completedAt);
+    return exclude('Review pending');
   }
-
-  // V2 rule — genuinely Clean, closed with no review needed (see below), or
-  // the report actually reaching the client (real-world proof of
-  // completion, independent of whether it was formally reviewed first).
-  if (t.reviewStatus === 'error') return exclude('Review contains errors');
-  // V3: reviewed clean is THE event; Report Sent neither unlocks nor moves it.
-  if (prodRules.v3Applies(completedMs, state.productivityV3EffectiveAt || PRODUCTIVITY_V3_EFFECTIVE_AT_DEFAULT) && t.reviewStatus === 'clean') {
-    return qualify('v3', 'clean_review', t.reviewedAt);
-  }
-  if (t.sentToClient === true) return qualify('v2', 'report_dispatched', t.sentToClientAt);
-  if (t.reviewStatus === 'clean') return qualify('v2', 'clean_review', t.reviewedAt);
+  // client-processing work must be reviewed
+  if (t.reviewStatus === 'clean') return qualify('v3', 'clean_review', t.reviewedAt);
   if (t.reviewStatus === 'done') {
-    // Closed with no review: counts, no manager approval required. A task
-    // that was already authorised under the old rule keeps the AUTHORISATION
-    // timestamp as its period (so already-reported periods don't move);
-    // everything else counts on the day it was closed.
-    if (t.noReviewAuthorizedAt) return qualify('v2', 'no_review_authorized', t.noReviewAuthorizedAt);
-    if (isReviewerCapable(state, t.assignedTo)) return qualify('v2', 'self_certified_reviewer', t.completedAt);
-    return qualify('v2', 'no_review_needed', t.completedAt);
+    // closed with no review: counts ONLY with a recorded manager exception (who + when + why live on the task)
+    if (t.noReviewAuthorizedAt) return qualify('v3', 'manager_exception_no_review', t.completedAt);
+    return exclude('Client task closed without review — no manager exception recorded');
   }
-  return exclude('Review pending'); // sent for review, not yet actioned (covers rework-resubmitted-not-yet-reviewed too)
+  return exclude('Review pending');
 }
 // The date a completed task counts against for reporting-period purposes —
 // the day its qualifying event actually happened (see qualifyingEventAt
@@ -2606,14 +2595,47 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     res.json({ task: taskForClient(t) });
   });
 
-  // Put a task on hold — blocked by a client, a query, missing info. Needs a
-  // reason; a screenshot is optional. The clock is banked, the task stays on
-  // the assignee's list as pending, and it stops counting toward any day's
-  // capacity until it's resumed. Time only ever counts once: the hours
-  // already logged stay logged, and when the task resumes the new day's work
-  // adds on top — the agreed hours (tat) never change, so a task that ran
-  // long because of a hold is visibly flagged rather than counted against
-  // the person.
+  // ---------------------------------------------------------------------------------------------------------------------------
+  // PUT ON HOLD — structured. The category decides who the task waits on and whether responsibility can ever pause; the free-text
+  // reason never does. A hold never changes the allocated hours, the seven-hour capacity, the client commitment date or productivity,
+  // and never opens a client query by itself: a query exists only when the owner records one WITH evidence. A verified external
+  // wait pauses the processor's own responsibility only once a manager approves it (a manager's own hold is approved on the spot).
+  // ---------------------------------------------------------------------------------------------------------------------------
+  const isoDateOk = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  const personName = (state, id) => (findEmployee(state, id) || {}).name || null;
+  // who the task is waiting on, as a name: typed by the owner, or sensibly defaulted from the category
+  function resolveWaitingOn(state, t, code, body) {
+    const m = holdModel.meta(code);
+    const typed = String(body.waitingOnPerson || body.waitingOn || '').trim();
+    const byId = body.waitingOnId ? findEmployee(state, String(body.waitingOnId)) : null;
+    if (m.party === 'none') return { name: null, id: null };
+    if (byId) return { name: byId.name, id: byId.id };
+    if (typed) return { name: typed.slice(0, 120), id: null };
+    if (m.party === 'client') return { name: (t.clientName && String(t.clientName).trim()) || null, id: null };
+    if (m.party === 'reviewer') { const r = t.reviewerId && findEmployee(state, t.reviewerId); return { name: r ? r.name : null, id: r ? r.id : null }; }
+    if (m.party === 'manager') { const mg = managersOfEmployee(state, t.assignedTo)[0]; return { name: mg ? mg.name : null, id: mg ? mg.id : null }; }
+    return { name: null, id: null };
+  }
+  function activeHold(t) { const h = (t.holdHistory || [])[(t.holdHistory || []).length - 1]; return h && !h.resumedAt ? h : null; }
+  // Start a client query (with evidence) on the active hold. The pause of responsibility is approved at once for a manager, otherwise it waits.
+  function openHoldQuery(state, t, hh, actor, qIn, code, detail) {
+    const managerActing = isAdminRole(actor.accessRole) && actor.id !== t.assignedTo;
+    const q = {
+      id: crypto.randomUUID(), taskId: t.id, reasonCode: code, source: qIn.source,
+      raisedBy: actor.id, sentAt: qIn.sentAt, sentTs: qIn.sentTs, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null,
+      evidence: qIn.evidence, emailThreadId: null, chaseLog: [], note: detail || null,
+      pauseStatus: managerActing ? 'approved' : 'pending', pauseApprovedBy: managerActing ? actor.id : null, pauseApprovedAt: managerActing ? new Date().toISOString() : null,
+    };
+    t.queries = t.queries || []; t.queries.push(q);
+    hh.queryId = q.id; hh.querySentAt = q.sentTs; hh.queryEvidence = q.evidence;
+    hh.pauseRequested = true; hh.responsibilityPaused = q.pauseStatus === 'approved';
+    hh.pauseStartedAt = q.pauseStatus === 'approved' ? q.sentTs : null; hh.approvedBy = q.pauseApprovedBy;
+    hh.clocksStopped = { workTimer: true, clientCommitment: false, processorResponsibility: hh.responsibilityPaused };
+    if (q.pauseStatus === 'pending') {
+      managersOfEmployee(state, t.assignedTo).forEach(m => { if (m.id !== actor.id) notify(state, m.id, 'hold_pause', actor.name + ' asks you to approve pausing responsibility on "' + t.name + '" — waiting on ' + holdModel.label(code).toLowerCase() + '.', t.id); });
+    }
+    return q;
+  }
   app.post('/api/tasks/:id/hold', requireAuth, (req, res) => {
     const state = db.get();
     const t = findTask(state, req.params.id);
@@ -2626,89 +2648,189 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       return res.status(400).json({ error: 'Only active work can be put on hold.' });
     }
     const body = req.body || {};
-    // reasonCode is the new taxonomy pick; `detail` is the free text (was `reason`).
-    let reasonCode = String(body.reasonCode || '').trim().toUpperCase();
+    // the structured category (reasonCode is the older name for the same field)
+    const code = String(body.category || body.reasonCode || '').trim().toUpperCase();
     const detail = String(body.detail != null ? body.detail : (body.reason || '')).trim();
-    if (!reasonCode) reasonCode = 'BLOCKED_OTHER'; // tolerate old clients that only send `reason`
-    const meta = HOLD_REASONS[reasonCode];
-    if (!meta) return res.status(400).json({ error: 'Pick a valid hold reason.' });
+    if (!code) return res.status(400).json({ error: 'Choose why the task is going on hold.' });
+    const meta = HOLD_REASONS[code];
+    if (!meta) return res.status(400).json({ error: 'Pick a valid hold category.' });
     if (meta.managerOnly && isMine && !canManageEmployee(state, req.employee, t.assignedTo)) {
       return res.status(403).json({ error: 'Only a manager can park a task for capacity reasons.' });
     }
-    if (meta.needsDetail && !detail) {
-      return res.status(400).json({ error: 'This reason needs a short note — what exactly are you waiting on?' });
+    if (detail.length < 3) return res.status(400).json({ error: 'Give the reason in a few words — what exactly is the task waiting on?' });
+    // who it is waiting on, when to follow up, when a reply is expected
+    const waiting = resolveWaitingOn(state, t, code, body);
+    if (holdModel.meta(code).party !== 'none' && !waiting.name) return res.status(400).json({ error: 'Say who the task is waiting on.' });
+    if (!isoDateOk(String(body.followUpDate || '').slice(0, 10))) return res.status(400).json({ error: 'Pick the date you will follow this up.' });
+    const followUp = String(body.followUpDate).slice(0, 10);
+    if (followUp < todayISO()) return res.status(400).json({ error: "The follow-up date can't be in the past." });
+    if (code === 'SCHEDULED_FUTURE' && followUp <= todayISO()) return res.status(400).json({ error: 'Pick the future date this work is scheduled for.' });
+    let expected = null;
+    if (body.expectedResponseDate) {
+      expected = String(body.expectedResponseDate).slice(0, 10);
+      if (!isoDateOk(expected)) return res.status(400).json({ error: 'The expected response date is not a valid date.' });
+      if (expected < todayISO()) return res.status(400).json({ error: "The expected response date can't be in the past." });
     }
-    // Hold record: WHO is responsible for the next step, WHEN to follow up, and exactly which clocks stopped.
     const HOLD_RESP = ['client', 'employee', 'reviewer', 'manager', 'third_party', 'capacity'];
-    const respDefault = { CLIENT_QUERY: 'client', CLIENT_DOCS: 'client', THIRD_PARTY: 'third_party', INTERNAL_REVIEW: 'reviewer', CAPACITY: 'manager', BLOCKED_OTHER: 'employee' }[reasonCode];
+    const respDefault = { client: 'client', external: 'third_party', manager: 'manager', reviewer: 'reviewer', internal: 'employee', scheduled: 'employee', other: 'employee' }[meta.kind] || 'employee';
     const responsibility = body.responsibility ? String(body.responsibility) : respDefault;
     if (!HOLD_RESP.includes(responsibility)) return res.status(400).json({ error: 'Say who is responsible for the next step.' });
-    let followUp = null;
-    if (body.followUpDate || body.responsibility) {
-      followUp = /^\d{4}-\d{2}-\d{2}/.test(String(body.followUpDate || '')) ? String(body.followUpDate).slice(0, 10) : null;
-      if (!followUp) return res.status(400).json({ error: 'Pick the date you will follow this up.' });
-      if (followUp < todayISO()) return res.status(400).json({ error: "The follow-up date can't be in the past." });
+    // A client query is recorded only when the owner says one was really sent — with how, when and the evidence. Never automatically.
+    let qIn = null;
+    if (body.queryConfirmed === true) {
+      if (!EXTERNAL_HOLD_CODES.has(code)) return res.status(400).json({ error: 'A query can only be recorded for a wait on the client or an external authority.' });
+      if (!t.clientDate) return res.status(400).json({ error: 'This task has no client date, so there is nothing to pause.' });
+      qIn = parseQueryInput(body, code);
+      if (qIn.error) return res.status(400).json({ error: qIn.error });
     }
-    // A client wait only freezes the commitment date if the owner records the query on purpose (queryConfirmed + real date and time).
-    const wantsQuery = EXEMPTING_REASONS.has(reasonCode) && !!t.clientDate && body.queryConfirmed === true;
-    const qIn = wantsQuery ? parseQueryInput(body, reasonCode) : null;
-    if (qIn && qIn.error) return res.status(400).json({ error: qIn.error });
     let shot = body.screenshot || null;
     if (shot && (typeof shot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(shot) || shot.length > 6_000_000)) {
       shot = null; // ignore anything that isn't a reasonably-sized inline image
     }
+    // ---- everything is valid: now change the task
     if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+    const statusBefore = t.status, now = new Date().toISOString();
     t.preHoldStatus = t.status;
     t.status = 'on_hold';
-    t.heldAt = new Date().toISOString();
-    t.holdReasonCode = reasonCode;
-    t.holdReason = detail || meta.label;      // human-readable, always populated
+    t.heldAt = now;
+    t.holdReasonCode = code;
+    t.holdReason = detail;
     t.holdScreenshot = shot;
     t.holdCount = (t.holdCount || 0) + 1;
+    t.holdResolvedAt = null; t.holdResolvedBy = null;
     t.holdHistory = t.holdHistory || [];
-    const hh = { heldAt: t.heldAt, reasonCode, reason: t.holdReason, hasShot: !!shot, resumedAt: null, by: req.employee.name, queryId: null };
-    if (qIn) {
-      const q = {
-        id: crypto.randomUUID(), taskId: t.id, reasonCode, source: qIn.source,
-        raisedBy: req.employee.id, sentAt: qIn.sentAt, sentTs: qIn.sentTs, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null,
-        emailThreadId: null, chaseLog: [], note: detail || null,
-      };
-      t.queries = t.queries || [];
-      t.queries.push(q);
-      hh.queryId = q.id;
-    }
+    const hh = {
+      holdId: crypto.randomUUID(), heldAt: now, reasonCode: code, category: code, reason: detail, hasShot: !!shot, resumedAt: null, by: req.employee.name, createdBy: req.employee.id,
+      waitingOnType: meta.kind, waitingOnPerson: waiting.name, waitingOnId: waiting.id, queryId: null, querySentAt: null, queryEvidence: null,
+      followUp, expectedResponseDate: expected, responsibilityPaused: false, pauseRequested: false, pauseStartedAt: null, pauseEndedAt: null, approvedBy: null,
+      originalInternalDueDate: t.internalDeadline || null, originalClientCommitmentDate: t.clientDate || null,
+      statusBeforeHold: statusBefore, statusAfterResume: null, resumedBy: null, resumeReason: null, updates: [],
+    };
+    t.holdHistory.push(hh);
+    if (qIn) openHoldQuery(state, t, hh, req.employee, qIn, code, detail);
     t.holdResponsibility = responsibility; t.holdFollowUp = followUp;
     hh.responsibility = responsibility; hh.followUp = followUp;
-    hh.clocksStopped = { workTimer: true, clientCommitment: !!hh.queryId };   // the work timer always stops; the client's clock only for a client wait
-    t.holdHistory.push(hh);
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}${hh.queryId ? ' · client commitment date paused (query recorded)' : ''}`, { hold: true });
+    hh.clocksStopped = hh.clocksStopped || { workTimer: true, clientCommitment: false, processorResponsibility: false };   // the work timer always stops; nothing else changes by itself
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}: ${escHtml(detail)}${waiting.name ? ' · waiting on ' + escHtml(waiting.name) : ''}${hh.queryId ? (hh.responsibilityPaused ? ' · responsibility paused (query recorded)' : ' · query recorded — pause awaiting manager approval') : ''}`, { hold: true });
     db.save();
     res.json({ task: taskForClient(t) });
   });
 
-  // Record the client query for a task that is already on hold — the owner (or their manager) does this on purpose, with the real date and time.
+  // Record the client query for a task that is already on hold — the owner (or their manager) does this on purpose, with the real date, time and evidence.
   app.post('/api/tasks/:id/query', requireAuth, (req, res) => {
     const state = db.get();
     const t = findTask(state, req.params.id);
     if (!t) return res.status(404).json({ error: 'Task not found.' });
     if (t.assignedTo !== req.employee.id && !canManageEmployee(state, req.employee, t.assignedTo)) return res.status(403).json({ error: 'Only the assignee or a manager over them can record a client query.' });
-    if (t.status !== 'on_hold' || !EXEMPTING_REASONS.has(t.holdReasonCode)) return res.status(400).json({ error: 'A client query can only be recorded on a task that is on hold waiting for the client (or a third party).' });
+    if (t.status !== 'on_hold' || !EXEMPTING_REASONS.has(t.holdReasonCode)) return res.status(400).json({ error: 'A client query can only be recorded on a task that is on hold waiting for the client (or an external authority).' });
     if (!t.clientDate) return res.status(400).json({ error: 'This task has no client date, so there is nothing to pause.' });
-    const last = (t.holdHistory || [])[(t.holdHistory || []).length - 1];
+    const last = activeHold(t);
     if (!last) return res.status(400).json({ error: 'No hold found for this task.' });
     if (last.queryId && (t.queries || []).some(q => q.id === last.queryId && !q.dismissedAt)) return res.status(400).json({ error: 'A query is already recorded for this hold.' });
     const qIn = parseQueryInput(req.body || {}, t.holdReasonCode);
     if (qIn.error) return res.status(400).json({ error: qIn.error });
-    const q = { id: crypto.randomUUID(), taskId: t.id, reasonCode: t.holdReasonCode, source: qIn.source, raisedBy: req.employee.id, sentAt: qIn.sentAt, sentTs: qIn.sentTs, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null, emailThreadId: null, chaseLog: [], note: String((req.body || {}).note || '').trim().slice(0, 500) || null };
-    t.queries = t.queries || []; t.queries.push(q);
-    last.queryId = q.id; last.clocksStopped = { ...(last.clocksStopped || {}), clientCommitment: true };
-    logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> recorded a client query on "${escHtml(t.name)}" (sent ${escHtml(qIn.sentAt)}) — client commitment date paused.`);
+    const q = openHoldQuery(state, t, last, req.employee, qIn, t.holdReasonCode, String((req.body || {}).note || '').trim().slice(0, 500) || null);
+    logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> recorded a client query on "${escHtml(t.name)}" (sent ${escHtml(qIn.sentAt)}) — ${q.pauseStatus === 'approved' ? 'responsibility paused' : 'pause awaiting manager approval'}.`);
     db.save();
     res.json({ task: taskForClient(t) });
   });
 
-  // Take a task off hold — back to whatever active state it was in, clock not
-  // auto-started (the assignee presses play when they actually pick it up).
+  // A manager approves or rejects the pause of the processor's responsibility for a recorded query. Until approved, nothing is paused.
+  app.post('/api/tasks/:id/hold-pause', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (!isAdminRole(req.employee.accessRole) || !canManageEmployee(state, req.employee, t.assignedTo) || t.assignedTo === req.employee.id) return res.status(403).json({ error: 'Only a manager over this employee can approve or reject the pause.' });
+    const q = (t.queries || []).find(x => x.pauseStatus === 'pending' && !x.dismissedAt);
+    if (!q) return res.status(400).json({ error: 'There is no pause waiting for approval on this task.' });
+    const approve = (req.body || {}).approve === true;
+    const note = String((req.body || {}).note || '').trim().slice(0, 300);
+    if (!approve && note.length < 3) return res.status(400).json({ error: 'Say briefly why the pause is not approved.' });
+    q.pauseStatus = approve ? 'approved' : 'rejected'; q.pauseApprovedBy = req.employee.id; q.pauseApprovedAt = new Date().toISOString(); q.pauseNote = note || null;
+    const hh = (t.holdHistory || []).find(h => h.queryId === q.id);
+    if (hh) { hh.responsibilityPaused = approve; hh.pauseStartedAt = approve ? q.sentTs : null; hh.approvedBy = approve ? req.employee.id : null; hh.clocksStopped = { ...(hh.clocksStopped || {}), processorResponsibility: approve }; }
+    notify(state, t.assignedTo, 'hold_pause', req.employee.name + (approve ? ' approved' : ' did not approve') + ' pausing your responsibility on "' + t.name + '"' + (note ? ' — ' + note : '') + '.', t.id);
+    logEvent(state, t.assignedTo, `Pause of responsibility on "${escHtml(t.name)}" ${approve ? 'approved' : 'not approved'} by <b>${escHtml(req.employee.name)}</b>${note ? ' — ' + escHtml(note) : ''}.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // The dependency is resolved (client replied, manager decided, reviewer answered): the task becomes Ready to Resume. Nothing resumes by itself.
+  function markHoldResolved(state, t, actor, note) {
+    t.holdResolvedAt = new Date().toISOString(); t.holdResolvedBy = actor.id;
+    const hh = activeHold(t); if (hh) { hh.resolvedAt = t.holdResolvedAt; hh.resolvedBy = actor.id; hh.resolvedNote = note || null; }
+    if (t.assignedTo && t.assignedTo !== actor.id) notify(state, t.assignedTo, 'hold_ready', '"' + t.name + '" is ready to resume — ' + (note || 'what it was waiting on has arrived') + '.', t.id);
+  }
+  app.post('/api/tasks/:id/hold-resolved', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    const canAct = t.assignedTo === req.employee.id || canManageEmployee(state, req.employee, t.assignedTo) || t.reviewerId === req.employee.id;
+    if (!canAct) return res.status(403).json({ error: 'Only the person doing the work, their manager or the reviewer can mark this ready to resume.' });
+    if (t.status !== 'on_hold') return res.status(400).json({ error: 'This task is not on hold.' });
+    if (t.holdResolvedAt) return res.status(400).json({ error: 'This task is already marked ready to resume.' });
+    const note = String((req.body || {}).note || '').trim().slice(0, 300);
+    markHoldResolved(state, t, req.employee, note);
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" is ready to resume — marked by <b>${escHtml(req.employee.name)}</b>${note ? ': ' + escHtml(note) : ''}.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // Change the follow-up date / expected response, or add evidence, on the ACTIVE hold. Every change is kept in the hold's own history.
+  app.post('/api/tasks/:id/hold-update', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (t.assignedTo !== req.employee.id && !canManageEmployee(state, req.employee, t.assignedTo)) return res.status(403).json({ error: 'Only the assignee or a manager over them can update the hold.' });
+    const hh = t.status === 'on_hold' ? activeHold(t) : null;
+    if (!hh) return res.status(400).json({ error: 'This task is not on hold.' });
+    const b = req.body || {}, change = { at: new Date().toISOString(), by: req.employee.id, byName: req.employee.name };
+    if (b.followUpDate !== undefined) {
+      const d = String(b.followUpDate || '').slice(0, 10);
+      if (!isoDateOk(d) || d < todayISO()) return res.status(400).json({ error: 'Pick a follow-up date from today onwards.' });
+      change.followUpFrom = hh.followUp || null; change.followUpTo = d; hh.followUp = d; t.holdFollowUp = d;
+    }
+    if (b.expectedResponseDate !== undefined) {
+      const d = b.expectedResponseDate ? String(b.expectedResponseDate).slice(0, 10) : null;
+      if (d && (!isoDateOk(d) || d < todayISO())) return res.status(400).json({ error: 'The expected response date must be today or later.' });
+      change.expectedFrom = hh.expectedResponseDate || null; change.expectedTo = d; hh.expectedResponseDate = d;
+    }
+    if (b.evidence !== undefined) {
+      const ev = String(b.evidence || '').trim();
+      if (ev.length < 3) return res.status(400).json({ error: 'Give the evidence — an email subject, message reference, link or a note of the call.' });
+      hh.evidence = hh.evidence || []; hh.evidence.push({ at: change.at, by: req.employee.id, byName: req.employee.name, text: ev.slice(0, 500) }); change.evidence = ev.slice(0, 500);
+    }
+    if (Object.keys(change).length <= 3) return res.status(400).json({ error: 'Nothing to update.' });
+    hh.updates = hh.updates || []; hh.updates.push(change);
+    logEvent(state, t.assignedTo, `Hold on "${escHtml(t.name)}" updated by <b>${escHtml(req.employee.name)}</b>${change.followUpTo ? ' — follow-up ' + escHtml(change.followUpTo) : ''}${change.expectedTo !== undefined ? ' — expected response ' + escHtml(change.expectedTo || 'not set') : ''}${change.evidence ? ' — evidence added' : ''}.`);
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // The processor asks for a new commitment date. Nothing changes by itself — the request goes to the manager, who decides with Edit dates.
+  app.post('/api/tasks/:id/date-request', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (t.assignedTo !== req.employee.id) return res.status(403).json({ error: 'Only the person doing the work can ask for a new date.' });
+    const b = req.body || {}, internal = b.internalDeadline ? String(b.internalDeadline).slice(0, 10) : null, client = b.clientDate ? String(b.clientDate).slice(0, 10) : null;
+    const reason = String(b.reason || '').trim();
+    if (!internal && !client) return res.status(400).json({ error: 'Say which date you want to change and to what.' });
+    if ((internal && !isoDateOk(internal)) || (client && !isoDateOk(client))) return res.status(400).json({ error: 'Those are not valid dates.' });
+    if (reason.length < 5) return res.status(400).json({ error: 'Say why you need the new date.' });
+    t.dateRequests = t.dateRequests || [];
+    const reqRow = { id: crypto.randomUUID(), at: new Date().toISOString(), by: req.employee.id, internalDeadline: internal, clientDate: client, reason: reason.slice(0, 400), status: 'open' };
+    t.dateRequests.push(reqRow);
+    managersOfEmployee(state, t.assignedTo).forEach(m => notify(state, m.id, 'date_request', req.employee.name + ' asks for a new date on "' + t.name + '"' + (internal ? ' — internal ' + internal : '') + (client ? ' — client ' + client : '') + ': ' + reason, t.id));
+    logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> asked for a new commitment date on "${escHtml(t.name)}"${internal ? ' (internal ' + escHtml(internal) + ')' : ''}${client ? ' (client ' + escHtml(client) + ')' : ''} — waiting for a manager. Nothing has changed.`);
+    db.save();
+    res.json({ ok: true, request: reqRow });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------------------------
+  // RESUME — closes the hold interval, restores the status the task had, tells the people involved. It never completes the task, never
+  // changes its allocated hours and never grants productivity.
+  // ---------------------------------------------------------------------------------------------------------------------------
   app.post('/api/tasks/:id/unhold', requireAuth, (req, res) => {
     const state = db.get();
     const t = findTask(state, req.params.id);
@@ -2718,27 +2840,34 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       return res.status(403).json({ error: 'Only the assignee or a manager over them can take this off hold.' });
     }
     if (t.status !== 'on_hold') return res.status(400).json({ error: 'This task is not on hold.' });
+    const resumeReason = String((req.body || {}).reason || (req.body || {}).resumeReason || '').trim().slice(0, 300) || null;
     t.status = ['accepted', 'rework', 'awaiting_acceptance'].includes(t.preHoldStatus) ? t.preHoldStatus : 'accepted';
     t.preHoldStatus = null;
-    // `resumedAt` is a working-DAY marker (it feeds queryShift's resume-lag
-    // calc), so store the NZ calendar day, not a UTC timestamp.
-    const resumeDay = todayISO();
+    // `resumedAt` is a working-DAY marker (it feeds queryShift's resume-lag calc), so store the NZ calendar day, not a UTC timestamp.
+    const resumeDay = todayISO(), resumeTs = new Date().toISOString();
     const last = (t.holdHistory || [])[t.holdHistory.length - 1];
-    const resumeTs = new Date().toISOString();
-    if (last && !last.resumedAt) { last.resumedAt = resumeDay; last.resumedTs = resumeTs; }
-    // Mark the query for this hold as resumed — this starts the resume-lag
-    // clock that can forfeit part of the freeze (calendar.queryShift).
+    if (last && !last.resumedAt) {
+      last.resumedAt = resumeDay; last.resumedTs = resumeTs;
+      last.resumedBy = req.employee.id; last.resumeReason = resumeReason; last.statusAfterResume = t.status;
+      last.heldHours = last.heldAt ? Math.round(((Date.parse(resumeTs) - Date.parse(last.heldAt)) / 3600000) * 100) / 100 : null;
+      if (last.responsibilityPaused && !last.pauseEndedAt) last.pauseEndedAt = resumeTs;
+    }
+    // Mark the query for this hold as resumed — this starts the resume-lag clock (calendar.queryShift).
     if (last && last.queryId) {
       const q = (t.queries || []).find(x => x.id === last.queryId);
       if (q && !q.resumedAt) { q.resumedAt = resumeDay; q.resumedTs = resumeTs; }
     }
-    t.heldAt = null; t.holdFollowUp = null; t.holdResponsibility = null;
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
+    t.heldAt = null; t.holdFollowUp = null; t.holdResponsibility = null; t.holdResolvedAt = null; t.holdResolvedBy = null;
+    const dest = t.reviewStatus === 'error' ? 'Fix Needed' : t.status === 'awaiting_acceptance' ? 'To Do' : 'In Progress';
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" resumed${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back to ${dest}${last && last.heldHours != null ? ' after ' + last.heldHours.toFixed(1) + ' h on hold' : ''}.`);
+    // tell the processor (if someone else resumed it) and the manager(s)
+    if (!isMine) notify(state, t.assignedTo, 'hold_resumed', '"' + t.name + '" was resumed by ' + req.employee.name + ' — back to ' + dest + '.', t.id);
+    managersOfEmployee(state, t.assignedTo).forEach(m => { if (m.id !== req.employee.id) notify(state, m.id, 'hold_resumed', '"' + t.name + '" is back from hold — ' + dest + '.', t.id); });
     db.save();
     res.json({ task: taskForClient(t) });
   });
 
-  // Log the client's reply to an open query (manual tick-box — phone /
+    // Log the client's reply to an open query (manual tick-box — phone /
   // WhatsApp / in person / email). Ends the freeze. The processor still has
   // to Resume the task; the gap between reply and resume is the "resume lag"
   // that forfeits part of the extension if it runs past one working day.
@@ -2758,8 +2887,8 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     if (replyAt < q.sentAt.slice(0, 10)) return res.status(400).json({ error: "The reply can't be dated before the query was sent." });
     q.replyAt = replyAt; q.replyTs = replyAt === todayISO() ? new Date().toISOString() : null;
     if (['email', 'phone', 'whatsapp', 'in_person'].includes(body.replySource)) q.replySource = body.replySource;
-    const sh = cal.queryShift(q, todayISO());
-    logEvent(state, t.assignedTo, `Client replied to the query on "${escHtml(t.name)}" (${escHtml(replyAt)}) — commitment date moves +${sh.shift} working day${sh.shift === 1 ? '' : 's'}. Resume the task to keep the full extension.`);
+    logEvent(state, t.assignedTo, `Client replied to the query on "${escHtml(t.name)}" (${escHtml(replyAt)}) — the task is ready to resume.`);
+    if (t.status === 'on_hold' && !t.holdResolvedAt) markHoldResolved(state, t, req.employee, 'the client replied');
     db.save();
     res.json({ task: taskForClient(t) });
   });
@@ -2776,9 +2905,9 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     if (!q) return res.status(404).json({ error: 'Query not found.' });
     const body = req.body || {};
     if (body.remove === true) {
-      t.queries = t.queries.filter(x => x.id !== q.id);
-      (t.holdHistory || []).forEach(h => { if (h.queryId === q.id) h.queryId = null; });
-      logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was removed by <b>${escHtml(req.employee.name)}</b> — its commitment-clock pause no longer applies.`);
+      // never deleted — kept on the task as dismissed, with who and when (the pause it caused no longer applies)
+      q.dismissedAt = new Date().toISOString(); q.dismissedBy = req.employee.id; q.dismissedReason = String(body.reason || 'Removed as raised by mistake').slice(0, 300);
+      logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was dismissed by <b>${escHtml(req.employee.name)}</b> — its pause of responsibility no longer applies.`);
     } else {
       if (typeof body.sentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.sentAt) && body.sentAt.slice(0, 10) <= todayISO()) { q.sentAt = body.sentAt.slice(0, 10); q.sentTs = null; }
       if (body.replyAt === null) { q.replyAt = null; q.replyTs = null; q.resumedAt = null; q.resumedTs = null; }
@@ -4734,33 +4863,11 @@ function productivityFor(state, empIds, fromISO, toISO) {
     done.forEach(({ t, result }) => {
       (result.qualifies ? qualified : excluded).push(productivityTaskRow(t, result));
     });
-    // On-hold "month close" partial credits (see closeMonthOnHoldCredits) —
-    // actual hours banked for a task that was on hold at a manual
-    // month-close, credited to whichever period the close itself happened
-    // in. Independent of the task's own eventual qualifying event, which
-    // still earns credit later too, minus whatever was already banked here
-    // (see productivityQualifies) — so the two together always add up to
-    // no more than the task's original estimate, never double-counted.
-    state.tasks.filter(t => ownerOf(state, t) === id).forEach(t => {
-      (t.monthCloseCredits || []).forEach(c => {
-        // Credited to the month that was closed (its last day), NOT the day
-        // the close button happened to be pressed — closing September on
-        // 2 October must still land in September's numbers.
-        if (!inRange(c.creditDate || c.closedAt)) return;
-        qualified.push({
-          id: t.id + ':close:' + c.period, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
-          kind: t.kind, status: t.status,
-          allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
-          internalDeadline: t.internalDeadline, completedAt: null,
-          clientDate: t.clientDate, sentToClientAt: null,
-          stages: { processor: null, reviewer: null, sender: null },
-          creditedHours: c.hours, qualifies: true,
-          exclusionReason: null, dataException: false, zeroHourTask: c.hours === 0,
-          rule: 'on_hold_month_close', qualifyingEventType: 'month_close', qualifyingEventAt: c.creditDate || c.closedAt,
-          reviewedAt: null, noReviewAuthorized: false, reportStatus: null,
-        });
-      });
+    // handed in during the period but its Reviewed Clean date falls outside it → shown, with the reason (never silently missing)
+    computed.filter(x => x.result.qualifies && x.t.completedAt && inRange(x.t.completedAt) && !inRange(x.result.periodDate || x.t.completedAt)).forEach(({ t, result }) => {
+      excluded.push(productivityTaskRow(t, { ...result, qualifies: false, creditedHours: 0, exclusionReason: 'Clean review outside selected period (' + nzDay(result.periodDate) + ')' }));
     });
+    // (Hours banked at a month-close for held work are NOT credited: a task earns its full allocated hours on Reviewed Clean, or nothing.)
     const qualifiedHours = r2(qualified.reduce((s, x) => s + x.creditedHours, 0));
     const rawPct = capacityHours > 0 ? (qualifiedHours / capacityHours) * 100 : null;
     // One decimal, capped at 100 — anything qualified beyond capacity shows
@@ -4792,7 +4899,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     });
 
     // Open/unfinished work — current state, not period-scoped.
-    const openWork = state.tasks.filter(t => ownerOf(state, t) === id && t.status !== 'completed');
+    const openWork = state.tasks.filter(t => ownerOf(state, t) === id && t.status !== 'completed' && t.status !== 'cancelled');
     const excludedRows = excluded.concat(
       openWork.filter(t => t.internalDeadline && inRange(t.internalDeadline))
         .map(t => productivityTaskRow(t, { qualifies: false, creditedHours: 0, exclusionReason: OPEN_STATUS_REASONS[t.status] || t.status, stages: { processor: null, reviewer: null, sender: null } }))
@@ -4896,6 +5003,9 @@ function periodBounds(period) {
   return { from: `${period}-01`, to: `${period}-${String(last).padStart(2, '0')}` };
 }
 function closeMonthOnHoldCredits(state, period, byEmployeeId) {
+  // Retired: partial credit for held work is not part of the productivity method (full allocated hours on Reviewed Clean, or zero).
+  // Earlier entries stay on their tasks for the record but are never counted.
+  if (true) return [];
   const credited = [];
   const creditDate = periodBounds(period).to;
   (state.tasks || []).filter(t => t.status === 'on_hold').forEach(t => {
@@ -6247,14 +6357,18 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
     const ws = workflowSettings(state);
     attentionIds = [...new Set(mgr.exceptions(rows, byId, { today, nowMs, enforceDomains: !!ws.linkDomainsEnforced, allowedDomains: ws.linkDomains }).map(a => a.id))];
   }
+  // an ordinary processor sees ONE focused view (and a Review view only if they are somebody's reviewer); managers keep Today / Manager / Review
+  const isReviewerNow = state.tasks.some(t => t.reviewerId === me.id && t.assignedTo !== me.id);
+  const tabs = isAdminRole(me.accessRole) ? ['today', 'manager', 'review'] : (isReviewerNow ? ['processor', 'review'] : ['processor']);
   const payload = workflow.buildToday(scoped, me, {
     attentionIds, reviewSlaHours: Number((workflowSettings(state) || {}).reviewSlaHours) || undefined,
     today, nowMs, nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
+    reportInfo: reportSentFor, queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays,
   });
   const hour = Math.floor(nzMinutesOfDay(nowMs) / 60);
-  res.json({ ...payload, today, timezone: BUSINESS_TZ, hour, greeting: workflow.greetingFor(hour), name: me.name });
+  res.json({ ...payload, tabs, today, timezone: BUSINESS_TZ, hour, greeting: workflow.greetingFor(hour), name: me.name });
 });
 
 // ---------------------------------------------------------------------------

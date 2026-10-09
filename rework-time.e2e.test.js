@@ -46,7 +46,7 @@ test('the correction clock counts only running time: idle, held and paused time 
   x = await mine();
   assert.ok(x.reworkElapsedHours > 0.0002 && x.reworkElapsedHours < 0.02, 'running time counts: ' + x.reworkElapsedHours);
   // put it on hold: the figure stops
-  const h = await http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'BLOCKED_OTHER', detail: 'waiting for a file', responsibility: 'employee', followUpDate: day(1) } });
+  const h = await http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'BLOCKED_OTHER', detail: 'waiting for a file', waitingOnPerson: 'the client portal', responsibility: 'employee', followUpDate: day(1) } });
   assert.equal(h.status, 200, JSON.stringify(h.j));
   const frozen = (await mine()).reworkElapsedHours;
   await sleep(1500);

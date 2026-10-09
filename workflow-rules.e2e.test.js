@@ -191,38 +191,49 @@ test('putting work on hold records who is responsible, the follow-up date, and e
   const t = (await create(PK, { taskKind: 'client', clientId: client.id })).j.task;
   assert.equal((await http('POST', T(t.id) + '/accept', { token: RJ })).status, 200);
   const hold = (body, tok) => http('POST', T(t.id) + '/hold', { token: tok || RJ, body });
-  assert.equal((await hold({ reasonCode: 'CLIENT_DOCS', responsibility: 'nobody', followUpDate: day(2) })).status, 400, 'unknown responsibility');
-  assert.equal((await hold({ reasonCode: 'CLIENT_DOCS', responsibility: 'client' })).status, 400, 'a follow-up date is required');
-  assert.equal((await hold({ reasonCode: 'CLIENT_DOCS', responsibility: 'client', followUpDate: day(-1) })).status, 400, 'not in the past');
+  assert.equal((await hold({ reasonCode: 'CLIENT_DOCS', detail: 'bank statements', responsibility: 'nobody', followUpDate: day(2) })).status, 400, 'unknown responsibility');
+  assert.equal((await hold({ reasonCode: 'CLIENT_DOCS', detail: 'bank statements', responsibility: 'client' })).status, 400, 'a follow-up date is required');
+  assert.equal((await hold({ reasonCode: 'CLIENT_DOCS', detail: 'bank statements', responsibility: 'client', followUpDate: day(-1) })).status, 400, 'not in the past');
   const ok = await hold({ reasonCode: 'CLIENT_DOCS', responsibility: 'client', followUpDate: day(2), detail: 'Waiting for the bank statements' });
   assert.equal(ok.status, 200, JSON.stringify(ok.j));
   const h = ok.j.task.holdHistory.at(-1);
   assert.equal(ok.j.task.holdResponsibility, 'client'); assert.equal(ok.j.task.holdFollowUp, day(2));
-  assert.deepEqual(h.clocksStopped, { workTimer: true, clientCommitment: false }, 'a hold alone never pauses the client commitment date — the owner has to record the query');
+  assert.deepEqual(h.clocksStopped, { workTimer: true, clientCommitment: false, processorResponsibility: false }, 'a hold alone pauses nothing — the owner has to record the query');
   assert.equal(ok.j.task.queries.length, 0, 'no query is opened automatically');
-  const noTime = await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0) } });
+  const noTime = await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0), queryEvidence: 'Email to client' } });
   assert.equal(noTime.status, 400, 'the time is required — it is never filled in');
-  const rec = await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0), querySentTime: '00:01' } });
+  assert.equal((await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0), querySentTime: '00:01' } })).status, 400, 'evidence is required');
+  const rec = await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0), querySentTime: '00:01', queryEvidence: 'Email "Bank statements" to the client' } });
   assert.equal(rec.status, 200, JSON.stringify(rec.j));
-  assert.deepEqual(rec.j.task.holdHistory.at(-1).clocksStopped, { workTimer: true, clientCommitment: true }, 'once the owner records the query, the client date pauses');
+  assert.deepEqual(rec.j.task.holdHistory.at(-1).clocksStopped, { workTimer: true, clientCommitment: false, processorResponsibility: false }, 'recorded by the processor: the pause waits for a manager');
+  assert.equal(rec.j.task.queries[0].pauseStatus, 'pending');
+  const appr = await http('POST', T(t.id) + '/hold-pause', { token: PK, body: { approve: true } });
+  assert.equal(appr.status, 200, JSON.stringify(appr.j));
+  assert.deepEqual(appr.j.task.holdHistory.at(-1).clocksStopped, { workTimer: true, clientCommitment: false, processorResponsibility: true }, 'once a manager approves, responsibility is paused — never the client date');
+  assert.equal(appr.j.task.effectiveClientDate, appr.j.task.clientDate, 'the client commitment date is never moved by a hold');
   assert.equal(rec.j.task.queries.length, 1); assert.ok(rec.j.task.queries[0].sentTs);
-  assert.equal((await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0), querySentTime: '00:01' } })).status, 400, 'only one query per hold');
+  assert.equal((await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0), querySentTime: '00:01', queryEvidence: 'again' } })).status, 400, 'only one query per hold');
   const card = (await http('GET', '/api/workflow/tasks?ids=' + enc(t.id), { token: PK })).j.rows[0];
   assert.equal(card.status, 'On Hold'); assert.equal(card.waitingOn.kind, 'client'); assert.equal(card.holdFollowUp, day(2));
   assert.equal((await http('POST', T(t.id) + '/unhold', { token: RJ })).status, 200);
   const back = await mine(SH, t.id);
   assert.equal(back.holdFollowUp, null); assert.equal(back.holdResponsibility, null);
   // an internal wait stops the work timer only — the client's clock keeps running
-  const ok2 = await hold({ reasonCode: 'INTERNAL_REVIEW', responsibility: 'reviewer', followUpDate: day(1) });
-  assert.deepEqual(ok2.j.task.holdHistory.at(-1).clocksStopped, { workTimer: true, clientCommitment: false });
-  assert.equal((await hold({ reasonCode: 'CLIENT_DOCS' }, PK)).status, 400, 'already on hold');
+  const ok2 = await hold({ reasonCode: 'INTERNAL_REVIEW', detail: 'waiting for the partner', waitingOnPerson: 'Parvinder Kumar', responsibility: 'reviewer', followUpDate: day(1) });
+  assert.deepEqual(ok2.j.task.holdHistory.at(-1).clocksStopped, { workTimer: true, clientCommitment: false, processorResponsibility: false });
+  assert.equal((await hold({ reasonCode: 'CLIENT_DOCS', detail: 'x docs', followUpDate: day(1) }, PK)).status, 400, 'already on hold');
 });
 
-test('old callers of /hold (no responsibility, no follow-up) still work exactly as before', async () => {
+test('a hold needs a category, a reason and a follow-up date — and opens no client query by itself', async () => {
   const t = (await create(PK, { kind: 'client', clientId: client.id })).j.task;
   await http('POST', T(t.id) + '/accept', { token: RJ });
-  const r = await http('POST', T(t.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_QUERY', detail: 'asked' } });
-  assert.equal(r.status, 200); assert.equal(r.j.task.holdResponsibility, 'client'); assert.equal(r.j.task.holdFollowUp, null);
+  const hold = body => http('POST', T(t.id) + '/hold', { token: RJ, body });
+  assert.equal((await hold({ detail: 'asked', followUpDate: day(2) })).status, 400, 'a category is required');
+  assert.equal((await hold({ reasonCode: 'CLIENT_QUERY', followUpDate: day(2) })).status, 400, 'a reason is required');
+  assert.equal((await hold({ reasonCode: 'CLIENT_QUERY', detail: 'asked' })).status, 400, 'a follow-up date is required');
+  const r = await hold({ reasonCode: 'CLIENT_QUERY', detail: 'asked', followUpDate: day(2) });
+  assert.equal(r.status, 200, JSON.stringify(r.j)); assert.equal(r.j.task.holdResponsibility, 'client'); assert.equal(r.j.task.holdFollowUp, day(2));
+  assert.equal(r.j.task.queries.length, 0);
 });
 
 test('waive_review as a manager action: reason required, client tasks only, audited', async () => {

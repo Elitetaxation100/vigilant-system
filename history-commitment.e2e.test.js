@@ -65,7 +65,7 @@ const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckla
 const day = n => new Date(Date.parse(today + 'T12:00:00Z') + n * 86400000).toISOString().slice(0, 10);
 const nowHM = () => new Date().toLocaleTimeString('en-GB', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const nzHM = iso => new Date(iso).toLocaleTimeString('en-GB', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-const ASK = (extra) => ({ queryConfirmed: true, querySource: 'email', querySentAt: today, querySentTime: nowHM(), ...(extra || {}) });
+const ASK = (extra) => ({ queryConfirmed: true, querySource: 'email', querySentAt: today, querySentTime: nowHM(), queryEvidence: 'Email "Missing bank statements" to the client', ...(extra || {}) });
 let SA, PA, RJ, E, task;
 const emp = n => E.find(e => e.email === n + '@elitetaxation.co.nz');
 const T = id => '/api/tasks/' + enc(id);
@@ -117,23 +117,23 @@ test('a hold alone opens NO query and pauses nothing; a query needs the date AND
   const clientId = (await http('POST', '/api/clients', { token: SA, body: { name: 'Manual Ltd', email: 'm@t.co' } })).j.client.id;
   const mkT = async name => { const r = await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name, taskKind: 'client', clientId, assignedTo: emp('ranjit').id, tat: 1, internalDeadline: day(1), clientDate: day(9), reviewerId: emp('parvinder').id } }); assert.equal(r.status, 201, JSON.stringify(r.j)); await http('POST', T(r.j.task.id) + '/accept', { token: RJ }); return r.j.task; };
   const t0 = await mkT('Plain hold');
-  const h = await http('POST', T(t0.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_QUERY', responsibility: 'client', followUpDate: day(2) } });
+  const h = await http('POST', T(t0.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_QUERY', detail: 'asked about the entity', responsibility: 'client', followUpDate: day(2) } });
   assert.equal(h.status, 200, JSON.stringify(h.j));
   assert.equal(h.j.task.queries.length, 0, 'no query record'); assert.equal(h.j.task.queryShiftDays, 0); assert.equal(h.j.task.effectiveClientDate, h.j.task.clientDate);
-  assert.deepEqual(h.j.task.holdHistory.at(-1).clocksStopped, { workTimer: true, clientCommitment: false });
+  assert.deepEqual(h.j.task.holdHistory.at(-1).clocksStopped, { workTimer: true, clientCommitment: false, processorResponsibility: false });
   // ticking "I sent a query" without the details is refused, and changes nothing
   const t1 = await mkT('Half filled');
   for (const bad of [{ querySentTime: '' }, { querySentAt: '' }, { querySource: '' }, { querySentAt: day(1), querySentTime: '10:00' }, { querySentTime: '99:99' }]) {
-    const r = await http('POST', T(t1.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_QUERY', responsibility: 'client', followUpDate: day(2), ...ASK(bad) } });
+    const r = await http('POST', T(t1.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_QUERY', detail: 'asked about the entity', responsibility: 'client', followUpDate: day(2), ...ASK(bad) } });
     assert.equal(r.status, 400, JSON.stringify(bad));
   }
   assert.equal((await http('GET', '/api/tasks', { token: RJ })).j.tasks.find(x => x.id === t1.id).status, 'accepted', 'a refused hold changes nothing');
   // a backdated query keeps the exact time that was typed
-  const ok = await http('POST', T(t1.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_QUERY', responsibility: 'client', followUpDate: day(2), ...ASK({ querySentAt: day(-1), querySentTime: '10:30' }) } });
+  const ok = await http('POST', T(t1.id) + '/hold', { token: RJ, body: { reasonCode: 'CLIENT_QUERY', detail: 'asked about the entity', responsibility: 'client', followUpDate: day(2), ...ASK({ querySentAt: day(-1), querySentTime: '10:30' }) } });
   assert.equal(ok.status, 200, JSON.stringify(ok.j));
   assert.equal(ok.j.task.queries[0].sentAt, day(-1)); assert.equal(nzHM(ok.j.task.queries[0].sentTs), '10:30');
   // the owner can also record it afterwards, on the plain hold
-  const late = await http('POST', T(t0.id) + '/query', { token: RJ, body: { querySource: 'phone', querySentAt: today, querySentTime: nowHM() } });
+  const late = await http('POST', T(t0.id) + '/query', { token: RJ, body: { querySource: 'phone', querySentAt: today, querySentTime: nowHM(), queryEvidence: 'Phone call to the client at reception' } });
   assert.equal(late.status, 200, JSON.stringify(late.j)); assert.equal(late.j.task.queries.length, 1);
 });
 
@@ -163,8 +163,8 @@ test('audit: a client-wait with no detail and no reply is flagged; only a supera
   const clientId = (await http('POST', '/api/clients', { token: SA, body: { name: 'Audit Ltd', email: 'a@t.co' } })).j.client.id;
   const mkT = async name => { const r = await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name, taskKind: 'client', clientId, assignedTo: emp('ranjit').id, tat: 1, internalDeadline: day(1), clientDate: day(4), reviewerId: emp('parvinder').id } }); assert.equal(r.status, 201, JSON.stringify(r.j)); await http('POST', T(r.j.task.id) + '/accept', { token: RJ }); return r.j.task; };
   const fake = await mkT('Fake query'), real = await mkT('Real query'), live = await mkT('Still waiting');
-  const hold = (t, body) => http('POST', T(t.id) + '/hold', { token: RJ, body: { responsibility: 'client', followUpDate: day(2), ...body } });
-  assert.equal((await hold(fake, { reasonCode: 'CLIENT_QUERY', ...ASK() })).status, 200);       // nothing typed — what the old default produced
+  const hold = (t, body) => http('POST', T(t.id) + '/hold', { token: RJ, body: { responsibility: 'client', followUpDate: day(2), detail: 'waiting on the client', ...body } });
+  assert.equal((await hold(fake, { reasonCode: 'CLIENT_QUERY', detail: 'Awaiting client answer to a query', ...ASK() })).status, 200);       // nothing typed — what the old default produced
   assert.equal((await hold(real, { reasonCode: 'CLIENT_QUERY', ...ASK({ querySource: 'phone' }), detail: 'Which entity owns the vehicle?' })).status, 200);
   assert.equal((await hold(live, { reasonCode: 'CLIENT_QUERY', ...ASK() })).status, 200);
   for (const t of [fake, real]) assert.equal((await http('POST', T(t.id) + '/unhold', { token: RJ })).status, 200);
@@ -228,7 +228,7 @@ test('the server reports an on-hold task as "on_hold", not missed', async () => 
   const clientId = (await http('POST', '/api/clients', { token: SA, body: { name: 'Hold Ltd', email: 'hl@t.co' } })).j.client.id;
   const r = await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name: 'Held job', taskKind: 'client', clientId, assignedTo: emp('ranjit').id, tat: 1, internalDeadline: day(1), clientDate: day(4), reviewerId: emp('parvinder').id } });
   await http('POST', T(r.j.task.id) + '/accept', { token: RJ });
-  assert.equal((await http('POST', T(r.j.task.id) + '/hold', { token: RJ, body: { reasonCode: 'BLOCKED_OTHER', detail: 'Waiting on my laptop', responsibility: 'employee', followUpDate: day(2) } })).status, 200);
+  assert.equal((await http('POST', T(r.j.task.id) + '/hold', { token: RJ, body: { reasonCode: 'BLOCKED_OTHER', detail: 'Waiting on my laptop', waitingOnPerson: 'IT', responsibility: 'employee', followUpDate: day(2) } })).status, 200);
   const t = (await http('GET', '/api/tasks', { token: RJ })).j.tasks.find(x => x.id === r.j.task.id);
   assert.equal(t.commitmentOutcome, 'on_hold');
 });

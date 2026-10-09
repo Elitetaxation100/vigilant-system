@@ -39,7 +39,7 @@ test('every task has ONE owner for the next action, in the spec\'s words', () =>
   assert.deepEqual([w(base()).kind, w(base()).label], ['employee', 'Waiting on employee']);
   assert.deepEqual([w(submitted()).kind, w(submitted()).ownerName], ['reviewer', 'Parvinder Kumar']);
   assert.equal(w(base({ status: 'awaiting_acceptance', reviewStatus: 'error' })).label, 'Waiting on employee');
-  assert.equal(w(base({ status: 'on_hold', holdReasonCode: 'CLIENT_DOCS' })).label, 'Waiting on client');
+  assert.equal(w(base({ status: 'on_hold', holdReasonCode: 'CLIENT_DOCS' })).label, 'Waiting on client documents');
   assert.equal(w(base({ status: 'on_hold', holdReasonCode: 'THIRD_PARTY' })).label, 'Waiting on external authority');
   assert.equal(w(base({ status: 'on_hold', holdReasonCode: 'CAPACITY' })).label, 'Waiting on manager');
   assert.equal(w(base({ assignedTo: null, status: 'awaiting_acceptance' })).label, 'Waiting on manager');
