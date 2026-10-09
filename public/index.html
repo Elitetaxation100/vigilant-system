@@ -8031,7 +8031,7 @@ function tdDetailHtml(id, given){
   let body = '<button type="button" class="btn td-back td-act" onclick="tdBack()">← Back to the list</button>'
     + '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><div><div style="font-size:12.5px;color:var(--text-faint);">' + esc(c.kindLabel) + ' · ' + esc(taskNo(c.id)) + '</div>'
     + '<h3 style="margin:2px 0 0;">' + esc(c.clientName || 'Admin task') + ' — ' + esc(c.name) + '</h3></div><div>' + tdRiskTag(c) + '</div></div>'
-    + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>';
+    + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.primaryStatus || c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>';
   if(mode === 'today') body += '<div style="margin:8px 0 6px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:14px;"><b>What you need to do</b><br>' + esc(c.nextAction) + (c.clientDate ? '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : (c.internalDeadline ? '<br><span style="color:var(--text-dim);">Due ' + esc(fmtDate(c.internalDeadline)) + '</span>' : '')) + '</div>' + track;
   else body += '<div style="font-size:13.5px;color:var(--text-dim);">Next: ' + esc(c.nextAction) + '</div>' + track;
   if(!t){ return body + '<div class="td-empty">Loading the task details…</div>'; }
@@ -8666,7 +8666,7 @@ function holdControlsHtml(t){
     let h = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeModal('${t.id}')">Resume</button>`;
     if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log reply</button>`;
     else if(!ready) h += `<button class="verify-btn" onclick="openHoldResolvedModal('${t.id}')" title="What it was waiting for has arrived">Ready to resume</button>`;
-    if(!q && t.clientDate && ext) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openRecordQueryModal('${t.id}')" title="Only if you really sent a query — a manager has to approve the pause of your responsibility">Record query</button>`;
+    if(!q && !(activeHoldOf(t) || {}).queryId && t.clientDate && ext) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openRecordQueryModal('${t.id}')" title="Only if you really sent a query — a manager has to approve the pause of your responsibility">Record query</button>`;
     h += `<button class="verify-btn" onclick="openHoldUpdateModal('${t.id}')">Update hold</button>`;
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
     return h;
@@ -8687,7 +8687,7 @@ function holdSummaryHtml(t){
     + (q && !q.replyAt && (HOLD_REASONS[code] || {}).clientRelated ? row('Client response', 'pending for ' + esc(holdAgeText(q.sentTs || q.sentAt))) : '')
     + row('Follow-up', follow ? esc(fmtDate(follow)) + (due ? ' <span style="color:var(--coral);">· due</span>' : '') : '—')
     + (hh.expectedResponseDate ? row('Reply expected by', esc(fmtDate(hh.expectedResponseDate))) : '')
-    + row('Processor responsibility', paused ? 'paused since ' + esc(fmtStamp(q.sentTs || q.sentAt)) : pause === 'pending' ? '<span style="color:#B45309;">pause awaiting manager approval</span>' : 'not paused')
+    + row('Processor responsibility', paused ? 'paused since ' + esc(fmtStamp(q.sentTs || q.sentAt)) : q && q.replyAt ? 'not paused — the reply has arrived' : pause === 'pending' ? '<span style="color:#B45309;">pause awaiting manager approval</span>' : pause === 'rejected' ? 'not paused — a manager did not approve it' : 'not paused')
     + row('Client commitment', t.clientDate ? esc(fmtDate(t.clientDate)) + ' <span style="font-weight:400;color:var(--text-faint);">· never moved by a hold</span>' : '—')
     + row('Capacity & allocated hours', 'unchanged')
     + '</div></div>';
@@ -13668,6 +13668,8 @@ function taskTimelineEvents(t){
     if(h.endedAt && !(t.submissions || []).some(x => x.kind === 'resubmit' && x.at === h.endedAt)) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
   });
 
+  // a manager's exception to the review rule is part of the record: who, when and why
+  if(t.noReviewAuthorizedAt) push(t.noReviewAuthorizedAt, '🛡', `<b>${esc(nm(t.noReviewAuthorizedBy) || '—')}</b> authorised this task to go without a review — an exception to the rule${t.noReviewAuthorizedReason ? ': “' + esc(t.noReviewAuthorizedReason) + '”' : ''}.`);
   const effInternal = t.effectiveInternalDate || t.internalDeadline || null;
   const internalNote = (whenIso, first) => {
     if(!effInternal) return '';
