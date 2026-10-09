@@ -4923,6 +4923,19 @@ function productivityFor(state, empIds, fromISO, toISO, opts) {
     // whether it went on to qualify (so review/send delays don't hide a
     // processor's own on-time record).
     const withCommitment = done.filter(x => x.t.completedAt && x.t.internalDeadline);
+    const commitmentTasks = !(opts && opts.detail) ? undefined : (() => {
+      const row = x => {
+        const t = x.t, first = t.firstSubmittedAt || t.completedAt, due = t.internalDeadline && taskShiftDays(t) > 0 ? cal.addWorkingDays(t.internalDeadline, taskShiftDays(t)) : t.internalDeadline;
+        const sub = nzDay(first), met = x.result.stages.processor === 'met';
+        return { id: t.id, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'), internalDue: due, originalInternalDue: t.internalDeadline, submittedAt: first, submittedDay: sub, met,
+          daysLate: met ? 0 : Math.max(0, Math.round((Date.parse(sub + 'T00:00:00Z') - Date.parse(due + 'T00:00:00Z')) / 86400000)), reworkCount: t.reworkCount || 0, paused: taskShiftDays(t) > 0, dateChanged: (t.dateHistory || []).length > 0, status: t.status };
+      };
+      const counted = withCommitment.map(row).sort((a, b) => (a.met - b.met) || b.daysLate - a.daysLate || a.submittedDay.localeCompare(b.submittedDay));
+      // open work already past its internal date: not in the percentage yet (it has not been handed in), but it is a commitment not being met
+      const open = state.tasks.filter(t => ownerOf(state, t) === id && t.status !== 'completed' && t.status !== 'cancelled' && t.internalDeadline && !(t.firstSubmittedAt) && t.internalDeadline < todayISO() && workflow.isClientTask(t))
+        .map(t => ({ id: t.id, name: t.name, clientName: t.clientName || '—', internalDue: t.internalDeadline, status: t.status, daysLate: Math.max(0, Math.round((Date.parse(todayISO() + 'T00:00:00Z') - Date.parse(t.internalDeadline + 'T00:00:00Z')) / 86400000)), onHold: t.status === 'on_hold' }));
+      return { counted, openPastDue: open };
+    })();
     const commitmentMet = withCommitment.filter(x => x.result.stages.processor === 'met').length;
     const commitmentTotal = withCommitment.length;
     const commitmentPct = commitmentTotal > 0 ? Math.round((commitmentMet / commitmentTotal) * 1000) / 10 : null;
@@ -4974,7 +4987,7 @@ function productivityFor(state, empIds, fromISO, toISO, opts) {
       outstandingReports: reportsReadyNotSent + reportsLate,
       qualifiedTasks: qualified, excludedTasks: excludedRows, openWork: openWork.map(t => productivityOpenRow(state, t)),
       capacityNotConverted, assignedOpenHours: openPart, trulyUnallocatedHours, notConvertedBreakdown, capacityBreakdown,
-      ...(opts && opts.detail ? { capacityDays: capacityDaysDetail(state, emp, from, to) } : {}),
+      ...(opts && opts.detail ? { capacityDays: capacityDaysDetail(state, emp, from, to), commitmentTasks } : {}),
     };
   });
 }
@@ -6464,6 +6477,17 @@ app.get('/api/workflow/tasks', requireAuth, requireAdmin, (req, res) => {
     ...page, today: deps.today,
     facets: { employees: teamPeople(state, req.employee), clients: facet(r => r.clientName), types: facet(r => r.taskType), reviewers: [...new Map(rows.filter(r => r.reviewerId).map(r => [r.reviewerId, r.reviewerName])).entries()].map(([id, name]) => ({ id, name })) },
   });
+});
+// MY TASKS — the signed-in person's own tasks, whatever their state (to do, held, with a reviewer, finished). Scoped here on the server: nobody can
+// ask for anyone else's through this route.
+app.get('/api/workflow/my-tasks', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee, q = req.query || {};
+  const deps = workflowDeps(state, me), rows = [];
+  for (const t of visibleTasks(state, me)) { if (t.assignedTo !== me.id || t.status === 'cancelled') continue; rows.push(mgr.enrich(workflow.card(t, deps), t, deps)); }
+  const filtered = mgr.applyFilters(rows, { ...q, employee: me.id, today: deps.today, nzDay });
+  const page = mgr.paginate(mgr.sortRows(filtered, q.sort), q.page, q.pageSize);
+  const counts = {}; rows.forEach(r => { counts[r.primaryStatus] = (counts[r.primaryStatus] || 0) + 1; });
+  res.json({ ...page, today: deps.today, total: filtered.length, all: rows.length, counts, facets: { clients: [...new Set(rows.map(r => r.clientName).filter(Boolean))].sort() } });
 });
 // Filter choices for the Calendar and Timeline — only real options.
 function viewFacets(state, me, rows) {

@@ -47,6 +47,7 @@ function applyFilters(rows, f) {
     if (f.client && r.clientId !== f.client && String(r.clientName || '').toLowerCase() !== String(f.client).toLowerCase()) return false;
     if (f.type) { if (f.type === 'client' ? r.kindLabel !== 'Client Task' : f.type === 'admin' ? r.kindLabel !== 'Admin Task' : r.taskType !== f.type) return false; }
     if (f.status && r.status !== f.status) return false;
+    if (f.primary && r.primaryStatus !== f.primary) return false;
     if (f.dateFrom || f.dateTo) {                       // a date range on the chosen date: client commitment, internal due (default), or when it was created
       const d = f.dateBy === 'client' ? r.clientDate : f.dateBy === 'created' ? String((f.nzDay ? f.nzDay(r.createdAt) : String(r.createdAt || '').slice(0, 10)) || '') : r.internalDeadline;
       if (!d) return false;
