@@ -3485,6 +3485,9 @@ function myReviewTasks(){
 // Can the viewer re-open a closed task (marked done, or reviewed clean)
 // and send it to someone for a review? The assignee, whoever assigned it,
 // or an admin over them.
+function iCanChangeReviewer(t){
+  return !!(t && t.status === 'completed' && !t.reviewStatus && t.reviewerId && !(t.escalation && t.escalation.status === 'open') && t.assignedTo === currentViewerId);
+}
 function iCanSendForReview(t){
   if(!t || t.status !== 'completed') return false;
   if(t.reviewStatus !== 'done' && t.reviewStatus !== 'clean') return false;
@@ -6500,6 +6503,7 @@ function actionCell(t){
       // things you can actually do.
       if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
       else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
+      if(iCanChangeReviewer(t)) html += `<button class="verify-btn" onclick="openChangeReviewerModal('${t.id}')" title="Send this to a different reviewer">Change reviewer</button>`;
       if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open this job for re-review (e.g. marked done by mistake)">Reopen for Re-review</button>`;
     }
     if(iCanRemoveTask(t)) html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="removeTask('${t.id}')">Remove</button>`;
@@ -6557,7 +6561,8 @@ function actionCell(t){
     // Actions only carries what this viewer can do about it.
     if(!t.reviewStatus && iCanReview(t)) html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
-    else if(t.reviewStatus === 'clean' || t.reviewStatus === 'error') html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewViewModal('${t.id}')">View review</button>`;
+    if(iCanChangeReviewer(t)) html += `<button class="verify-btn" onclick="openChangeReviewerModal('${t.id}')" title="Send this to a different reviewer">Change reviewer</button>`;
+    if(t.reviewStatus === 'clean' || t.reviewStatus === 'error') html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewViewModal('${t.id}')">View review</button>`;
     if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open this job for re-review (e.g. marked done by mistake)">Reopen for Re-review</button>`;
   }
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
@@ -8093,7 +8098,7 @@ function tdDetailHtml(id, given){
   const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
   const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
   // Order: actions (Open review / Full history) → My actions → Links → attachments + latest note → People / Dates / Work
-  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
+  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + (iCanChangeReviewer(t) ? '<button type="button" class="btn td-act" onclick="openChangeReviewerModal(\'' + esc(id) + '\')" title="Send this to a different reviewer">Change reviewer</button>' : '') + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
     + (mineOpen ? '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>' : '')
     + links
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
@@ -9033,6 +9038,30 @@ function openCompleteModal(id){
     }
   }
 // Re-open a closed task (Done / Reviewed clean) and send it for review.
+function reviewerOptionsHtml(t, current){
+  return eligibleReviewersFor(t.assignedTo).slice().sort((a, b) => a.name.localeCompare(b.name)).map(e => '<option value="' + esc(e.id) + '"' + (e.id === current ? ' selected' : '') + '>' + esc(e.name) + (e.id === current ? ' (current reviewer)' : '') + '</option>').join('');
+}
+function openChangeReviewerModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Change reviewer — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · now with <b>${esc((empById(t.reviewerId) || {}).name || '—')}</b></div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">The task moves to the person you pick. The new reviewer is told, it leaves the previous reviewer's list, and the change is kept in the task history. The time it has already waited is not reset.</p>
+    <div class="field"><label for="crReviewer">Send for review to</label><select id="crReviewer">${reviewerOptionsHtml(t, t.reviewerId)}</select></div>
+    <div class="field"><label for="crReason">Reason <span style="color:var(--text-faint);">(optional)</span></label><input id="crReason" maxlength="300" placeholder="e.g. Parvinder is on leave"></div>
+    <div class="modal-error" id="crErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitChangeReviewer('${esc(id)}')">Change reviewer</button></div>`;
+  openModal();
+}
+async function submitChangeReviewer(id){
+  const t = findTask(id), err = document.getElementById('crErr'), v = document.getElementById('crReviewer').value;
+  if(t && v === t.reviewerId){ err.textContent = 'Pick a different person — that one is already the reviewer.'; err.style.display = 'block'; return; }
+  try {
+    await api('/api/tasks/' + encodeURIComponent(id) + '/change-reviewer', { method:'POST', body: JSON.stringify({ reviewerId: v, reason: document.getElementById('crReason').value }) });
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Reviewer changed', 'The new reviewer has been told.');
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
+}
 function openSendForReviewModal(id){
   const t = findTask(id);
   if(!t) return;
@@ -13436,6 +13465,9 @@ function taskTimelineEvents(t){
     if(h.added){ push(h.at, '⏱', `<b>${esc(h.by||'—')}</b> added ${Number(h.added).toFixed(2)}h of time spent while on hold — now ${Number(h.to).toFixed(1)}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`); return; }
     push(h.at, '🛠', `<b>${esc(h.by||'—')}</b> corrected the logged hours — ${Number(h.from).toFixed(1)}h → ${Number(h.to).toFixed(1)}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
   });
+  (t.reviewerHistory||[]).forEach(h => {
+    push(h.at, '🔀', `<b>${esc(h.byName || nm(h.by) || '—')}</b> changed the reviewer from <b>${esc(nm(h.from) || '—')}</b> to <b>${esc(nm(h.to) || '—')}</b>${h.via === 'resubmit' ? ' while resubmitting the corrected work' : ''}${h.reason ? ' — “' + esc(h.reason) + '”' : ''}.`);
+  });
   (t.nameHistory||[]).forEach(h => {
     push(h.at, '✏', `<b>${esc(h.by||'—')}</b> renamed it — “${esc(h.from)}” → “${esc(h.to)}”.`);
   });
@@ -13750,6 +13782,7 @@ function openReworkDetailModal(id){
       ${(t.reviewAttachments || []).length ? `<div style="margin-top:10px;"><b style="color:#7A2A0C;">Attached by the reviewer:</b>${reviewFilesByRoundHtml(t)}</div>` : ''}
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
+    <div class="field" style="margin-bottom:10px;"><label for="rsReviewer">Send for re-review to</label><select id="rsReviewer">${reviewerOptionsHtml(t, t.reviewerId)}</select></div>
     <p style="font-size:13.5px; color:var(--text-dim); line-height:1.6; margin-bottom:16px;">Fix the issue above, then resubmit — this puts it back in front of a reviewer and the completion date used for commitment tracking will be updated to when you resubmit.</p>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -13765,12 +13798,14 @@ function openReworkDetailModal(id){
   }
 }
 async function submitResubmit(id){
+  const t = findTask(id), sel = document.getElementById('rsReviewer'), body = {};
+  if(sel && sel.value && t && sel.value !== t.reviewerId) body.reviewerId = sel.value;     // only when a different reviewer was chosen
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/resubmit`, { method:'POST' });
+    await api(`/api/tasks/${encodeURIComponent(id)}/resubmit`, { method:'POST', body: JSON.stringify(body) });
     closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
-    showToast('success', 'Resubmitted', 'Sent back for re-review.');
+    showToast('success', 'Resubmitted', body.reviewerId ? 'Sent for re-review to ' + ((empById(body.reviewerId) || {}).name || 'the new reviewer') + '.' : 'Sent back for re-review.');
   } catch(e){
     showToast('error', 'Could not resubmit', e.message);
   }
