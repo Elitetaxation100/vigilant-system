@@ -450,7 +450,7 @@ function taskShiftDays(t) {
   const today = todayISO();
   let shift = 0;
   for (const q of (t.queries || [])) {
-    if (!EXEMPTING_REASONS.has(q.reasonCode)) continue;
+    if (q.dismissedAt || !EXEMPTING_REASONS.has(q.reasonCode)) continue;
     shift += cal.queryShift(q, today).shift;
   }
   return shift;
@@ -461,7 +461,7 @@ function effectiveClientDate(t) {
   return s > 0 ? cal.addWorkingDays(t.clientDate, s) : t.clientDate;
 }
 function anyQueryOpen(t) {
-  return (t.queries || []).some(q => EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
+  return (t.queries || []).some(q => !q.dismissedAt && EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
 }
 // Every time a task is handed in (sent for review, marked done, resubmitted after a correction, re-opened) is kept with its exact time and the
 // dates in force at that moment. The employee's OWN commitment is judged on the FIRST hand-in — a reviewer sending it back, or a later
@@ -4475,8 +4475,8 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
     clientDate: t.clientDate, effectiveClientDate: effectiveClientDate(t), assignedAt: t.assignedAt,
     holdReasonCode: t.holdReasonCode || null,
     queryShiftDays: taskShiftDays(t), commitmentOutcome: commitmentOutcome(t),
-    queries: (t.queries || []).map(q => ({
-      reasonCode: q.reasonCode, source: q.source, sentAt: q.sentAt, replyAt: q.replyAt, resumedAt: q.resumedAt,
+    queries: (t.queries || []).filter(q => !q.dismissedAt).map(q => ({
+      reasonCode: q.reasonCode, source: q.source, sentAt: q.sentAt, sentTs: q.sentTs || null, replyAt: q.replyAt, replyTs: q.replyTs || null, resumedAt: q.resumedAt, resumedTs: q.resumedTs || null, dismissedAt: q.dismissedAt || null, dismissedReason: q.dismissedReason || null,
       ...cal.queryShift(q, todayISO()),
     })),
     loggedHours: Math.round(liveElapsedHours(t) * 100) / 100, tatHours: t.tat || 0,
@@ -6245,6 +6245,68 @@ app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
   res.json({ today: deps.today, total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size), facets: viewFacets(state, req.employee, rows) });
 });
 
+
+// CLIENT-QUERY AUDIT — a hold for "awaiting client" opens a query record that freezes the client date. The Hold box used to start on
+// "Awaiting client answer to a query" (with Email and today pre-filled), so a hold put on for any other reason could silently become a
+// "query to the client". This lists every query record with the signs that it was never really a query, and lets a superadmin dismiss
+// the ones that were not — the record and its history stay; only the freeze it caused is lifted. Nothing is deleted.
+function queryAuditRows(state) {
+  const today = todayISO(), rows = [];
+  for (const t of (state.tasks || [])) {
+    for (const q of (t.queries || [])) {
+      const hh = (t.holdHistory || []).find(h => h.queryId === q.id) || null;
+      const meta = HOLD_REASONS[q.reasonCode] || {};
+      const typed = hh ? String(hh.reason || '').trim() : String(q.note || '').trim();
+      const noDetail = !typed || typed === meta.label;
+      const resumedNoReply = !!q.resumedAt && !q.replyAt;
+      const flags = [];
+      if (q.reasonCode === 'CLIENT_QUERY' && noDetail) flags.push('no_detail');
+      if (resumedNoReply) flags.push('no_reply_logged');
+      if (q.reasonCode === 'CLIENT_QUERY' && q.source === 'email' && noDetail && resumedNoReply) flags.push('looks_like_default');
+      const shift = q.dismissedAt ? 0 : cal.queryShift(q, today).shift;
+      rows.push({
+        taskId: t.id, taskName: t.name, clientName: t.clientName || null, assigneeId: t.assignedTo || null, assigneeName: (findEmployee(state, t.assignedTo) || {}).name || null,
+        queryId: q.id, reasonCode: q.reasonCode, reasonLabel: meta.label || q.reasonCode, source: q.source, raisedBy: (findEmployee(state, q.raisedBy) || {}).name || null,
+        sentAt: q.sentAt, sentTs: q.sentTs || (hh && hh.heldAt && nzDay(hh.heldAt) === String(q.sentAt).slice(0, 10) ? hh.heldAt : null), typedDetail: noDetail ? null : typed,
+        replyAt: q.replyAt || null, resumedAt: q.resumedAt || null, open: !q.replyAt && !q.dismissedAt, shiftDays: shift,
+        dismissedAt: q.dismissedAt || null, dismissedBy: (findEmployee(state, q.dismissedBy) || {}).name || null, dismissedReason: q.dismissedReason || null,
+        flags, suspect: flags.includes('looks_like_default') || (flags.includes('no_detail') && !q.dismissedAt && !q.replyAt && !!q.resumedAt),
+      });
+    }
+  }
+  return rows.sort((a, b) => String(b.sentAt).localeCompare(String(a.sentAt)));
+}
+app.get('/api/admin/query-audit', requireAuth, requireSuperAdmin, (req, res) => {
+  const rows = queryAuditRows(db.get());
+  res.json({
+    asOf: todayISO(), total: rows.length, suspect: rows.filter(r => r.suspect && !r.dismissedAt).length, dismissed: rows.filter(r => r.dismissedAt).length,
+    daysGranted: rows.reduce((n, r) => n + (r.shiftDays || 0), 0), rows,
+  });
+});
+app.post('/api/admin/query-audit/dismiss', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get(), body = req.body || {};
+  const items = Array.isArray(body.items) ? body.items : [];
+  const reason = String(body.reason || '').trim();
+  if (!items.length) return res.status(400).json({ error: 'Choose at least one query.' });
+  if (reason.length < 5) return res.status(400).json({ error: 'Give a short reason (at least a few words) — it is kept on each task.' });
+  let done = 0; const skipped = [];
+  for (const it of items) {
+    const t = findTask(state, String(it.taskId || '')), q = t && (t.queries || []).find(x => x.id === it.queryId);
+    if (!q) { skipped.push({ ...it, why: 'not found' }); continue; }
+    if (q.dismissedAt) { skipped.push({ ...it, why: 'already dismissed' }); continue; }
+    q.dismissedAt = new Date().toISOString(); q.dismissedBy = req.employee.id; q.dismissedReason = reason.slice(0, 300);
+    // a task still on hold under this query is no longer "waiting on the client": it is an ordinary internal hold
+    const last = (t.holdHistory || [])[(t.holdHistory || []).length - 1];
+    if (t.status === 'on_hold' && last && last.queryId === q.id) {
+      t.holdReasonCode = 'BLOCKED_OTHER'; last.reasonWas = last.reasonCode; last.reasonCode = 'BLOCKED_OTHER';
+      last.clocksStopped = { ...(last.clocksStopped || {}), clientCommitment: false };
+    }
+    logEvent(state, t.assignedTo, `A query record on "${escHtml(t.name)}" was dismissed by <b>${escHtml(req.employee.name)}</b> — it was not a real client query (${escHtml(reason)}). The commitment-date freeze it caused is lifted.`);
+    done++;
+  }
+  if (done) db.save();
+  res.json({ ok: true, dismissed: done, skipped });
+});
 
 // DATA QUALITY — a read-only report for a superadmin: duplicates, test logins, missing clients, zero hours, personal details in titles,
 // contradictory Client/Admin typing, duplicate task types. It never changes, merges or deletes anything; ?format=csv gives a list with a

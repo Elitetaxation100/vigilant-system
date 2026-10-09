@@ -1642,6 +1642,11 @@ body.v2-dash .clock-card{ display:none !important; }
           <div style="padding:4px 2px;font-size:13px;color:var(--text-dim);">A read-only check of duplicate or test logins, missing clients, zero hours, personal details in task titles and mixed-up Client/Admin tasks. It changes nothing — you decide each item.</div>
         </div>
 
+        <div class="panel" id="qaPanel" style="display:none;">
+          <div class="panel-head"><h2>Client-query audit</h2><div class="panel-head-actions"><button class="btn small" onclick="openQueryAudit()">Open the audit</button></div></div>
+          <div style="padding:4px 2px;font-size:13px;color:var(--text-dim);">Lists every task that was recorded as waiting on the client, with the signs that it was never a real query (no detail typed, no reply logged). You choose which to dismiss; the record stays, only the commitment-date freeze it caused is lifted.</div>
+        </div>
+
         <div class="panel" id="pcPanel" style="display:none;">
           <div class="panel-head"><h2>Who confirms profit</h2></div>
           <div id="pcBody" style="padding:4px 2px;"></div>
@@ -4809,7 +4814,7 @@ function showView(id, el, classic){
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
-  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); renderPcSettings(); { const p = document.getElementById('dqPanel'); if(p) p.style.display = isSuperAdmin ? '' : 'none'; } }
+  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); renderPcSettings(); { const p = document.getElementById('dqPanel'); if(p) p.style.display = isSuperAdmin ? '' : 'none'; const q = document.getElementById('qaPanel'); if(q) q.style.display = isSuperAdmin ? '' : 'none'; } }
   if(id === 'teamboard') renderTeamBoard();
   if(id === 'whatsapp') renderWhatsAppView();
   if(['manager','teamboard','founder','command'].includes(id)){
@@ -8635,10 +8640,10 @@ async function acceptTask(id){
 function iCanHold(t){
   return t && (t.assignedTo === currentViewerId || empManagesWork(currentViewer(), t.assignedTo));
 }
-function openQuery(t){ return (t.queries||[]).find(q => ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode) && !q.replyAt); }
+function openQuery(t){ return (t.queries||[]).find(q => !q.dismissedAt && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode) && !q.replyAt); }
 // A summary of every query on a task: sent → reply → resume, and the shift it earned.
 function queryDetailHtml(t){
-  const qs = (t.queries||[]).filter(q => ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode));
+  const qs = (t.queries||[]).filter(q => !q.dismissedAt && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode));
   if(!qs.length) return '';
   const rows = qs.map(q => {
     const reply = q.replyAt ? fmtDate(q.replyAt) : '<span style="color:var(--amber,#B45309);">awaiting</span>';
@@ -8766,15 +8771,15 @@ function openHoldModal(id){
     <h3>Put on hold — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(clientLabel(t))} · It stays on the list as pending. Time already logged is kept; when it resumes, new time adds on top — the agreed hours don't change.</div>
     <div class="field"><label>Reason</label>
-      <select id="holdReasonCode" onchange="_holdReasonChanged()">${opts}</select></div>
+      <select id="holdReasonCode" onchange="_holdReasonChanged()"><option value="" selected disabled>— Choose the reason —</option>${opts}</select></div>
     <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
       <textarea id="holdReason" rows="2" placeholder="e.g. asked which entity owns the vehicle for GST"></textarea></div>
     <div id="holdExemptBox" style="display:none;">
       <div style="font-size:12.5px;color:var(--teal);margin:-4px 0 10px;">✓ The client commitment date pauses now, and moves forward by the working days spent waiting for the reply.</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div class="field" style="flex:1;min-width:150px;"><label>How was it raised?</label>
-          <select id="qSource"><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
-        <div class="field" style="flex:1;min-width:150px;"><label>Query sent on</label>
+        <div class="field" id="qSourceField" style="flex:1;min-width:150px;"><label for="qSource">How did you ask the client? <span class="req-mark">*</span></label>
+          <select id="qSource"><option value="" selected disabled>— Choose —</option><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
+        <div class="field" style="flex:1;min-width:150px;"><label for="qSentAt">Sent on</label>
           <input type="date" id="qSentAt" value="${esc(todayISO())}" max="${esc(todayISO())}"></div>
       </div>
     </div>
@@ -8809,6 +8814,7 @@ function _holdReasonChanged(){
     ? 'Detail <span style="color:var(--flag,#C2410C);">(required)</span>'
     : 'Detail <span style="color:var(--text-faint);">(optional)</span>';
   document.getElementById('holdExemptBox').style.display = m.exempting ? 'block' : 'none';
+  const qsf = document.getElementById('qSourceField'); if(qsf) qsf.style.display = code === 'THIRD_PARTY' ? 'none' : '';   // IRD / bank / third party: nothing was "asked of the client"
   const resp = document.getElementById('holdResp'); if(resp) resp.value = HOLD_RESP_DEFAULT[code] || 'employee';
   const ck = document.getElementById('holdClocks');
   if(ck) ck.innerHTML = '⏸ Your work timer stops now. ' + (m.exempting ? '⏸ The <b>client commitment clock pauses</b> too, because the wait is on the client or a third party.' : '▶ The <b>client commitment clock keeps running</b> — this is an internal wait.');
@@ -8845,6 +8851,8 @@ async function submitHold(id){
   const reasonCode = document.getElementById('holdReasonCode').value;
   const detail = (document.getElementById('holdReason').value || '').trim();
   const errEl = document.getElementById('holdErr');
+  if(!reasonCode){ errEl.textContent = 'Choose why the task is going on hold.'; errEl.style.display = 'block'; return; }
+  if(['CLIENT_QUERY', 'CLIENT_DOCS'].includes(reasonCode) && !(document.getElementById('qSource') || {}).value){ errEl.textContent = 'Say how you asked the client (email, phone, WhatsApp or in person) — a client wait pauses the commitment date, so it has to be a real one.'; errEl.style.display = 'block'; return; }
   if((HOLD_REASONS[reasonCode]||{}).needsDetail && !detail){
     errEl.textContent = 'This reason needs a short note.'; errEl.style.display = 'block'; return;
   }
@@ -8855,7 +8863,7 @@ async function submitHold(id){
     if(!body.followUpDate){ errEl.textContent = 'Pick the date you will follow this up.'; errEl.style.display = 'block'; return; }
   }
   if((HOLD_REASONS[reasonCode]||{}).exempting){
-    body.querySource = (document.getElementById('qSource')||{}).value || 'manual';
+    body.querySource = reasonCode === 'THIRD_PARTY' ? 'manual' : ((document.getElementById('qSource')||{}).value || 'manual');
     body.querySentAt = (document.getElementById('qSentAt')||{}).value || undefined;
   }
   try {
@@ -13433,9 +13441,15 @@ function taskTimelineEvents(t){
   (t.queries||[]).forEach(q => {
     // The query was raised the moment the task went on hold for it — that hold has the exact time. Backdated or older queries show the day only.
     const holdOf = (t.holdHistory || []).find(h => h.queryId === q.id), sentStamp = q.sentTs || (holdOf && holdOf.heldAt && dayOf(holdOf.heldAt) === String(q.sentAt).slice(0, 10) ? holdOf.heldAt : String(q.sentAt).slice(0, 10));
-    push(sentStamp, '❓', `Query to the client raised (${esc(q.source)})${q.note ? ': “'+esc(q.note)+'”' : ''} — commitment clock frozen.`);
-    if(q.replyAt) push(q.replyTs || String(q.replyAt).slice(0, 10), '📨', `Client replied${q.replySource ? ' by ' + esc(q.replySource) : ''} — freeze ends.`);
-    if(q.resumedAt) push(q.resumedTs || q.resumedAt.slice(0,10), '▶', `Work resumed after the query.`);
+    const via = (q.source && q.source !== 'manual') ? ' (via ' + ({ email:'email', phone:'phone', whatsapp:'WhatsApp', in_person:'in person' }[q.source] || esc(q.source)) + ')' : '';
+    const kind = ({ CLIENT_QUERY:['❓', 'Query to the client raised' + via, 'Client replied', ' — freeze ends.'], CLIENT_DOCS:['📂', 'Documents requested from the client' + via, 'Client sent the documents', ' — freeze ends.'], THIRD_PARTY:['🏛', 'Waiting on IRD / bank / a third party', 'The third party responded', ' — freeze ends.'] })[q.reasonCode] || ['❓', 'Client wait started', 'Client replied', ' — freeze ends.'];
+    if(q.dismissedAt){
+      push(sentStamp, '⚪', 'Put on hold and recorded as a client wait' + via + ' — <b>later dismissed: it was not a real client query</b>. No commitment-date freeze applies.' + (q.dismissedReason ? ' <span style="color:var(--text-faint);">(' + esc(q.dismissedReason) + ')</span>' : ''));
+      return;
+    }
+    push(sentStamp, kind[0], kind[1] + (q.note ? ': “'+esc(q.note)+'”' : '') + ' — commitment clock frozen.');
+    if(q.replyAt) push(q.replyTs || String(q.replyAt).slice(0, 10), '📨', kind[2] + (q.replySource ? ' by ' + esc(q.replySource) : '') + kind[3]);
+    if(q.resumedAt) push(q.resumedTs || q.resumedAt.slice(0,10), '▶', 'Work resumed after the wait.');
   });
 
   (t.reworkHistory||[]).forEach(h => {
@@ -13553,6 +13567,41 @@ function notConvertedSubHtml(p){
   return bits.join(' · ');
 }
 /* ---------------- Data quality report (superadmin, read-only) ---------------- */
+let _qa = null, _qaShowAll = false;
+async function openQueryAudit(){
+  document.getElementById('modalBox').innerHTML = '<h3>Client-query audit</h3><div class="td-empty">Checking every task…</div>'; openModal();
+  try { _qa = await api('/api/admin/query-audit'); } catch(e){ document.getElementById('modalBox').innerHTML = '<h3>Client-query audit</h3><div class="modal-error" style="display:block;" role="alert">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>'; return; }
+  drawQueryAudit();
+}
+function drawQueryAudit(){
+  const r = _qa, rows = r.rows.filter(x => !x.dismissedAt && (_qaShowAll || x.suspect));
+  const fmt = iso => iso ? fmtStamp(iso) : '—';
+  const body = rows.map(x => '<tr><td data-l="Pick"><input type="checkbox" class="qaPick" data-t="' + esc(x.taskId) + '" data-q="' + esc(x.queryId) + '"' + (x.suspect ? ' checked' : '') + ' aria-label="Dismiss this query"></td>'
+    + '<td data-l="Task"><b>' + esc(x.taskName) + '</b><div class="tm-sub">' + esc(x.clientName || '—') + ' · ' + esc(x.assigneeName || '—') + '</div></td>'
+    + '<td data-l="Recorded as">' + esc(x.reasonLabel) + '<div class="tm-sub">' + esc(x.source || '') + ' · by ' + esc(x.raisedBy || '—') + '</div></td>'
+    + '<td data-l="When">' + esc(fmt(x.sentTs || x.sentAt)) + '</td>'
+    + '<td data-l="Detail typed">' + (x.typedDetail ? esc(x.typedDetail) : '<span style="color:var(--coral);">none</span>') + '</td>'
+    + '<td data-l="Reply logged">' + (x.replyAt ? esc(fmtDate(x.replyAt)) : '<span style="color:var(--coral);">no</span>') + '</td>'
+    + '<td data-l="Days it moved the date">' + x.shiftDays + '</td></tr>').join('');
+  document.getElementById('modalBox').innerHTML = '<h3>Client-query audit</h3>'
+    + '<div class="modal-sub">' + r.total + ' client-wait records · <b>' + r.suspect + '</b> look like they were never a real query · ' + r.dismissed + ' already dismissed · together they moved commitment dates by ' + r.daysGranted + ' working day' + (r.daysGranted === 1 ? '' : 's') + '.</div>'
+    + '<div style="font-size:13px;color:var(--text-dim);margin:4px 0 8px;">The Hold box used to start on “Awaiting client answer to a query”, so a hold put on for another reason could be recorded as a query. A query with <b>no detail</b> and <b>no reply logged</b> is most likely that. Untick any that were real.</div>'
+    + '<label style="font-size:13px;display:flex;gap:6px;align-items:center;margin:0 0 8px;"><input type="checkbox" id="qaAll"' + (_qaShowAll ? ' checked' : '') + ' onchange="_qaShowAll = this.checked; drawQueryAudit()"> Show every client-wait record, not only the suspicious ones</label>'
+    + (rows.length ? '<div class="tm-scroll" style="max-height:44vh;overflow:auto;"><table class="tm-table"><thead><tr><th></th><th>Task</th><th>Recorded as</th><th>When</th><th>Detail typed</th><th>Reply logged</th><th>Days it moved the date</th></tr></thead><tbody>' + body + '</tbody></table></div>' : '<div class="td-empty">Nothing to review.</div>')
+    + '<div class="field" style="margin-top:10px;"><label for="qaReason">Reason (kept on each task)</label><input id="qaReason" value="Hold was recorded as a client query by default — no query was raised"></div>'
+    + '<div class="modal-error" id="qaErr" role="alert"></div>'
+    + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button>' + (rows.length ? '<button class="btn primary" onclick="dismissQueries()">Dismiss the ticked ones</button>' : '') + '</div>';
+}
+async function dismissQueries(){
+  const items = [...document.querySelectorAll('.qaPick:checked')].map(c => ({ taskId: c.dataset.t, queryId: c.dataset.q })), err = document.getElementById('qaErr');
+  if(!items.length){ err.textContent = 'Tick at least one.'; err.style.display = 'block'; return; }
+  if(!confirm('Dismiss ' + items.length + ' query record' + (items.length === 1 ? '' : 's') + '?\n\nThe commitment dates they moved go back, and each task keeps a note of why. Nothing is deleted.')) return;
+  try {
+    const res = await api('/api/admin/query-audit/dismiss', { method:'POST', body: JSON.stringify({ items, reason: document.getElementById('qaReason').value }) });
+    showToast('success', 'Dismissed', res.dismissed + ' query record' + (res.dismissed === 1 ? '' : 's') + ' — commitment dates recalculated.');
+    await refreshTasks(); openQueryAudit();
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
+}
 const DQ_LABEL = { duplicate_user:'Possible duplicate people', system_or_test_user:'Test / shared logins', hr_in_productivity:'HR login in Productivity', missing_client:'Client Task with no client', fake_client_value:'Placeholder client name', wrong_classification:'Client / Admin mixed up', zero_allocated_hours:'Zero or missing hours', missing_internal_due:'No internal due date', email_in_title:'Email address in a title', phone_in_title:'Phone number in a title', possible_misspelling:'Possible misspelling', duplicate_task_type:'Duplicate task types' };
 async function openDataQuality(){
   document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="td-empty">Checking…</div>'; openModal();

@@ -139,3 +139,51 @@ test('the details panel offers Reopen for re-review to whoever may do it (the as
   assert.match(panel, /Reopen for re-review/);
   assert.match(panel, /Internal commitment date/); assert.match(panel, /held to /);
 });
+
+// ---- the audit: queries that were never really queries
+test('audit: a client-wait with no detail and no reply is flagged; only a superadmin can dismiss; dismissing lifts the freeze, keeps the record and says why', async () => {
+  const clientId = (await http('POST', '/api/clients', { token: SA, body: { name: 'Audit Ltd', email: 'a@t.co' } })).j.client.id;
+  const mkT = async name => { const r = await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name, taskKind: 'client', clientId, assignedTo: emp('ranjit').id, tat: 1, internalDeadline: day(1), clientDate: day(4), reviewerId: emp('parvinder').id } }); assert.equal(r.status, 201, JSON.stringify(r.j)); await http('POST', T(r.j.task.id) + '/accept', { token: RJ }); return r.j.task; };
+  const fake = await mkT('Fake query'), real = await mkT('Real query'), live = await mkT('Still waiting');
+  const hold = (t, body) => http('POST', T(t.id) + '/hold', { token: RJ, body: { responsibility: 'client', followUpDate: day(2), ...body } });
+  assert.equal((await hold(fake, { reasonCode: 'CLIENT_QUERY', querySource: 'email' })).status, 200);       // nothing typed — what the old default produced
+  assert.equal((await hold(real, { reasonCode: 'CLIENT_QUERY', querySource: 'phone', detail: 'Which entity owns the vehicle?' })).status, 200);
+  assert.equal((await hold(live, { reasonCode: 'CLIENT_QUERY', querySource: 'email' })).status, 200);
+  for (const t of [fake, real]) assert.equal((await http('POST', T(t.id) + '/unhold', { token: RJ })).status, 200);
+  const A = (await http('GET', '/api/admin/query-audit', { token: SA })).j;
+  const row = n => A.rows.find(r => r.taskName === n);
+  assert.equal(row('Fake query').suspect, true); assert.ok(row('Fake query').flags.includes('no_detail'));
+  assert.equal(row('Real query').suspect, false, 'a typed detail is a real query');
+  assert.equal(row('Still waiting').suspect, false, 'still open, nothing proven');
+  assert.equal(row('Fake query').typedDetail, null); assert.ok(row('Fake query').sentTs, 'shows the exact time');
+  assert.equal((await http('GET', '/api/admin/query-audit', { token: RJ })).status, 403, 'only a superadmin can open the audit');
+  const item = { taskId: fake.id, queryId: row('Fake query').queryId };
+  assert.equal((await http('POST', '/api/admin/query-audit/dismiss', { token: RJ, body: { items: [item], reason: 'not a real query' } })).status, 403);
+  assert.equal((await http('POST', '/api/admin/query-audit/dismiss', { token: SA, body: { items: [item], reason: 'no' } })).status, 400, 'a reason is required');
+  const d = await http('POST', '/api/admin/query-audit/dismiss', { token: SA, body: { items: [item, item], reason: 'Hold was recorded as a query by default' } });
+  assert.equal(d.j.dismissed, 1); assert.equal(d.j.skipped.length, 1, 'dismissing twice does nothing the second time');
+  const after = (await http('GET', '/api/tasks', { token: RJ })).j.tasks.find(x => x.id === fake.id);
+  assert.equal(after.queries.length, 1, 'the record is kept'); assert.ok(after.queries[0].dismissedAt); assert.match(after.queries[0].dismissedReason, /by default/);
+  assert.equal(after.queryShiftDays, 0, 'the freeze is lifted'); assert.equal(after.effectiveClientDate, after.clientDate);
+  // a task still on hold under a dismissed query becomes an ordinary internal hold
+  const liveRow = (await http('GET', '/api/admin/query-audit', { token: SA })).j.rows.find(r => r.taskName === 'Still waiting');
+  assert.equal((await http('POST', '/api/admin/query-audit/dismiss', { token: SA, body: { items: [{ taskId: live.id, queryId: liveRow.queryId }], reason: 'Was never a query' } })).j.dismissed, 1);
+  const lt = (await http('GET', '/api/tasks', { token: RJ })).j.tasks.find(x => x.id === live.id);
+  assert.equal(lt.holdReasonCode, 'BLOCKED_OTHER'); assert.equal(lt.holdHistory.at(-1).reasonWas, 'CLIENT_QUERY');
+  const A2 = (await http('GET', '/api/admin/query-audit', { token: SA })).j;
+  assert.equal(A2.dismissed, 2);
+});
+
+test('the Hold box no longer starts on "query to the client": nothing is pre-chosen, and a client wait needs how it was raised', () => {
+  assert.match(html, /<select id="holdReasonCode" onchange="_holdReasonChanged\(\)"><option value="" selected disabled>— Choose the reason —<\/option>/);
+  assert.match(html, /<select id="qSource"><option value="" selected disabled>— Choose —<\/option>/);
+  assert.match(html, /if\(!reasonCode\)\{ errEl\.textContent = 'Choose why the task is going on hold\.'/);
+  assert.match(html, /\['CLIENT_QUERY', 'CLIENT_DOCS'\]\.includes\(reasonCode\) && !\(document\.getElementById\('qSource'\) \|\| \{\}\)\.value/);
+  assert.match(html, /qsf\.style\.display = code === 'THIRD_PARTY' \? 'none' : ''/);
+});
+test('the history words each wait for what it was, and a dismissed query is shown as not real', () => {
+  const tl = html.slice(html.indexOf('function taskTimelineEvents'), html.indexOf('function taskNewest'));
+  assert.match(tl, /Query to the client raised' \+ via/); assert.match(tl, /Documents requested from the client' \+ via/); assert.match(tl, /Waiting on IRD \/ bank \/ a third party/);
+  assert.match(tl, /later dismissed: it was not a real client query/);
+  assert.match(html, /id="qaPanel"/); assert.match(html, /function openQueryAudit\(\)/); assert.match(html, /\/api\/admin\/query-audit\/dismiss/);
+});
