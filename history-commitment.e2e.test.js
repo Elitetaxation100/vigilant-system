@@ -232,3 +232,10 @@ test('the server reports an on-hold task as "on_hold", not missed', async () => 
   const t = (await http('GET', '/api/tasks', { token: RJ })).j.tasks.find(x => x.id === r.j.task.id);
   assert.equal(t.commitmentOutcome, 'on_hold');
 });
+
+test('the Client-query audit has a menu entry in both layouts (superadmin only) and sits at the top of the Admin page', () => {
+  assert.match(html, /id="qaNavItemV2" onclick="openQueryAudit\(\)"/);
+  assert.match(html, /id="qaNavItem" style="display:none;" onclick="openQueryAudit\(\)"/);
+  assert.match(html, /getElementById\('qaNavItem'\); if\(q\) q\.style\.display = isSuperAdmin \? '' : 'none'/);
+  assert.ok(html.indexOf('id="qaPanel"') < html.indexOf('id="adminStatGrid"'), 'the audit panel is above the stats and the task table');
+});
