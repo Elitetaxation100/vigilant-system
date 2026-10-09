@@ -1303,6 +1303,7 @@ body.v2-dash .clock-card{ display:none !important; }
         <div class="nav-item nav-sub" data-view="assignments" onclick="showView('assignments', this)"><span class="nav-icon">🔀</span> Team Assignments</div>
         <div class="nav-item nav-sub" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Types</div>
         <div class="nav-item nav-sub" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Inbound Admin</div>
+        <div class="nav-item nav-sub" id="qaNavItemV2" onclick="openQueryAudit()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openQueryAudit(); }"><span class="nav-icon">⏸</span> Client-query audit</div>
       </details>
     </div>
 
@@ -1337,6 +1338,7 @@ body.v2-dash .clock-card{ display:none !important; }
         <div class="nav-item nav-sub" id="attendanceNavSection" data-view="attendance" style="display:none;" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
         <div id="employeesNavSection" style="display:none;">
           <div class="nav-item nav-sub" id="adminNavItem" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Admin</div>
+          <div class="nav-item nav-sub" id="qaNavItem" style="display:none;" onclick="openQueryAudit()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openQueryAudit(); }"><span class="nav-icon">⏸</span> Client-query audit</div>
           <div class="nav-item nav-sub" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
           <div class="nav-item nav-sub" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Taxonomy</div>
           <div class="nav-item nav-sub" data-view="assignments" onclick="showView('assignments', this)"><span class="nav-icon">🔀</span> Team Assignments</div>
@@ -1593,6 +1595,11 @@ body.v2-dash .clock-card{ display:none !important; }
           <span><b>Admin space.</b> Tasks created in Slack — from a call card or the “Convert to Task” shortcut — land here automatically, assigned to whoever, and show on their dashboard. The call itself (recording, listening, AI draft) stays in Slack.</span>
         </div>
 
+        <div class="panel" id="qaPanel" style="display:none;">
+          <div class="panel-head"><h2>Client-query audit</h2><div class="panel-head-actions"><button class="btn small" onclick="openQueryAudit()">Open the audit</button></div></div>
+          <div style="padding:4px 2px;font-size:13px;color:var(--text-dim);">Lists every task that was recorded as waiting on the client, with the signs that it was never a real query (no detail typed, no reply logged). You choose which to dismiss; the record stays, only the commitment-date freeze it caused is lifted.</div>
+        </div>
+
         <div class="stat-grid" id="adminStatGrid" style="grid-template-columns:repeat(4,1fr);">
           <div class="stat-card"><div class="label">Open</div><div class="value" id="adminStatOpen">0</div></div>
           <div class="stat-card"><div class="label">Overdue</div><div class="value coral" id="adminStatOverdue">0</div></div>
@@ -1640,11 +1647,6 @@ body.v2-dash .clock-card{ display:none !important; }
         <div class="panel" id="dqPanel" style="display:none;">
           <div class="panel-head"><h2>Data quality</h2><div class="panel-head-actions"><button class="btn small" onclick="openDataQuality()">Open the report</button><button class="btn small" onclick="downloadDataQuality()">Download CSV</button></div></div>
           <div style="padding:4px 2px;font-size:13px;color:var(--text-dim);">A read-only check of duplicate or test logins, missing clients, zero hours, personal details in task titles and mixed-up Client/Admin tasks. It changes nothing — you decide each item.</div>
-        </div>
-
-        <div class="panel" id="qaPanel" style="display:none;">
-          <div class="panel-head"><h2>Client-query audit</h2><div class="panel-head-actions"><button class="btn small" onclick="openQueryAudit()">Open the audit</button></div></div>
-          <div style="padding:4px 2px;font-size:13px;color:var(--text-dim);">Lists every task that was recorded as waiting on the client, with the signs that it was never a real query (no detail typed, no reply logged). You choose which to dismiss; the record stays, only the commitment-date freeze it caused is lifted.</div>
         </div>
 
         <div class="panel" id="pcPanel" style="display:none;">
@@ -14722,6 +14724,7 @@ async function onLoginComplete(){
   // the HR log, the employee directory, the Slack space, Command Center, or
   // the firm analytics engines.
   document.getElementById('adminNavItem').style.display = isSuperAdmin ? '' : 'none';
+  { const q = document.getElementById('qaNavItem'); if(q) q.style.display = isSuperAdmin ? '' : 'none'; }
   document.getElementById('employeesNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
   // Founder View — actual founder(s) only (Manage Access → Founder), not
@@ -14805,6 +14808,7 @@ function logoutSession(){
   stopPolicyCompliancePolling(); policyGateOpen=false; policyAdminWarningShown=false;
   if(clockInterval){ clearInterval(clockInterval); clockInterval = null; }
   document.getElementById('adminNavItem').style.display = 'none';
+  { const q = document.getElementById('qaNavItem'); if(q) q.style.display = 'none'; }
   document.getElementById('employeesNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
