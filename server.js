@@ -488,6 +488,26 @@ function parseQueryInput(body, reasonCode) {
   if (Date.parse(ts) > Date.now() + 5 * 60000) return { error: "The query can't be timed in the future." };
   return { source, sentAt: day, sentTs: ts };
 }
+// Who reviews a task can be changed by the person doing the work (when handing it back, or while it waits). Every change is kept in
+// t.reviewerHistory and the new reviewer is told (the old one simply stops having it waiting). Returns { error } or { changed, from, to }.
+function checkNewReviewer(state, t, newId) {
+  const rv = findEmployee(state, newId);
+  if (!rv) return { error: 'Reviewer not found.' };
+  if (!canReceiveNewWork(rv)) return { error: 'That person is no longer active — pick someone else to review.' };
+  if (rv.id === t.assignedTo) return { error: "You can't send your own work to yourself for review — pick someone else." };
+  return { rv };
+}
+function applyReviewerChange(state, t, actor, rv, reason, via) {
+  const from = t.reviewerId || null;
+  if (from === rv.id) return { changed: false, from, to: rv.id };
+  t.reviewerId = rv.id;
+  t.reviewerHistory = t.reviewerHistory || [];
+  t.reviewerHistory.push({ at: new Date().toISOString(), by: actor.id, byName: actor.name, from, to: rv.id, reason: reason || null, via });
+  notify(state, rv.id, 'review', `${actor.name} sent "${t.name}" to you for review${reason ? ' — ' + reason : ''}.`, t.id);
+  const old = from && findEmployee(state, from);
+  logEvent(state, t.assignedTo, `Reviewer of "${escHtml(t.name)}" changed from <b>${escHtml(old ? old.name : '—')}</b> to <b>${escHtml(rv.name)}</b> by <b>${escHtml(actor.name)}</b>${reason ? ' — ' + escHtml(reason) : ''}.`);
+  return { changed: true, from, to: rv.id };
+}
 // Every time a task is handed in (sent for review, marked done, resubmitted after a correction, re-opened) is kept with its exact time and the
 // dates in force at that moment. The employee's OWN commitment is judged on the FIRST hand-in — a reviewer sending it back, or a later
 // resubmission, never turns an on-time submission into a miss.
@@ -4128,6 +4148,8 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'rework') return res.status(400).json({ error: 'Only tasks in rework can be resubmitted.' });
+  const newRv = (req.body || {}).reviewerId ? checkNewReviewer(state, t, String(req.body.reviewerId)) : null;
+  if (newRv && newRv.error) return res.status(400).json({ error: newRv.error });
   const endedAt = new Date().toISOString();
   const startedAt = t.reworkStartedAt;
   const durationHours = startedAt ? Math.round(((new Date(endedAt) - new Date(startedAt)) / 3600000) * 100) / 100 : null;
@@ -4140,11 +4162,29 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   t.reviewStatus = null;
   t.reviewedBy = null;
   t.reviewedAt = null;
+  if (newRv) applyReviewerChange(state, t, req.employee, newRv.rv, String((req.body || {}).reason || '').trim().slice(0, 300) || null, 'resubmit');
+  t.submissions[t.submissions.length - 1].reviewerId = t.reviewerId || null;
   logEvent(state, t.assignedTo, `"${escHtml(t.name)}" resubmitted after rework — awaiting re-review.${durationHours !== null ? ` In rework for ${durationHours.toFixed(2)} hrs.` : ''}`);
   db.save();
   res.json({ task: taskForClient(t) });
 });
 
+
+app.post('/api/tasks/:id/change-reviewer', requireAuth, (req, res) => {
+  const state = db.get();
+  const t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const isMine = t.assignedTo === req.employee.id;
+  if (!isMine && !(isAdminRole(req.employee.accessRole) && canManageEmployee(state, req.employee, t.assignedTo))) return res.status(403).json({ error: 'Only the person doing the work, or their manager, can change who reviews it.' });
+  if (t.status !== 'completed' || t.reviewStatus || !t.reviewerId) return res.status(400).json({ error: 'The reviewer can only be changed while the task is waiting for review.' });
+  if (openEscalation(t)) return res.status(400).json({ error: 'This task has been escalated for a decision — it cannot be moved to another reviewer.' });
+  const chk = checkNewReviewer(state, t, String((req.body || {}).reviewerId || ''));
+  if (chk.error) return res.status(400).json({ error: chk.error });
+  if (chk.rv.id === t.reviewerId) return res.status(400).json({ error: 'That person is already the reviewer.' });
+  applyReviewerChange(state, t, req.employee, chk.rv, String((req.body || {}).reason || '').trim().slice(0, 300) || null, 'change');
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
 
 app.post('/api/tasks/:id/propose-window', requireAuth, (req, res) => {
   const state = db.get();
@@ -6548,6 +6588,8 @@ app.post('/api/tasks/:id/manager-change', requireAuth, requireAdmin, (req, res) 
       if (t.status === 'completed' && t.reviewStatus !== 'done' && t.reviewStatus !== 'clean' && t.reviewStatus !== 'error') { /* in review: allowed */ }
       const from = t.reviewerId || t.assignedReviewerId || null;
       t.reviewerId = rv.id;
+      t.reviewerHistory = t.reviewerHistory || [];
+      t.reviewerHistory.push({ at: new Date().toISOString(), by: me.id, byName: me.name, from, to: rv.id, reason, via: 'manager' });
       if (t.status !== 'completed') { t.assignedReviewerId = rv.id; if (t.reviewerLater) t.reviewerLater = { ...t.reviewerLater, resolvedAt: new Date().toISOString(), resolvedBy: me.id }; }
       notify(state, rv.id, 'review', me.name + ' made you the reviewer of "' + t.name + '" — ' + reason, t.id);
       log('change_reviewer', from, rv.id);
