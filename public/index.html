@@ -13468,7 +13468,10 @@ function taskTimelineEvents(t){
   const nm = eid => eid ? ((empById(eid)||{}).name || '—') : null;
   const dt = fmtStamp;
   const ev = [];
-  const push = (at, icon, text, extra) => ev.push({ at: at || '', icon, text, extra: extra || '' });
+  const push = (at, icon, text, extra, cap) => ev.push({ at: at || '', icon, text, extra: extra || '', cap: cap || '' });
+  // A day-only "taken off hold / client replied / resumed" has no clock time. It must not jump AFTER a later hold that was raised the
+  // same day, so it is capped to just before that next hold (the real order: resumed in the morning, put on hold again at 1:36 pm).
+  const nextHoldCap = (holds, i, day) => { const nx = holds[i + 1]; return nx && nx.heldAt && dayOf(nx.heldAt) === String(day).slice(0, 10) ? nx.heldAt : ''; };
 
   const assignedByName = nm(t.assignedBy), assignedToName = nm(t.assignedTo);
   const srcLabel = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'from a call' : 'from Slack') : null;
@@ -13489,11 +13492,11 @@ function taskTimelineEvents(t){
 
   if(t.acceptedAt) push(t.acceptedAt, '✅', `<b>${esc(assignedToName||'—')}</b> accepted it.`);
 
-  (t.holdHistory||[]).forEach(h => {
+  (t.holdHistory||[]).forEach((h, hi, holds) => {
     const lbl = (HOLD_REASONS[h.reasonCode]||{}).label;
     const ex = (HOLD_REASONS[h.reasonCode]||{}).exempting ? ' — client clock paused' : '';
     push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold${lbl ? ': ' + esc(lbl) : ''}${ex}${h.reason && h.reason !== lbl ? ' — “'+esc(h.reason)+'”' : ''}${h.hasShot ? ' (screenshot)' : ''}.`);
-    if(h.resumedAt) push(h.resumedTs || h.resumedAt, '▶', `Taken off hold.`);
+    if(h.resumedAt) push(h.resumedTs || h.resumedAt, '▶', `Taken off hold.`, '', h.resumedTs ? '' : nextHoldCap(holds, hi, h.resumedAt));
   });
   (t.dateHistory||[]).forEach(h => {
     const bits = [];
@@ -13524,8 +13527,10 @@ function taskTimelineEvents(t){
       return;
     }
     push(sentStamp, kind[0], kind[1] + (q.note ? ': “'+esc(q.note)+'”' : '') + ' — commitment clock frozen.');
-    if(q.replyAt) push(q.replyTs || String(q.replyAt).slice(0, 10), '📨', kind[2] + (q.replySource ? ' by ' + esc(q.replySource) : '') + kind[3]);
-    if(q.resumedAt) push(q.resumedTs || q.resumedAt.slice(0,10), '▶', 'Work resumed after the wait.');
+    const holds = t.holdHistory || [], hi = holds.indexOf(holdOf);
+    const capFor = (ts, day) => (ts || hi < 0) ? '' : nextHoldCap(holds, hi, day);
+    if(q.replyAt) push(q.replyTs || String(q.replyAt).slice(0, 10), '📨', kind[2] + (q.replySource ? ' by ' + esc(q.replySource) : '') + kind[3], '', capFor(q.replyTs, q.replyAt));
+    if(q.resumedAt) push(q.resumedTs || q.resumedAt.slice(0,10), '▶', 'Work resumed after the wait.', '', capFor(q.resumedTs, q.resumedAt));
   });
 
   (t.reworkHistory||[]).forEach(h => {
@@ -13589,7 +13594,7 @@ function taskTimelineEvents(t){
         : `<b>${esc(nm(t.sentToClientBy)||'—')}</b> decided not to send it to the client.`);
   }
 
-  const sortKey = e => { const a = e.at || ''; return a.length === 10 ? a + 'T23:59:59Z' : a; };   // a day-only event sorts to the end of its day
+  const sortKey = e => { const a = e.at || ''; if(a.length !== 10) return a; return e.cap ? new Date(new Date(e.cap).getTime() - 1).toISOString() : a + 'T23:59:59Z'; };   // a day-only event sorts to the end of its day — but before a later hold raised that same day
   ev.sort((a,b) => sortKey(a).localeCompare(sortKey(b)));
   return { ev, dt, nm };
 }
@@ -13710,7 +13715,8 @@ function openTaskTrailModal(id){
       </div>
     </div>`).join('');
 
-  const stateNow = (t.reviewStatus === 'clean' || t.reviewStatus === 'done') ? 'Done'
+  const stateNow = t.status === 'on_hold' ? 'On hold' + (t.reviewStatus === 'error' ? ' (correction pending)' : '')
+    : (t.reviewStatus === 'clean' || t.reviewStatus === 'done') ? 'Done'
     : t.reviewStatus === 'error' ? 'In rework' : statusLabel(t.status);
   document.getElementById('modalBox').innerHTML = `
     <h3>Task history — ${esc(t.name)}</h3>
