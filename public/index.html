@@ -307,7 +307,8 @@ body.v2-dash .clock-card{ display:none !important; }
 .rv2-yn{ display:flex; gap:10px; flex-wrap:wrap; margin:4px 0 10px; } .rv2-yn label{ display:inline-flex; align-items:center; gap:6px; min-height:44px; padding:0 14px; border:1px solid var(--panel-border); border-radius:10px; cursor:pointer; }
 @media (max-width:900px){ .td-row{ grid-template-columns:minmax(0,1fr) auto; } .td-row .tr-who, .td-row .tr-date, .td-row .tr-st{ display:none; } .rq-head{ display:none; } .rq-row{ grid-template-columns:28px 1fr auto; } .rq-links, .rq-own{ grid-column:2 / 3; white-space:normal; } .rq-bar{ grid-template-columns:repeat(2,1fr); } .rq-card{ grid-template-columns:1fr; } .rq-card .go{ grid-column:1; grid-row:auto; } .rv2-pick{ grid-template-columns:1fr; } }
 /* more specific than the general .btn rule, so it only appears on phones */
-.td-detail .td-back{ display:none; }
+.td-detail .td-back{ display:inline-flex; margin-bottom:10px; min-height:40px; align-items:center; }
+.td-grid:not(.has-sel){ grid-template-columns:1fr !important; } .td-grid:not(.has-sel) .td-detail{ display:none !important; }
 @media (max-width:900px){
   .td-counts{ grid-template-columns:repeat(2,1fr); } .td-grid{ grid-template-columns:1fr; } .td-detail{ display:none; }
   .td-grid.show-detail .td-list{ display:none; } .td-grid.show-detail .td-detail{ display:block; position:fixed; inset:0; z-index:60; overflow:auto; border-radius:0; padding-bottom:90px; }
@@ -7980,21 +7981,13 @@ function tdTilesHtml(){
   }).join('');
 }
 // Redraw everything BELOW the tabs and search box (so typing in the search box never loses focus).
-// The first task in the list that is on screen — so the detail panel on the right opens by itself instead of sitting empty.
-function tdFirstVisibleId(){
-  const S = tdSections();
-  if(S.primary.ids.length) return S.primary.ids[0];
-  const open = S.secondary.find(x => x.key === _tdOpen && x.ids.length) || S.secondary.find(x => x.ids.length);
-  return open ? open.ids[0] : null;
-}
 function tdDrawBody(){
   const body = document.getElementById('tdBody'); if(!body || !_today) return;
-  if(!_tdSel && window.matchMedia('(min-width: 901px)').matches){ const f = tdFirstVisibleId(); if(f) _tdSel = f; }
   const M = tdModeData(), S = _tdTile ? M.tiles.find(x => x.key === _tdTile) : null;
   const reportsNote = S && S.key === 'reports_team' && S.breakdown ? '<div class="td-empty" role="note">Overdue to send: <b>' + S.breakdown.overdue + '</b> · Due today: <b>' + S.breakdown.today + '</b> · Due later: <b>' + S.breakdown.later + '</b> · Waiting for profit confirmation: <b>' + S.breakdown.profit + '</b>. A report is never counted late before its client date.</div>' : '';
   body.innerHTML = '<div class="td-counts" role="group" aria-label="' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + ' summary">' + tdTilesHtml() + '</div>'
     + (S ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(S.label) + '</b> <button type="button" class="btn small td-act" onclick="tdSetTile(null)">Back to ' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + '</button></div>' + reportsNote : '')
-    + '<div class="td-grid' + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + tdListHtml() + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
+    + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + tdListHtml() + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
 }
 function drawToday(){
   const T = _today, box = document.getElementById('tdRoot'); if(!box) return;
@@ -8026,12 +8019,13 @@ function tdSelect(id){
   _tdSel = id; window.__tdMobileOpen = true;          // one detail panel only: this REPLACES whatever was open
   document.querySelectorAll('#tdList .td-card').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
   const d = document.getElementById('tdDetail'); if(d) d.innerHTML = tdDetailHtml(id);
-  const g = document.getElementById('tdGrid'); if(g) g.classList.add('show-detail');
+  const g = document.getElementById('tdGrid'); if(g){ g.classList.add('show-detail'); g.classList.add('has-sel'); }
 }
-function tdBack(){ window.__tdMobileOpen = false; const g = document.getElementById('tdGrid'); if(g) g.classList.remove('show-detail'); }
+// Close the details: nothing stays selected, and the list goes back to the full width.
+function tdBack(){ _tdSel = null; window.__tdMobileOpen = false; tdDrawBody(); }
 // Escape closes the open task panel — but never while a dialog is open (that handler closes the dialog first).
 document.addEventListener('keydown', e => {
-  if(e.key !== 'Escape' || !todayViewActive() || !_tdSel || !window.__tdMobileOpen) return;   // (on a computer the panel always shows a task; Escape only closes it on a phone)
+  if(e.key !== 'Escape' || !todayViewActive() || !_tdSel) return;
   const ov = document.getElementById('modalOverlay'); if(ov && ov.classList.contains('active')) return;
   _tdSel = null; window.__tdMobileOpen = false; tdDrawBody();
 });

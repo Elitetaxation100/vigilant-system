@@ -103,9 +103,11 @@ test('the Sheet and Cashbook links are real links that open in a new tab and nev
   assert.match(fn, /target="_blank" rel="noopener noreferrer" onclick="event\.stopPropagation\(\)"/);
   assert.match(fn, /📎/);
 });
-test('the right-hand panel opens the first task by itself on a computer, never an empty box; a phone keeps a list', () => {
-  assert.match(html, /function tdFirstVisibleId\(\)/);
-  assert.match(html, /if\(!_tdSel && window\.matchMedia\('\(min-width: 901px\)'\)\.matches\)\{ const f = tdFirstVisibleId\(\); if\(f\) _tdSel = f; \}/);
+test('no task opens by itself: the details panel appears only when a row is clicked, the list uses the full width until then, and it can be closed', () => {
+  assert.doesNotMatch(html, /tdFirstVisibleId/, 'nothing picks a first task');
+  assert.match(html, /\(_tdSel \? ' has-sel' : ''\)/);
+  assert.match(html, /\.td-grid:not\(\.has-sel\)\{ grid-template-columns:1fr !important; \} \.td-grid:not\(\.has-sel\) \.td-detail\{ display:none !important; \}/);
+  assert.match(html, /function tdBack\(\)\{ _tdSel = null; window\.__tdMobileOpen = false; tdDrawBody\(\); \}/);
   assert.doesNotMatch(html, /Select a task on the left to see everything about it here/);
 });
 test('every list has a Processor filter: Today (3 views), Reviews, the Tasks list, Calendar and Timeline', () => {
