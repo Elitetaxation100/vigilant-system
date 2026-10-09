@@ -98,7 +98,7 @@ function teamSummary(rows, people, deps) {
   return people.map(p => {
     const mine = rows.filter(r => r.assigneeId === p.id && r.status !== 'Completed');
     const employeeOwned = mine.filter(r => r.waitingOn.kind === 'employee');
-    const overdue = employeeOwned.filter(r => ['Assigned', 'In Progress'].includes(r.status) && r.internalDeadline && r.internalDeadline < deps.today);
+    const overdue = employeeOwned.filter(r => ['Assigned', 'In Progress'].includes(r.status) && (r.internalDue || r.internalDeadline) && (r.internalDue || r.internalDeadline) < deps.today);
     const oldest = mine.filter(r => r.createdAt).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))[0];
     const w = deps.workloadOf ? (deps.workloadOf(p.id) || {}) : {};
     return {

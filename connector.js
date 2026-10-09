@@ -499,7 +499,7 @@ function completeTask(state, taskId, byName) {
   if (!t || t.status === 'completed') return t;
   if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
   if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
-  t.status = 'completed'; t.completedAt = new Date().toISOString();
+  t.status = 'completed'; t.completedAt = new Date().toISOString(); (t.submissions = t.submissions || []).push({ at: t.completedAt, byId: t.assignedTo || null, kind: 'done', round: t.reworkCount || 0, reviewerId: null, internalDue: t.internalDeadline || null, clientDue: t.clientDate || null }); if (!t.firstSubmittedAt) t.firstSubmittedAt = t.completedAt;
   // Call / Slack tasks skip review by default — mark them terminally 'done'
   // so they read as done, not "awaiting review". But if someone already
   // nominated a reviewer (reviewerId set), respect that and leave it in

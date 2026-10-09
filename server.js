@@ -463,6 +463,16 @@ function effectiveClientDate(t) {
 function anyQueryOpen(t) {
   return (t.queries || []).some(q => EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
 }
+// Every time a task is handed in (sent for review, marked done, resubmitted after a correction, re-opened) is kept with its exact time and the
+// dates in force at that moment. The employee's OWN commitment is judged on the FIRST hand-in — a reviewer sending it back, or a later
+// resubmission, never turns an on-time submission into a miss.
+function recordSubmission(t, byEmp, kind, at) {
+  at = at || new Date().toISOString();
+  t.submissions = t.submissions || [];
+  t.submissions.push({ at, byId: byEmp ? byEmp.id : (t.assignedTo || null), kind, round: t.reworkCount || 0, reviewerId: t.reviewerId || null, internalDue: t.internalDeadline || null, clientDue: t.clientDate || null });
+  if (!t.firstSubmittedAt) t.firstSubmittedAt = at;
+  return at;
+}
 // met / missed / exempt / at-risk / on-track / rework / null(internal)
 function commitmentOutcome(t) {
   if (!t.clientDate) return null;
@@ -636,6 +646,7 @@ function taskForClient(t) {
     // query-aware commitment, computed server-side so the UI never re-derives it
     queryShiftDays: taskShiftDays(t),
     effectiveClientDate: effectiveClientDate(t),
+    effectiveInternalDate: (t.internalDeadline && taskShiftDays(t) > 0) ? cal.addWorkingDays(t.internalDeadline, taskShiftDays(t)) : (t.internalDeadline || null),
     commitmentOutcome: commitmentOutcome(t),
     // A clean review still needs the report sent to the client by the
     // commitment date — this flags it once that date has passed and nobody
@@ -2592,7 +2603,7 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
         ? body.querySentAt.slice(0, 10) : todayISO();
       const q = {
         id: crypto.randomUUID(), taskId: t.id, reasonCode, source: src,
-        raisedBy: req.employee.id, sentAt, replyAt: null, resumedAt: null,
+        raisedBy: req.employee.id, sentAt, sentTs: sentAt === todayISO() ? new Date().toISOString() : null, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null,
         emailThreadId: null, chaseLog: [], note: detail || null,
       };
       t.queries = t.queries || [];
@@ -2625,12 +2636,13 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     // calc), so store the NZ calendar day, not a UTC timestamp.
     const resumeDay = todayISO();
     const last = (t.holdHistory || [])[t.holdHistory.length - 1];
-    if (last && !last.resumedAt) last.resumedAt = resumeDay;
+    const resumeTs = new Date().toISOString();
+    if (last && !last.resumedAt) { last.resumedAt = resumeDay; last.resumedTs = resumeTs; }
     // Mark the query for this hold as resumed — this starts the resume-lag
     // clock that can forfeit part of the freeze (calendar.queryShift).
     if (last && last.queryId) {
       const q = (t.queries || []).find(x => x.id === last.queryId);
-      if (q && !q.resumedAt) q.resumedAt = resumeDay;
+      if (q && !q.resumedAt) { q.resumedAt = resumeDay; q.resumedTs = resumeTs; }
     }
     t.heldAt = null; t.holdFollowUp = null; t.holdResponsibility = null;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
@@ -2656,7 +2668,7 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     const replyAt = (typeof body.replyAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.replyAt) && body.replyAt.slice(0, 10) <= todayISO())
       ? body.replyAt.slice(0, 10) : todayISO();
     if (replyAt < q.sentAt.slice(0, 10)) return res.status(400).json({ error: "The reply can't be dated before the query was sent." });
-    q.replyAt = replyAt;
+    q.replyAt = replyAt; q.replyTs = replyAt === todayISO() ? new Date().toISOString() : null;
     if (['email', 'phone', 'whatsapp', 'in_person'].includes(body.replySource)) q.replySource = body.replySource;
     const sh = cal.queryShift(q, todayISO());
     logEvent(state, t.assignedTo, `Client replied to the query on "${escHtml(t.name)}" (${escHtml(replyAt)}) — commitment date moves +${sh.shift} working day${sh.shift === 1 ? '' : 's'}. Resume the task to keep the full extension.`);
@@ -2680,9 +2692,9 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       (t.holdHistory || []).forEach(h => { if (h.queryId === q.id) h.queryId = null; });
       logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was removed by <b>${escHtml(req.employee.name)}</b> — its commitment-clock pause no longer applies.`);
     } else {
-      if (typeof body.sentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.sentAt) && body.sentAt.slice(0, 10) <= todayISO()) q.sentAt = body.sentAt.slice(0, 10);
-      if (body.replyAt === null) { q.replyAt = null; q.resumedAt = null; }
-      else if (typeof body.replyAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.replyAt) && body.replyAt >= q.sentAt.slice(0, 10) && body.replyAt.slice(0, 10) <= todayISO()) q.replyAt = body.replyAt.slice(0, 10);
+      if (typeof body.sentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.sentAt) && body.sentAt.slice(0, 10) <= todayISO()) { q.sentAt = body.sentAt.slice(0, 10); q.sentTs = null; }
+      if (body.replyAt === null) { q.replyAt = null; q.replyTs = null; q.resumedAt = null; q.resumedTs = null; }
+      else if (typeof body.replyAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.replyAt) && body.replyAt >= q.sentAt.slice(0, 10) && body.replyAt.slice(0, 10) <= todayISO()) { q.replyAt = body.replyAt.slice(0, 10); q.replyTs = null; }
       logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was corrected by <b>${escHtml(req.employee.name)}</b>.`);
     }
     db.save();
@@ -2816,8 +2828,8 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   t.logged += elapsed;
     t.timerStartedAt = null;
   t.status = 'completed';
-  t.completedAt = new Date().toISOString();
   t.reviewerId = direct ? null : reviewerId;
+  t.completedAt = recordSubmission(t, req.employee, direct ? 'direct_profit' : 'review');
   const linksBefore = snapLinks(t);
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
@@ -2883,7 +2895,7 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   if (ah > 0) t.logged = Math.round(ah * 100) / 100;
   if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed';
-  t.completedAt = new Date().toISOString();
+  t.completedAt = recordSubmission(t, req.employee, 'done');
   // 'done' is a terminal review state meaning "closed, no formal review
   // needed" — so the task reads as done, not "sent for review".
   t.reviewStatus = 'done'; t.reviewerId = null; t.awaitingClientDecision = false;
@@ -2935,6 +2947,7 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, takeSlotFiles, (req, res
   applySlotFiles(t, req);
   t.reviewStatus = null;
   t.reviewerId = reviewerId;
+  recordSubmission(t, req.employee, 'reopened');
   t.reviewedBy = null; t.reviewedAt = null; t.reviewNote = null;
   t.closedBy = null; t.closedAt = null;
   t.awaitingClientDecision = false;
@@ -4077,7 +4090,7 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: (t.reviewAttachments || []).filter(a => a.cycle == null || a.cycle === t.reworkCount) });
   t.reworkStartedAt = null;
   t.status = 'completed';
-  t.completedAt = endedAt;
+  t.completedAt = recordSubmission(t, req.employee, 'resubmit', endedAt);
   t.reviewStatus = null;
   t.reviewedBy = null;
   t.reviewedAt = null;
@@ -6077,7 +6090,7 @@ app.patch('/api/int/tasks/:id', requireIntegrationAuth, (req, res) => {
     if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
     if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
     t.status = 'completed';
-    t.completedAt = new Date().toISOString();
+    t.completedAt = recordSubmission(t, null, 'done');
     // Only a fresh completion with nobody set to review it reads as 'done'.
     // If it was already sent for review (reviewerId set), leave that alone.
     if (!t.reviewStatus && !t.reviewerId) { t.reviewStatus = 'done'; t.closedBy = t.assignedTo || null; t.closedAt = t.completedAt; }
@@ -6165,7 +6178,7 @@ function workflowDeps(state, me, extra) {
     today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
-    reportInfo: reportSentFor, ...(extra || {}),
+    reportInfo: reportSentFor, queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays, ...(extra || {}),
   };
 }
 // Every task in the manager's world, as enriched cards. Only managers/founders reach this (requireAdmin).

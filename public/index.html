@@ -3248,6 +3248,8 @@ let mgScopeIds = null; // { emps:Set<id>, tasks:Set<id> } | null
 function mgTasks(){ return mgScopeIds ? tasks.filter(t => mgScopeIds.tasks.has(t.id)) : tasks; }
 function mgEmps(){ return mgScopeIds ? employees.filter(e => mgScopeIds.emps.has(e.id)) : employees; }
 function mgWorkload(){ return mgScopeIds ? (workload||[]).filter(w => mgScopeIds.emps.has(w.id)) : (workload||[]); }
+// A timestamp in New Zealand time. A value that is only a day (older records) shows the day alone — never a made-up clock time.
+function fmtStamp(iso){ if(!iso) return ''; if(/^\d{4}-\d{2}-\d{2}$/.test(iso)) return fmtDate(iso); const d = new Date(iso); return d.toLocaleDateString('en-NZ', { day:'2-digit', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }); }
 function fmtDate(iso){ if(!iso) return '—'; const d = new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtClock(s){
   const h = String(Math.floor(s/3600)).padStart(2,'0');
@@ -8045,7 +8047,7 @@ function tdPrimary(id){
 function tdDetailHtml(id, given){
   if(!id || !(given || (_today && _today.cards[id]))) return '<div class="td-empty" style="padding:30px 10px;">Nothing to show here — no task matches the tile and filters you chose.</div>';
   const c = given || _today.cards[id], t = findTask(id);
-  const dt = iso => { const d = new Date(iso); return d.toLocaleDateString('en-NZ', { day:'2-digit', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }); };
+  const dt = fmtStamp;
   const fact = (label, val) => '<div><b>' + label + '</b><span>' + (val || '<span style="color:var(--text-faint);">—</span>') + '</span></div>';
   const grp = (title, ...rows) => { const r = rows.join(''); return r ? '<div class="td-card"><h5>' + title + '</h5><div class="td-rows">' + r + '</div></div>' : ''; };
   const track = c.tracker.applicable ? '<div class="td-track" role="list" aria-label="Delivery progress">' + c.tracker.steps.map(st => '<span class="td-step ' + st.state + '" role="listitem">' + (st.state === 'done' ? '✓ ' : st.state === 'attention' ? '⚠ ' : '') + esc(st.label) + '</span>').join('') + '</div>'
@@ -8062,7 +8064,7 @@ function tdDetailHtml(id, given){
   const sheet = fact('Google Sheet', (t.sheetLink || (t.sheetFiles || []).length) ? slotCell(t.sheetLink, 'Open Sheet', t.sheetFiles) : '');
   const cash = fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '');
   const client = fact('Client commitment', c.clientDate ? esc(fmtDate(c.clientDate)) + '<span class="sub">' + esc(c.clientRisk.label) + '</span>' : '');
-  const internal = fact('Internal submission date', c.internalDeadline ? esc(fmtDate(c.internalDeadline)) : '');
+  const internal = fact('Internal commitment date', c.internalDeadline ? esc(fmtDate(c.internalDeadline)) + (c.internalDue && c.internalDue !== c.internalDeadline ? '<span class="sub">held to ' + esc(fmtDate(c.internalDue)) + ' — the client-query wait is not counted against the employee</span>' : '') : '');
   const waitFact = c.reviewWaiting ? fact('Waiting for review', c.reviewWaiting.days + (c.reviewWaiting.days === 1 ? ' day' : ' days') + (c.reviewWaiting.hours > slaH ? ' <b style="color:var(--coral);display:inline;font-size:inherit;">· past the ' + slaH + ' h review SLA</b>' : '') + '<span class="sub">since ' + esc(dt(c.reviewWaiting.since)) + '</span>') : '';
   const dh = (t.dateHistory || []).map(h => esc(dt(h.at)) + ' — ' + esc(h.note || 'changed')).join('<br>');
   let facts;
@@ -8072,11 +8074,11 @@ function tdDetailHtml(id, given){
       + grp('Work', fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), fact('Rework cycles', c.reworkCount ? String(c.reworkCount) : '0'), fact('Escalation', c.escalation ? 'Open — ' + esc(c.escalation.toName || '') + (c.escalation.decisionDate ? ' by ' + esc(c.escalation.decisionDate) : '') : 'None'));
   } else if(mode === 'review'){
     facts = grp('Submission', fact('Submitted', c.submittedAt ? esc(dt(c.submittedAt)) + (c.assigneeName ? '<span class="sub">by ' + esc(c.assigneeName) + '</span>' : '') : ''), waitFact, fact('Previous corrections', c.reworkCount ? c.reworkCount + (c.correction && c.correction.category ? ' · last: ' + esc(c.correction.category) : '') : 'None'))
-      + grp('Dates', client, fact('Internal commitment', esc(c.commitment.label)))
+      + grp('Dates', client, fact('Internal commitment', esc(c.commitment.label) + (c.commitment.detail ? '<span class="sub">' + esc(c.commitment.detail.replace(/(\d{4}-\d{2}-\d{2})/g, m => fmtDate(m))) + '</span>' : '')))
       ;
   } else {
     facts = grp('People', fact('Assigned employee', esc(c.assigneeName || '')), fact('Reviewer', esc(c.reviewerName || '')))
-      + grp('Dates', internal, client, fact('Employee\'s commitment', esc(c.commitment.label)))
+      + grp('Dates', internal, client, fact('Employee\'s commitment', esc(c.commitment.label) + (c.commitment.detail ? '<span class="sub">' + esc(c.commitment.detail.replace(/(\d{4}-\d{2}-\d{2})/g, m => fmtDate(m))) + '</span>' : '')))
       + grp('Work', fact('Task type', esc(c.taskType || c.kindLabel)), fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), waitFact, fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : 'None'));
   }
   const links = grp('Links', sheet, cash);
@@ -8085,7 +8087,7 @@ function tdDetailHtml(id, given){
   const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
   const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
   // Order: actions (Open review / Full history) → My actions → Links → attachments + latest note → People / Dates / Work
-  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
+  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
     + (mineOpen ? '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>' : '')
     + links
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
@@ -13383,16 +13385,18 @@ function openReviewViewModal(id){
 // The task's chronological events (shared by the history window and the Today side panel).
 function taskTimelineEvents(t){
   const nm = eid => eid ? ((empById(eid)||{}).name || '—') : null;
-  const dt = iso => { if(!iso) return ''; const d = new Date(iso); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'}); };
+  const dt = fmtStamp;
   const ev = [];
   const push = (at, icon, text, extra) => ev.push({ at: at || '', icon, text, extra: extra || '' });
 
   const assignedByName = nm(t.assignedBy), assignedToName = nm(t.assignedTo);
   const srcLabel = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'from a call' : 'from Slack') : null;
+  const d0 = (t.dateHistory || [])[0], origInternal = t.originalInternalDeadline || (d0 && d0.from && d0.from.internal) || t.internalDeadline, origClient = t.originalClientDate || (d0 && d0.from && d0.from.client) || t.clientDate;
+  const datesNow = (origInternal || origClient) ? ` <span style="color:var(--text-faint);">Internal commitment <b>${origInternal ? fmtDate(origInternal) : '—'}</b>${origClient ? ' · client commitment <b>' + fmtDate(origClient) + '</b>' : ''}.</span>` : '';
   push(t.assignedAt, '📌',
-    (t.assignedBy && t.assignedBy === t.assignedTo)
+    ((t.assignedBy && t.assignedBy === t.assignedTo)
       ? `<b>${esc(assignedToName)}</b> self-assigned this task${srcLabel ? ' ('+srcLabel+')' : ''}.`
-      : `<b>${esc(assignedByName||'—')}</b> assigned this to <b>${esc(assignedToName||'—')}</b>${srcLabel ? ' ('+srcLabel+')' : ''}.`);
+      : `<b>${esc(assignedByName||'—')}</b> assigned this to <b>${esc(assignedToName||'—')}</b>${srcLabel ? ' ('+srcLabel+')' : ''}.`) + datesNow);
 
   if(t.overAllocated){
     push(t.overAllocated.at, '⚡', `<b>${esc(t.overAllocated.byName||assignedByName||'—')}</b> assigned this over capacity — ${t.overAllocated.overBy}h beyond what ${esc(assignedToName||'they')} could fit by ${fmtDate(t.overAllocated.dueDate)} (only ${t.overAllocated.roomAtAssign}h was free). Counts as extra hours.`);
@@ -13408,7 +13412,7 @@ function taskTimelineEvents(t){
     const lbl = (HOLD_REASONS[h.reasonCode]||{}).label;
     const ex = (HOLD_REASONS[h.reasonCode]||{}).exempting ? ' — client clock paused' : '';
     push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold${lbl ? ': ' + esc(lbl) : ''}${ex}${h.reason && h.reason !== lbl ? ' — “'+esc(h.reason)+'”' : ''}${h.hasShot ? ' (screenshot)' : ''}.`);
-    if(h.resumedAt) push(h.resumedAt, '▶', `Taken off hold.`);
+    if(h.resumedAt) push(h.resumedTs || h.resumedAt, '▶', `Taken off hold.`);
   });
   (t.dateHistory||[]).forEach(h => {
     const bits = [];
@@ -13427,22 +13431,42 @@ function taskTimelineEvents(t){
     push(h.at, '✏', `<b>${esc(h.by||'—')}</b> renamed it — “${esc(h.from)}” → “${esc(h.to)}”.`);
   });
   (t.queries||[]).forEach(q => {
-    push(q.sentAt, '❓', `Query to the client raised (${esc(q.source)})${q.note ? ': “'+esc(q.note)+'”' : ''} — commitment clock frozen.`);
-    if(q.replyAt) push(q.replyAt, '📨', `Client replied${q.replySource ? ' by ' + esc(q.replySource) : ''} — freeze ends.`);
-    if(q.resumedAt) push(q.resumedAt.slice(0,10), '▶', `Work resumed after the query.`);
+    // The query was raised the moment the task went on hold for it — that hold has the exact time. Backdated or older queries show the day only.
+    const holdOf = (t.holdHistory || []).find(h => h.queryId === q.id), sentStamp = q.sentTs || (holdOf && holdOf.heldAt && dayOf(holdOf.heldAt) === String(q.sentAt).slice(0, 10) ? holdOf.heldAt : String(q.sentAt).slice(0, 10));
+    push(sentStamp, '❓', `Query to the client raised (${esc(q.source)})${q.note ? ': “'+esc(q.note)+'”' : ''} — commitment clock frozen.`);
+    if(q.replyAt) push(q.replyTs || String(q.replyAt).slice(0, 10), '📨', `Client replied${q.replySource ? ' by ' + esc(q.replySource) : ''} — freeze ends.`);
+    if(q.resumedAt) push(q.resumedTs || q.resumedAt.slice(0,10), '▶', `Work resumed after the query.`);
   });
 
   (t.reworkHistory||[]).forEach(h => {
     if(h.startedAt) push(h.startedAt, '⚠', `Sent back for rework (round ${h.round||'?'})${h.faultType ? ' — ' + (h.faultType === 'processor' ? 'processor fault' : h.faultType === 'other' ? 'other cause' : 'SOP / manager fault') : ''}${h.reviewNote ? ': “'+esc(h.reviewNote)+'”' : ''}.`,
       (h.attachments || []).length ? `<div class="trail-files">${downloadListHtml(h.attachments)}</div>` : '');
-    if(h.endedAt) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
+    if(h.endedAt && !(t.submissions || []).some(x => x.kind === 'resubmit' && x.at === h.endedAt)) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
   });
 
-  if(t.completedAt){
+  const effInternal = t.effectiveInternalDate || t.internalDeadline || null;
+  const internalNote = (whenIso, first) => {
+    if(!effInternal) return '';
+    const due = `Internal commitment <b>${fmtDate(effInternal)}</b>${effInternal !== t.internalDeadline && t.internalDeadline ? ' <span style="color:var(--text-faint);">(' + fmtDate(t.internalDeadline) + ' + client-query wait)</span>' : ''}`;
+    if(!first) return ' ' + due + '.';
+    const day = dayOf(whenIso), late = day > effInternal;
+    return ' ' + due + ' — <b style="color:' + (late ? '#C2410C' : 'var(--teal)') + ';">' + (late ? 'submitted after it' : 'submitted on time') + '</b>.';
+  };
+  if((t.submissions || []).length){
+    t.submissions.forEach((x, i) => {
+      const who = '<b>' + esc(nm(x.byId) || assignedToName || '—') + '</b>', rv = x.reviewerId ? '<b>' + esc(nm(x.reviewerId) || '—') + '</b>' : null;
+      const first = i === 0 && x.kind !== 'reopened';
+      if(x.kind === 'done') push(x.at, '🏁', who + ' marked it done — no review needed.' + internalNote(x.at, first));
+      else if(x.kind === 'direct_profit') push(x.at, '📤', who + ' sent it straight for profit confirmation.' + internalNote(x.at, first));
+      else if(x.kind === 'resubmit') push(x.at, '🔁', who + ' sent the corrected work back to ' + (rv || 'the reviewer') + ' for re-review (correction ' + (x.round || 1) + ').');
+      else if(x.kind === 'reopened') push(x.at, '🔄', who + ' re-opened it and sent it to ' + (rv || 'a reviewer') + ' for re-review.');
+      else push(x.at, '📤', who + ' sent it to ' + (rv || 'the reviewer') + ' for review.' + internalNote(x.at, first));
+    });
+  } else if(t.completedAt){
     if(t.reviewStatus === 'done'){
       push(t.closedAt || t.completedAt, '🏁', `<b>${esc(nm(t.closedBy)||assignedToName||'—')}</b> marked it done — no review needed.`);
     } else {
-      push(t.completedAt, '📤', `<b>${esc(assignedToName||'—')}</b> marked it complete${t.reviewerId ? ' and sent it to <b>'+esc(nm(t.reviewerId)||'—')+'</b> to review' : ' for review'}.`);
+      push(t.completedAt, '📤', `<b>${esc(assignedToName||'—')}</b> marked it complete${t.reviewerId ? ' and sent it to <b>'+esc(nm(t.reviewerId)||'—')+'</b> to review' : ' for review'}.` + internalNote(t.completedAt, !(t.reworkCount > 0)));
     }
   }
 
@@ -13475,7 +13499,8 @@ function taskTimelineEvents(t){
         : `<b>${esc(nm(t.sentToClientBy)||'—')}</b> decided not to send it to the client.`);
   }
 
-  ev.sort((a,b) => (a.at||'').localeCompare(b.at||''));
+  const sortKey = e => { const a = e.at || ''; return a.length === 10 ? a + 'T23:59:59Z' : a; };   // a day-only event sorts to the end of its day
+  ev.sort((a,b) => sortKey(a).localeCompare(sortKey(b)));
   return { ev, dt, nm };
 }
 // Every task list runs NEWEST first — the latest-assigned task on top (task numbers rise with every new task, so they break ties).
