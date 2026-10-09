@@ -7855,7 +7855,8 @@ function linkCellHtml(c){
   return out.length ? out.join(' · ') : '<span style="color:var(--text-faint);">—</span>';
 }
 // The headings that sit above every list of tasks, in the same order as the cells in each row.
-const TD_COLHEAD = '<div class="td-colhead" aria-hidden="true"><span>Name</span><span>Work</span><span>Processor</span><span>Status</span><span>Client commitment date</span><span>Link</span></div>';
+const colHeadHtml = dateLabel => '<div class="td-colhead" aria-hidden="true"><span>Name</span><span>Work</span><span>Processor</span><span>Status</span><span>' + dateLabel + '</span><span>Link</span></div>';
+const TD_COLHEAD = colHeadHtml('Client commitment date');
 // One slim line per task: Name | Work | Processor | Status | Client commitment date (+ risk) | Link. The detail panel opens on click.
 function tdCardHtml(id, note){
   const c = _today.cards[id]; if(!c) return '';
@@ -8382,7 +8383,7 @@ async function mtSubmitAction(kind, id){
   catch(e){ go.disabled = false; bad(e.message); }
 }
 /* ---------------- Calendar + Timeline: shared filters ---------------- */
-let _mtCalView = 'month', _mtWeek = null, _mtAgendaN = 30, _mtDayOpen = null, _mtTlPage = 1, _mtTlSize = 25;
+let _mtCalView = 'today', _mtWeek = null, _mtAgendaN = 30, _mtDayOpen = null, _mtTlPage = 1, _mtTlSize = 25;
 function mtViewQuery(extra){
   const p = new URLSearchParams();
   ['employee', 'client', 'reviewer', 'status', 'type', 'risk'].forEach(k => { if(_mt[k]) p.set(k, _mt[k]); });
@@ -8429,9 +8430,21 @@ function mtDrawCalendar(){
   const body = document.getElementById('mtBody'), C = _mtCal, F = C.facets, today = C.today, ev = C.events;
   const byDay = {}; ev.forEach(e => (byDay[e.date] = byDay[e.date] || []).push(e));
   const kinds = String(_mt.kinds || 'internal,client').split(',');
-  const views = [['month', 'Month'], ['week', 'Week'], ['agenda', 'Agenda']].map(([k, l]) => '<button type="button" role="tab" class="' + (_mtCalView === k ? 'on' : '') + '" aria-selected="' + (_mtCalView === k) + '" onclick="mtCalView(\'' + k + '\')">' + l + '</button>').join('');
+  const views = [['today', 'Today'], ['month', 'Month'], ['week', 'Week'], ['agenda', 'Agenda']].map(([k, l]) => '<button type="button" role="tab" class="' + (_mtCalView === k ? 'on' : '') + '" aria-selected="' + (_mtCalView === k) + '" onclick="mtCalView(\'' + k + '\')">' + l + '</button>').join('');
   let nav = '', grid = '';
-  if(_mtCalView === 'month'){
+  if(_mtCalView === 'today'){
+    // ONLY today's two kinds of date: the client commitment dates and the internal due dates that are today
+    const row = (e, dateText) => '<div class="td-card td-row" role="listitem" tabindex="0" onclick="mtOpenDetail(\'' + esc(e.id) + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();mtOpenDetail(\'' + esc(e.id) + '\');}" title="Open ' + esc(e.name) + '">'
+      + '<span class="tr-name">' + esc(e.clientName || 'Admin task') + '</span><span class="tr-work">' + esc(e.name) + '</span><span class="tr-who">' + esc(e.assigneeName || 'Unassigned') + '</span><span class="tr-st">' + esc(e.status) + '</span>'
+      + '<span class="tr-date"><span class="tr-dt">' + esc(dateText) + '</span></span><span class="tr-link">' + linkCellHtml(e) + '</span></div>';
+    const sec = (title, label, list, empty) => '<div class="tm-panel" style="padding:0;overflow:hidden;"><div class="td-sec"><span>' + esc(title) + '</span><span>' + list.length + '</span></div>'
+      + (list.length ? colHeadHtml(label) + '<div role="list">' + list.map(e => row(e, fmtDate(today))).join('') + '</div>' : '<div class="td-empty">' + esc(empty) + '</div>') + '</div>';
+    const todays = k => ev.filter(e => e.date === today && e.kind === k);
+    nav = '<b>' + esc(fmtDate(today)) + ' · today</b>';
+    grid = (kinds.includes('client') ? sec('Client commitment — due to the client today', 'Client commitment date', todays('client'), 'No client commitment falls today.') : '')
+      + (kinds.includes('internal') ? sec('Due today — internal due dates', 'Internal due date', todays('internal'), 'Nothing is due internally today.') : '')
+      + (!kinds.includes('client') && !kinds.includes('internal') ? '<div class="td-empty">Tick Internal due dates or Client commitment dates to see the work for today.</div>' : '');
+  } else if(_mtCalView === 'month'){
     const [y, m] = _mtMonth.split('-').map(Number), first = new Date(Date.UTC(y, m - 1, 1)), startDow = (first.getUTCDay() + 6) % 7, days = new Date(Date.UTC(y, m, 0)).getUTCDate();
     nav = '<button type="button" class="btn small td-act" onclick="mtShiftMonth(-1)" aria-label="Previous month">←</button><b>' + esc(first.toLocaleDateString('en-NZ', { month:'long', year:'numeric', timeZone:'UTC' })) + '</b><button type="button" class="btn small td-act" onclick="mtShiftMonth(1)" aria-label="Next month">→</button><button type="button" class="btn small td-act" onclick="_mtMonth=null;_mtDayOpen=null;mtLoadCalendar()">This month</button>';
     let cells = ''; for(let i = 0; i < startDow; i++) cells += '<div class="cal-cell empty"></div>';

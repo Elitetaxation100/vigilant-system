@@ -195,6 +195,7 @@ test('Calendar and Timeline: internal and client dates appear, filter by employe
   const range = (await wf(SH, `calendar?from=${day(2)}&to=${day(3)}`)).j.events;
   assert.ok(range.length > 0 && range.every(e => e.date >= day(2) && e.date <= day(3)));
   C.events.forEach(e => assert.ok(['red', 'amber', 'blue', 'purple', 'green', 'grey'].includes(e.tone)));
+  C.events.forEach(e => { for (const k of ['assigneeId', 'sheetLink', 'cashbookLink', 'hasSheet', 'hasCashbook', 'clientDate', 'internalDeadline']) assert.ok(k in e, 'calendar events carry ' + k); });
   const T = (await wf(SH, 'timeline')).j;
   assert.ok(T.rows.length > 20); T.rows.forEach(r => { assert.ok(r.start <= r.end, 'a bar never runs backwards'); });
   assert.ok((await wf(SH, `timeline?employee=${enc(rj.id)}`)).j.rows.length < T.rows.length);

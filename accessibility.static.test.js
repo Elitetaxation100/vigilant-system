@@ -86,7 +86,8 @@ test('the new layout is chosen the moment sign-in succeeds — before the slow d
 });
 
 test('every task list has bold, coloured column headings in the same order as its rows: Name, Work, Processor, (Status,) Client commitment date, Link', () => {
-  assert.match(html, /const TD_COLHEAD = [^;]*<span>Name<\/span><span>Work<\/span><span>Processor<\/span><span>Status<\/span><span>Client commitment date<\/span><span>Link<\/span>/);
+  assert.match(html, /const colHeadHtml = dateLabel => [^;]*<span>Name<\/span><span>Work<\/span><span>Processor<\/span><span>Status<\/span><span>' \+ dateLabel \+ '<\/span><span>Link<\/span>/);
+  assert.match(html, /const TD_COLHEAD = colHeadHtml\('Client commitment date'\)/);
   assert.match(html, /\.td-colhead\{[^}]*background:var\(--purple-dim\);[^}]*color:var\(--purple\);[^}]*font-weight:800/);
   assert.match(html, /const RQ_HEAD = [^;]*<span>Name<\/span><span>Work<\/span><span>Processor<\/span><span>Client commitment date<\/span><span>Link<\/span>/);
   assert.match(html, /<thead><tr><th>Name<\/th><th>Work<\/th><th>Processor<\/th><th>Status<\/th><th>Internal due<\/th><th>Client commitment date<\/th><th>Link<\/th>/);
@@ -113,4 +114,14 @@ test('every list has a Processor filter: Today (3 views), Reviews, the Tasks lis
   assert.match(html, /function fltProcessors\(ns\)/);
   assert.match(html, /mtSel\('mtf_employee', 'Processor'/);
   assert.match(html, /sel\('employee', 'Processor'/);
+});
+
+test('the Calendar opens on TODAY and shows only today\'s client commitment dates and today\'s internal due dates', () => {
+  assert.match(html, /let _mtCalView = 'today',/);
+  assert.match(html, /\[\['today', 'Today'\], \['month', 'Month'\], \['week', 'Week'\], \['agenda', 'Agenda'\]\]/);
+  const fn = html.slice(html.indexOf("if(_mtCalView === 'today'){"), html.indexOf("} else if(_mtCalView === 'month'){"));
+  assert.match(fn, /todays = k => ev\.filter\(e => e\.date === today && e\.kind === k\)/);
+  assert.match(fn, /todays\('client'\)/); assert.match(fn, /todays\('internal'\)/);
+  assert.doesNotMatch(fn, /correction|followup/, 'no other kind of date is mixed in');
+  assert.match(fn, /colHeadHtml\(label\)/, 'the same column headings as every other list');
 });
