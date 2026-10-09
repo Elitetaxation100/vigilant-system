@@ -193,13 +193,13 @@ test('audit: a client-wait with no detail and no reply is flagged; only a supera
 });
 
 test('the Hold box pre-chooses nothing and records no query on its own: it needs a ticked box and a typed date, time and way of asking', () => {
-  assert.match(html, /<select id="holdReasonCode" onchange="_holdReasonChanged\(\)"><option value="" selected disabled>— Choose the reason —<\/option>/);
+  assert.match(html, /<select id="holdReasonCode" onchange="_holdReasonChanged\(\)"><option value="" selected disabled>— Choose the category —<\/option>/);
   assert.match(html, /<select id="qSource"><option value="" selected disabled>— Choose —<\/option>/);
   assert.match(html, /<input type="checkbox" id="qConfirm" style="margin-top:3px;" onchange=/); assert.ok(!/id="qConfirm"[^>]*\schecked\b/.test(html), 'unticked by default');
   assert.match(html, /<input type="date" id="qSentAt" max="' \+ esc\(todayISO\(\)\) \+ '"><\/div>/, 'the date is not pre-filled');
   assert.match(html, /<input type="time" id="qSentTime">/);
-  assert.match(html, /function openRecordQueryModal\(id\)/); assert.match(html, /Record client query/);
-  assert.match(html, /if\(!reasonCode\)\{ errEl\.textContent = 'Choose why the task is going on hold\.'/);
+  assert.match(html, /function openRecordQueryModal\(id\)/); assert.match(html, /Record query/);
+  assert.ok(html.includes("if(!reasonCode) return fail('Choose why the task is going on hold.');"));
   assert.match(html, /qsf\.style\.display = code === 'THIRD_PARTY' \? 'none' : ''/);
 });
 test('the history words each wait for what it was, and a dismissed query is shown as not real', () => {

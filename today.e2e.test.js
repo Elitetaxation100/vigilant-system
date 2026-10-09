@@ -50,15 +50,16 @@ test('setup', async () => {
   client = (await http('POST', '/api/clients', { token: SH, body: { name: 'Today Ltd', email: 'td' + Date.now() + '@t.co' } })).j.client;
 });
 
-test('the Today dashboard is switched on for Parvinder only, and a superadmin can switch anyone on or off', async () => {
+test('the focused dashboard is on by default for every ordinary employee and for Parvinder; a superadmin can switch anyone on or off', async () => {
   const me = async tok => (await http('GET', '/api/auth/me', { token: tok })).j.employee;
   assert.equal((await me(PK)).dashboardV2, true, 'on for Parvinder (one-time migration)');
-  assert.ok(!(await me(RJ)).dashboardV2 && !(await me(DI)).dashboardV2 && !(await me(SH)).dashboardV2, 'nobody else');
+  assert.ok((await me(RJ)).dashboardV2, 'on by default for ordinary employees (processors)'); assert.ok(!(await me(DI)).dashboardV2, 'managers who were not switched on keep the classic layout');
+  assert.ok(!(await me(SH)).dashboardV2, 'not for the founder: Shubam keeps his own dashboard');
   assert.equal((await http('PATCH', `/api/employees/${enc(emp('ranjit').id)}`, { token: DI, body: { dashboardV2: true } })).status, 403, 'only a superadmin');
-  assert.equal((await http('PATCH', `/api/employees/${enc(emp('ranjit').id)}`, { token: SH, body: { dashboardV2: true } })).status, 200);
-  assert.equal((await me(RJ)).dashboardV2, true);
   assert.equal((await http('PATCH', `/api/employees/${enc(emp('ranjit').id)}`, { token: SH, body: { dashboardV2: false } })).status, 200);
-  assert.equal((await me(RJ)).dashboardV2, false, 'and off again');
+  assert.equal((await me(RJ)).dashboardV2, false, 'switched off for one person');
+  assert.equal((await http('PATCH', `/api/employees/${enc(emp('ranjit').id)}`, { token: SH, body: { dashboardV2: true } })).status, 200);
+  assert.equal((await me(RJ)).dashboardV2, true, 'and on again');
 });
 
 test('the date and greeting come from the BUSINESS clock', async () => {

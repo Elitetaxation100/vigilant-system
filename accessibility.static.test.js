@@ -42,7 +42,7 @@ test('every new screen has loading, empty and error states with a retry; live re
 });
 
 test('form controls are labelled; link and review fields explain themselves', () => {
-  for (const id of ['atSheet', 'atCash', 'atReviewer', 'atNoReviewReason', 'holdResp', 'holdFollow', 'mtaReason'])
+  for (const id of ['atSheet', 'atCash', 'atReviewer', 'atNoReviewReason', 'holdReasonCode', 'holdReason', 'holdFollow', 'mtaReason'])
     assert.match(html, new RegExp('<label[^>]*for="' + id + '"'), id + ' has a label');
   assert.match(html, /<label class="mt-f mt-q"><span>Search<\/span><input type="search"/, 'search is a real search field');
 });

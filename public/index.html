@@ -2646,14 +2646,26 @@ function startPolicyCompliancePolling(){
 function stopPolicyCompliancePolling(){ if(policyCompliancePoll){ clearInterval(policyCompliancePoll); policyCompliancePoll=null; } }
 
 // Hold reason taxonomy — mirrors HOLD_REASONS on the server (which validates).
+// The same categories as hold-model.js. party = what "Waiting on" asks for; exempting = a verified EXTERNAL dependency (the only kind that may pause responsibility).
 const HOLD_REASONS = {
-  CLIENT_QUERY:    { label: 'Awaiting client answer to a query',         exempting: true,  needsDetail: false },
-  CLIENT_DOCS:     { label: 'Awaiting documents / records from client',  exempting: true,  needsDetail: false },
-  THIRD_PARTY:     { label: 'Awaiting IRD / bank / third party',         exempting: true,  needsDetail: true  },
-  INTERNAL_REVIEW: { label: 'Blocked on a reviewer / partner sign-off',  exempting: false, needsDetail: false },
-  CAPACITY:        { label: 'Re-prioritised — parked by a manager',      exempting: false, needsDetail: false, managerOnly: true },
-  BLOCKED_OTHER:   { label: 'Other',                                     exempting: false, needsDetail: true  },
+  CLIENT_INFO:         { label: 'Waiting on client information',        exempting: true,  needsDetail: true, party: 'client',   clientRelated: true },
+  CLIENT_DOCS:         { label: 'Waiting on client documents',          exempting: true,  needsDetail: true, party: 'client',   clientRelated: true },
+  EXTERNAL_AUTHORITY:  { label: 'Waiting on IRD or external authority', exempting: true,  needsDetail: true, party: 'text',     clientRelated: false },
+  MANAGER_DECISION:    { label: 'Waiting on manager decision',          exempting: false, needsDetail: true, party: 'manager',  clientRelated: false },
+  REVIEWER:            { label: 'Waiting on reviewer',                  exempting: false, needsDetail: true, party: 'reviewer', clientRelated: false },
+  INTERNAL_DEPENDENCY: { label: 'Internal dependency',                  exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
+  REWORK_BLOCKED:      { label: 'Rework blocked',                       exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
+  SCHEDULED_FUTURE:    { label: 'Scheduled for a future date',          exempting: false, needsDetail: true, party: 'none',     clientRelated: false },
+  NO_CONFIRMATION:     { label: 'No confirmation received',             exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
+  OTHER:               { label: 'Other',                                exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
+  // saved before the structured categories existed — still shown correctly
+  CLIENT_QUERY:        { label: 'Awaiting client answer to a query',    exempting: true,  needsDetail: false, party: 'client',   clientRelated: true },
+  THIRD_PARTY:         { label: 'Awaiting IRD / bank / third party',    exempting: true,  needsDetail: true, party: 'text',     clientRelated: false },
+  INTERNAL_REVIEW:     { label: 'Blocked on a reviewer or partner sign-off', exempting: false, needsDetail: false, party: 'reviewer', clientRelated: false },
+  CAPACITY:            { label: 'Re-prioritised — parked by manager',   exempting: false, needsDetail: false, party: 'manager',  clientRelated: false },
+  BLOCKED_OTHER:       { label: 'Other',                                exempting: false, needsDetail: true, party: 'text',     clientRelated: false },
 };
+const HOLD_CATEGORY_CODES = ['CLIENT_INFO', 'CLIENT_DOCS', 'EXTERNAL_AUTHORITY', 'MANAGER_DECISION', 'REVIEWER', 'INTERNAL_DEPENDENCY', 'REWORK_BLOCKED', 'SCHEDULED_FUTURE', 'NO_CONFIRMATION', 'OTHER'];
 const DISPATCH_BUFFER_WD = 3;
 function holdReasonLabel(t){
   const m = HOLD_REASONS[t && t.holdReasonCode];
@@ -7762,11 +7774,12 @@ function renderReassignedMail(){
    Left: a compact list. Right: the selected task in full — progress tracker, facts, files, timeline — without leaving the page.
    Every number is derived by the server (workflow.js) from the same tasks, on the company clock.
    ========================================================================= */
-const TD_MODES = [['today', 'Today'], ['manager', 'Manager View'], ['review', 'Review View']];
+const TD_LABELS = { processor: 'My Dashboard', today: 'Today', manager: 'Manager View', review: 'Review View' };
+let TD_MODES = [['processor', 'My Dashboard'], ['today', 'Today'], ['manager', 'Manager View'], ['review', 'Review View']];   // narrowed to this person's views as soon as the data arrives
 function tdLoadMode(){ try { const m = localStorage.getItem('tdMode'); return TD_MODES.some(x => x[0] === m) ? m : 'today'; } catch(e){ return 'today'; } }
 // ONE view is on screen at a time and each view owns its own tile, expanded section, selected task and search — switching clears them all.
 let _today = null, _tdMode = tdLoadMode(), _tdTile = null, _tdOpen = null, _tdSel = null;
-const tdDefaultOpen = () => _tdMode === 'today' ? 'my_work' : null;      // on Today, "My work" is the one section that starts open
+const tdDefaultOpen = () => _tdMode === 'today' ? 'my_work' : _tdMode === 'processor' ? 'p_due' : null;      // on Today, "My work" is the one section that starts open
 _tdOpen = tdDefaultOpen();
 function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
@@ -7785,7 +7798,7 @@ function todayViewActive(){ const v = document.getElementById('view-today'); ret
 async function renderToday(quiet){
   const box = document.getElementById('tdRoot'); if(!box) return;
   if(!quiet && !_today) box.innerHTML = '<div class="td-head"><div><div class="td-greet" style="opacity:.35;">Loading…</div></div></div><div class="td-counts">' + '<div class="td-count" style="opacity:.4;"><span class="n">–</span><span class="l">&nbsp;</span></div>'.repeat(6) + '</div><div class="td-list"><div class="td-empty">Loading your day…</div></div>';
-  try { _today = await api('/api/workflow/today'); }
+  try { _today = await api('/api/workflow/today'); TD_MODES = (_today.tabs || ['today', 'manager', 'review']).map(k => [k, TD_LABELS[k]]); if(!TD_MODES.some(x => x[0] === _tdMode)){ _tdMode = TD_MODES[0][0]; _tdTile = null; _tdSel = null; _tdOpen = tdDefaultOpen(); } }
   catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not load Today: ' + esc(e.message) + ' <button class="btn small td-act" onclick="renderToday()">Retry</button></div>'; return; }
   drawToday();
 }
@@ -7820,7 +7833,7 @@ function tdCardHtml(id, note){
     + '<span class="tr-name">' + esc(c.clientName || 'Admin task') + '</span>'
     + '<span class="tr-work">' + esc(c.name) + '</span>'
     + '<span class="tr-who">' + esc(processor) + '</span>'
-    + '<span class="tr-st">' + esc(c.status) + '</span>'
+    + '<span class="tr-st">' + esc(c.primaryStatus || c.status) + (c.hold ? '<span class="tm-sub" style="display:block;">Held ' + esc(c.hold.ageText) + (c.hold.waitingOnPerson ? ' · ' + esc(c.hold.waitingOnPerson) : '') + (c.hold.responsibilityPaused ? ' · responsibility paused' : '') + '</span>' : '') + '</span>'
     + '<span class="tr-date"><span class="tr-dt">' + esc(when) + '</span>' + tdRiskTag(c) + '</span>'
     + '<span class="tr-link">' + linkCellHtml(c) + '</span></div>';
 }
@@ -7926,18 +7939,33 @@ function tdListHtml(){
 function tdTilesHtml(){
   return tdModeData().tiles.map(t => {
     const n = t.ids.filter(tdMatch).length, on = _tdTile === t.key;
-    const hot = (t.key === 'team_risk' || t.key === 'team_overdue' || t.key === 'risk_mine' || t.key === 'overdue_mine' || t.key === 'urgent' || t.key === 'sla') && n;
+    const hot = (t.key === 'team_risk' || t.key === 'team_overdue' || t.key === 'risk_mine' || t.key === 'overdue_mine' || t.key === 'urgent' || t.key === 'sla' || t.key === 'p_fix') && n;
     return '<button type="button" class="td-count' + (on ? ' on' : '') + (hot ? ' hot' : '') + '" onclick="tdSetTile(\'' + t.key + '\')" aria-pressed="' + on + '" aria-label="' + esc(t.label + ', ' + n + (n === 1 ? ' task' : ' tasks') + '. Scope: ' + t.scope + '. ' + (on ? 'Showing. Press to go back.' : 'Show tasks.')) + '">'
       + '<span class="n">' + n + '</span><span class="l">' + esc(t.label) + '</span><span class="sc">' + esc(t.scope) + '</span></button>';
   }).join('');
 }
 // Redraw everything BELOW the tabs and search box (so typing in the search box never loses focus).
+// Allocated hours (the estimate agreed for each task), in the words they mean — never "hours done" and never actual time spent.
+function procStripHtml(){
+  const M = _today.modes.processor; if(!M) return '';
+  const tile = k => (M.tiles.find(x => x.key === k) || { ids: [] }).ids;
+  const hrs = ids => Math.round([...new Set(ids)].reduce((n, id) => n + (Number((_today.cards[id] || {}).allocatedHours) || 0), 0) * 100) / 100;
+  const part = (label, h, tip) => '<span title="' + esc(tip) + '"><b>' + h + 'h</b> ' + label + '</span>';
+  return '<div class="td-empty" role="note" style="margin:-2px 0 10px;text-align:left;display:flex;gap:16px;flex-wrap:wrap;font-size:13px;">'
+    + part('actionable workload', hrs([...tile('p_due'), ...tile('p_fix'), ...tile('p_ready')]), 'Allocated hours of what you can work on now: due today, fix needed and ready to resume')
+    + part('fix needed', hrs(tile('p_fix')), 'Allocated hours of corrections returned to you')
+    + part('on hold', hrs([...tile('p_waiting'), ...tile('p_ready')]), 'Allocated hours of your tasks on hold (waiting on others or ready to resume)')
+    + part('sent for review', hrs(tile('p_sent')), 'Allocated hours of your work waiting for a reviewer')
+    + '<span style="color:var(--text-faint);">Allocated hours are the estimate agreed for each task — not time spent, and not your capacity.</span></div>';
+}
 function tdDrawBody(){
   const body = document.getElementById('tdBody'); if(!body || !_today) return;
   const M = tdModeData(), S = _tdTile ? M.tiles.find(x => x.key === _tdTile) : null;
   const reportsNote = S && S.key === 'reports_team' && S.breakdown ? '<div class="td-empty" role="note">Overdue to send: <b>' + S.breakdown.overdue + '</b> · Due today: <b>' + S.breakdown.today + '</b> · Due later: <b>' + S.breakdown.later + '</b> · Waiting for profit confirmation: <b>' + S.breakdown.profit + '</b>. A report is never counted late before its client date.</div>' : '';
+  const groupsNote = S && S.key === 'p_waiting' && S.groups ? '<div class="td-empty" role="note">' + Object.entries(S.groups).map(([k, v]) => ({ client: 'Client', external: 'External authority', manager: 'Manager', reviewer: 'Reviewer', internal: 'Internal dependency', scheduled: 'Scheduled for later', other: 'Other' }[k] || k) + ': <b>' + v.length + '</b>').join(' · ') + '</div>' : '';
   body.innerHTML = '<div class="td-counts" role="group" aria-label="' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + ' summary">' + tdTilesHtml() + '</div>'
-    + (S ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(S.label) + '</b> <button type="button" class="btn small td-act" onclick="tdSetTile(null)">Back to ' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + '</button></div>' + reportsNote : '')
+    + (_tdMode === 'processor' ? procStripHtml() : '')
+    + (S ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(S.label) + '</b> <button type="button" class="btn small td-act" onclick="tdSetTile(null)">Back to ' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + '</button></div>' + reportsNote + groupsNote : '')
     + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + tdListHtml() + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
 }
 function drawToday(){
@@ -8031,15 +8059,24 @@ function tdDetailHtml(id, given){
       + grp('Work', fact('Task type', esc(c.taskType || c.kindLabel)), fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), waitFact, fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : 'None'));
   }
   const links = grp('Links', sheet, cash);
+  const holdBox = (t && t.status === 'on_hold') ? holdSummaryHtml(t) : '';
+  const btn = (fn, label) => '<button type="button" class="btn td-act" onclick="' + fn + '(\'' + esc(id) + '\')">' + label + '</button>';
+  const stateBtns = !t ? '' : [
+    (c.hold && c.hold.pauseRequested && isAdmin && t.assignedTo !== currentViewerId) ? btn('openPauseDecisionModal', 'Review pause request') : '',
+    (t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'cancelled') ? btn('openDateRequestModal', 'Request new date') : '',
+    (t.status === 'completed' && t.reviewStatus === 'clean' && t.awaitingClientDecision && (t.reportSendOwner || t.assignedTo) === currentViewerId) ? btn('openSendToClientModal', 'Send report…') : '',
+  ].join('');
   const prim = given ? '' : tdPrimary(id);
   // Work assigned to ME: every action that belongs to it — accept, start, mark done, send for review, hold / client query, resume, dates
   const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
   const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
   // Order: actions (Open review / Full history) → My actions → Links → attachments + latest note → People / Dates / Work
-  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + (iCanChangeReviewer(t) ? '<button type="button" class="btn td-act" onclick="openChangeReviewerModal(\'' + esc(id) + '\')" title="Send this to a different reviewer">Change reviewer</button>' : '') + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
+  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + stateBtns + mgrBtns + (iCanChangeReviewer(t) ? '<button type="button" class="btn td-act" onclick="openChangeReviewerModal(\'' + esc(id) + '\')" title="Send this to a different reviewer">Change reviewer</button>' : '') + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
     + (mineOpen ? '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>' : '')
+    + holdBox
     + links
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
+    + ((t.correctionAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Corrected files from the processor</b>' + correctionFilesHtml(t) + '</div>' : '')
     + (t.reviewNote ? '<div style="margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13.5px;"><b>Latest note</b><br>' + esc(t.reviewNote) + '</div>' : '')
     + facts + '<div style="height:6px;"></div>';
   const { ev } = taskTimelineEvents(t);
@@ -8584,10 +8621,11 @@ async function acceptTask(id){
 function iCanHold(t){
   return t && (t.assignedTo === currentViewerId || empManagesWork(currentViewer(), t.assignedTo));
 }
-function openQuery(t){ return (t.queries||[]).find(q => !q.dismissedAt && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode) && !q.replyAt); }
+const EXTERNAL_HOLD_CODES = ['CLIENT_INFO', 'CLIENT_DOCS', 'EXTERNAL_AUTHORITY', 'CLIENT_QUERY', 'THIRD_PARTY'];
+function openQuery(t){ return (t.queries||[]).find(q => !q.dismissedAt && q.pauseStatus !== 'rejected' && EXTERNAL_HOLD_CODES.includes(q.reasonCode) && !q.replyAt); }
 // A summary of every query on a task: sent → reply → resume, and the shift it earned.
 function queryDetailHtml(t){
-  const qs = (t.queries||[]).filter(q => !q.dismissedAt && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode));
+  const qs = (t.queries||[]).filter(q => !q.dismissedAt && EXTERNAL_HOLD_CODES.includes(q.reasonCode));
   if(!qs.length) return '';
   const rows = qs.map(q => {
     const reply = q.replyAt ? fmtDate(q.replyAt) : '<span style="color:var(--amber,#B45309);">awaiting</span>';
@@ -8615,20 +8653,44 @@ function queryDetailHtml(t){
         : `No shift applied yet — the client date is still <b>${t.clientDate ? fmtDate(t.clientDate) : '—'}</b>.`}
     </div>`;
 }
+function holdAgeText(iso){
+  if(!iso) return '';
+  const h = Math.max(0, (Date.now() - new Date(iso).getTime()) / 3600000), d = Math.floor(h / 24);
+  return h < 1 ? 'under an hour' : h < 24 ? Math.floor(h) + (Math.floor(h) === 1 ? ' hour' : ' hours') : d + (d === 1 ? ' day' : ' days');
+}
+function activeHoldOf(t){ const h = (t.holdHistory || [])[(t.holdHistory || []).length - 1]; return h && !h.resumedAt ? h : null; }
 function holdControlsHtml(t){
   if(!iCanHold(t)) return '';
   if(t.status === 'on_hold'){
-    const q = openQuery(t);
-    let h = q
-      ? `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeReplyModal('${t.id}','${q.id}')">Resume</button>`
-      : `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="unholdTask('${t.id}')">Resume</button>`;
-    if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log client reply</button>`;
-    if(!q && t.clientDate && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(t.holdReasonCode)) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openRecordQueryModal('${t.id}')" title="Only if you really sent the client a query — this pauses the client commitment date">Record client query</button>`;
-    h += `<button class="verify-btn" onclick="openAddHoursModal('${t.id}')" title="Add time you spent on this task while it's on hold">+ Add time</button>`;
+    const q = openQuery(t), ready = !!t.holdResolvedAt, ext = !!(HOLD_REASONS[t.holdReasonCode] || {}).exempting;
+    let h = `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeModal('${t.id}')">Resume</button>`;
+    if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log reply</button>`;
+    else if(!ready) h += `<button class="verify-btn" onclick="openHoldResolvedModal('${t.id}')" title="What it was waiting for has arrived">Ready to resume</button>`;
+    if(!q && t.clientDate && ext) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openRecordQueryModal('${t.id}')" title="Only if you really sent a query — a manager has to approve the pause of your responsibility">Record query</button>`;
+    h += `<button class="verify-btn" onclick="openHoldUpdateModal('${t.id}')">Update hold</button>`;
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
     return h;
   }
   return `<button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+}
+// Everything about the active hold, in plain words. "Waiting on client" is only said when a client query is really recorded.
+function holdSummaryHtml(t){
+  const hh = activeHoldOf(t) || {}, code = t.holdReasonCode, q = (t.queries || []).find(x => !x.dismissedAt && x.id === hh.queryId);
+  const pause = q ? (q.pauseStatus || 'approved') : null, paused = q && !q.replyAt && pause === 'approved';
+  const age = holdAgeText(t.heldAt || hh.heldAt), row = (k, v) => '<div class="fd-ir"><span>' + k + '</span><b style="text-align:right;">' + v + '</b></div>';
+  const follow = t.holdFollowUp || hh.followUp, due = follow && follow <= todayISO();
+  return '<div class="td-card"><h5>On hold</h5><div class="td-rows" style="display:block;padding:6px 12px;">'
+    + row('Category', esc((HOLD_REASONS[code] || {}).label || holdReasonLabel(t)))
+    + row('Reason', esc(t.holdReason || '—'))
+    + row('Waiting on', esc(hh.waitingOnPerson || '—'))
+    + row('Held for', esc(age) + ' <span style="font-weight:400;color:var(--text-faint);">(since ' + esc(fmtStamp(t.heldAt || hh.heldAt)) + ')</span>')
+    + (q && !q.replyAt && (HOLD_REASONS[code] || {}).clientRelated ? row('Client response', 'pending for ' + esc(holdAgeText(q.sentTs || q.sentAt))) : '')
+    + row('Follow-up', follow ? esc(fmtDate(follow)) + (due ? ' <span style="color:var(--coral);">· due</span>' : '') : '—')
+    + (hh.expectedResponseDate ? row('Reply expected by', esc(fmtDate(hh.expectedResponseDate))) : '')
+    + row('Processor responsibility', paused ? 'paused since ' + esc(fmtStamp(q.sentTs || q.sentAt)) : pause === 'pending' ? '<span style="color:#B45309;">pause awaiting manager approval</span>' : 'not paused')
+    + row('Client commitment', t.clientDate ? esc(fmtDate(t.clientDate)) + ' <span style="font-weight:400;color:var(--text-faint);">· never moved by a hold</span>' : '—')
+    + row('Capacity & allocated hours', 'unchanged')
+    + '</div></div>';
 }
 function openRecordQueryModal(id){
   const t = findTask(id); if(!t) return;
@@ -8724,58 +8786,79 @@ async function submitResumeWithReply(taskId, qid){
     showToast('success', 'Resumed', 'Reply logged — press play to start the clock again.');
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
+// The Put on Hold box. A category, a reason, who it waits on and a follow-up date are all required. A client query is recorded ONLY if the
+// owner ticks that one was really sent and gives how, when and the evidence. Putting a task on hold never changes the seven-hour capacity,
+// the allocated hours or the client commitment date.
+function holdWaitingFieldHtml(t, code){
+  const m = HOLD_REASONS[code] || {}, party = m.party;
+  if(party === 'none') return '';
+  const label = '<label for="holdWaiting">Waiting on <span class="req-mark">*</span></label>';
+  if(party === 'manager'){
+    const mgrs = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && e.id !== t.assignedTo && canReceiveNewWork(e)).sort((a, b) => a.name.localeCompare(b.name));
+    return '<div class="field">' + label + '<select id="holdWaiting"><option value="">— Choose the manager —</option>' + mgrs.map(e => '<option value="' + esc(e.id) + '">' + esc(e.name) + '</option>').join('') + '</select></div>';
+  }
+  if(party === 'reviewer'){
+    const rv = eligibleReviewersFor(t.assignedTo).slice().sort((a, b) => a.name.localeCompare(b.name));
+    return '<div class="field">' + label + '<select id="holdWaiting"><option value="">— Choose the reviewer —</option>' + rv.map(e => '<option value="' + esc(e.id) + '"' + (e.id === t.reviewerId ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('') + '</select></div>';
+  }
+  const dflt = party === 'client' ? (t.clientName || '') : '';
+  const ph = code === 'EXTERNAL_AUTHORITY' ? 'e.g. IRD, the bank, the Companies Office' : party === 'client' ? 'Who at the client' : 'Who or what';
+  return '<div class="field">' + label + '<input id="holdWaiting" maxlength="120" value="' + esc(dflt) + '" placeholder="' + esc(ph) + '"></div>';
+}
 function openHoldModal(id){
   const t = findTask(id);
   if(!t) return;
-  // A screenshot attached for a previous hold (even one that was cancelled,
-  // or failed to submit) must not carry over to whatever task this modal is
-  // opened for next — the file input below always starts empty regardless.
   _holdShotData = null;
   const iAmManager = empManagesWork(currentViewer(), t.assignedTo);
-  const opts = Object.entries(HOLD_REASONS)
-    .filter(([, m]) => !m.managerOnly || iAmManager)
-    .map(([code, m]) => `<option value="${code}">${esc(m.label)}${m.exempting ? '  ·  pauses the client clock' : ''}</option>`).join('');
+  const opts = HOLD_CATEGORY_CODES.map(code => '<option value="' + code + '">' + esc(HOLD_REASONS[code].label) + '</option>').join('')
+    + (iAmManager ? '<option value="CAPACITY">' + esc(HOLD_REASONS.CAPACITY.label) + '</option>' : '');
   document.getElementById('modalBox').innerHTML = `
     <h3>Put on hold — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(clientLabel(t))} · It stays on the list as pending. Time already logged is kept; when it resumes, new time adds on top — the agreed hours don't change.</div>
-    <div class="field"><label>Reason</label>
-      <select id="holdReasonCode" onchange="_holdReasonChanged()"><option value="" selected disabled>— Choose the reason —</option>${opts}</select></div>
-    <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
+    <div class="modal-sub">${esc(clientLabel(t))} · It leaves your work queue and stays open until it is resumed. <b>Your seven-hour capacity, the allocated hours and the client commitment date do not change.</b></div>
+    <div class="field"><label for="holdReasonCode">Why is it on hold? <span class="req-mark">*</span></label>
+      <select id="holdReasonCode" onchange="_holdReasonChanged()"><option value="" selected disabled>— Choose the category —</option>${opts}</select></div>
+    <div class="field"><label for="holdReason">Reason, in detail <span class="req-mark">*</span></label>
       <textarea id="holdReason" rows="2" placeholder="e.g. asked which entity owns the vehicle for GST"></textarea></div>
+    <div id="holdWaitingBox"></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="field" style="flex:1;min-width:170px;"><label for="holdFollow" id="holdFollowLabel">Follow up on <span class="req-mark">*</span></label>
+        <input type="date" id="holdFollow" min="${esc(todayISO())}" value="${esc(addDaysISO(2))}"></div>
+      <div class="field" style="flex:1;min-width:170px;"><label for="holdExpected">Reply expected by <span style="color:var(--text-faint);">(optional)</span></label>
+        <input type="date" id="holdExpected" min="${esc(todayISO())}"></div>
+    </div>
     <div id="holdExemptBox" style="display:none;">
-      <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="qConfirm" style="margin-top:3px;" onchange="document.getElementById('qFields').style.display = this.checked ? '' : 'none'"><span><b>I sent the client a query — pause the client commitment date.</b> <span style="color:var(--text-dim);">Leave this unticked unless you really did. Nothing is paused for you, and you can record the query later from the task.</span></span></label>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="qConfirm" style="margin-top:3px;" onchange="document.getElementById('qFields').style.display = this.checked ? '' : 'none'"><span><b id="qConfirmLabel">I really sent a query — record it.</b> <span style="color:var(--text-dim);">Leave this unticked unless you did. Nothing is recorded or paused for you. A recorded query pauses <i>your own</i> responsibility only once a manager approves it — never the client date.</span></span></label>
       <div id="qFields" style="display:none;">${clientQueryFieldsHtml()}</div>
     </div>
-    <div id="holdV2" style="display:none;">
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div class="field" style="flex:1;min-width:170px;"><label for="holdResp">Who is responsible for the next step? <span class="req-mark">*</span></label>
-          <select id="holdResp"><option value="client">Client</option><option value="employee">Employee</option><option value="reviewer">Reviewer</option><option value="manager">Manager</option><option value="third_party">IRD / bank / third party</option><option value="capacity">Capacity — parked by manager</option></select></div>
-        <div class="field" style="flex:1;min-width:170px;"><label for="holdFollow">Follow up on <span class="req-mark">*</span></label>
-          <input type="date" id="holdFollow" min="${esc(todayISO())}" value="${esc(addDaysISO(2))}"></div>
-      </div>
-      <div id="holdClocks" style="font-size:12.5px;color:var(--text-dim);margin:-2px 0 10px;"></div>
-    </div>
-    <div class="field"><label>Screenshot or attachment (optional)</label>
+    <div class="field"><label for="holdShot">Screenshot or attachment (optional)</label>
       <input type="file" id="holdShot" accept="image/*">
       <div id="holdShotPreview" style="margin-top:8px;"></div></div>
-    <div class="modal-error" id="holdErr"></div>
+    <div class="modal-error" id="holdErr" role="alert"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" onclick="submitHold('${id}')">Put on Hold</button>
+      <button class="btn primary" onclick="submitHold('${esc(id)}')">Put on Hold</button>
     </div>`;
   openModal();
   document.getElementById('holdShot').addEventListener('change', e => previewHoldShot(e.target));
-  const v2 = document.getElementById('holdV2'); if(v2 && atV2On()) v2.style.display = '';
-  _holdReasonChanged();
+  window.__holdTask = id;
 }
-const HOLD_RESP_DEFAULT = { CLIENT_QUERY:'client', CLIENT_DOCS:'client', THIRD_PARTY:'third_party', INTERNAL_REVIEW:'reviewer', CAPACITY:'manager', BLOCKED_OTHER:'employee' };
-// The fields for recording a client query — nothing is pre-filled: the owner says how, and the real date and time it was sent.
+function _holdReasonChanged(){
+  const code = document.getElementById('holdReasonCode').value, m = HOLD_REASONS[code] || {}, t = findTask(window.__holdTask);
+  const box = document.getElementById('holdWaitingBox'); if(box && t) box.innerHTML = holdWaitingFieldHtml(t, code);
+  document.getElementById('holdExemptBox').style.display = m.exempting ? 'block' : 'none';
+  const lbl = document.getElementById('qConfirmLabel'); if(lbl) lbl.textContent = code === 'EXTERNAL_AUTHORITY' ? 'I really sent a request to them — record it.' : 'I really sent the client a query — record it.';
+  const qsf = document.getElementById('qSourceField'); if(qsf) qsf.style.display = code === 'EXTERNAL_AUTHORITY' ? 'none' : '';
+  const fl = document.getElementById('holdFollowLabel'); if(fl) fl.innerHTML = (code === 'SCHEDULED_FUTURE' ? 'Scheduled for' : 'Follow up on') + ' <span class="req-mark">*</span>';
+  const f = document.getElementById('holdFollow'); if(f && code === 'SCHEDULED_FUTURE'){ f.min = addDaysISO(1); if(f.value <= todayISO()) f.value = addDaysISO(7); } else if(f){ f.min = todayISO(); }
+}
+// The fields for recording a client query — nothing is pre-filled: how, the real date and time it was sent, and the evidence.
 function clientQueryFieldsHtml(){
   return '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
-    + '<div class="field" id="qSourceField" style="flex:1;min-width:150px;"><label for="qSource">How did you ask the client? <span class="req-mark">*</span></label><select id="qSource"><option value="" selected disabled>— Choose —</option><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>'
+    + '<div class="field" id="qSourceField" style="flex:1;min-width:150px;"><label for="qSource">How did you ask? <span class="req-mark">*</span></label><select id="qSource"><option value="" selected disabled>— Choose —</option><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>'
     + '<div class="field" style="flex:1;min-width:150px;"><label for="qSentAt">Date sent <span class="req-mark">*</span></label><input type="date" id="qSentAt" max="' + esc(todayISO()) + '"></div>'
     + '<div class="field" style="flex:1;min-width:120px;"><label for="qSentTime">Time sent (NZ) <span class="req-mark">*</span></label><input type="time" id="qSentTime"></div>'
-    + '</div><button type="button" class="btn small" style="margin:-2px 0 8px;" onclick="qUseNow()">Use the current date and time</button>';
+    + '</div><button type="button" class="btn small" style="margin:-2px 0 8px;" onclick="qUseNow()">Use the current date and time</button>'
+    + '<div class="field"><label for="qEvidence">Evidence <span class="req-mark">*</span></label><input id="qEvidence" maxlength="500" placeholder="Email subject or link, message reference, or who you spoke to and when"></div>';
 }
 function qUseNow(){
   const d = document.getElementById('qSentAt'), t = document.getElementById('qSentTime');
@@ -8785,23 +8868,12 @@ function qUseNow(){
 // Read the query fields; returns { error } or the values to send.
 function readQueryFields(reasonCode){
   const v = id => (document.getElementById(id) || {}).value || '';
-  const q = { querySource: reasonCode === 'THIRD_PARTY' ? 'manual' : v('qSource'), querySentAt: v('qSentAt'), querySentTime: v('qSentTime') };
-  if(reasonCode !== 'THIRD_PARTY' && !q.querySource) return { error: 'Say how you asked the client (email, phone, WhatsApp or in person).' };
-  if(!q.querySentAt || !q.querySentTime) return { error: 'Say the date and the time the query was sent — it is never filled in for you.' };
+  const noSource = reasonCode === 'EXTERNAL_AUTHORITY' || reasonCode === 'THIRD_PARTY';
+  const q = { querySource: noSource ? 'manual' : v('qSource'), querySentAt: v('qSentAt'), querySentTime: v('qSentTime'), queryEvidence: v('qEvidence').trim() };
+  if(!noSource && !q.querySource) return { error: 'Say how you asked (email, phone, WhatsApp or in person).' };
+  if(!q.querySentAt || !q.querySentTime) return { error: 'Say the date and the time it was sent — it is never filled in for you.' };
+  if(q.queryEvidence.length < 3) return { error: 'Give the evidence — an email subject or link, a message reference, or who you spoke to and when.' };
   return q;
-}
-function _holdReasonChanged(){
-  const code = document.getElementById('holdReasonCode').value;
-  const m = HOLD_REASONS[code] || {};
-  const lbl = document.getElementById('holdDetailLabel');
-  lbl.innerHTML = m.needsDetail
-    ? 'Detail <span style="color:var(--flag,#C2410C);">(required)</span>'
-    : 'Detail <span style="color:var(--text-faint);">(optional)</span>';
-  document.getElementById('holdExemptBox').style.display = m.exempting ? 'block' : 'none';
-  const qsf = document.getElementById('qSourceField'); if(qsf) qsf.style.display = code === 'THIRD_PARTY' ? 'none' : '';   // IRD / bank / third party: nothing was "asked of the client"
-  const resp = document.getElementById('holdResp'); if(resp) resp.value = HOLD_RESP_DEFAULT[code] || 'employee';
-  const ck = document.getElementById('holdClocks');
-  if(ck) ck.innerHTML = '⏸ Your work timer stops now. ' + (m.exempting ? 'The client commitment date is <b>only paused if you tick the box above</b> and record the query.' : '▶ The <b>client commitment clock keeps running</b> — this is an internal wait.');
 }
 let _holdShotData = null;
 async function previewHoldShot(fileEl){
@@ -8835,35 +8907,135 @@ async function submitHold(id){
   const reasonCode = document.getElementById('holdReasonCode').value;
   const detail = (document.getElementById('holdReason').value || '').trim();
   const errEl = document.getElementById('holdErr');
-  if(!reasonCode){ errEl.textContent = 'Choose why the task is going on hold.'; errEl.style.display = 'block'; return; }
-  if((HOLD_REASONS[reasonCode]||{}).needsDetail && !detail){
-    errEl.textContent = 'This reason needs a short note.'; errEl.style.display = 'block'; return;
+  const fail = msg => { errEl.textContent = msg; errEl.style.display = 'block'; };
+  const m = HOLD_REASONS[reasonCode] || {};
+  if(!reasonCode) return fail('Choose why the task is going on hold.');
+  if(detail.length < 3) return fail('Give the reason in a few words — what exactly is it waiting on?');
+  const body = { category: reasonCode, detail, screenshot: _holdShotData || undefined };
+  if(m.party && m.party !== 'none'){
+    const w = document.getElementById('holdWaiting'), wv = w ? w.value.trim() : '';
+    if(!wv) return fail('Say who the task is waiting on.');
+    if(w.tagName === 'SELECT') body.waitingOnId = wv; else body.waitingOnPerson = wv;
   }
-  const body = { reasonCode, detail, screenshot: _holdShotData || undefined };
-  if(atV2On()){
-    body.responsibility = (document.getElementById('holdResp') || {}).value;
-    body.followUpDate = (document.getElementById('holdFollow') || {}).value;
-    if(!body.followUpDate){ errEl.textContent = 'Pick the date you will follow this up.'; errEl.style.display = 'block'; return; }
-  }
-  const recording = !!((HOLD_REASONS[reasonCode]||{}).exempting && (document.getElementById('qConfirm') || {}).checked);
+  body.followUpDate = (document.getElementById('holdFollow') || {}).value;
+  if(!body.followUpDate) return fail(reasonCode === 'SCHEDULED_FUTURE' ? 'Pick the date it is scheduled for.' : 'Pick the date you will follow this up.');
+  const ex = (document.getElementById('holdExpected') || {}).value; if(ex) body.expectedResponseDate = ex;
+  const recording = !!(m.exempting && (document.getElementById('qConfirm') || {}).checked);
   if(recording){
     const qf = readQueryFields(reasonCode);
-    if(qf.error){ errEl.textContent = qf.error; errEl.style.display = 'block'; return; }
+    if(qf.error) return fail(qf.error);
     Object.assign(body, qf, { queryConfirmed: true });
   }
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify(body) });
     _holdShotData = null;
-    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
-    showToast('success', 'On hold', recording ? 'Client commitment date paused.' : 'Stays on the list as pending until resumed. The commitment date was not paused.');
-  } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true }); if(typeof renderToday === 'function' && todayViewActive()) renderToday(true);
+    showToast('success', 'On hold', recording ? 'Query recorded — a manager has to approve the pause of your responsibility.' : 'It has left your work queue. Nothing else changed: capacity, hours and the client date stay as they were.');
+  } catch(e){ fail(e.message); }
 }
-async function unholdTask(id){
+// Resume: closes the hold, restores the status it had, and says so. An open client query asks for the reply first (so its wait is closed properly).
+async function unholdTask(id, reason){
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/unhold`, { method:'POST' });
-    await refreshTasks(); await refreshActivity({ silent:true });
-    showToast('success', 'Back on the list', 'Press play on the task to start the clock again.');
+    await api(`/api/tasks/${encodeURIComponent(id)}/unhold`, { method:'POST', body: JSON.stringify({ reason: reason || '' }) });
+    await refreshTasks(); await refreshActivity({ silent:true }); if(typeof todayViewActive === 'function' && todayViewActive()) renderToday(true);
+    showToast('success', 'Resumed', 'It is back in your work queue. Press play to start the clock.');
   } catch(e){ showToast('error', 'Could not resume', e.message); }
+}
+function openResumeModal(id){
+  const t = findTask(id); if(!t) return;
+  const q = openQuery(t);
+  if(q){ return openResumeReplyModal(id, q.id); }
+  const dest = t.reviewStatus === 'error' ? 'Fix Needed' : t.preHoldStatus === 'awaiting_acceptance' ? 'To Do' : 'In Progress';
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Resume — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · It goes back to <b>${dest}</b> and into your work queue. Nothing is completed or credited by resuming.</div>
+    <div class="field"><label for="rsmReason">Note <span style="color:var(--text-faint);">(optional)</span></label><input id="rsmReason" maxlength="300" placeholder="e.g. client sent the statements"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="rsmGo">Resume</button></div>`;
+  openModal();
+  document.getElementById('rsmGo').onclick = () => { const r = (document.getElementById('rsmReason') || {}).value || ''; closeModal(); unholdTask(id, r); };
+}
+// Mark the dependency as resolved: the task becomes Ready to Resume (the processor still resumes it).
+function openHoldResolvedModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Ready to resume — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · ${esc(holdReasonLabel(t))}</div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">Use this when what the task was waiting for has arrived. It moves to <b>Ready to Resume</b> and the processor is told. It does not resume by itself.</p>
+    <div class="field"><label for="hrNote">What arrived? <span style="color:var(--text-faint);">(optional)</span></label><input id="hrNote" maxlength="300" placeholder="e.g. manager confirmed the treatment"></div>
+    <div class="modal-error" id="hrErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="hrGo">Mark ready to resume</button></div>`;
+  openModal();
+  document.getElementById('hrGo').onclick = async () => {
+    try { await api('/api/tasks/' + encodeURIComponent(id) + '/hold-resolved', { method:'POST', body: JSON.stringify({ note: document.getElementById('hrNote').value }) }); closeModal(); await refreshTasks(); if(todayViewActive()) renderToday(true); showToast('success', 'Ready to resume', 'The processor has been told.'); }
+    catch(e){ const x = document.getElementById('hrErr'); x.textContent = e.message; x.style.display = 'block'; }
+  };
+}
+// Follow-up date, expected reply, or more evidence on the active hold — each change is kept in the hold's own history.
+function openHoldUpdateModal(id){
+  const t = findTask(id); if(!t) return;
+  const h = (t.holdHistory || [])[(t.holdHistory || []).length - 1] || {};
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Update the hold — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · ${esc(holdReasonLabel(t))}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="field" style="flex:1;min-width:170px;"><label for="huFollow">Follow up on</label><input type="date" id="huFollow" min="${esc(todayISO())}" value="${esc(t.holdFollowUp || h.followUp || '')}"></div>
+      <div class="field" style="flex:1;min-width:170px;"><label for="huExpected">Reply expected by</label><input type="date" id="huExpected" min="${esc(todayISO())}" value="${esc(h.expectedResponseDate || '')}"></div>
+    </div>
+    <div class="field"><label for="huEvidence">Add evidence <span style="color:var(--text-faint);">(optional)</span></label><input id="huEvidence" maxlength="500" placeholder="Email subject or link, message reference, or who you spoke to and when"></div>
+    <div class="modal-error" id="huErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="huGo">Save</button></div>`;
+  openModal();
+  document.getElementById('huGo').onclick = async () => {
+    const body = {}, f = document.getElementById('huFollow').value, e = document.getElementById('huExpected').value, ev = document.getElementById('huEvidence').value.trim();
+    if(f && f !== (t.holdFollowUp || h.followUp)) body.followUpDate = f;
+    if((e || '') !== (h.expectedResponseDate || '')) body.expectedResponseDate = e || null;
+    if(ev) body.evidence = ev;
+    const x = document.getElementById('huErr');
+    if(!Object.keys(body).length){ x.textContent = 'Change something first.'; x.style.display = 'block'; return; }
+    try { await api('/api/tasks/' + encodeURIComponent(id) + '/hold-update', { method:'POST', body: JSON.stringify(body) }); closeModal(); await refreshTasks(); if(todayViewActive()) renderToday(true); showToast('success', 'Saved', 'The hold history keeps the change.'); }
+    catch(err){ x.textContent = err.message; x.style.display = 'block'; }
+  };
+}
+// Ask for a new commitment date: nothing changes by itself — a manager decides.
+function openDateRequestModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Request a new commitment date — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · Internal ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'} · Client ${t.clientDate ? fmtDate(t.clientDate) : '—'}</div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">This only sends a request to your manager. <b>No date changes until a manager approves it.</b> Until then the dates stay as agreed and show as at risk or missed.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <div class="field" style="flex:1;min-width:170px;"><label for="drInternal">New internal date</label><input type="date" id="drInternal" min="${esc(todayISO())}"></div>
+      ${t.clientDate ? `<div class="field" style="flex:1;min-width:170px;"><label for="drClient">New client date</label><input type="date" id="drClient" min="${esc(todayISO())}"></div>` : ''}
+    </div>
+    <div class="field"><label for="drReason">Why do you need it? <span class="req-mark">*</span></label><input id="drReason" maxlength="400"></div>
+    <div class="modal-error" id="drErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="drGo">Send request</button></div>`;
+  openModal();
+  document.getElementById('drGo').onclick = async () => {
+    const x = document.getElementById('drErr'), body = { internalDeadline: document.getElementById('drInternal').value || undefined, clientDate: (document.getElementById('drClient') || {}).value || undefined, reason: document.getElementById('drReason').value };
+    try { await api('/api/tasks/' + encodeURIComponent(id) + '/date-request', { method:'POST', body: JSON.stringify(body) }); closeModal(); showToast('success', 'Request sent', 'Your manager has been told. Nothing has changed yet.'); }
+    catch(err){ x.textContent = err.message; x.style.display = 'block'; }
+  };
+}
+// A manager approves or rejects the pause of the processor's responsibility.
+function openPauseDecisionModal(id){
+  const t = findTask(id); if(!t) return;
+  const q = (t.queries || []).find(x => x.pauseStatus === 'pending' && !x.dismissedAt);
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Pause of responsibility — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · ${esc(holdReasonLabel(t))}</div>
+    <div style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:12px 14px;margin:10px 0;font-size:13.5px;line-height:1.6;">
+      Query sent <b>${q ? esc(fmtStamp(q.sentTs || q.sentAt)) : '—'}</b>${q && q.source && q.source !== 'manual' ? ' by ' + esc(q.source) : ''}<br>Evidence: <b>${q ? esc(q.evidence || '—') : '—'}</b></div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">Approving pauses the processor's own responsibility from the time the query was sent. It <b>never</b> moves the client date.</p>
+    <div class="field"><label for="pdNote">Note <span style="color:var(--text-faint);">(required if not approved)</span></label><input id="pdNote" maxlength="300"></div>
+    <div class="modal-error" id="pdErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button><button class="btn" style="border-color:var(--coral);color:#C2410C;" id="pdNo">Do not approve</button><button class="btn primary" id="pdYes">Approve the pause</button></div>`;
+  openModal();
+  const go = approve => async () => {
+    try { await api('/api/tasks/' + encodeURIComponent(id) + '/hold-pause', { method:'POST', body: JSON.stringify({ approve, note: document.getElementById('pdNote').value }) }); closeModal(); await refreshTasks(); if(todayViewActive()) renderToday(true); showToast('success', approve ? 'Pause approved' : 'Pause not approved', 'The processor has been told.'); }
+    catch(e){ const x = document.getElementById('pdErr'); x.textContent = e.message; x.style.display = 'block'; }
+  };
+  document.getElementById('pdYes').onclick = go(true); document.getElementById('pdNo').onclick = go(false);
 }
 function openHoldDetailModal(id){
   const t = findTask(id);
@@ -8871,18 +9043,13 @@ function openHoldDetailModal(id){
   const hist = (t.holdHistory || []).slice().reverse();
   document.getElementById('modalBox').innerHTML = `
     <h3>On hold — ${esc(t.name)}</h3>
-    <div class="modal-sub">${esc(t.clientName)||'—'} · Held ${t.holdCount || 1} time${(t.holdCount||1) > 1 ? 's' : ''} · Agreed ${t.tat} hrs, ${displayedLogged(t).toFixed(1)} hrs logged so far</div>
-    <div style="background:var(--panel-2);border:1px solid var(--panel-border);border-radius:8px;padding:14px 16px;margin:12px 0;font-size:13.5px;line-height:1.6;">
-      <b style="color:var(--text);">${esc(holdReasonLabel(t))}</b>${(HOLD_REASONS[t.holdReasonCode]||{}).exempting ? ' <span style="color:var(--teal);font-size:12px;">· client commitment clock paused</span>' : ''}
-      ${t.holdReason && t.holdReason !== (HOLD_REASONS[t.holdReasonCode]||{}).label ? `<div style="margin-top:4px;color:var(--text-dim);">${esc(t.holdReason)}</div>` : ''}
-      <div id="holdShotHolder" style="margin-top:10px;">${t.hasHoldScreenshot ? '<span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span>' : ''}</div>
-    </div>
+    <div class="modal-sub">${esc(t.clientName)||'—'} · Held ${t.holdCount || 1} time${(t.holdCount||1) > 1 ? 's' : ''} · Agreed ${t.tat} hrs</div>
+    ${t.status === 'on_hold' ? holdSummaryHtml(t) : ''}
+    <div id="holdShotHolder" style="margin-top:10px;">${t.hasHoldScreenshot ? '<span style="color:var(--text-faint);font-size:12px;">Loading screenshot…</span>' : ''}</div>
     ${queryDetailHtml(t)}
-    ${hist.length > 1 ? `<div class="label" style="margin-bottom:6px;">History</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${fmtDate((h.heldAt||'').slice(0,10))} — ${esc((HOLD_REASONS[h.reasonCode]||{}).label || h.reason || '')}${h.resumedAt ? ' <span style="color:var(--text-faint);">(resumed)</span>' : ''}</li>`).join('')}</ul>` : ''}
+    ${hist.length > 0 ? `<div class="label" style="margin:12px 0 6px;">Hold history</div><ul style="font-size:12.5px;color:var(--text-dim);padding-left:18px;line-height:1.7;">${hist.map(h => `<li>${esc(fmtStamp(h.heldAt))} — ${esc((HOLD_REASONS[h.reasonCode] || {}).label || h.reason || 'On hold')}${h.waitingOnPerson ? ' · waiting on ' + esc(h.waitingOnPerson) : ''}${h.resumedAt ? ' · resumed ' + esc(fmtStamp(h.resumedTs || h.resumedAt)) + (h.heldHours != null ? ' after ' + h.heldHours.toFixed(1) + ' h' : '') : ' · <b>active</b>'}</li>`).join('')}</ul>` : ''}
     <div class="modal-actions">
-      ${iCanHold(t) ? (openQuery(t)
-        ? `<button class="btn primary" onclick="openResumeReplyModal('${t.id}','${openQuery(t).id}')">Resume</button>`
-        : `<button class="btn primary" onclick="unholdTask('${t.id}'); closeModal();">Resume</button>`) : ''}
+      ${t.status === 'on_hold' && iCanHold(t) ? `<button class="btn primary" onclick="closeModal(); openResumeModal('${esc(id)}')">Resume</button>` : ''}
       <button class="btn" onclick="closeModal()">Close</button>
     </div>`;
   openModal();
@@ -12693,6 +12860,7 @@ function openReviewV2(id){
     + fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '<span class="rq-no">Missing</span>')
     + '</div>'
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 8px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Earlier files from reviews</b>' + reviewFilesByRoundHtml(t) + '</div>' : '')
+    + ((t.correctionAttachments || []).length ? '<div style="margin:0 0 8px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Corrected files from the processor</b>' + correctionFilesHtml(t) + '</div>' : '')
     + (hist.length ? '<div style="margin:8px 0 0;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Previous review history</b>' + hist.map(h => '<div style="font-size:13px;color:var(--text-dim);padding:3px 0;">' + h.text + '</div>').join('') + '</div>' : '')
     + '</div>'
     + '<div class="rv2-sec"><h4>B · Your decision</h4><div class="rv2-pick" role="radiogroup" aria-label="Review decision — choose one">'
@@ -12946,6 +13114,18 @@ async function previewAttachment(id, name, mime){
   } catch(e){ const b = document.getElementById('pvBody'); if(b) b.innerHTML = '<div class="modal-error" style="display:block;">' + esc(e.message) + '</div>'; }
 }
 // Every round's reviewer files, newest round first, so earlier files are never lost after a resubmission.
+// The processor's corrected files — newest round first, each with who uploaded it and when. Earlier rounds are never replaced.
+function correctionFilesHtml(t){
+  const list = t.correctionAttachments || [];
+  if(!list.length) return '';
+  const round = a => a.cycle != null ? a.cycle : 0;
+  const rounds = [...new Set(list.map(round))].sort((a, b) => b - a);
+  return rounds.map(r => '<div style="margin-top:6px;"><div style="font-size:12px;color:var(--text-faint);">Correction ' + (r || 1) + (r === rounds[0] ? ' — latest' : '') + '</div>'
+    + list.filter(a => round(a) === r).map(a => '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-top:6px;border:1px solid var(--panel-border);border-radius:8px;">'
+      + '<span style="font-size:18px;">' + fileIcon(a) + '</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(a.name) + ' <span style="color:var(--text-faint);font-size:12px;">· ' + fmtBytes(a.size) + ' · ' + esc((empById(a.uploaderId) || {}).name || '—') + ' · ' + esc(fmtStamp(a.uploadedAt)) + '</span></span>'
+      + (/^(application\/pdf|image\/)/.test(a.mime || '') ? '<button type="button" class="btn" onclick="previewAttachment(\'' + esc(a.id) + '\', \'' + esc(a.name).replace(/'/g, '&#39;') + '\', \'' + esc(a.mime) + '\')">Preview</button>' : '')
+      + '<button type="button" class="btn" onclick="downloadAttachment(\'' + esc(a.id) + '\', \'' + esc(a.name).replace(/'/g, '&#39;') + '\')">⬇ Download</button></div>').join('') + '</div>').join('');
+}
 function reviewFilesByRoundHtml(t){
   const list = t.reviewAttachments || [];
   if(!list.length) return '';
@@ -13404,9 +13584,11 @@ function taskTimelineEvents(t){
 
   (t.holdHistory||[]).forEach((h, hi, holds) => {
     const lbl = (HOLD_REASONS[h.reasonCode]||{}).label;
-    const ex = (HOLD_REASONS[h.reasonCode]||{}).exempting ? ' — client clock paused' : '';
-    push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold${lbl ? ': ' + esc(lbl) : ''}${ex}${h.reason && h.reason !== lbl ? ' — “'+esc(h.reason)+'”' : ''}${h.hasShot ? ' (screenshot)' : ''}.`);
-    if(h.resumedAt) push(h.resumedTs || h.resumedAt, '▶', `Taken off hold.`, '', h.resumedTs ? '' : nextHoldCap(holds, hi, h.resumedAt));
+    const bits = [h.waitingOnPerson ? 'waiting on <b>' + esc(h.waitingOnPerson) + '</b>' : '', h.followUp ? 'follow-up ' + fmtDate(h.followUp) : '', h.expectedResponseDate ? 'reply expected ' + fmtDate(h.expectedResponseDate) : ''].filter(Boolean).join(' · ');
+    push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold${lbl ? ': ' + esc(lbl) : ''}${h.reason && h.reason !== lbl ? ' — “'+esc(h.reason)+'”' : ''}${bits ? ' · ' + bits : ''}${h.hasShot ? ' (screenshot)' : ''}.${h.responsibilityPaused ? ' Responsibility paused.' : ''}`);
+    (h.updates || []).forEach(u => push(u.at, '✏', `<b>${esc(u.byName || '—')}</b> updated the hold${u.followUpTo ? ' — follow-up ' + fmtDate(u.followUpTo) : ''}${u.expectedTo !== undefined ? ' — reply expected ' + (u.expectedTo ? fmtDate(u.expectedTo) : 'not set') : ''}${u.evidence ? ' — evidence: “' + esc(u.evidence) + '”' : ''}.`));
+    if(h.resolvedAt) push(h.resolvedAt, '✅', `<b>${esc(nm(h.resolvedBy) || '—')}</b> marked it ready to resume${h.resolvedNote ? ' — “' + esc(h.resolvedNote) + '”' : ''}.`);
+    if(h.resumedAt) push(h.resumedTs || h.resumedAt, '▶', `${h.resumedBy ? '<b>' + esc(nm(h.resumedBy) || '—') + '</b> resumed it' : 'Taken off hold'}${h.statusAfterResume ? ' — back to ' + ({ awaiting_acceptance: 'To Do', accepted: 'In Progress', rework: 'Fix Needed' }[h.statusAfterResume] || 'In Progress') : ''}${h.heldHours != null ? ' after ' + h.heldHours.toFixed(1) + ' h on hold' : ''}${h.resumeReason ? ' — “' + esc(h.resumeReason) + '”' : ''}.`, '', h.resumedTs ? '' : nextHoldCap(holds, hi, h.resumedAt));
   });
   (t.dateHistory||[]).forEach(h => {
     const bits = [];
@@ -13725,6 +13907,7 @@ async function submitCorrectName(id){
    of a reviewer.
    ========================================================================= */
 function openReworkDetailModal(id){
+  _rsFiles = [];
   const t = findTask(id);
   if(!t) return;
   const reviewer = empById(t.reviewedBy);
@@ -13742,6 +13925,7 @@ function openReworkDetailModal(id){
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
     <div class="field" style="margin-bottom:10px;"><label for="rsReviewer">Send for re-review to</label><select id="rsReviewer">${reviewerOptionsHtml(t, t.reviewerId)}</select></div>
+    <div class="field" style="margin-bottom:10px;"><label for="rsFilesInput">Corrected file(s) <span style="color:var(--text-faint);font-weight:400;">(optional)</span></label><input type="file" id="rsFilesInput" multiple accept="${ATTACH_ACCEPT}" onchange="addRsFiles(this)"><div id="rsFilesList" style="margin-top:6px;"></div><div class="modal-error" id="rsFilesErr" role="alert"></div></div>
     <p style="font-size:13.5px; color:var(--text-dim); line-height:1.6; margin-bottom:16px;">Fix the issue above, then resubmit — this puts it back in front of a reviewer and the completion date used for commitment tracking will be updated to when you resubmit.</p>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -13756,14 +13940,19 @@ function openReworkDetailModal(id){
     }).catch(() => { const h = document.getElementById('reviewShotHolder'); if(h) h.textContent = ''; });
   }
 }
+let _rsFiles = [];
+function addRsFiles(el){ return pickAndUpload(el, _rsFiles, ATTACH_MAX, 'rsFilesList', 'rsFilesErr', 'removeRsFile'); }
+function removeRsFile(i){ _rsFiles.splice(i, 1); const b = document.getElementById('rsFilesList'); if(b) b.innerHTML = attachChipsHtml(_rsFiles, 'removeRsFile'); }
 async function submitResubmit(id){
   const t = findTask(id), sel = document.getElementById('rsReviewer'), body = {};
+  if(_rsFiles.length) body.attachmentIds = _rsFiles.map(f => f.id);
   if(sel && sel.value && t && sel.value !== t.reviewerId) body.reviewerId = sel.value;     // only when a different reviewer was chosen
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/resubmit`, { method:'POST', body: JSON.stringify(body) });
     closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
+    _rsFiles = [];
     showToast('success', 'Resubmitted', body.reviewerId ? 'Sent for re-review to ' + ((empById(body.reviewerId) || {}).name || 'the new reviewer') + '.' : 'Sent back for re-review.');
   } catch(e){
     showToast('error', 'Could not resubmit', e.message);

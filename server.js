@@ -187,6 +187,8 @@ if (!JWT_SECRET) {
 function publicEmployee(e, viewerIsAdmin) {
   const { passwordHash, crmUserId, crmUserIdHistory, ...rest } = e;
   if (viewerIsAdmin) { rest.crmUserId = crmUserId; rest.crmUserIdHistory = crmUserIdHistory; }
+  // The focused dashboard is the default for every ordinary employee (processor); a superadmin can still switch it off or on per person.
+  rest.dashboardV2 = e.dashboardV2 !== undefined && e.dashboardV2 !== null ? !!e.dashboardV2 : e.accessRole === 'employee';
   rest.isProfitConfirmer = isProfitConfirmer(db.get(), e);
   rest.canDirectProfitConfirm = canDirectProfitConfirm(e);
   return rest;
@@ -4294,13 +4296,22 @@ app.post('/api/marks/:id/void', requireAuth, (req, res) => {
 // stamped at acceptance time, not when the error was originally flagged,
 // so this duration measures actual working time, not time spent sitting
 // unaccepted in the queue.
-app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
+app.post('/api/tasks/:id/resubmit', requireAuth, async (req, res) => {
+  try {
   const state = db.get();
   const t = findTask(state, req.params.id);
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'rework') return res.status(400).json({ error: 'Only tasks in rework can be resubmitted.' });
   const newRv = (req.body || {}).reviewerId ? checkNewReviewer(state, t, String(req.body.reviewerId)) : null;
   if (newRv && newRv.error) return res.status(400).json({ error: newRv.error });
+  // the corrected file(s): each one the processor uploaded, kept by round with who/when — earlier files are never overwritten
+  let correctionRefs = [];
+  const fileIds = (req.body || {}).attachmentIds;
+  if (Array.isArray(fileIds) && fileIds.length) {
+    const claimed = await claimReviewFiles(req.employee, t, fileIds, { id: null, cycle: t.reworkCount || 0 }, 'correction');
+    if (!claimed.ok) return res.status(400).json({ error: claimed.error });
+    correctionRefs = claimed.refs;
+  }
   const endedAt = new Date().toISOString();
   const startedAt = t.reworkStartedAt;
   // Only the time the work clock actually ran counts — not time on hold, paused, or idle. Bank a running clock first; the rework hours are
@@ -4317,9 +4328,12 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   t.reviewedAt = null;
   if (newRv) applyReviewerChange(state, t, req.employee, newRv.rv, String((req.body || {}).reason || '').trim().slice(0, 300) || null, 'resubmit');
   t.submissions[t.submissions.length - 1].reviewerId = t.reviewerId || null;
+  if (correctionRefs.length) { t.correctionAttachments = [...(t.correctionAttachments || []), ...correctionRefs]; t.submissions[t.submissions.length - 1].fileCount = correctionRefs.length; }
+  if (t.reviewerId) notify(state, t.reviewerId, 'correction_resubmitted', `${req.employee.name} resubmitted "${t.name}" after your correction${correctionRefs.length ? ' — ' + correctionRefs.length + ' corrected file' + (correctionRefs.length > 1 ? 's' : '') + ' attached' : ''}.`, t.id);
   logEvent(state, t.assignedTo, `"${escHtml(t.name)}" resubmitted after rework — awaiting re-review.${durationHours !== null ? ` In rework for ${durationHours.toFixed(2)} hrs.` : ''}`);
   db.save();
   res.json({ task: taskForClient(t) });
+  } catch (e) { console.error('[resubmit] failed:', e && e.stack || e); res.status(500).json({ error: 'Could not resubmit — please try again.' }); }
 });
 
 
