@@ -13820,7 +13820,7 @@ function openReworkDetailModal(id){
       <div style="margin-top:6px;"><b style="color:#7A2A0C;">What was wrong:</b><br>${t.reviewNote ? esc(t.reviewNote) : 'No notes recorded.'}</div>
       ${t.reviewScore != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Score given:</b> ${t.reviewScore}/100</div>` : ''}
       ${t.reviewMarks ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Marks:</b> ${t.reviewMarks > 0 ? '+' : ''}${t.reviewMarks}</div>` : ''}
-      ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
+      ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Working time on this correction:</b> ${fmtHrsMins(t.reworkElapsedHours)} <span style="color:var(--text-faint);font-size:12px;">— counts only while your timer is running, not while on hold or paused</span></div>` : ''}
       ${t.correction ? `<div style="margin-top:8px;">${t.correction.category ? `<b style="color:#7A2A0C;">Correction category:</b> ${esc(t.correction.category)} · ` : ''}<b style="color:#7A2A0C;">Due:</b> ${esc(fmtDate(t.correction.dueDate))}</div>` : ''}
       ${(t.reviewAttachments || []).length ? `<div style="margin-top:10px;"><b style="color:#7A2A0C;">Attached by the reviewer:</b>${reviewFilesByRoundHtml(t)}</div>` : ''}
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
