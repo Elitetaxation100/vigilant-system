@@ -8680,11 +8680,35 @@ function holdControlsHtml(t){
       ? `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeReplyModal('${t.id}','${q.id}')">Resume</button>`
       : `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="unholdTask('${t.id}')">Resume</button>`;
     if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log client reply</button>`;
+    if(!q && t.clientDate && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(t.holdReasonCode)) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openRecordQueryModal('${t.id}')" title="Only if you really sent the client a query — this pauses the client commitment date">Record client query</button>`;
     h += `<button class="verify-btn" onclick="openAddHoursModal('${t.id}')" title="Add time you spent on this task while it's on hold">+ Add time</button>`;
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
     return h;
   }
   return `<button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+}
+function openRecordQueryModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Record the client query</h3>
+    <div class="modal-sub">${esc(t.name)} · ${esc(holdReasonLabel(t))}</div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">Only record this if you really sent the client a query. It pauses the client commitment date from the moment you give below until the reply is logged. Nothing is filled in for you.</p>
+    ${clientQueryFieldsHtml()}
+    <div class="field"><label for="qNote">What did you ask? <span style="color:var(--text-faint);">(optional)</span></label><textarea id="qNote" rows="2"></textarea></div>
+    <div class="modal-error" id="qRecErr"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitRecordQuery('${id}')">Record query</button></div>`;
+  openModal();
+  if(t.holdReasonCode === 'THIRD_PARTY'){ const f = document.getElementById('qSourceField'); if(f) f.style.display = 'none'; }
+}
+async function submitRecordQuery(id){
+  const t = findTask(id), err = document.getElementById('qRecErr');
+  const qf = readQueryFields(t && t.holdReasonCode);
+  if(qf.error){ err.textContent = qf.error; err.style.display = 'block'; return; }
+  try {
+    await api('/api/tasks/' + encodeURIComponent(id) + '/query', { method:'POST', body: JSON.stringify({ ...qf, note: (document.getElementById('qNote') || {}).value || '' }) });
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Query recorded', 'The client commitment date is paused until the reply is logged.');
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
 }
 function openLogReplyModal(taskId, qid){
   const t = findTask(taskId); if(!t) return;
@@ -8776,13 +8800,8 @@ function openHoldModal(id){
     <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
       <textarea id="holdReason" rows="2" placeholder="e.g. asked which entity owns the vehicle for GST"></textarea></div>
     <div id="holdExemptBox" style="display:none;">
-      <div style="font-size:12.5px;color:var(--teal);margin:-4px 0 10px;">✓ The client commitment date pauses now, and moves forward by the working days spent waiting for the reply.</div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div class="field" id="qSourceField" style="flex:1;min-width:150px;"><label for="qSource">How did you ask the client? <span class="req-mark">*</span></label>
-          <select id="qSource"><option value="" selected disabled>— Choose —</option><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
-        <div class="field" style="flex:1;min-width:150px;"><label for="qSentAt">Sent on</label>
-          <input type="date" id="qSentAt" value="${esc(todayISO())}" max="${esc(todayISO())}"></div>
-      </div>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="qConfirm" style="margin-top:3px;" onchange="document.getElementById('qFields').style.display = this.checked ? '' : 'none'"><span><b>I sent the client a query — pause the client commitment date.</b> <span style="color:var(--text-dim);">Leave this unticked unless you really did. Nothing is paused for you, and you can record the query later from the task.</span></span></label>
+      <div id="qFields" style="display:none;">${clientQueryFieldsHtml()}</div>
     </div>
     <div id="holdV2" style="display:none;">
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -8807,6 +8826,27 @@ function openHoldModal(id){
   _holdReasonChanged();
 }
 const HOLD_RESP_DEFAULT = { CLIENT_QUERY:'client', CLIENT_DOCS:'client', THIRD_PARTY:'third_party', INTERNAL_REVIEW:'reviewer', CAPACITY:'manager', BLOCKED_OTHER:'employee' };
+// The fields for recording a client query — nothing is pre-filled: the owner says how, and the real date and time it was sent.
+function clientQueryFieldsHtml(){
+  return '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+    + '<div class="field" id="qSourceField" style="flex:1;min-width:150px;"><label for="qSource">How did you ask the client? <span class="req-mark">*</span></label><select id="qSource"><option value="" selected disabled>— Choose —</option><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>'
+    + '<div class="field" style="flex:1;min-width:150px;"><label for="qSentAt">Date sent <span class="req-mark">*</span></label><input type="date" id="qSentAt" max="' + esc(todayISO()) + '"></div>'
+    + '<div class="field" style="flex:1;min-width:120px;"><label for="qSentTime">Time sent (NZ) <span class="req-mark">*</span></label><input type="time" id="qSentTime"></div>'
+    + '</div><button type="button" class="btn small" style="margin:-2px 0 8px;" onclick="qUseNow()">Use the current date and time</button>';
+}
+function qUseNow(){
+  const d = document.getElementById('qSentAt'), t = document.getElementById('qSentTime');
+  if(d) d.value = todayISO();
+  if(t) t.value = new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hourCycle:'h23', timeZone:'Pacific/Auckland' });
+}
+// Read the query fields; returns { error } or the values to send.
+function readQueryFields(reasonCode){
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const q = { querySource: reasonCode === 'THIRD_PARTY' ? 'manual' : v('qSource'), querySentAt: v('qSentAt'), querySentTime: v('qSentTime') };
+  if(reasonCode !== 'THIRD_PARTY' && !q.querySource) return { error: 'Say how you asked the client (email, phone, WhatsApp or in person).' };
+  if(!q.querySentAt || !q.querySentTime) return { error: 'Say the date and the time the query was sent — it is never filled in for you.' };
+  return q;
+}
 function _holdReasonChanged(){
   const code = document.getElementById('holdReasonCode').value;
   const m = HOLD_REASONS[code] || {};
@@ -8818,7 +8858,7 @@ function _holdReasonChanged(){
   const qsf = document.getElementById('qSourceField'); if(qsf) qsf.style.display = code === 'THIRD_PARTY' ? 'none' : '';   // IRD / bank / third party: nothing was "asked of the client"
   const resp = document.getElementById('holdResp'); if(resp) resp.value = HOLD_RESP_DEFAULT[code] || 'employee';
   const ck = document.getElementById('holdClocks');
-  if(ck) ck.innerHTML = '⏸ Your work timer stops now. ' + (m.exempting ? '⏸ The <b>client commitment clock pauses</b> too, because the wait is on the client or a third party.' : '▶ The <b>client commitment clock keeps running</b> — this is an internal wait.');
+  if(ck) ck.innerHTML = '⏸ Your work timer stops now. ' + (m.exempting ? 'The client commitment date is <b>only paused if you tick the box above</b> and record the query.' : '▶ The <b>client commitment clock keeps running</b> — this is an internal wait.');
 }
 let _holdShotData = null;
 async function previewHoldShot(fileEl){
@@ -8853,7 +8893,6 @@ async function submitHold(id){
   const detail = (document.getElementById('holdReason').value || '').trim();
   const errEl = document.getElementById('holdErr');
   if(!reasonCode){ errEl.textContent = 'Choose why the task is going on hold.'; errEl.style.display = 'block'; return; }
-  if(['CLIENT_QUERY', 'CLIENT_DOCS'].includes(reasonCode) && !(document.getElementById('qSource') || {}).value){ errEl.textContent = 'Say how you asked the client (email, phone, WhatsApp or in person) — a client wait pauses the commitment date, so it has to be a real one.'; errEl.style.display = 'block'; return; }
   if((HOLD_REASONS[reasonCode]||{}).needsDetail && !detail){
     errEl.textContent = 'This reason needs a short note.'; errEl.style.display = 'block'; return;
   }
@@ -8863,15 +8902,17 @@ async function submitHold(id){
     body.followUpDate = (document.getElementById('holdFollow') || {}).value;
     if(!body.followUpDate){ errEl.textContent = 'Pick the date you will follow this up.'; errEl.style.display = 'block'; return; }
   }
-  if((HOLD_REASONS[reasonCode]||{}).exempting){
-    body.querySource = reasonCode === 'THIRD_PARTY' ? 'manual' : ((document.getElementById('qSource')||{}).value || 'manual');
-    body.querySentAt = (document.getElementById('qSentAt')||{}).value || undefined;
+  const recording = !!((HOLD_REASONS[reasonCode]||{}).exempting && (document.getElementById('qConfirm') || {}).checked);
+  if(recording){
+    const qf = readQueryFields(reasonCode);
+    if(qf.error){ errEl.textContent = qf.error; errEl.style.display = 'block'; return; }
+    Object.assign(body, qf, { queryConfirmed: true });
   }
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify(body) });
     _holdShotData = null;
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
-    showToast('success', 'On hold', (HOLD_REASONS[reasonCode]||{}).exempting ? 'Client commitment clock paused.' : 'Stays on the list as pending until resumed.');
+    showToast('success', 'On hold', recording ? 'Client commitment date paused.' : 'Stays on the list as pending until resumed. The commitment date was not paused.');
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 async function unholdTask(id){
