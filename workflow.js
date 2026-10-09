@@ -71,7 +71,8 @@ function waitingOn(t, st, deps) {
 function clientRisk(t, st, today) {
   if (!isClientTask(t) || !t.clientDate) return { state: 'na', days: null, label: 'Not applicable' };
   if (st === 'Completed') return { state: 'done', days: null, label: 'Done' };
-  if (st === 'On Hold' && EXEMPT_HOLDS.has(t.holdReasonCode)) return { state: 'waiting_client', days: daysBetween(today, t.clientDate), label: 'Waiting on client' };
+  // A task that is on hold is not counted as late or at risk — whatever the reason for the hold.
+  if (st === 'On Hold') return { state: 'waiting_client', days: daysBetween(today, t.clientDate), label: EXEMPT_HOLDS.has(t.holdReasonCode) ? 'Waiting on client' : 'On hold' };
   const d = daysBetween(today, t.clientDate);
   if (d < 0) return { state: 'overdue', days: d, label: 'Client deadline: overdue by ' + (-d) + (d === -1 ? ' day' : ' days') };
   if (d === 0) return { state: 'due_today', days: 0, label: 'Client deadline: due today' };
@@ -110,8 +111,8 @@ function commitmentTag(t, st, today, deps) {
     if (!submittedOn) return na;
     return submittedOn <= dueByEmployee ? metOn(submittedOn) : { key: 'breached', label: 'Commitment breached', detail: 'Submitted ' + submittedOn + ' — due ' + dueByEmployee };
   }
-  if (st === 'On Hold' && EXEMPT_HOLDS.has(t.holdReasonCode)) return { key: 'waiting_client', label: 'Waiting on client' };
   if (firstOn && firstOn <= dueByEmployee) return metOn(firstOn);
+  if (st === 'On Hold') return { key: 'waiting_client', label: EXEMPT_HOLDS.has(t.holdReasonCode) ? 'Waiting on client' : 'On hold' };   // never counted as a breach while on hold
   if (dueByEmployee < today) return { key: 'breached', label: 'Commitment breached' };
   if (dueByEmployee === today) return { key: 'due_today', label: 'Due today' };
   if (daysBetween(today, t.clientDate) <= 2) return { key: 'at_risk', label: 'At risk' };

@@ -482,6 +482,7 @@ function commitmentOutcome(t) {
   }
   if (t.reviewStatus === 'error') return 'rework';
   if (anyQueryOpen(t)) return 'exempt';
+  if (t.status === 'on_hold') return 'on_hold';       // on hold, whatever the reason: not counted as missed or at risk
   const today = todayISO();
   if (today <= eff) return 'on-track';
   if (today <= cal.addWorkingDays(eff, 1)) return 'at-risk';

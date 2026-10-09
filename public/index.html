@@ -6444,6 +6444,7 @@ function commitmentBadge(t){
   if(s === 'met')     return `<span class="badge completed dot" title="Delivered on or before ${eff}${shifted}">✓ Commitment Met</span>`;
   if(s === 'missed')  return `<span class="badge overdue dot" title="Effective commitment date ${eff}${shifted}">✗ Commitment Missed</span>`;
   if(s === 'exempt')  return `<span class="badge awaiting dot" title="Clock frozen while waiting on the client">⏸ Clock Paused — client query</span>`;
+  if(s === 'on_hold') return `<span class="badge awaiting dot" title="On hold — not counted as missed or at risk until it resumes">⏸ On hold</span>`;
   if(s === 'at-risk') return `<span class="badge overdue dot" title="Due ${eff}${shifted}">⚠ At Risk</span>`;
   if(s === 'rework')  return `<span class="badge overdue dot" title="Not counted toward commitment until fixed and resubmitted">⏳ Pending Rework</span>`;
   return '';
@@ -7850,7 +7851,7 @@ function tdRiskTag(c){
   if(r.state === 'overdue') return '<span class="td-tag red">⚠ Client overdue ' + (-r.days) + 'd</span>';
   if(r.state === 'due_today') return '<span class="td-tag amber">⏰ Client due today</span>';
   if(r.state === 'at_risk') return '<span class="td-tag amber">⚠ At risk · ' + r.days + 'd left</span>';
-  if(r.state === 'waiting_client') return '<span class="td-tag grey">⏸ Waiting on client</span>';
+  if(r.state === 'waiting_client') return '<span class="td-tag grey">⏸ ' + esc(r.label || 'Waiting on client') + '</span>';
   if(r.state === 'done') return '<span class="td-tag green">✓ Done</span>';
   if(r.state === 'ok') return '<span class="td-tag blue">On track · ' + r.days + 'd</span>';
   return '<span class="td-tag grey">' + esc(c.kindLabel) + '</span>';

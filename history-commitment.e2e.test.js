@@ -187,3 +187,27 @@ test('the history words each wait for what it was, and a dismissed query is show
   assert.match(tl, /later dismissed: it was not a real client query/);
   assert.match(html, /id="qaPanel"/); assert.match(html, /function openQueryAudit\(\)/); assert.match(html, /\/api\/admin\/query-audit\/dismiss/);
 });
+
+// ---- a task on hold is not counted as late, at risk or breached
+test('a task on hold is never counted as overdue, at risk or breached — whatever the hold reason', () => {
+  for (const code of ['CLIENT_QUERY', 'BLOCKED_OTHER', 'INTERNAL_REVIEW', 'CAPACITY']) {
+    const t = base({ status: 'on_hold', holdReasonCode: code, clientDate: '2026-10-01', internalDeadline: '2026-09-28' });
+    const d = { ...deps(), today: '2026-10-09', nowMs: Date.now(), nameOf: () => null, canApprove: () => false };
+    const c = workflow.card(t, d);
+    assert.equal(c.status, 'On Hold', code);
+    assert.equal(c.clientRisk.state, 'waiting_client', code + ' is not "overdue"');
+    assert.equal(c.commitment.key, 'waiting_client', code + ' is not "breached"');
+    assert.equal(c.clientRisk.label, code === 'CLIENT_QUERY' ? 'Waiting on client' : 'On hold');
+  }
+  // …but once it is off hold the dates count again
+  const live = workflow.card(base({ status: 'accepted', clientDate: '2026-10-01', internalDeadline: '2026-09-28' }), { ...deps(), today: '2026-10-09', nowMs: Date.now(), nameOf: () => null, canApprove: () => false });
+  assert.equal(live.clientRisk.state, 'overdue'); assert.equal(live.commitment.key, 'breached');
+});
+test('the server reports an on-hold task as "on_hold", not missed', async () => {
+  const clientId = (await http('POST', '/api/clients', { token: SA, body: { name: 'Hold Ltd', email: 'hl@t.co' } })).j.client.id;
+  const r = await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name: 'Held job', taskKind: 'client', clientId, assignedTo: emp('ranjit').id, tat: 1, internalDeadline: day(1), clientDate: day(4), reviewerId: emp('parvinder').id } });
+  await http('POST', T(r.j.task.id) + '/accept', { token: RJ });
+  assert.equal((await http('POST', T(r.j.task.id) + '/hold', { token: RJ, body: { reasonCode: 'BLOCKED_OTHER', detail: 'Waiting on my laptop', responsibility: 'employee', followUpDate: day(2) } })).status, 200);
+  const t = (await http('GET', '/api/tasks', { token: RJ })).j.tasks.find(x => x.id === r.j.task.id);
+  assert.equal(t.commitmentOutcome, 'on_hold');
+});
