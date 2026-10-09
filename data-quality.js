@@ -50,6 +50,10 @@ function build(state, opts) {
       const h = t.productivityAllocatedHoursSnapshot != null ? Number(t.productivityAllocatedHoursSnapshot) : Number(t.tat);
       if (!(h > 0)) add('zero_allocated_hours', 'fix', 'task', t.id, label, 'Allocated hours are ' + (Number.isFinite(h) ? h : 'missing') + '.', 'Set the agreed hours. A zero-hour task earns nothing in Productivity.');
     }
+    // client work closed WITHOUT a review and without a manager exception: it earned (or would earn) productivity it should not have
+    if (isClient && t.status === 'completed' && t.reviewStatus === 'done' && !t.noReviewAuthorizedAt) {
+      add('client_closed_no_review', 'fix', 'task', t.id, label, 'Client task closed with no review, no reviewer on record' + (t.reviewerId ? '' : ' (none was ever chosen)') + ' and no manager exception. It earns NO productivity until a manager records an exception.', 'Send it for review (Reopen for re-review), or have an authorised manager record the exception with a reason. Nothing is changed automatically.');
+    }
     if (!t.internalDeadline && t.status !== 'completed') add('missing_internal_due', 'fix', 'task', t.id, label, 'No internal due date.', 'Give it a due date so it can be planned and measured.');
     if (EMAIL_RE.test(nm)) add('email_in_title', 'privacy', 'task', t.id, label, 'The title contains an email address (' + (nm.match(EMAIL_RE) || [''])[0].replace(/(.).*@/, '$1***@') + ').', 'Remove the address from the title and put it in the instructions or the client record.');
     if (PHONE_RE.test(nm.replace(EMAIL_RE, ''))) add('phone_in_title', 'privacy', 'task', t.id, label, 'The title contains a phone number.', 'Remove the number from the title; keep it on the client record.');

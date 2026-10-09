@@ -1488,9 +1488,9 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
         <div id="workNew" style="display:none;"></div>
         <div id="workLegacy">
         <div class="top-grid">
-          <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Open work (always current) plus what finished in the period selected above">
+          <div class="metric-tile mg-tile" onclick="openMyAllTasks()" title="Unique tasks: everything currently open or with a reviewer (always current), plus what finished in the period selected above. The three parts shown underneath add up to this number.">
             <div class="mt-ic">▦</div>
-            <div class="mt-label">Total tasks <span style="font-weight:400;color:var(--text-faint);" id="myTotalLabel">· all time</span></div>
+            <div class="mt-label">Work in scope <span style="font-weight:400;color:var(--text-faint);" id="myTotalLabel">· all time</span></div>
             <div class="mt-value" id="myTotalTasks">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myTotalSub"></div>
           </div>
@@ -1516,12 +1516,6 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
             <div class="mt-value teal" id="myDoneAll">0</div>
             <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myDoneSub"></div>
           </div>
-          <div class="metric-tile mg-tile" onclick="openMyExtraHours()" title="Completed work that ran over its estimate, and by how much">
-            <div class="mt-ic">⚡</div>
-            <div class="mt-label">Extra hours</div>
-            <div class="mt-value" style="color:var(--coral);" id="myExtraHours">0</div>
-            <div style="font-size:11px;color:var(--text-faint);margin-top:2px;" id="myExtraSub"></div>
-          </div>
           <div class="metric-tile mg-tile" id="myCallsTile" style="display:none;" onclick="showView('calls', document.querySelector('.nav-item[data-view=&quot;calls&quot;]'))" title="Calls tagged to you that actually connected — voicemails and missed calls aren't counted">
             <div class="mt-ic">📞</div>
             <div class="mt-label">Calls remaining</div>
@@ -1544,7 +1538,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 
         <div class="dash-bento">
           <div class="dash-card">
-            <div class="dc-hd">Task status <span id="statusDonutScope"></span></div>
+            <div class="dc-hd">Task status — every task, all time <span id="statusDonutScope"></span></div>
             <div id="statusDonutWrap"></div>
           </div>
           <div id="capacityCard"></div>
@@ -6742,7 +6736,8 @@ function renderEmployeeStats(){
   // you.
   const reviewedN = reviewedByCount(dashSubjectId(), start, end);
   const pendingReviewN = pendingReviewCountFor(dashSubjectId());
-  const totalN = openN + donePeriod.length + reviewedN + pendingReviewN;
+  // Unique tasks: open work + work sent for review + work finished in the period (the three groups never overlap), then other people's work you reviewed / must review.
+  const totalN = openN + inReview.length + donePeriod.length + reviewedN + pendingReviewN;
   setV('myTotalTasks', totalN);
   setV('myTotalLabel', '· ' + label);
   // A task you finished but that's still sitting with a reviewer isn't
@@ -6759,7 +6754,7 @@ function renderEmployeeStats(){
   setV('myDoneAll', donePeriod.length);
   setV('myDoneLabel', '· ' + label);
   const doneHrs = donePeriod.reduce((s,t) => s + taskHrs(t), 0);
-  setV('myDoneSub', donePeriod.length ? `${doneHrs.toFixed(1)}h total` : '');
+  setV('myDoneSub', donePeriod.length ? `${doneHrs.toFixed(1)}h allocated` : '');
   // Extra hours — completed work in the period that ran over its estimate.
   _myExtra = doneP.map(t => ({ t, est: Number(t.tat)||0, actual: taskHrs(t) }))
     .map(x => ({ ...x, extra: Math.round((x.actual - x.est) * 100) / 100 }))
@@ -7234,7 +7229,7 @@ function renderDashWork(){
   if(m){
     const capH = m.capacityToday || m.dailyCapacity || 0;
     const pct = capH > 0 ? Math.min(100, Math.round(m.pendingHours / capH * 100)) : (m.pendingHours > 0 ? 100 : 0);
-    cap = `<div class="wk-cap"><span>${m.onLeaveToday ? 'On leave today' : `<b>${m.pendingHours}h</b> pending today of ${capH}h`}${m.backlogHours ? ` · ${m.backlogHours}h in queue` : ' · queue clear'}${m.backlogHours && m.busyUntilAt ? ` · busy until ${fmtBusyUntil(m.busyUntilAt)}` : ''}</span>
+    cap = `<div class="wk-cap"><span>${m.onLeaveToday ? 'On leave today' : `<b>${m.pendingHours}h</b> pending today of ${capH}h`}${m.backlogHours ? ` · actionable workload: ${m.backlogHours} allocated hours` : ' · no actionable workload'}${m.backlogHours && m.busyUntilAt ? ` · busy until ${fmtBusyUntil(m.busyUntilAt)}` : ''}</span>
       ${m.onLeaveToday ? '' : `<span class="tm-bar" style="width:150px;"><i class="${m.pendingHours > capH && capH > 0 ? 'over' : ''}" style="width:${pct}%;"></i></span>`}</div>`;
   }
   // the list — same rule and same grouping as My team, so the two always read alike
@@ -7312,7 +7307,7 @@ function renderGreeting(){
   wrap.innerHTML = `<div class="greeting-block">
     <div>
       <h1>${mirror ? esc(me.name) + "'s dashboard" : greeting + (firstName ? ', ' + esc(firstName) : '')}</h1>
-      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueInPeriod} task${dueInPeriod === 1 ? '' : 's'} due ${phrase} &middot; ${hrsInPeriod.toFixed(1)} hrs done ${phrase}</div>
+      <div class="greeting-sub"><b>${weekday}, ${dateStr}</b> &middot; ${dueInPeriod} task${dueInPeriod === 1 ? '' : 's'} due ${phrase}</div>
       ${seNote}
     </div>
   </div>`;
@@ -7589,7 +7584,7 @@ function renderTodayTeamInto(wrapId){
     <div class="to-main">
       <b>${esc(r.name)}</b>
       <span class="badge ${r.status==='over'?'overdue':r.status==='light'?'awaiting':'completed'} dot" style="font-size:10px;">${pill(r.status)}</span>
-      <div style="font-size:12px;color:var(--text-faint);">${r.onLeaveToday?'on leave today':`${r.pendingHours}h pending · ${r.capacityToday}h capacity${r.doneToday?` · ${r.doneToday}h done`:''}${r.busyUntil?` · busy until ${r.busyUntilAt?fmtBusyUntil(r.busyUntilAt):fmtDate(r.busyUntil)}`:''}`}</div>
+      <div style="font-size:12px;color:var(--text-faint);">${r.onLeaveToday?'on leave today':`${r.pendingHours}h pending · ${r.capacityToday}h capacity${r.doneToday?` · ${r.doneToday}h allocated, completed today`:''}${r.busyUntil?` · busy until ${r.busyUntilAt?fmtBusyUntil(r.busyUntilAt):fmtDate(r.busyUntil)}`:''}`}</div>
       <div style="max-width:240px;margin-top:5px;">${r.onLeaveToday?'':tgBar(r.pendingHours, r.capacityToday)}</div>
     </div>
     ${r.status==='over'?`<button class="btn-ghost btn-sm" onclick="openAssignModal('team')">Reassign</button>`:''}
@@ -7631,7 +7626,7 @@ function renderStatusDonut(){
       const labelOf = s => s === 'toreview' ? "To review (others' work)" : statusLabel(s);
       const key = order.map(s => `<div class="k"><span><i style="background:${colors[s]||'var(--text-faint)'};"></i>${labelOf(s)}</span><b>${counts[s]}</b></div>`).join('');
       const extraBits = [reviewedN ? `${reviewedN} reviewed` : '', pendingReviewN ? `${pendingReviewN} to review` : ''].filter(Boolean).join(', ');
-      wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} task${total===1?'':'s'}${extraBits ? ` · ${scoped.length} yours, ${extraBits}` : ''}</div>
+      wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text-dim);margin-bottom:2px;">${total} task${total===1?'':'s'} in all (not the same as “Work in scope”, which is open work plus what finished in the period)${extraBits ? ` · ${scoped.length} yours, ${extraBits}` : ''}</div>
         <div class="seg">${seg}</div>
         <div class="seg-key">${key}</div>`;
       const sc = document.getElementById('statusDonutScope');
@@ -7672,7 +7667,7 @@ function renderWorkloadBlockersInto(wrapId){
       <div class="cap-main">
         <div class="cap-top">
           <span class="cap-name">${esc(w.name)}</span>
-          <span class="cap-hours">${done}h done today${w.backlogHours ? ' &middot; ' + w.backlogHours + 'h in queue' : ''}</span>
+          <span class="cap-hours">${done}h allocated, completed today${w.backlogHours ? ' &middot; actionable workload ' + w.backlogHours + ' allocated h' : ''}</span>
         </div>
         <div class="cap-bar-track"><div class="cap-bar-fill" style="width:${pct}%; background:var(--teal);"></div></div>
         <div class="cap-sub">
@@ -13812,7 +13807,7 @@ async function dismissQueries(){
     await refreshTasks(); openQueryAudit();
   } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
 }
-const DQ_LABEL = { duplicate_user:'Possible duplicate people', system_or_test_user:'Test / shared logins', hr_in_productivity:'HR login in Productivity', missing_client:'Client Task with no client', fake_client_value:'Placeholder client name', wrong_classification:'Client / Admin mixed up', zero_allocated_hours:'Zero or missing hours', missing_internal_due:'No internal due date', email_in_title:'Email address in a title', phone_in_title:'Phone number in a title', possible_misspelling:'Possible misspelling', duplicate_task_type:'Duplicate task types' };
+const DQ_LABEL = { client_closed_no_review:'Client task closed without review (no manager exception)', duplicate_user:'Possible duplicate people', system_or_test_user:'Test / shared logins', hr_in_productivity:'HR login in Productivity', missing_client:'Client Task with no client', fake_client_value:'Placeholder client name', wrong_classification:'Client / Admin mixed up', zero_allocated_hours:'Zero or missing hours', missing_internal_due:'No internal due date', email_in_title:'Email address in a title', phone_in_title:'Phone number in a title', possible_misspelling:'Possible misspelling', duplicate_task_type:'Duplicate task types' };
 async function openDataQuality(){
   document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="td-empty">Checking…</div>'; openModal();
   let r; try { r = await api('/api/admin/data-quality'); } catch(e){ document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="modal-error" style="display:block;">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>'; return; }
