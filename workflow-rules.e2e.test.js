@@ -198,7 +198,15 @@ test('putting work on hold records who is responsible, the follow-up date, and e
   assert.equal(ok.status, 200, JSON.stringify(ok.j));
   const h = ok.j.task.holdHistory.at(-1);
   assert.equal(ok.j.task.holdResponsibility, 'client'); assert.equal(ok.j.task.holdFollowUp, day(2));
-  assert.deepEqual(h.clocksStopped, { workTimer: true, clientCommitment: true }, 'a client wait pauses the client commitment clock too');
+  assert.deepEqual(h.clocksStopped, { workTimer: true, clientCommitment: false }, 'a hold alone never pauses the client commitment date — the owner has to record the query');
+  assert.equal(ok.j.task.queries.length, 0, 'no query is opened automatically');
+  const noTime = await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0) } });
+  assert.equal(noTime.status, 400, 'the time is required — it is never filled in');
+  const rec = await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0), querySentTime: '00:01' } });
+  assert.equal(rec.status, 200, JSON.stringify(rec.j));
+  assert.deepEqual(rec.j.task.holdHistory.at(-1).clocksStopped, { workTimer: true, clientCommitment: true }, 'once the owner records the query, the client date pauses');
+  assert.equal(rec.j.task.queries.length, 1); assert.ok(rec.j.task.queries[0].sentTs);
+  assert.equal((await http('POST', T(t.id) + '/query', { token: RJ, body: { querySource: 'email', querySentAt: day(0), querySentTime: '00:01' } })).status, 400, 'only one query per hold');
   const card = (await http('GET', '/api/workflow/tasks?ids=' + enc(t.id), { token: PK })).j.rows[0];
   assert.equal(card.status, 'On Hold'); assert.equal(card.waitingOn.kind, 'client'); assert.equal(card.holdFollowUp, day(2));
   assert.equal((await http('POST', T(t.id) + '/unhold', { token: RJ })).status, 200);

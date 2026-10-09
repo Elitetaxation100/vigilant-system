@@ -463,6 +463,31 @@ function effectiveClientDate(t) {
 function anyQueryOpen(t) {
   return (t.queries || []).some(q => !q.dismissedAt && EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
 }
+// A client query — and the freeze of the client commitment date that comes with it — is only ever recorded by the task's owner (or their
+// manager), on purpose, with the real date AND time it was sent. A hold alone never opens one, and nothing is stamped at midnight.
+// "09:30" on a given New Zealand day → the exact instant (null if that is not a real NZ time).
+function nzLocalToIso(day, hhmm) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || '')) || !/^\d{2}:\d{2}$/.test(String(hhmm || ''))) return null;
+  const base = Date.parse(day + 'T' + hhmm + ':00Z');
+  if (isNaN(base)) return null;
+  for (const off of [13, 12]) {
+    const c = base - off * 3600000;
+    if (nzDay(c) === day && new Date(c).toLocaleTimeString('en-GB', { timeZone: 'Pacific/Auckland', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) === hhmm) return new Date(c).toISOString();
+  }
+  return null;
+}
+// Validate what the owner typed for a client query. Returns { error } or { source, sentAt, sentTs }.
+function parseQueryInput(body, reasonCode) {
+  const source = reasonCode === 'THIRD_PARTY' ? 'manual' : String(body.querySource || '');
+  if (reasonCode !== 'THIRD_PARTY' && !['email', 'phone', 'whatsapp', 'in_person'].includes(source)) return { error: 'Say how you asked the client — email, phone, WhatsApp or in person.' };
+  const day = String(body.querySentAt || '').slice(0, 10), time = String(body.querySentTime || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !time) return { error: 'Say the date and the time the query was sent — it is never filled in for you.' };
+  if (day > todayISO()) return { error: "The query can't be dated in the future." };
+  const ts = nzLocalToIso(day, time);
+  if (!ts) return { error: 'That is not a valid New Zealand date and time.' };
+  if (Date.parse(ts) > Date.now() + 5 * 60000) return { error: "The query can't be timed in the future." };
+  return { source, sentAt: day, sentTs: ts };
+}
 // Every time a task is handed in (sent for review, marked done, resubmitted after a correction, re-opened) is kept with its exact time and the
 // dates in force at that moment. The employee's OWN commitment is judged on the FIRST hand-in — a reviewer sending it back, or a later
 // resubmission, never turns an on-time submission into a miss.
@@ -2582,6 +2607,10 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       if (!followUp) return res.status(400).json({ error: 'Pick the date you will follow this up.' });
       if (followUp < todayISO()) return res.status(400).json({ error: "The follow-up date can't be in the past." });
     }
+    // A client wait only freezes the commitment date if the owner records the query on purpose (queryConfirmed + real date and time).
+    const wantsQuery = EXEMPTING_REASONS.has(reasonCode) && !!t.clientDate && body.queryConfirmed === true;
+    const qIn = wantsQuery ? parseQueryInput(body, reasonCode) : null;
+    if (qIn && qIn.error) return res.status(400).json({ error: qIn.error });
     let shot = body.screenshot || null;
     if (shot && (typeof shot !== 'string' || !/^data:image\/(png|jpe?g|webp|gif);base64,/.test(shot) || shot.length > 6_000_000)) {
       shot = null; // ignore anything that isn't a reasonably-sized inline image
@@ -2596,15 +2625,10 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     t.holdCount = (t.holdCount || 0) + 1;
     t.holdHistory = t.holdHistory || [];
     const hh = { heldAt: t.heldAt, reasonCode, reason: t.holdReason, hasShot: !!shot, resumedAt: null, by: req.employee.name, queryId: null };
-    // An exempting reason opens a query record — this is what freezes the
-    // client commitment clock (Phase 2). Only for tasks that HAVE a client date.
-    if (EXEMPTING_REASONS.has(reasonCode) && t.clientDate) {
-      const src = ['email', 'phone', 'whatsapp', 'in_person', 'manual'].includes(body.querySource) ? body.querySource : 'manual';
-      const sentAt = (typeof body.querySentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.querySentAt) && body.querySentAt.slice(0, 10) <= todayISO())
-        ? body.querySentAt.slice(0, 10) : todayISO();
+    if (qIn) {
       const q = {
-        id: crypto.randomUUID(), taskId: t.id, reasonCode, source: src,
-        raisedBy: req.employee.id, sentAt, sentTs: sentAt === todayISO() ? new Date().toISOString() : null, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null,
+        id: crypto.randomUUID(), taskId: t.id, reasonCode, source: qIn.source,
+        raisedBy: req.employee.id, sentAt: qIn.sentAt, sentTs: qIn.sentTs, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null,
         emailThreadId: null, chaseLog: [], note: detail || null,
       };
       t.queries = t.queries || [];
@@ -2615,7 +2639,28 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     hh.responsibility = responsibility; hh.followUp = followUp;
     hh.clocksStopped = { workTimer: true, clientCommitment: !!hh.queryId };   // the work timer always stops; the client's clock only for a client wait
     t.holdHistory.push(hh);
-    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}${hh.queryId ? ' · client clock paused' : ''}`, { hold: true });
+    logEvent(state, t.assignedTo, `"${escHtml(t.name)}" put on hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — ${escHtml(meta.label)}${detail ? ': ' + escHtml(detail) : ''}${hh.queryId ? ' · client commitment date paused (query recorded)' : ''}`, { hold: true });
+    db.save();
+    res.json({ task: taskForClient(t) });
+  });
+
+  // Record the client query for a task that is already on hold — the owner (or their manager) does this on purpose, with the real date and time.
+  app.post('/api/tasks/:id/query', requireAuth, (req, res) => {
+    const state = db.get();
+    const t = findTask(state, req.params.id);
+    if (!t) return res.status(404).json({ error: 'Task not found.' });
+    if (t.assignedTo !== req.employee.id && !canManageEmployee(state, req.employee, t.assignedTo)) return res.status(403).json({ error: 'Only the assignee or a manager over them can record a client query.' });
+    if (t.status !== 'on_hold' || !EXEMPTING_REASONS.has(t.holdReasonCode)) return res.status(400).json({ error: 'A client query can only be recorded on a task that is on hold waiting for the client (or a third party).' });
+    if (!t.clientDate) return res.status(400).json({ error: 'This task has no client date, so there is nothing to pause.' });
+    const last = (t.holdHistory || [])[(t.holdHistory || []).length - 1];
+    if (!last) return res.status(400).json({ error: 'No hold found for this task.' });
+    if (last.queryId && (t.queries || []).some(q => q.id === last.queryId && !q.dismissedAt)) return res.status(400).json({ error: 'A query is already recorded for this hold.' });
+    const qIn = parseQueryInput(req.body || {}, t.holdReasonCode);
+    if (qIn.error) return res.status(400).json({ error: qIn.error });
+    const q = { id: crypto.randomUUID(), taskId: t.id, reasonCode: t.holdReasonCode, source: qIn.source, raisedBy: req.employee.id, sentAt: qIn.sentAt, sentTs: qIn.sentTs, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null, emailThreadId: null, chaseLog: [], note: String((req.body || {}).note || '').trim().slice(0, 500) || null };
+    t.queries = t.queries || []; t.queries.push(q);
+    last.queryId = q.id; last.clocksStopped = { ...(last.clocksStopped || {}), clientCommitment: true };
+    logEvent(state, t.assignedTo, `<b>${escHtml(req.employee.name)}</b> recorded a client query on "${escHtml(t.name)}" (sent ${escHtml(qIn.sentAt)}) — client commitment date paused.`);
     db.save();
     res.json({ task: taskForClient(t) });
   });
