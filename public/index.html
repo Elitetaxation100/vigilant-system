@@ -11008,9 +11008,9 @@ function productivityCardsHtml(p, opts){
   const commitmentSub = p.commitmentTotal ? `${p.commitmentMet}/${p.commitmentTotal} on time` : 'no dated tasks in period';
   return `<div class="top-grid">
     ${card('Productivity', pctBig, p.notScorable ? 'No available capacity in this period' : null, pctColor)}
-    ${card('Qualifying Completed Allocated Hours', p.qualifiedHours.toFixed(1)+'h', null)}
-    ${card('Adjusted Capacity Hours', p.capacityHours.toFixed(1)+'h', capacitySubHtml(p))}
-    ${card('Capacity Not Converted Into Completed Output', p.capacityNotConverted.toFixed(1)+'h', notConvertedSubHtml(p))}
+    ${card('Reviewed-clean allocated hours', p.qualifiedHours.toFixed(1)+'h', (p.qualifiedTasks || []).some(r => r.qualifyingEventType === 'admin_completed') ? 'includes completed admin allocated hours' : 'allocated, not time worked')}
+    ${card('Eligible capacity hours', p.capacityHours.toFixed(1)+'h', capacitySubHtml(p))}
+    ${card('Eligible capacity not yet converted', p.capacityNotConverted.toFixed(1)+'h', notConvertedSubHtml(p))}
     ${card('Internal Commitment Met', commitmentPct, commitmentSub, p.commitmentPct==null?null:scoreColor(p.commitmentPct))}
   </div>
   <p style="font-size:12px;color:var(--text-faint);margin:10px 0 0;max-width:70ch;line-height:1.5;">Productivity shows completed allocated hours as a percentage of adjusted capacity. A lower percentage does not automatically mean poor employee performance — capacity not yet converted into completed output may include work still in progress, work awaiting review, or capacity management hasn't allocated. Not an employee penalty.</p>
@@ -11042,38 +11042,57 @@ const STAGE_LABELS = {
   sent_on_time:'Sent on time', sent_late:'Sent late', not_sent:'Not sent', sending_not_required:'Not required',
 };
 const QUALIFYING_EVENT_LABELS = {
-  sent_for_review:'Sent for review', marked_done:'Marked done', clean_review:'Clean review', no_review_authorized:'No-review authorised',
-  report_dispatched:'Report sent to client', self_certified_reviewer:'Self-certified (reviewer)', no_review_needed:'Closed (no review needed)',
-  month_close:'Held at month-end (hours banked)',
+  clean_review: 'Reviewed Clean', admin_completed: 'Completed (admin work)', manager_exception_no_review: 'Closed — manager exception',
+  // older records only
+  sent_for_review: 'Sent for review', marked_done: 'Marked done', no_review_authorized: 'No-review authorised', report_dispatched: 'Report sent to client',
+  self_certified_reviewer: 'Self-certified (reviewer)', no_review_needed: 'Closed (no review needed)', month_close: 'Banked at month-end (no longer counted)',
 };
 // Plain-language meaning of each "Excluded" reason, shown under it.
 const EXCLUSION_HELP = {
-  'Review pending': "It was sent for review but the reviewer hasn't marked it clean or with errors yet. It counts once the review is done.",
-  'Review contains errors': 'The reviewer found errors. It counts again once it is fixed and passes review.',
+  'Review pending': "It was handed in but the reviewer has not marked it Reviewed Clean yet. It counts, in full, on the day it is approved clean.",
+  'Returned for correction': 'The reviewer sent it back. It counts again, in full, once the corrected work is approved clean.',
+  'Review contains errors': 'The reviewer sent it back. It counts again, in full, once the corrected work is approved clean.',
   'Not yet delivered': 'The work is not finished yet.',
-  'In progress': 'The work is not finished yet.',
-  'On hold': "On hold — not counted until it's finished (or banked at month-end).",
-  'Needs rework': 'Sent back for rework — not counted until it is fixed and passes review.',
-  'Awaiting acceptance': "The person hasn't accepted the task yet.",
-  'Window proposed': 'A new date was proposed and is waiting for approval.',
+  'Not completed — in progress': 'The work is not finished yet.',
+  'Not completed — awaiting acceptance': "The person hasn't accepted the task yet.",
+  'Not completed — new date proposed': 'A new date was proposed and is waiting for approval.',
+  'Not completed — assignment awaiting approval': 'The assignment is waiting for a manager to approve it.',
+  'On hold': 'On hold — it earns nothing until it is finished and approved clean. Putting work on hold never reduces capacity.',
+  'Cancelled': 'The task was cancelled.',
+  'Client task closed without review — no manager exception recorded': 'Client work must be reviewed. It only counts if an authorised manager records an exception (who, when and why).',
   'Missing allocated-hours snapshot': 'A data problem: this task has no agreed hours recorded, so it cannot be credited.',
   'Invalid completion timestamp': 'A data problem: this task has no valid completion time, so it cannot be credited.',
+  // older wording, kept so old rows still explain themselves
+  'Needs rework': 'Sent back for rework — not counted until it is fixed and passes review.',
+  'In progress': 'The work is not finished yet.', 'Awaiting acceptance': "The person hasn't accepted the task yet.", 'Window proposed': 'A new date was proposed and is waiting for approval.',
 };
+const exclusionHelp = r => EXCLUSION_HELP[r] || (/^Clean review outside selected period/.test(r || '') ? 'It was approved clean on a day outside the period you picked, so it counts in that other period.' : '');
 function stageLabel(s){ return s ? esc(STAGE_LABELS[s] || s) : '<span style="color:var(--text-faint);">—</span>'; }
-function taskCalcTableHtml(rows, showReason){
+function taskCalcTableHtml(rows, excluded){
   if(!rows.length) return `<p style="font-size:12.5px;color:var(--text-faint);padding:8px 0;">None.</p>`;
+  const th = (t, right) => '<th style="padding:5px 6px;' + (right ? 'text-align:right;' : '') + '">' + t + '</th>';
+  const head = excluded
+    ? th('Task') + th('Client') + th('Allocated', 1) + th('Current status') + th('Why it earns nothing') + th('Who acts next') + th('Next action') + th('Report sent <span style="text-transform:none;">(separate)</span>')
+    : th('Task') + th('Client') + th('Review') + th('Reviewed-clean date') + th('Credit', 1) + th('Report sent <span style="text-transform:none;">(separate)</span>');
+  const reviewLbl = r => r.kind === 'internal' && !r.clientName || r.clientName === 'Admin task' ? 'Not required (admin work)' : (r.stages && r.stages.reviewer === 'done' ? 'Closed without review' : 'Required');
   return `<div style="overflow-x:auto;max-height:26vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;">
-    <thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">
-      <th style="padding:5px 6px 5px 0;">Task</th><th style="padding:5px 6px;">Client</th><th style="padding:5px 6px;">Qualifying event</th><th style="padding:5px 6px;">Processor</th><th style="padding:5px 6px;">Reviewer</th><th style="padding:5px 6px;">Report</th><th style="padding:5px 6px;text-align:right;">Hours</th>${showReason?'<th style="padding:5px 6px;">Reason</th>':''}</tr></thead>
-    <tbody>${rows.map(r => `<tr style="border-top:1px solid var(--panel-border);">
-      <td style="padding:5px 6px 5px 0;font-weight:600;">${esc(r.name)}${r.dataException?' <span title="Data exception" style="color:var(--coral);">⚠</span>':''}</td>
+    <thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">${head}</tr></thead>
+    <tbody>${rows.map(r => excluded ? `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:5px 6px;font-weight:600;">${esc(r.name)}${r.dataException?' <span title="Data exception" style="color:var(--coral);">⚠</span>':''}</td>
       <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.clientName)}</td>
-      <td style="padding:5px 6px;color:var(--text-dim);">${r.qualifyingEventType?esc(QUALIFYING_EVENT_LABELS[r.qualifyingEventType]||r.qualifyingEventType)+(r.qualifyingEventAt?' · '+fmtDate(dayOf(r.qualifyingEventAt)):''):'—'}</td>
-      <td style="padding:5px 6px;">${stageLabel(r.stages.processor)}</td>
-      <td style="padding:5px 6px;">${stageLabel(r.stages.reviewer)}</td>
-      <td style="padding:5px 6px;">${stageLabel(r.stages.sender)}</td>
-      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${(r.qualifies ? r.creditedHours : r.allocatedHours).toFixed(1)}h${r.qualifies && Math.abs(r.creditedHours - r.allocatedHours) > 0.05 ? ` <span style="color:var(--text-faint);" title="Part of this task's ${r.allocatedHours.toFixed(1)}h was credited at a month-end while it was on hold">(of ${r.allocatedHours.toFixed(1)}h)</span>` : ''}${r.zeroHourTask?' <span style="color:var(--text-faint);">(0h)</span>':''}</td>
-      ${showReason?`<td style="padding:5px 6px;color:var(--coral);">${esc(r.exclusionReason||'')}${EXCLUSION_HELP[r.exclusionReason]?`<div style="color:var(--text-faint);font-size:11.5px;margin-top:2px;">${esc(EXCLUSION_HELP[r.exclusionReason])}</div>`:''}</td>`:''}
+      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${(r.allocatedHours||0).toFixed(1)}h</td>
+      <td style="padding:5px 6px;">${esc(r.primaryStatus || (r.status||'').replace('_',' '))}</td>
+      <td style="padding:5px 6px;color:var(--coral);">${esc(r.exclusionReason||'')}${exclusionHelp(r.exclusionReason)?`<div style="color:var(--text-faint);font-size:11.5px;margin-top:2px;">${esc(exclusionHelp(r.exclusionReason))}</div>`:''}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.actionOwner || '—')}</td>
+      <td style="padding:5px 6px;color:var(--text-faint);">${esc(r.nextAction || '—')}</td>
+      <td style="padding:5px 6px;">${stageLabel(r.stages && r.stages.sender)}</td>
+    </tr>` : `<tr style="border-top:1px solid var(--panel-border);">
+      <td style="padding:5px 6px;font-weight:600;">${esc(r.name)}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${esc(r.clientName)}</td>
+      <td style="padding:5px 6px;">${esc(reviewLbl(r))} · ${stageLabel(r.stages && r.stages.reviewer)}</td>
+      <td style="padding:5px 6px;color:var(--text-dim);">${r.qualifyingEventAt ? esc(fmtDate(dayOf(r.qualifyingEventAt))) : '—'} <span style="color:var(--text-faint);">· ${esc(QUALIFYING_EVENT_LABELS[r.qualifyingEventType] || r.qualifyingEventType || '')}</span></td>
+      <td style="padding:5px 6px;font-family:var(--font-mono);text-align:right;">${(r.creditedHours||0).toFixed(1)}h <span style="color:var(--text-faint);">(of ${(r.allocatedHours||0).toFixed(1)}h)</span></td>
+      <td style="padding:5px 6px;">${stageLabel(r.stages && r.stages.sender)}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
 }
@@ -11098,22 +11117,37 @@ function openWorkTableHtml(rows){
 // the same server-computed rows, never recomputed client-side), the
 // capacity-not-converted breakdown, and a missed-Internal-Commitment list
 // (filtered client-side from the same rows — no separate endpoint needed).
+// Capacity, day by day: standard hours, every deduction, the final hours — and the record each deduction came from.
+function capacityDaysHtml(p){
+  const rows = p.capacityDays;
+  if(!rows || !rows.length) return '<p style="font-size:12.5px;color:var(--text-faint);padding:6px 0;">The day-by-day list is not loaded for this view — open the person\'s Report Card.</p>';
+  const h = n => n ? (Math.round(n * 100) / 100) + '' : '—';
+  const sum = rows.reduce((n, r) => n + r.finalHours, 0);
+  return '<div style="overflow-x:auto;max-height:28vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;"><caption class="sr-only">Eligible capacity, day by day</caption>'
+    + '<thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);"><th style="padding:5px 6px;">Date</th><th style="padding:5px 6px;">Day</th><th style="padding:5px 6px;text-align:right;">Standard</th><th style="padding:5px 6px;text-align:right;">Leave</th><th style="padding:5px 6px;text-align:right;">Workshop</th><th style="padding:5px 6px;text-align:right;">Weekly off</th><th style="padding:5px 6px;text-align:right;">Other</th><th style="padding:5px 6px;text-align:right;">Final</th><th style="padding:5px 6px;">Reason</th><th style="padding:5px 6px;">Source</th></tr></thead><tbody>'
+    + rows.map(r => '<tr style="border-top:1px solid var(--panel-border);' + (r.finalHours === 0 ? 'color:var(--text-faint);' : '') + '"><td style="padding:4px 6px;white-space:nowrap;">' + esc(fmtDate(r.date)) + '</td><td style="padding:4px 6px;">' + esc(r.day) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.standardHours) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.leaveDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.workshopDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.weeklyOffDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.otherDeduction) + '</td><td style="padding:4px 6px;text-align:right;font-weight:700;">' + h(r.finalHours) + '</td><td style="padding:4px 6px;">' + esc(r.reason) + '</td><td style="padding:4px 6px;color:var(--text-faint);">' + esc(r.source ? r.source.label : '—') + '</td></tr>').join('')
+    + '</tbody><tfoot><tr style="border-top:2px solid var(--panel-border);font-weight:700;"><td colspan="7" style="padding:5px 6px;">Eligible capacity</td><td style="padding:5px 6px;text-align:right;">' + h(sum) + '</td><td colspan="2"></td></tr></tfoot></table></div>';
+}
 function openProductivityCalcModal(p){
   if(!p) return;
   const allRows = (p.qualifiedTasks||[]).concat(p.excludedTasks||[]);
   const missedCommitment = allRows.filter(r => r.stages && r.stages.processor === 'missed');
+  const adminH = (p.qualifiedTasks||[]).filter(r => r.qualifyingEventType === 'admin_completed').reduce((n, r) => n + (r.creditedHours || 0), 0);
   document.getElementById('modalBox').innerHTML = `
     <div class="calc-modal">
     <h3>${esc(p.name)} — calculation</h3>
-    <div class="modal-sub">${p.capacityHours.toFixed(1)}h capacity · ${p.qualifiedHours.toFixed(1)}h qualified${p.notScorable?' · not scorable — no available capacity in this period':''}</div>
+    <div class="modal-sub">${p.capacityHours.toFixed(1)}h eligible capacity · ${p.qualifiedHours.toFixed(1)}h reviewed-clean allocated${adminH ? ' (incl. ' + adminH.toFixed(1) + 'h completed admin work)' : ''}${p.notScorable?' · not scorable — no available capacity in this period':''}</div>
+    <div style="font-size:12.5px;color:var(--text-dim);margin:8px 0 0;line-height:1.5;">Productivity % = reviewed-clean allocated hours ÷ eligible capacity hours × 100. A task counts its <b>full</b> allocated hours on the day it is approved Reviewed Clean, or nothing. Report Sent, time worked, punch time and on-hold time are never part of it.</div>
     <div style="font-size:13px;font-weight:600;margin:14px 0 6px;">Qualified — full allocated hours credited</div>
     ${taskCalcTableHtml(p.qualifiedTasks, false)}
     <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Excluded — zero hours credited</div>
     ${taskCalcTableHtml(p.excludedTasks, true)}
-    <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Internal Commitment — missed (${missedCommitment.length})</div>
+    <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Eligible capacity — day by day</div>
+    ${capacityDaysHtml(p)}
+    <div style="font-size:13px;font-weight:600;margin:18px 0 6px;">Internal commitment — submitted late (${missedCommitment.length}) <span style="font-weight:400;color:var(--text-faint);">separate from productivity</span></div>
     ${taskCalcTableHtml(missedCommitment, false)}
     <div style="margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:12.5px;color:var(--text-dim);">
-      Capacity ${p.capacityHours.toFixed(1)}h · Capacity not converted ${p.capacityNotConverted.toFixed(1)}h (${notConvertedSubHtml(p)}) — not an employee penalty
+      Eligible capacity ${p.capacityHours.toFixed(1)}h · Eligible capacity not yet converted ${p.capacityNotConverted.toFixed(1)}h (${notConvertedSubHtml(p)}) — not an employee penalty
     </div>
     <div class="modal-actions" style="margin-top:16px;">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -11465,9 +11499,11 @@ function downloadCardsCsv(){
   a.download = `monthly-cards-${d.period}${_cardsGroup === 'all' ? '' : '-' + _cardsGroup}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
 }
+let _prodSeq = 0;
 async function renderProductivityView(){
   const body = document.getElementById('prodBody');
   if(!body) return;
+  const seq = ++_prodSeq;
   renderProdGroupTabs();
   const adminGroup = _prodGroup === 'admin';
   document.getElementById('prodHoursWrap').style.display = adminGroup ? 'none' : '';
@@ -11476,7 +11512,8 @@ async function renderProductivityView(){
   if(adminGroup){ await renderAdminProductivity(reqFrom, to); return; }
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&group=${_prodGroup}${_prodFirm ? '&scope=firm' : ''}`); }
-  catch(e){ body.innerHTML = `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
+  catch(e){ if(seq !== _prodSeq) return; body.innerHTML = `<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-faint);">${esc(e.message)}</td></tr>`; return; }
+  if(seq !== _prodSeq) return;                             // the latest selection wins
   _prodData = data;
   document.getElementById('prodTotals').innerHTML = productivityCardsHtml(data.totals, { hideCalcLink: true });
   const rows = data.people.slice().sort((a,b) => (b.productivityPct??-1) - (a.productivityPct??-1));
@@ -14001,11 +14038,18 @@ function _rcRange(){
   return { from: iso(from), to: iso(now), period: p };
 }
 
+let _rcSeq = 0;
 async function renderReportCard(){
   const { from: reqFrom, to, period } = _rcRange();
+  const seq = ++_rcSeq;                                   // every change of person or period starts a NEW calculation; only the newest may draw
+  _rcData = null;                                          // nothing from the previous selection can be shown under the new one
+  const cards = document.getElementById('rcCards'); if(cards) cards.innerHTML = '<div class="td-empty" role="status">Calculating…</div>';
+  ['rcReportSent', 'rcOpenWork'].forEach(i => { const e = document.getElementById(i); if(e) e.innerHTML = ''; });
+  const role = document.getElementById('rcRole'); if(role) role.textContent = 'Calculating…';
   let data;
   try { data = await api(`/api/productivity?from=${reqFrom}&to=${to}&full=1`); }
-  catch(e){ document.getElementById('rcCards').innerHTML = `<p style="color:var(--text-faint);">${esc(e.message)}</p>`; return; }
+  catch(e){ if(seq !== _rcSeq) return; document.getElementById('rcCards').innerHTML = `<p style="color:var(--text-faint);" role="alert">${esc(e.message)}</p>`; return; }
+  if(seq !== _rcSeq) return;                               // a newer selection has been made while this was loading — ignore this result
   _rcData = data;
   // the server floors the window at go-live (7 Sept 2026) — there's no real
   // data before then. Use the effective range it returns for every label.

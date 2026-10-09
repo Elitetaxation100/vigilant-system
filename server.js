@@ -4770,7 +4770,9 @@ function floorAtGoLive(fromISO, toISO) {
 // snapshot, not live tat), status, the three-stage responsibility
 // breakdown, credited hours, and why (or why not).
 function productivityTaskRow(t, result) {
+  const w = (() => { try { const c = workflow.card(t, workflowDeps(db.get(), { id: null, accessRole: 'employee' }, {})); return c; } catch (e) { return null; } })();
   return {
+    primaryStatus: w ? w.primaryStatus : null, actionOwner: w ? (w.waitingOn.ownerName ? w.waitingOn.label + ' — ' + w.waitingOn.ownerName : w.waitingOn.label) : null, nextAction: w ? w.nextAction : null,
     id: t.id, name: t.name, clientName: t.clientName && String(t.clientName).toLowerCase() !== 'internal' ? t.clientName : (t.kind === 'internal' ? 'Admin task' : '—'),
     kind: t.kind, status: t.status,
     allocatedHours: Number(t.productivityAllocatedHoursSnapshot) || 0,
@@ -4809,6 +4811,32 @@ function productivityOpenRow(state, t) {
 //   scheduled working days (every day the firm's week includes) − public holidays = working days
 //   − approved leave (a half day counts 0.5) − workshop days (never also counted as leave) − custom-hours reductions = final eligible days
 //   capacity hours = final eligible days × the working day (7 h).  A deduction is shown only if it was actually made.
+// One row per calendar day: standard hours, each deduction, the final eligible hours, why, and the record it came from. The final hours always add
+// up to the person's eligible capacity. A hold, a review wait, rework or being unassigned never appears here — they never reduce capacity.
+function capacityDaysDetail(state, emp, fromISO, toISO) {
+  const base = baseHoursOf(emp), rows = [], DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  if (!fromISO || !toISO || toISO < fromISO) return rows;
+  let cur = new Date(fromISO + 'T00:00:00Z');
+  const end = new Date(toISO + 'T00:00:00Z').getTime();
+  while (cur.getTime() <= end) {
+    const iso = cur.toISOString().slice(0, 10), dow = cur.getUTCDay();
+    const row = { date: iso, day: DOW[dow], standardHours: base, leaveDeduction: 0, workshopDeduction: 0, weeklyOffDeduction: 0, otherDeduction: 0, finalHours: 0, reason: '', source: null };
+    if (dow === 0) { row.weeklyOffDeduction = base; row.reason = 'Weekly off (Sunday)'; row.source = { type: 'calendar', label: 'Firm calendar — Sunday is the weekly off' }; }
+    else if (!cal.isWorkingDay(iso)) { row.otherDeduction = base; row.reason = 'Public / non-working day'; row.source = { type: 'calendar', label: 'Firm calendar — holiday or close-down day' }; }
+    else {
+      const st = attendanceStatus(state, emp, iso), leave = approvedLeaveOn(state, emp.id, iso), adj = (state.capacityCalendarAdjustments || []).find(a => a.active && a.type === 'WORKSHOP' && a.date === iso), ws = workshopOnDate(state, iso);
+      if (st === 'WORKSHOP') { row.workshopDeduction = base; row.reason = dow === 6 ? 'Workshop Saturday' : 'Workshop day'; row.source = adj ? { type: 'workshop_calendar', id: adj.id || null, label: 'Superadmin capacity calendar — workshop' + (adj.note ? ': ' + adj.note : '') } : ws ? { type: 'workshop', id: ws.id || null, label: 'Workshop: ' + (ws.name || ws.date) } : leave ? { type: 'leave', id: leave.id || null, label: 'Approved workshop leave' } : { type: 'workshop_calendar', label: 'Workshop day' }; }
+      else if (st === 'LEAVE') { row.leaveDeduction = base; row.reason = 'Approved leave'; row.source = { type: 'leave', id: leave && leave.id || null, label: 'Approved leave ' + (leave ? leave.from + ' → ' + leave.to : '') }; }
+      else if (st === 'HALF') { row.leaveDeduction = Math.round((base / 2) * 100) / 100; row.reason = 'Approved half-day leave'; row.source = { type: 'leave', id: leave && leave.id || null, label: 'Approved half-day leave ' + (leave ? leave.from : '') }; }
+      else if (st === 'CUSTOM') { row.leaveDeduction = Math.round(Math.min(base, Number(leave && leave.hours || 0)) * 100) / 100; row.reason = 'Approved partial leave (' + row.leaveDeduction + ' h)'; row.source = { type: 'leave', id: leave && leave.id || null, label: 'Approved partial leave ' + (leave ? leave.from : '') }; }
+      else { row.reason = dow === 6 ? 'Standard working Saturday' : 'Standard working day'; }
+    }
+    row.finalHours = Math.max(0, Math.round((row.standardHours - row.leaveDeduction - row.workshopDeduction - row.weeklyOffDeduction - row.otherDeduction) * 100) / 100);
+    rows.push(row);
+    cur = new Date(cur.getTime() + 86400000);
+  }
+  return rows;
+}
 function capacityBreakdownOf(state, emp, fromISO, toISO, capacityHours) {
   const base = baseHoursOf(emp), days = [];
   if (fromISO && toISO && toISO >= fromISO) {
@@ -4843,7 +4871,7 @@ function ownerOf(state, t) {
   const e = t.assignedTo ? findEmployee(state, t.assignedTo) : null;
   return e && e.duplicateOf && findEmployee(state, e.duplicateOf) ? e.duplicateOf : t.assignedTo;
 }
-function productivityFor(state, empIds, fromISO, toISO) {
+function productivityFor(state, empIds, fromISO, toISO, opts) {
   empIds = empIds.filter(id => !isNonProductiveAccount(findEmployee(state, id)));
   const from = fromISO, to = toISO;
   const inRange = d => d && nzDay(d) >= from && nzDay(d) <= to;
@@ -4947,6 +4975,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
       outstandingReports: reportsReadyNotSent + reportsLate,
       qualifiedTasks: qualified, excludedTasks: excludedRows, openWork: openWork.map(t => productivityOpenRow(state, t)),
       capacityNotConverted, assignedOpenHours: openPart, trulyUnallocatedHours, notConvertedBreakdown, capacityBreakdown,
+      ...(opts && opts.detail ? { capacityDays: capacityDaysDetail(state, emp, from, to) } : {}),
     };
   });
 }
@@ -4982,7 +5011,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const grp = String(req.query.group || '');
   if (PROD_GROUPS.includes(grp)) ids = ids.filter(id => prodGroupOf(findEmployee(state, id)) === grp);
 
-  const people = productivityFor(state, ids, from, to);
+  const people = productivityFor(state, ids, from, to, { detail: req.query.full === '1' || req.query.days === '1' });
   // workingDays / workshopDays are shared calendar facts for everyone in one call (only the per-day deductions are personal).
   const totalWorkingDays = people.length ? people[0].workingDays : Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to));
   const totalWorkshopDays = people.length ? Math.max(...people.map(p => p.workshopDays)) : (state.capacityCalendarAdjustments || [])

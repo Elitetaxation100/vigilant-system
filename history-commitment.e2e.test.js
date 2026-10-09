@@ -200,7 +200,7 @@ test('the Hold box pre-chooses nothing and records no query on its own: it needs
   assert.match(html, /<input type="time" id="qSentTime">/);
   assert.match(html, /function openRecordQueryModal\(id\)/); assert.match(html, /Record query/);
   assert.ok(html.includes("if(!reasonCode) return fail('Choose why the task is going on hold.');"));
-  assert.match(html, /qsf\.style\.display = code === 'THIRD_PARTY' \? 'none' : ''/);
+  assert.ok(html.includes("qsf.style.display = code === 'EXTERNAL_AUTHORITY' ? 'none' : ''"));
 });
 test('the history words each wait for what it was, and a dismissed query is shown as not real', () => {
   const tl = html.slice(html.indexOf('function taskTimelineEvents'), html.indexOf('function taskNewest'));
