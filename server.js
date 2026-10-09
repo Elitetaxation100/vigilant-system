@@ -21,6 +21,7 @@ const prodRules = require('./productivity-rules');
 const dataQuality = require('./data-quality');
 const workflow = require('./workflow');
 const mgr = require('./manager-views');
+const founderMetrics = require('./founder-metrics');
 const crmHealth = require('./crm-health');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
@@ -1031,7 +1032,7 @@ function buildRecurringInstance(state, rt, dateISO) {
     clientDate: null, clientDateOverride: false,
     internalDeadline: dateISO,
     points: 0, assignedTo: rt.assignedTo, assignedBy: rt.assignedBy,
-    assignedAt: new Date().toISOString(), reassignHistory: [],
+    assignedAt: new Date().toISOString(), createdAt: new Date().toISOString(), reassignHistory: [],
     // A recurring task is routine, agreed-to work — it lands straight in
     // 'accepted' every morning rather than sitting in an accept queue.
     status: 'accepted',
@@ -1374,6 +1375,25 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
       .map(m => ({ team: m.team.trim(), level: m.level === 'admin' ? 'admin' : 'member' }));
   }
   if (typeof req.body.isFounder === 'boolean') emp.isFounder = req.body.isFounder;
+  // "Include this person in productivity capacity": true = always, false = never, null = the default rules (system/test/HR/founder/inactive are out)
+  if (req.body.countsInProductivity !== undefined) {
+    const v = req.body.countsInProductivity;
+    if (v !== true && v !== false && v !== null) return res.status(400).json({ error: 'countsInProductivity must be true, false or null.' });
+    if (v === null) delete emp.countsInProductivity; else emp.countsInProductivity = v;
+  }
+  // A duplicate profile (the same person twice) is mapped onto the real one for metrics — nothing is deleted or rewritten.
+  if (req.body.duplicateOf !== undefined) {
+    const to = req.body.duplicateOf;
+    if (to === null || to === '') delete emp.duplicateOf;
+    else {
+      const real = findEmployee(state, to);
+      if (!real || real.id === emp.id) return res.status(400).json({ error: 'Pick a different, existing employee as the real profile.' });
+      if (real.duplicateOf) return res.status(400).json({ error: 'That profile is itself marked as a duplicate — pick the real one.' });
+      if (state.employees.some(e => e.duplicateOf === emp.id)) return res.status(400).json({ error: 'Other profiles point at this one, so it cannot be a duplicate.' });
+      emp.duplicateOf = real.id;
+    }
+    logEvent(state, emp.id, 'Duplicate mapping for <b>' + escHtml(emp.name) + '</b> changed by ' + escHtml(req.employee.name) + (emp.duplicateOf ? ' — now counted under ' + escHtml(findEmployee(state, emp.duplicateOf).name) : ' — cleared') + '.');
+  }
   if (typeof req.body.isHr === 'boolean' && emp.email !== 'hr@elitetaxation.co.nz') emp.isHr = req.body.isHr;
   // Read-only firm-wide Commitment Dashboard observer — no other powers.
   if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
@@ -2380,7 +2400,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     originalInternalDeadline: internalDeadline || null,
     originalClientDate: isInternal ? null : (clientDate || (internalDeadline ? cal.addWorkingDays(internalDeadline, DISPATCH_BUFFER_WD) : null)),
     points: parseInt(points, 10) || 0, assignedTo: assignee, assignedBy: req.employee.id,
-    assignedAt: new Date().toISOString(), reassignHistory: [], status,
+    assignedAt: new Date().toISOString(), createdAt: new Date().toISOString(), reassignHistory: [], status,
     // logged accumulates ACTUAL delivery time — the wall-clock gap between
     // Accept and Complete (or, for a rework round, between the rework
     // Accept and Resubmit). There's no manual Start/Pause; the clock is
@@ -4559,11 +4579,23 @@ function capacityBreakdownOf(state, emp, fromISO, toISO, capacityHours) {
   const b = prodRules.capacityDays(days, base);
   return { ...b, reconciles: Math.abs(b.capacityHours - capacityHours) < 0.011 };
 }
-function isNonProductiveAccount(emp) {
-  if (!emp) return true;
-  if (emp.countsInProductivity === true) return false;
-  if (emp.countsInProductivity === false) return true;
-  return isSystemAccount(emp) || String(emp.email || '').toLowerCase() === 'hr@elitetaxation.co.nz';
+// Why is this person NOT counted in productivity / capacity? null = they are counted. The same answer feeds every dashboard, report and export.
+function productivityExclusionReason(state, emp) {
+  if (!emp) return 'Not found';
+  if (emp.countsInProductivity === false) return 'Excluded by a superadmin';
+  if (emp.duplicateOf && findEmployee(state, emp.duplicateOf)) return 'Duplicate profile (counted under ' + findEmployee(state, emp.duplicateOf).name + ')';
+  if (emp.countsInProductivity === true) return null;                    // explicitly switched on
+  if (isSystemAccount(emp)) return 'System / test account';
+  if (String(emp.email || '').toLowerCase() === 'hr@elitetaxation.co.nz') return 'HR system login';
+  if (emp.isFounder) return 'Founder / Director (not standard processing capacity)';
+  if (!canReceiveNewWork(emp)) return 'Inactive employee';
+  return null;
+}
+function isNonProductiveAccount(emp) { return !!productivityExclusionReason(db.get(), emp); }
+// A task belongs to its assignee — or, if that profile is marked a duplicate of another, to the real profile (history is never rewritten).
+function ownerOf(state, t) {
+  const e = t.assignedTo ? findEmployee(state, t.assignedTo) : null;
+  return e && e.duplicateOf && findEmployee(state, e.duplicateOf) ? e.duplicateOf : t.assignedTo;
 }
 function productivityFor(state, empIds, fromISO, toISO) {
   empIds = empIds.filter(id => !isNonProductiveAccount(findEmployee(state, id)));
@@ -4587,7 +4619,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     // Compute qualification ONCE per completed task (reused for period
     // bucketing, the qualified/excluded split, and the commitment stat) —
     // never re-derived, so it can't drift between the different readings.
-    const allCompleted = state.tasks.filter(t => t.assignedTo === id && t.status === 'completed');
+    const allCompleted = state.tasks.filter(t => ownerOf(state, t) === id && t.status === 'completed');
     const computed = allCompleted.map(t => {
       const reportInfo = reportSentFor(t);
       const result = productivityQualifies(state, t, v2At, reportInfo);
@@ -4606,7 +4638,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     // still earns credit later too, minus whatever was already banked here
     // (see productivityQualifies) — so the two together always add up to
     // no more than the task's original estimate, never double-counted.
-    state.tasks.filter(t => t.assignedTo === id).forEach(t => {
+    state.tasks.filter(t => ownerOf(state, t) === id).forEach(t => {
       (t.monthCloseCredits || []).forEach(c => {
         // Credited to the month that was closed (its last day), NOT the day
         // the close button happened to be pressed — closing September on
@@ -4657,7 +4689,7 @@ function productivityFor(state, empIds, fromISO, toISO) {
     });
 
     // Open/unfinished work — current state, not period-scoped.
-    const openWork = state.tasks.filter(t => t.assignedTo === id && t.status !== 'completed');
+    const openWork = state.tasks.filter(t => ownerOf(state, t) === id && t.status !== 'completed');
     const excludedRows = excluded.concat(
       openWork.filter(t => t.internalDeadline && inRange(t.internalDeadline))
         .map(t => productivityTaskRow(t, { qualifies: false, creditedHours: 0, exclusionReason: OPEN_STATUS_REASONS[t.status] || t.status, stages: { processor: null, reviewer: null, sender: null } }))
@@ -4699,10 +4731,14 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   const state = db.get();
   const me = req.employee;
   const clamp = s => (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) ? s.slice(0, 10) : null;
-  const to = clamp(req.query.to) || todayISO();
+  const requestedTo = clamp(req.query.to) || todayISO();
   const requestedFrom = clamp(req.query.from)
-    || new Date(new Date(to + 'T00:00:00Z').getTime() - 90 * 86400000).toISOString().slice(0, 10);
-  if (requestedFrom > to) return res.status(400).json({ error: 'from must be on or before to.' });
+    || new Date(new Date(requestedTo + 'T00:00:00Z').getTime() - 90 * 86400000).toISOString().slice(0, 10);
+  if (requestedFrom > requestedTo) return res.status(400).json({ error: 'from must be on or before to.' });
+  // Actual productivity never counts days that have not happened yet: a window that reaches past today ends today (the planned end is reported
+  // separately). A window that is entirely in the future is a planning query (leave / capacity previews) and is left exactly as asked.
+  const today0 = todayISO();
+  const to = (requestedTo > today0 && requestedFrom <= today0) ? today0 : requestedTo;
   // No real data before go-live — count capacity / working days / worked
   // hours from 7 Sept 2026 on, never from the fiscal-year start.
   const from = floorAtGoLive(requestedFrom, to);
@@ -4723,25 +4759,12 @@ app.get('/api/productivity', requireAuth, (req, res) => {
   if (PROD_GROUPS.includes(grp)) ids = ids.filter(id => prodGroupOf(findEmployee(state, id)) === grp);
 
   const people = productivityFor(state, ids, from, to);
-  const sum = (k) => people.reduce((s, p) => s + (p[k] || 0), 0);
-  // Team/firm totals: summed hours over summed capacity, never an average of
-  // individual percentages — a person with more capacity should weigh more
-  // in the team figure, not count the same as everyone else.
-  const totalQualified = sum('qualifiedHours'), totalCap = sum('capacityHours');
-  const rawTotalPct = totalCap > 0 ? (totalQualified / totalCap) * 100 : null;
-  const totalReportPoints = sum('reportPoints'), totalReportMax = sum('reportMaxPoints');
-  const totalCommitmentMet = sum('commitmentMet'), totalCommitmentTotal = sum('commitmentTotal');
-  // workingDays is the same shared calendar fact for everyone in one call
-  // (only per-day capacity *deductions* are person-specific) — copying it
-  // straight onto totals (rather than never including it) is the fix for
-  // the team-summary card's "undefined working days" display bug.
+  // workingDays / workshopDays are shared calendar facts for everyone in one call (only the per-day deductions are personal).
   const totalWorkingDays = people.length ? people[0].workingDays : Math.max(0, cal.workingDaysBetween(cal.addWorkingDays(from, -1), to));
-  // same firm-wide fact as workingDays above — not a per-person sum.
   const totalWorkshopDays = people.length ? Math.max(...people.map(p => p.workshopDays)) : (state.capacityCalendarAdjustments || [])
     .filter(a => a.active && a.type === 'WORKSHOP' && a.date >= from && a.date <= to).length;
-
   res.json({
-    from, to, requestedFrom, goLive: SYSTEM_GO_LIVE,
+    from, to, requestedFrom, requestedTo, plannedTo: requestedTo, elapsedOnly: to !== requestedTo, goLive: SYSTEM_GO_LIVE,
     goLiveApplied: from !== requestedFrom,
     fiscalYearStart: floorAtGoLive(fiscalYearStart(to), to),
     v2EffectiveAt: state.productivityV2EffectiveAt || PRODUCTIVITY_V2_EFFECTIVE_AT_DEFAULT,
@@ -4750,31 +4773,7 @@ app.get('/api/productivity', requireAuth, (req, res) => {
     // Show everyone in scope, including zero-output people, with a plain
     // reason rather than hiding them.
     people,
-    totals: {
-      capacityHours: Math.round(totalCap * 100) / 100,
-      workingDays: totalWorkingDays, leaveDays: Math.round(sum('leaveDays') * 100) / 100,
-      workshopDays: totalWorkshopDays,
-      qualifiedHours: Math.round(totalQualified * 100) / 100,
-      productivityPct: rawTotalPct == null ? null : Math.min(100, Math.round(rawTotalPct * 10) / 10),
-      rawUtilisationPct: rawTotalPct == null ? null : Math.round(rawTotalPct * 10) / 10,
-      additionalHours: rawTotalPct != null && rawTotalPct > 100 ? Math.round((totalQualified - totalCap) * 100) / 100 : 0,
-      notScorable: totalCap <= 0,
-      commitmentMet: totalCommitmentMet, commitmentTotal: totalCommitmentTotal,
-      commitmentPct: totalCommitmentTotal > 0 ? Math.round((totalCommitmentMet / totalCommitmentTotal) * 1000) / 10 : null,
-      reportsRequired: sum('reportsRequired'), reportsOnTime: sum('reportsOnTime'),
-      reportsLate: sum('reportsLate'), reportsReadyNotSent: sum('reportsReadyNotSent'), reportsNoDate: sum('reportsNoDate'),
-      reportPoints: totalReportPoints, reportMaxPoints: totalReportMax,
-      reportSentRate: totalReportMax > 0 ? Math.round((totalReportPoints / totalReportMax) * 1000) / 10 : null,
-      outstandingReports: sum('outstandingReports'),
-      capacityNotConverted: Math.round(sum('capacityNotConverted') * 100) / 100,
-      assignedOpenHours: Math.round(sum('assignedOpenHours') * 100) / 100,
-      trulyUnallocatedHours: Math.round(sum('trulyUnallocatedHours') * 100) / 100,
-      notConvertedBreakdown: (() => {
-        const k = f => Math.round(people.reduce((n, p) => n + ((p.notConvertedBreakdown || {})[f] || 0), 0) * 100) / 100;
-        const b = { total: k('total'), openAllocated: k('openAllocated'), nonQualifyingCompleted: k('nonQualifyingCompleted'), unallocated: k('unallocated') };
-        return { ...b, reconciles: people.every(p => (p.notConvertedBreakdown || {}).reconciles !== false) && Math.abs(b.openAllocated + b.nonQualifyingCompleted + b.unallocated - b.total) < 0.05 };
-      })(),
-    },
+    totals: prodRules.aggregateTotals(people, { workingDays: totalWorkingDays, workshopDays: totalWorkshopDays }),
   });
 });
 
@@ -6015,7 +6014,7 @@ app.post('/api/int/tasks', requireIntegrationAuth, (req, res) => {
     assignedTo: assignee ? assignee.id : null,
     assignedBy: assignee ? assignee.id : null,
     team: (b.team ? String(b.team).trim() : null) || (assignee ? assignee.team : null) || null,
-    assignedAt: now, reassignHistory: [],
+    assignedAt: now, createdAt: now, reassignHistory: [],
     status: 'accepted',
     logged: 0, tat: 0,
     acceptedAt: now, timerStartedAt: null,
@@ -6381,6 +6380,83 @@ app.get('/api/workflow/measures', requireAuth, requireAdmin, (req, res) => {
   const roster = new Set(teamRoster(state, me).map(e => e.id));
   const tasks = visibleTasks(state, me).filter(t => firmWide(me) || (t.assignedTo && roster.has(t.assignedTo)));
   res.json(mgr.measures(tasks, deps, req.query.days));
+});
+
+// ---------------------------------------------------------------------------
+// FOUNDER DASHBOARD — founder only, checked HERE (not just hidden in the page). Everything comes from founder-metrics.js, which in turn uses
+// the same productivityFor() service as every other dashboard. Reading only; nothing is written or recalculated.
+// ---------------------------------------------------------------------------
+function requireFounder(req, res, next) {
+  if (req.employee.accessRole === 'superadmin' && req.employee.isFounder) return next();
+  res.status(403).json({ error: 'The Founder dashboard is for the founder only.' });
+}
+function founderDeps(state, me) {
+  return {
+    today: todayISO(), nzDay, findEmployee, teamsOf, teamRoster, managersOfEmployee, productivityFor, aggregateTotals: prodRules.aggregateTotals,
+    productivityExclusionReason, prodGroupOf, goLive: SYSTEM_GO_LIVE, fiscalYearStart, effectiveClientDate, ownerOf,
+    workflowDeps: (st, who) => workflowDeps(st, who, {}),
+  };
+}
+function founderParams(q) {
+  q = q || {};
+  return { scope: { kind: q.scopeKind, value: q.scopeValue }, period: { preset: q.preset, from: q.from, to: q.to }, employee: q.employee };
+}
+function founderFilters(state, d) {
+  const elig = founderMetrics.eligibility(state, d).filter(x => x.included);
+  return {
+    teams: [...new Set(state.employees.flatMap(e => teamsOf(e)))].sort(),
+    managers: state.employees.filter(e => isAdminRole(e.accessRole) && !e.isFounder && state.employees.some(x => x.id !== e.id && managersOfEmployee(state, x.id).some(m => m.id === e.id))).map(e => ({ id: e.id, name: e.name })).sort((a, b) => a.name.localeCompare(b.name)),
+    employees: elig.map(x => ({ id: x.id, name: x.name, team: x.team })).sort((a, b) => a.name.localeCompare(b.name)),
+    periods: founderMetrics.PERIODS,
+  };
+}
+app.get('/api/founder/dashboard', requireAuth, requireFounder, (req, res) => {
+  const state = db.get(), d = founderDeps(state, req.employee);
+  const data = founderMetrics.build(state, req.employee, founderParams(req.query), d);
+  res.json({ ...data, filters: founderFilters(state, d), name: req.employee.name });
+});
+app.get('/api/founder/productivity', requireAuth, requireFounder, (req, res) => {
+  const state = db.get();
+  res.json(founderMetrics.drilldown(state, founderParams(req.query), founderDeps(state, req.employee)));
+});
+// Who is counted in productivity and capacity, who is not and why — and likely duplicate profiles for the founder to confirm.
+app.get('/api/founder/eligibility', requireAuth, requireFounder, (req, res) => {
+  const state = db.get(), d = founderDeps(state, req.employee);
+  res.json({ people: founderMetrics.eligibility(state, d), duplicates: founderMetrics.suspectedDuplicates(state), mapped: state.employees.filter(e => e.duplicateOf).map(e => ({ id: e.id, name: e.name, countedUnder: (findEmployee(state, e.duplicateOf) || {}).name || null })) });
+});
+// CSV exports — built from the SAME functions as the screen, so a figure on screen and in the file cannot differ.
+app.get('/api/founder/export', requireAuth, requireFounder, (req, res) => {
+  const state = db.get(), d = founderDeps(state, req.employee), params = founderParams(req.query);
+  const section = String(req.query.section || 'performance'), toCsv = founderMetrics.toCsv;
+  const send = (name, head, rows) => { res.setHeader('Content-Type', 'text/csv; charset=utf-8'); res.setHeader('Content-Disposition', 'attachment; filename="' + name + '.csv"'); res.send(toCsv(head, rows)); };
+  const taskRows = (data, ids) => ids.map(id => data.rows[id]).filter(Boolean).map(r => [r.id, r.clientName, r.name, r.taskType || '', r.assigneeName || 'Unassigned', r.reviewerName || '', r.status, r.waitingOn, r.internalDeadline || '', r.clientDate || '', r.allocatedHours == null ? '' : r.allocatedHours]);
+  const taskHead = ['Task', 'Client', 'Work', 'Task type', 'Processor', 'Reviewer', 'Status', 'Waiting on', 'Internal due', 'Client commitment', 'Allocated hours'];
+  if (section === 'productivity') {
+    const p = founderMetrics.drilldown(state, params, d);
+    return send('productivity-' + p.period.from + '-to-' + p.period.to, ['Employee', 'Team', 'Eligible working days', 'Approved leave days', 'Weekly offs', 'Workshop Saturdays', 'Other exclusions (days)', 'Eligible capacity hours', 'Reviewed-clean allocated hours', 'Productivity %', 'Qualifying tasks', 'Excluded tasks'],
+      [...p.table.map(r => [r.name, r.team, r.eligibleWorkingDays, r.approvedLeaveDays, r.weeklyOffs, r.workshopSaturdays, r.otherExclusions, r.eligibleCapacityHours, r.qualifiedHours, r.productivityPct == null ? 'Not available' : r.productivityPct, r.qualifyingTasks, r.excludedTasks]),
+       ['FIRM / SCOPE TOTAL', '', '', p.totals.leaveDays, '', '', '', p.totals.capacityHours, p.totals.qualifiedHours, p.totals.capacityHours > 0 ? Math.round(p.totals.qualifiedHours / p.totals.capacityHours * 1000) / 10 : 'Not available', '', '']]);
+  }
+  if (section === 'productivity_tasks') {
+    const p = founderMetrics.drilldown(state, params, d);
+    if (!p.detail) return res.status(400).json({ error: 'Choose an employee.' });
+    return send('productivity-tasks-' + p.detail.name.replace(/[^A-Za-z0-9]+/g, '-'), ['Task', 'Client', 'Work', 'Task type', 'Assignee', 'Reviewer', 'Allocated hours', 'Internal due', 'Client commitment', 'Submitted for review', 'Review completed', 'Review decision', 'Reviewed clean', 'Report sent status', 'Report sent date', 'Qualification', 'Reason', 'Credited hours'],
+      [...p.detail.qualifying, ...p.detail.excluded].map(r => [r.id, r.clientName, r.name, r.taskType || '', r.assignee, r.reviewer || '', r.allocatedHours, r.internalDeadline || '', r.clientDate || '', r.submittedAt || '', r.reviewCompletedAt || '', r.reviewDecision, r.reviewedCleanAt || '', r.reportStatus, r.reportSentAt || '', r.qualification, r.reason, r.creditedHours]));
+  }
+  const data = founderMetrics.build(state, req.employee, params, d), V = data.views;
+  if (section === 'performance') {
+    const by = { team: V.founder.performance.byTeam, manager: V.founder.performance.byManager, employee: V.founder.performance.byEmployee }[req.query.by || 'employee'] || V.founder.performance.byEmployee;
+    const v = c => c.value == null ? 'Not available' : c.value;
+    return send('performance-' + data.period.from + '-to-' + data.period.to, ['Name', 'Reviewed-clean productivity %', 'Qualified hours', 'Capacity hours', 'Internal commitment %', 'Client delivery %', 'First-pass approval %', 'Reports not sent', 'Overdue tasks', 'Blocked tasks', 'Founder attention'],
+      by.map(g => [g.label, v(g.productivity), g.productivity.numerator, g.productivity.denominator, v(g.internal), v(g.delivery), v(g.firstPass), g.reportsNotSent.count, g.overdue.count, g.blocked.count, g.attention.count]));
+  }
+  if (section === 'attention') return send('needs-founder-attention', ['Severity', 'Issue', 'Task', 'Client', 'Work', 'Processor', 'Reviewer', 'Manager', 'Internal due', 'Client commitment', 'Status', 'Days overdue', 'Blocker', 'Required action'],
+    V.founder.attention.all.map(a => [a.severityLabel, a.issue, a.id, a.clientName || '', a.name, a.employee || 'Unassigned', a.reviewer || '', a.manager || '', a.internalDeadline || '', a.clientDate || '', a.status, a.daysOverdue, a.blocker || '', a.requiredAction]));
+  const tile = [...V.founder.actionTiles, ...V.today.tiles, ...V.review.tiles].find(t => t.key === section.replace(/^tile:/, ''));
+  if (tile) return send(tile.key, taskHead, taskRows(data, tile.ids));
+  const kpi = V.founder.kpis.find(k => k.key === section.replace(/^kpi:/, ''));
+  if (kpi) return send('kpi-' + kpi.key, taskHead, taskRows(data, kpi.ids));
+  res.status(400).json({ error: 'Unknown export.' });
 });
 
 // A manager's one-off change to someone's task. Always needs a reason; every change is written to t.managerActions (who, when, why,
@@ -6783,7 +6859,7 @@ app.post('/api/emails/:id/task', requireAuth, (req, res) => {
     internalRef: e.subject || null,
     clientDate: null, clientDateOverride: false, internalDeadline,
     points: 0, assignedTo: assignee.id, assignedBy: req.employee.id,
-    assignedAt: now, reassignHistory: [], status,
+    assignedAt: now, createdAt: now, reassignHistory: [], status,
     logged: 0, tat: numTat, acceptedAt: status === 'accepted' ? now : null,
     timerStartedAt: null, startedAt: null, completedAt: null,
     reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
@@ -7003,7 +7079,7 @@ app.post('/api/whatsapp/contacts/:phone/task', requireAuth, requireWhatsappAcces
     clientId: null, clientName: 'WhatsApp · ' + c.name, internalRef: c.name,
     clientDate: null, clientDateOverride: false, internalDeadline,
     points: 0, assignedTo: assignee.id, assignedBy: req.employee.id,
-    assignedAt: now, reassignHistory: [], status,
+    assignedAt: now, createdAt: now, reassignHistory: [], status,
     logged: 0, tat: numTat, acceptedAt: status === 'accepted' ? now : null,
     timerStartedAt: null, startedAt: null, completedAt: null,
     reviewStatus: null, reviewedBy: null, reviewNote: null, reviewedAt: null, reviewHours: null, reworkCount: 0,
