@@ -6424,6 +6424,33 @@ app.get('/api/founder/eligibility', requireAuth, requireFounder, (req, res) => {
   const state = db.get(), d = founderDeps(state, req.employee);
   res.json({ people: founderMetrics.eligibility(state, d), duplicates: founderMetrics.suspectedDuplicates(state), mapped: state.employees.filter(e => e.duplicateOf).map(e => ({ id: e.id, name: e.name, countedUnder: (findEmployee(state, e.duplicateOf) || {}).name || null })) });
 });
+// A live self-check of the invariants the dashboard promises — run it on real data to see whether every number agrees with every other.
+// It only reads. Each line says what was compared and the two figures.
+app.get('/api/founder/reconcile', requireAuth, requireFounder, (req, res) => {
+  const state = db.get(), d = founderDeps(state, req.employee), params = founderParams(req.query);
+  const D = founderMetrics.build(state, req.employee, params, d), P = founderMetrics.drilldown(state, params, d), V = D.views;
+  const checks = [], add = (name, ok, detail) => checks.push({ name, pass: !!ok, detail });
+  const near = (a, b) => Math.abs((a || 0) - (b || 0)) < 0.011;
+  const lists = [...V.founder.actionTiles, ...V.today.tiles, ...V.review.tiles, ...V.founder.kpis];
+  lists.forEach(l => add('List "' + l.label + '": ' + l.ids.length + ' records, every one has a row, none repeated', new Set(l.ids).size === l.ids.length && l.ids.every(id => D.rows[id]), l.ids.length + ' ids'));
+  const prod = V.founder.kpis.find(k => k.key === 'productivity');
+  const qSum = P.table.reduce((n, r) => n + r.qualifiedHours, 0), cSum = P.table.reduce((n, r) => n + r.eligibleCapacityHours, 0);
+  add('Productivity KPI = the employee drill-down table (hours)', near(prod.numerator, qSum) && near(prod.denominator, cSum), 'KPI ' + prod.numerator + ' ÷ ' + prod.denominator + ' · table ' + Math.round(qSum * 100) / 100 + ' ÷ ' + Math.round(cSum * 100) / 100);
+  const pe = V.founder.performance.byEmployee;
+  add('Performance table (by employee) adds up to the KPI', near(prod.numerator, pe.reduce((n, g) => n + g.productivity.numerator, 0)) && near(prod.denominator, pe.reduce((n, g) => n + g.productivity.denominator, 0)), pe.length + ' employees');
+  const open = V.founder.kpis.find(k => k.key === 'open'), openWrong = open.ids.filter(id => !D.rows[id] || D.rows[id].status === 'Completed' || D.rows[id].cancelled);
+  add('Open Work lists only unfinished work (no completed task is counted as open)', openWrong.length === 0 && open.value === open.ids.length, 'dashboard ' + open.value + ' · ' + openWrong.length + ' finished tasks wrongly in the list');
+  add('Capacity parts add up to the whole (never exceed it)', D.views.founder.capacity.reconciles, JSON.stringify({ capacity: D.views.founder.capacity.eligibleCapacityHours, clean: D.views.founder.capacity.reviewedCleanHours, open: D.views.founder.capacity.openAllocatedHours, notQualifying: D.views.founder.capacity.nonQualifyingCompletedHours, unallocated: D.views.founder.capacity.unallocatedCapacityHours }));
+  add('Capacity counts only days that have happened', D.period.to <= todayISO(), 'counted through ' + D.period.to + (D.period.elapsedOnly ? ' (planned end ' + D.period.plannedTo + ' not counted)' : ''));
+  const elig = founderMetrics.eligibility(state, d), counted = elig.filter(x => x.included), dupCounted = counted.filter(x => (findEmployee(state, x.id) || {}).duplicateOf);
+  add('No duplicate profile is counted in capacity', dupCounted.length === 0, dupCounted.length + ' duplicates counted');
+  add('Nobody who should be excluded is counted (founder, system, test, HR, inactive)', counted.every(x => !productivityExclusionReason(state, findEmployee(state, x.id))), counted.length + ' counted');
+  const suspects = founderMetrics.suspectedDuplicates(state);
+  add('No unconfirmed possible-duplicate profiles', suspects.length === 0, suspects.length ? suspects.map(x => x.a.name + ' / ' + x.b.name).join('; ') : 'none');
+  const prodApi = (() => { const people = productivityFor(state, counted.filter(x => !params.scope.kind || params.scope.kind === 'firm').map(x => x.id).filter(id => founderMetrics.HOURS_GROUPS.includes(prodGroupOf(findEmployee(state, id)))), D.period.from, D.period.to); return prodRules.aggregateTotals(people); })();
+  add('Founder dashboard and /api/productivity total the same people the same way (whole firm)', D.scope.kind !== 'firm' || (near(prodApi.qualifiedHours, prod.numerator) && near(prodApi.capacityHours, prod.denominator)), 'service ' + prodApi.qualifiedHours + ' ÷ ' + prodApi.capacityHours);
+  res.json({ asOf: D.asOf, scope: D.scope.label, period: D.period.label, allPass: checks.every(c => c.pass), failed: checks.filter(c => !c.pass).length, checks });
+});
 // CSV exports — built from the SAME functions as the screen, so a figure on screen and in the file cannot differ.
 app.get('/api/founder/export', requireAuth, requireFounder, (req, res) => {
   const state = db.get(), d = founderDeps(state, req.employee), params = founderParams(req.query);

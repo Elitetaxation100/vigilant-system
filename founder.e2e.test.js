@@ -328,3 +328,14 @@ test('reading the Founder dashboard changes nothing: no task, mark or history ro
   for (const p of ['dashboard?' + qs(), 'productivity?' + qs(), 'eligibility', 'export?' + qs({ section: 'attention' })]) await http('GET', '/api/founder/' + p, { token: SH });
   assert.equal(await snap(), before);
 });
+
+test('reconcile check: every promise the dashboard makes holds on this data, and it is founder-only and read-only', async () => {
+  assert.equal((await http('GET', '/api/founder/reconcile?' + qs(), { token: PK })).status, 403);
+  assert.equal((await http('GET', '/api/founder/reconcile')).status, 401);
+  const r = (await http('GET', '/api/founder/reconcile?' + qs(), { token: SH })).j;
+  assert.ok(r.checks.length >= 8, 'runs the checks');
+  assert.deepEqual(r.checks.filter(c => !c.pass).map(c => c.name + ' — ' + c.detail), [], 'nothing disagrees');
+  assert.equal(r.allPass, true); assert.equal(r.failed, 0);
+  const s = (await http('GET', '/api/founder/reconcile?' + qs({ scopeKind: 'employee', scopeValue: emp('ranjit').id }), { token: SH })).j;
+  assert.equal(s.checks.some(c => c.pass === false), false, 'also holds when narrowed to one person');
+});
