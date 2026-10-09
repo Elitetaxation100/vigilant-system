@@ -450,7 +450,7 @@ function taskShiftDays(t) {
   const today = todayISO();
   let shift = 0;
   for (const q of (t.queries || [])) {
-    if (!EXEMPTING_REASONS.has(q.reasonCode)) continue;
+    if (q.dismissedAt || !EXEMPTING_REASONS.has(q.reasonCode)) continue;
     shift += cal.queryShift(q, today).shift;
   }
   return shift;
@@ -461,7 +461,17 @@ function effectiveClientDate(t) {
   return s > 0 ? cal.addWorkingDays(t.clientDate, s) : t.clientDate;
 }
 function anyQueryOpen(t) {
-  return (t.queries || []).some(q => EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
+  return (t.queries || []).some(q => !q.dismissedAt && EXEMPTING_REASONS.has(q.reasonCode) && !q.replyAt);
+}
+// Every time a task is handed in (sent for review, marked done, resubmitted after a correction, re-opened) is kept with its exact time and the
+// dates in force at that moment. The employee's OWN commitment is judged on the FIRST hand-in — a reviewer sending it back, or a later
+// resubmission, never turns an on-time submission into a miss.
+function recordSubmission(t, byEmp, kind, at) {
+  at = at || new Date().toISOString();
+  t.submissions = t.submissions || [];
+  t.submissions.push({ at, byId: byEmp ? byEmp.id : (t.assignedTo || null), kind, round: t.reworkCount || 0, reviewerId: t.reviewerId || null, internalDue: t.internalDeadline || null, clientDue: t.clientDate || null });
+  if (!t.firstSubmittedAt) t.firstSubmittedAt = at;
+  return at;
 }
 // met / missed / exempt / at-risk / on-track / rework / null(internal)
 function commitmentOutcome(t) {
@@ -472,6 +482,7 @@ function commitmentOutcome(t) {
   }
   if (t.reviewStatus === 'error') return 'rework';
   if (anyQueryOpen(t)) return 'exempt';
+  if (t.status === 'on_hold') return 'on_hold';       // on hold, whatever the reason: not counted as missed or at risk
   const today = todayISO();
   if (today <= eff) return 'on-track';
   if (today <= cal.addWorkingDays(eff, 1)) return 'at-risk';
@@ -636,6 +647,7 @@ function taskForClient(t) {
     // query-aware commitment, computed server-side so the UI never re-derives it
     queryShiftDays: taskShiftDays(t),
     effectiveClientDate: effectiveClientDate(t),
+    effectiveInternalDate: (t.internalDeadline && taskShiftDays(t) > 0) ? cal.addWorkingDays(t.internalDeadline, taskShiftDays(t)) : (t.internalDeadline || null),
     commitmentOutcome: commitmentOutcome(t),
     // A clean review still needs the report sent to the client by the
     // commitment date — this flags it once that date has passed and nobody
@@ -2592,7 +2604,7 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
         ? body.querySentAt.slice(0, 10) : todayISO();
       const q = {
         id: crypto.randomUUID(), taskId: t.id, reasonCode, source: src,
-        raisedBy: req.employee.id, sentAt, replyAt: null, resumedAt: null,
+        raisedBy: req.employee.id, sentAt, sentTs: sentAt === todayISO() ? new Date().toISOString() : null, replyAt: null, replyTs: null, resumedAt: null, resumedTs: null,
         emailThreadId: null, chaseLog: [], note: detail || null,
       };
       t.queries = t.queries || [];
@@ -2625,12 +2637,13 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     // calc), so store the NZ calendar day, not a UTC timestamp.
     const resumeDay = todayISO();
     const last = (t.holdHistory || [])[t.holdHistory.length - 1];
-    if (last && !last.resumedAt) last.resumedAt = resumeDay;
+    const resumeTs = new Date().toISOString();
+    if (last && !last.resumedAt) { last.resumedAt = resumeDay; last.resumedTs = resumeTs; }
     // Mark the query for this hold as resumed — this starts the resume-lag
     // clock that can forfeit part of the freeze (calendar.queryShift).
     if (last && last.queryId) {
       const q = (t.queries || []).find(x => x.id === last.queryId);
-      if (q && !q.resumedAt) q.resumedAt = resumeDay;
+      if (q && !q.resumedAt) { q.resumedAt = resumeDay; q.resumedTs = resumeTs; }
     }
     t.heldAt = null; t.holdFollowUp = null; t.holdResponsibility = null;
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" taken off hold${isMine ? '' : ' by <b>' + escHtml(req.employee.name) + '</b>'} — back on the list.`);
@@ -2656,7 +2669,7 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     const replyAt = (typeof body.replyAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.replyAt) && body.replyAt.slice(0, 10) <= todayISO())
       ? body.replyAt.slice(0, 10) : todayISO();
     if (replyAt < q.sentAt.slice(0, 10)) return res.status(400).json({ error: "The reply can't be dated before the query was sent." });
-    q.replyAt = replyAt;
+    q.replyAt = replyAt; q.replyTs = replyAt === todayISO() ? new Date().toISOString() : null;
     if (['email', 'phone', 'whatsapp', 'in_person'].includes(body.replySource)) q.replySource = body.replySource;
     const sh = cal.queryShift(q, todayISO());
     logEvent(state, t.assignedTo, `Client replied to the query on "${escHtml(t.name)}" (${escHtml(replyAt)}) — commitment date moves +${sh.shift} working day${sh.shift === 1 ? '' : 's'}. Resume the task to keep the full extension.`);
@@ -2680,9 +2693,9 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       (t.holdHistory || []).forEach(h => { if (h.queryId === q.id) h.queryId = null; });
       logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was removed by <b>${escHtml(req.employee.name)}</b> — its commitment-clock pause no longer applies.`);
     } else {
-      if (typeof body.sentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.sentAt) && body.sentAt.slice(0, 10) <= todayISO()) q.sentAt = body.sentAt.slice(0, 10);
-      if (body.replyAt === null) { q.replyAt = null; q.resumedAt = null; }
-      else if (typeof body.replyAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.replyAt) && body.replyAt >= q.sentAt.slice(0, 10) && body.replyAt.slice(0, 10) <= todayISO()) q.replyAt = body.replyAt.slice(0, 10);
+      if (typeof body.sentAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.sentAt) && body.sentAt.slice(0, 10) <= todayISO()) { q.sentAt = body.sentAt.slice(0, 10); q.sentTs = null; }
+      if (body.replyAt === null) { q.replyAt = null; q.replyTs = null; q.resumedAt = null; q.resumedTs = null; }
+      else if (typeof body.replyAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(body.replyAt) && body.replyAt >= q.sentAt.slice(0, 10) && body.replyAt.slice(0, 10) <= todayISO()) { q.replyAt = body.replyAt.slice(0, 10); q.replyTs = null; }
       logEvent(state, t.assignedTo, `A query on "${escHtml(t.name)}" was corrected by <b>${escHtml(req.employee.name)}</b>.`);
     }
     db.save();
@@ -2816,8 +2829,8 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   t.logged += elapsed;
     t.timerStartedAt = null;
   t.status = 'completed';
-  t.completedAt = new Date().toISOString();
   t.reviewerId = direct ? null : reviewerId;
+  t.completedAt = recordSubmission(t, req.employee, direct ? 'direct_profit' : 'review');
   const linksBefore = snapLinks(t);
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
@@ -2883,7 +2896,7 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   if (ah > 0) t.logged = Math.round(ah * 100) / 100;
   if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed';
-  t.completedAt = new Date().toISOString();
+  t.completedAt = recordSubmission(t, req.employee, 'done');
   // 'done' is a terminal review state meaning "closed, no formal review
   // needed" — so the task reads as done, not "sent for review".
   t.reviewStatus = 'done'; t.reviewerId = null; t.awaitingClientDecision = false;
@@ -2935,6 +2948,7 @@ app.post('/api/tasks/:id/send-for-review', requireAuth, takeSlotFiles, (req, res
   applySlotFiles(t, req);
   t.reviewStatus = null;
   t.reviewerId = reviewerId;
+  recordSubmission(t, req.employee, 'reopened');
   t.reviewedBy = null; t.reviewedAt = null; t.reviewNote = null;
   t.closedBy = null; t.closedAt = null;
   t.awaitingClientDecision = false;
@@ -4077,7 +4091,7 @@ app.post('/api/tasks/:id/resubmit', requireAuth, (req, res) => {
   t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: (t.reviewAttachments || []).filter(a => a.cycle == null || a.cycle === t.reworkCount) });
   t.reworkStartedAt = null;
   t.status = 'completed';
-  t.completedAt = endedAt;
+  t.completedAt = recordSubmission(t, req.employee, 'resubmit', endedAt);
   t.reviewStatus = null;
   t.reviewedBy = null;
   t.reviewedAt = null;
@@ -4462,8 +4476,8 @@ app.get('/api/reports/summary', requireAuth, requireSuperAdmin, (req, res) => {
     clientDate: t.clientDate, effectiveClientDate: effectiveClientDate(t), assignedAt: t.assignedAt,
     holdReasonCode: t.holdReasonCode || null,
     queryShiftDays: taskShiftDays(t), commitmentOutcome: commitmentOutcome(t),
-    queries: (t.queries || []).map(q => ({
-      reasonCode: q.reasonCode, source: q.source, sentAt: q.sentAt, replyAt: q.replyAt, resumedAt: q.resumedAt,
+    queries: (t.queries || []).filter(q => !q.dismissedAt).map(q => ({
+      reasonCode: q.reasonCode, source: q.source, sentAt: q.sentAt, sentTs: q.sentTs || null, replyAt: q.replyAt, replyTs: q.replyTs || null, resumedAt: q.resumedAt, resumedTs: q.resumedTs || null, dismissedAt: q.dismissedAt || null, dismissedReason: q.dismissedReason || null,
       ...cal.queryShift(q, todayISO()),
     })),
     loggedHours: Math.round(liveElapsedHours(t) * 100) / 100, tatHours: t.tat || 0,
@@ -6077,7 +6091,7 @@ app.patch('/api/int/tasks/:id', requireIntegrationAuth, (req, res) => {
     if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
     if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
     t.status = 'completed';
-    t.completedAt = new Date().toISOString();
+    t.completedAt = recordSubmission(t, null, 'done');
     // Only a fresh completion with nobody set to review it reads as 'done'.
     // If it was already sent for review (reviewerId set), leave that alone.
     if (!t.reviewStatus && !t.reviewerId) { t.reviewStatus = 'done'; t.closedBy = t.assignedTo || null; t.closedAt = t.completedAt; }
@@ -6165,7 +6179,7 @@ function workflowDeps(state, me, extra) {
     today: todayISO(), nowMs: Date.now(), nzDay, nameOf: id => (findEmployee(state, id) || {}).name || null, profitOwnerId: po ? po.id : null, profitOwnerOf: t => { const o = profitConfirmOwner(state, t); return o ? o.id : null; },
     canApprove: t => !!t.assignedTo && isAdminRole(me.accessRole) && canManageEmployee(state, me, t.assignedTo), isManager: isAdminRole(me.accessRole),
     roleOf: id => ((findEmployee(state, id) || {}).isFounder ? 'founder' : 'manager'),
-    reportInfo: reportSentFor, ...(extra || {}),
+    reportInfo: reportSentFor, queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays, ...(extra || {}),
   };
 }
 // Every task in the manager's world, as enriched cards. Only managers/founders reach this (requireAdmin).
@@ -6232,6 +6246,68 @@ app.get('/api/workflow/timeline', requireAuth, requireAdmin, (req, res) => {
   res.json({ today: deps.today, total: all.length, page, pageSize: size, rows: all.slice((page - 1) * size, page * size), facets: viewFacets(state, req.employee, rows) });
 });
 
+
+// CLIENT-QUERY AUDIT — a hold for "awaiting client" opens a query record that freezes the client date. The Hold box used to start on
+// "Awaiting client answer to a query" (with Email and today pre-filled), so a hold put on for any other reason could silently become a
+// "query to the client". This lists every query record with the signs that it was never really a query, and lets a superadmin dismiss
+// the ones that were not — the record and its history stay; only the freeze it caused is lifted. Nothing is deleted.
+function queryAuditRows(state) {
+  const today = todayISO(), rows = [];
+  for (const t of (state.tasks || [])) {
+    for (const q of (t.queries || [])) {
+      const hh = (t.holdHistory || []).find(h => h.queryId === q.id) || null;
+      const meta = HOLD_REASONS[q.reasonCode] || {};
+      const typed = hh ? String(hh.reason || '').trim() : String(q.note || '').trim();
+      const noDetail = !typed || typed === meta.label;
+      const resumedNoReply = !!q.resumedAt && !q.replyAt;
+      const flags = [];
+      if (q.reasonCode === 'CLIENT_QUERY' && noDetail) flags.push('no_detail');
+      if (resumedNoReply) flags.push('no_reply_logged');
+      if (q.reasonCode === 'CLIENT_QUERY' && q.source === 'email' && noDetail && resumedNoReply) flags.push('looks_like_default');
+      const shift = q.dismissedAt ? 0 : cal.queryShift(q, today).shift;
+      rows.push({
+        taskId: t.id, taskName: t.name, clientName: t.clientName || null, assigneeId: t.assignedTo || null, assigneeName: (findEmployee(state, t.assignedTo) || {}).name || null,
+        queryId: q.id, reasonCode: q.reasonCode, reasonLabel: meta.label || q.reasonCode, source: q.source, raisedBy: (findEmployee(state, q.raisedBy) || {}).name || null,
+        sentAt: q.sentAt, sentTs: q.sentTs || (hh && hh.heldAt && nzDay(hh.heldAt) === String(q.sentAt).slice(0, 10) ? hh.heldAt : null), typedDetail: noDetail ? null : typed,
+        replyAt: q.replyAt || null, resumedAt: q.resumedAt || null, open: !q.replyAt && !q.dismissedAt, shiftDays: shift,
+        dismissedAt: q.dismissedAt || null, dismissedBy: (findEmployee(state, q.dismissedBy) || {}).name || null, dismissedReason: q.dismissedReason || null,
+        flags, suspect: flags.includes('looks_like_default') || (flags.includes('no_detail') && !q.dismissedAt && !q.replyAt && !!q.resumedAt),
+      });
+    }
+  }
+  return rows.sort((a, b) => String(b.sentAt).localeCompare(String(a.sentAt)));
+}
+app.get('/api/admin/query-audit', requireAuth, requireSuperAdmin, (req, res) => {
+  const rows = queryAuditRows(db.get());
+  res.json({
+    asOf: todayISO(), total: rows.length, suspect: rows.filter(r => r.suspect && !r.dismissedAt).length, dismissed: rows.filter(r => r.dismissedAt).length,
+    daysGranted: rows.reduce((n, r) => n + (r.shiftDays || 0), 0), rows,
+  });
+});
+app.post('/api/admin/query-audit/dismiss', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get(), body = req.body || {};
+  const items = Array.isArray(body.items) ? body.items : [];
+  const reason = String(body.reason || '').trim();
+  if (!items.length) return res.status(400).json({ error: 'Choose at least one query.' });
+  if (reason.length < 5) return res.status(400).json({ error: 'Give a short reason (at least a few words) — it is kept on each task.' });
+  let done = 0; const skipped = [];
+  for (const it of items) {
+    const t = findTask(state, String(it.taskId || '')), q = t && (t.queries || []).find(x => x.id === it.queryId);
+    if (!q) { skipped.push({ ...it, why: 'not found' }); continue; }
+    if (q.dismissedAt) { skipped.push({ ...it, why: 'already dismissed' }); continue; }
+    q.dismissedAt = new Date().toISOString(); q.dismissedBy = req.employee.id; q.dismissedReason = reason.slice(0, 300);
+    // a task still on hold under this query is no longer "waiting on the client": it is an ordinary internal hold
+    const last = (t.holdHistory || [])[(t.holdHistory || []).length - 1];
+    if (t.status === 'on_hold' && last && last.queryId === q.id) {
+      t.holdReasonCode = 'BLOCKED_OTHER'; last.reasonWas = last.reasonCode; last.reasonCode = 'BLOCKED_OTHER';
+      last.clocksStopped = { ...(last.clocksStopped || {}), clientCommitment: false };
+    }
+    logEvent(state, t.assignedTo, `A query record on "${escHtml(t.name)}" was dismissed by <b>${escHtml(req.employee.name)}</b> — it was not a real client query (${escHtml(reason)}). The commitment-date freeze it caused is lifted.`);
+    done++;
+  }
+  if (done) db.save();
+  res.json({ ok: true, dismissed: done, skipped });
+});
 
 // DATA QUALITY — a read-only report for a superadmin: duplicates, test logins, missing clients, zero hours, personal details in titles,
 // contradictory Client/Admin typing, duplicate task types. It never changes, merges or deletes anything; ?format=csv gives a list with a
