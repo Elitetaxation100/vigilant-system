@@ -5941,7 +5941,7 @@ function bannerRef(list, max=1){
 function renderDeadlineBanner(){
   const wrap = document.getElementById('deadlineBannerWrap');
   const bell = document.getElementById('bellIcon');
-  const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed'].includes(t.status));
+  const dueToday = tasks.filter(t => t.assignedTo === currentViewerId && t.internalDeadline === todayISO() && !['completed', 'on_hold'].includes(t.status));   // held work is not something to finish today
   const awaitingMine = tasks.filter(t => t.assignedTo === currentViewerId && t.status === 'awaiting_acceptance');
   const awaitingNew = awaitingMine.filter(t => !isReworkFlagged(t));
   const awaitingRework = awaitingMine.filter(isReworkFlagged);
@@ -7969,7 +7969,7 @@ function drawToday(){
   const dateLabel = new Date(T.today + 'T12:00:00').toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   const tabs = TD_MODES.map(([k, l]) => '<button type="button" role="tab" id="tdTab_' + k + '" class="' + (_tdMode === k ? 'on' : '') + '" aria-selected="' + (_tdMode === k) + '" aria-controls="tdPanel" tabindex="' + (_tdMode === k ? 0 : -1) + '" onclick="tdSetMode(\'' + k + '\')">' + l + '</button>').join('');
   box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(T.greeting) + ', ' + esc(first) + '</h2><div class="td-date">' + esc(dateLabel) + ' · ' + esc(T.timezone.replace('Pacific/Auckland', 'New Zealand time')) + '</div></div>'
-    + '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div></div>'
+    + (TD_MODES.length > 1 ? '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div>' : '') + '</div>'
     + fltBarHtml('td')
     + '<div id="tdPanel" role="tabpanel" aria-labelledby="tdTab_' + _tdMode + '"><div id="tdBody"></div></div>';
   tdDrawBody();
@@ -8086,7 +8086,7 @@ function tdDetailHtml(id, given){
    Everything shown is derived by the server (manager-views.js); the only write is a manager action, which needs a reason.
    ========================================================================= */
 const MT_ATTN = {
-  followup_due: 'Hold follow-up due', unassigned: 'Unassigned', no_client: 'Client work with no client', no_due_date: 'No internal due date', zero_hours: 'No allocated hours',
+  followup_due: 'Hold follow-up due', pause_pending: 'Pause awaiting approval', hold_no_evidence: 'Held — no query evidence', unassigned: 'Unassigned', no_client: 'Client work with no client', no_due_date: 'No internal due date', zero_hours: 'No allocated hours',
   repeated_return: 'Returned repeatedly', blocked_long: 'Blocked too long', report_unsent: 'Client report not sent', profit_overdue: 'Profit confirmation overdue',
   no_review_attempt: 'No-review override attempted', missing_links: 'Missing Sheet / Cashbook', date_changed: 'Commitment date changed', bad_link: 'Link is invalid',
 };

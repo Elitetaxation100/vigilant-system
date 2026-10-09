@@ -72,12 +72,22 @@ function waitingOn(t, st, deps) {
   return mk('employee', t.assignedTo, 'Waiting on employee');
 }
 
+// Is the processor's responsibility paused RIGHT NOW? Only for an open, approved query on a verified external dependency.
+function holdPausedNow(t) {
+  const h = activeHoldOf(t);
+  const q = h && h.queryId ? (t.queries || []).find(x => x.id === h.queryId && !x.dismissedAt) : null;
+  return !!q && !q.replyAt && EXEMPT_HOLDS.has(t.holdReasonCode) && (q.pauseStatus || 'approved') === 'approved';
+}
+// Is there a recorded, still-open query for the active hold? Only then may a hold be described as "waiting on the client / authority".
+function openRecordedQuery(t) {
+  const h = activeHoldOf(t);
+  return !!(h && h.queryId && (t.queries || []).some(q => q.id === h.queryId && !q.dismissedAt && q.pauseStatus !== 'rejected' && !q.replyAt));
+}
 // How the CLIENT commitment stands today — separate from who is at fault. Never mixes in review waiting time.
 function clientRisk(t, st, today) {
   if (!isClientTask(t) || !t.clientDate) return { state: 'na', days: null, label: 'Not applicable' };
   if (st === 'Completed') return { state: 'done', days: null, label: 'Done' };
-  // A task that is on hold is not counted as late or at risk — whatever the reason for the hold.
-  if (st === 'On Hold') return { state: 'waiting_client', days: daysBetween(today, t.clientDate), label: EXEMPT_HOLDS.has(t.holdReasonCode) ? 'Waiting on client' : 'On hold' };
+  // A hold never changes the client commitment date, so a held task is shown at risk / overdue exactly as the date says (until an authorised change).
   const d = daysBetween(today, t.clientDate);
   if (d < 0) return { state: 'overdue', days: d, label: 'Client deadline: overdue by ' + (-d) + (d === -1 ? ' day' : ' days') };
   if (d === 0) return { state: 'due_today', days: 0, label: 'Client deadline: due today' };
@@ -108,17 +118,24 @@ function commitmentTag(t, st, today, deps) {
   if (!isClientTask(t) || !t.clientDate) return na;
   const dueByEmployee = internalDueOf(t, deps) || t.clientDate;
   const first = firstSubmission(t, deps), firstOn = first ? deps.nzDay(first.at) : null;
-  const metOn = d => ({ key: 'met', label: 'Commitment met', detail: 'Submitted ' + d + ' — due ' + dueByEmployee });
+  const detail = d => 'Submitted ' + d + ' — due ' + dueByEmployee;
+  // A correction the processor must make: who is answerable for it matters (a manager / SOP fault is not the processor's miss).
+  const corr = t.correction || {}, corrOwner = corr.responsibility && corr.responsibility !== 'Employee' ? ' — ' + String(corr.responsibility).toLowerCase() + ' responsibility, not the processor\'s' : '';
+  const lastResub = (t.submissions || []).filter(x => x.kind === 'resubmit').pop();
+  const corrNote = lastResub && corr.dueDate ? ' · correction resubmitted ' + (deps.nzDay(lastResub.at) <= corr.dueDate ? 'on time' : 'late') : '';
   if (['In Review', 'Approved', 'Completed', 'Correction Required'].includes(st)) {
-    if (firstOn && firstOn <= dueByEmployee) return metOn(firstOn);          // handed in on time at the first attempt — stays met through any rework
-    if (st === 'Correction Required' && !(first && first.exact)) return { key: 'na', label: 'First submission time not recorded' };
+    if (st === 'Correction Required' && !(first && first.exact) && !(firstOn && firstOn <= dueByEmployee)) return { key: 'na', label: 'First submission time not recorded' };
     const submittedOn = firstOn || (t.completedAt ? deps.nzDay(t.completedAt) : null);
     if (!submittedOn) return na;
-    return submittedOn <= dueByEmployee ? metOn(submittedOn) : { key: 'breached', label: 'Commitment breached', detail: 'Submitted ' + submittedOn + ' — due ' + dueByEmployee };
+    const onTime = submittedOn <= dueByEmployee;
+    const tail = st === 'In Review' ? ' — waiting for reviewer' : st === 'Correction Required' ? ' · correction due' + (corr.dueDate ? ' ' + corr.dueDate : '') + corrOwner : corrNote;
+    return onTime ? { key: 'met', label: 'Submitted on time' + tail, detail: detail(submittedOn) } : { key: 'breached', label: 'Submitted late' + tail, detail: detail(submittedOn) };
   }
-  if (firstOn && firstOn <= dueByEmployee) return metOn(firstOn);
-  if (st === 'On Hold') return { key: 'waiting_client', label: EXEMPT_HOLDS.has(t.holdReasonCode) ? 'Waiting on client' : 'On hold' };   // never counted as a breach while on hold
-  if (dueByEmployee < today) return { key: 'breached', label: 'Commitment breached' };
+  if (firstOn && firstOn <= dueByEmployee) return { key: 'met', label: 'Submitted on time', detail: detail(firstOn) };
+  // Not yet handed in. A hold protects NOTHING by itself; only an approved pause on a verified external dependency does (and then from the
+  // verified query time — the internal date above is already moved by those paused days).
+  if (st === 'On Hold' && holdPausedNow(t)) return { key: 'waiting_client', label: 'Paused by verified external dependency' };
+  if (dueByEmployee < today) return { key: 'breached', label: 'Not submitted — internal date passed' };
   if (dueByEmployee === today) return { key: 'due_today', label: 'Due today' };
   if (daysBetween(today, t.clientDate) <= 2) return { key: 'at_risk', label: 'At risk' };
   return { key: 'on_track', label: 'On track' };

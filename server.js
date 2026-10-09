@@ -535,8 +535,6 @@ function commitmentOutcome(t) {
     return nzDay(t.completedAt) <= eff ? 'met' : 'missed';
   }
   if (t.reviewStatus === 'error') return 'rework';
-  if (anyQueryOpen(t)) return 'exempt';
-  if (t.status === 'on_hold') return 'on_hold';       // on hold, whatever the reason: not counted as missed or at risk
   const today = todayISO();
   if (today <= eff) return 'on-track';
   if (today <= cal.addWorkingDays(eff, 1)) return 'at-risk';
@@ -595,8 +593,9 @@ function isReviewerCapable(state, employeeId) {
 }
 function productivityQualifies(state, t, v2At, reportInfo) {
   const isInternal = t.kind === 'internal';
-  const submissionMet = (t.completedAt && t.internalDeadline)
-    ? nzDay(t.completedAt) <= t.internalDeadline : null;
+  const firstHandIn = t.firstSubmittedAt || t.completedAt;
+  const internalDue = t.internalDeadline ? (taskShiftDays(t) > 0 ? cal.addWorkingDays(t.internalDeadline, taskShiftDays(t)) : t.internalDeadline) : null;
+  const submissionMet = (firstHandIn && internalDue) ? nzDay(firstHandIn) <= internalDue : null;
   const stages = {
     processor: submissionMet == null ? null : (submissionMet ? 'met' : 'missed'),
     reviewer: t.reviewStatus === 'clean' ? 'clean' : t.reviewStatus === 'done' ? 'done'
