@@ -71,7 +71,8 @@ function waitingOn(t, st, deps) {
 function clientRisk(t, st, today) {
   if (!isClientTask(t) || !t.clientDate) return { state: 'na', days: null, label: 'Not applicable' };
   if (st === 'Completed') return { state: 'done', days: null, label: 'Done' };
-  if (st === 'On Hold' && EXEMPT_HOLDS.has(t.holdReasonCode)) return { state: 'waiting_client', days: daysBetween(today, t.clientDate), label: 'Waiting on client' };
+  // A task that is on hold is not counted as late or at risk — whatever the reason for the hold.
+  if (st === 'On Hold') return { state: 'waiting_client', days: daysBetween(today, t.clientDate), label: EXEMPT_HOLDS.has(t.holdReasonCode) ? 'Waiting on client' : 'On hold' };
   const d = daysBetween(today, t.clientDate);
   if (d < 0) return { state: 'overdue', days: d, label: 'Client deadline: overdue by ' + (-d) + (d === -1 ? ' day' : ' days') };
   if (d === 0) return { state: 'due_today', days: 0, label: 'Client deadline: due today' };
@@ -79,17 +80,39 @@ function clientRisk(t, st, today) {
   return { state: 'ok', days: d, label: 'Client deadline: ' + d + ' days remaining' };
 }
 
-// The employee's OWN commitment (submitting by the internal date). A reviewer's delay is never an employee breach.
+// The internal date the employee is held to: the agreed internal date, moved forward by the working days the file waited on the client
+// (the same freeze that moves the client date) — time spent waiting for a client reply is never the employee's miss.
+function internalDueOf(t, deps) {
+  const base = t.internalDeadline || null;
+  if (!base) return null;
+  const shift = deps && deps.queryShiftDays ? deps.queryShiftDays(t) : 0;
+  return shift > 0 && deps.addWorkingDays ? deps.addWorkingDays(base, shift) : base;
+}
+// When the employee FIRST handed the work in. Newer tasks keep every hand-in (t.submissions); older tasks only kept the latest one, so for
+// those the earliest hard evidence is used — the first time a reviewer sent it back proves it had already been submitted by then.
+function firstSubmission(t, deps) {
+  if (t.firstSubmittedAt) return { at: t.firstSubmittedAt, exact: true };
+  if (t.submissions && t.submissions.length) return { at: t.submissions[0].at, exact: true };
+  const proofs = [...(t.reviewEvents || []).filter(e => e.type === 'returned').map(e => e.at), ...(t.reworkHistory || []).map(h => h.startedAt)].filter(Boolean).sort();
+  if (proofs.length) return { at: proofs[0], exact: false };
+  return t.completedAt ? { at: t.completedAt, exact: true } : null;
+}
+// The employee's OWN commitment (submitting by the internal date). A reviewer's delay — or a reviewer sending the work back — is never an employee breach.
 function commitmentTag(t, st, today, deps) {
   const na = { key: 'na', label: 'Not applicable' };
   if (!isClientTask(t) || !t.clientDate) return na;
-  const submittedOn = t.completedAt ? deps.nzDay(t.completedAt) : null;
-  const dueByEmployee = t.internalDeadline || t.clientDate;
-  if (['In Review', 'Approved', 'Completed'].includes(st)) {
+  const dueByEmployee = internalDueOf(t, deps) || t.clientDate;
+  const first = firstSubmission(t, deps), firstOn = first ? deps.nzDay(first.at) : null;
+  const metOn = d => ({ key: 'met', label: 'Commitment met', detail: 'Submitted ' + d + ' — due ' + dueByEmployee });
+  if (['In Review', 'Approved', 'Completed', 'Correction Required'].includes(st)) {
+    if (firstOn && firstOn <= dueByEmployee) return metOn(firstOn);          // handed in on time at the first attempt — stays met through any rework
+    if (st === 'Correction Required' && !(first && first.exact)) return { key: 'na', label: 'First submission time not recorded' };
+    const submittedOn = firstOn || (t.completedAt ? deps.nzDay(t.completedAt) : null);
     if (!submittedOn) return na;
-    return submittedOn <= dueByEmployee ? { key: 'met', label: 'Commitment met' } : { key: 'breached', label: 'Commitment breached' };
+    return submittedOn <= dueByEmployee ? metOn(submittedOn) : { key: 'breached', label: 'Commitment breached', detail: 'Submitted ' + submittedOn + ' — due ' + dueByEmployee };
   }
-  if (st === 'On Hold' && EXEMPT_HOLDS.has(t.holdReasonCode)) return { key: 'waiting_client', label: 'Waiting on client' };
+  if (firstOn && firstOn <= dueByEmployee) return metOn(firstOn);
+  if (st === 'On Hold') return { key: 'waiting_client', label: EXEMPT_HOLDS.has(t.holdReasonCode) ? 'Waiting on client' : 'On hold' };   // never counted as a breach while on hold
   if (dueByEmployee < today) return { key: 'breached', label: 'Commitment breached' };
   if (dueByEmployee === today) return { key: 'due_today', label: 'Due today' };
   if (daysBetween(today, t.clientDate) <= 2) return { key: 'at_risk', label: 'At risk' };
@@ -149,7 +172,7 @@ function card(t, deps) {
     clientId: t.clientId || null, clientName: (t.clientName && String(t.clientName).trim().toLowerCase() !== 'internal') ? t.clientName : null, taskType: t.scope && t.scope !== '—' ? t.scope : null,
     status: st, subState: subState(t, st), waitingOn: w,
     commitment: commitmentTag(t, st, deps.today, deps), clientRisk: risk,
-    clientDate: t.clientDate || null, internalDeadline: t.internalDeadline || null, daysRemaining: risk.days,
+    clientDate: t.clientDate || null, internalDeadline: t.internalDeadline || null, internalDue: internalDueOf(t, deps), daysRemaining: risk.days,
     assigneeId: t.assignedTo || null, assigneeName: t.assignedTo ? deps.nameOf(t.assignedTo) : null,
     reviewerId: t.reviewerId || t.assignedReviewerId || null, reviewerName: (t.reviewerId || t.assignedReviewerId) ? deps.nameOf(t.reviewerId || t.assignedReviewerId) : null,
     reviewRequired: t.reviewRequired === undefined ? null : t.reviewRequired, noReviewAuthorized: !!t.noReviewAuthorizedAt,
@@ -240,7 +263,7 @@ function buildToday(tasks, me, deps) {
     risk: ids(t => ['overdue', 'due_today', 'at_risk'].includes(cards[t.id].clientRisk.state)),
     decision: needs.filter(n => ['decision', 'escalation', 'profit_confirm', 'unassigned'].includes(n.type)).map(n => n.id),
     reports: ids(t => cards[t.id].status === 'Approved' && isClientTask(t)),
-    overdue: ids(t => cards[t.id].waitingOn.kind === 'employee' && ['Assigned', 'In Progress'].includes(cards[t.id].status) && t.internalDeadline && t.internalDeadline < deps.today),
+    overdue: ids(t => cards[t.id].waitingOn.kind === 'employee' && ['Assigned', 'In Progress'].includes(cards[t.id].status) && internalDueOf(t, deps) && internalDueOf(t, deps) < deps.today),
     completed: [...new Set(doneToday.map(d => d.id))],
   };
   const rvNeeds = needs.filter(isReviewNeed);
@@ -298,7 +321,7 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
     tileOf('overdue_mine', 'My Overdue Actions', 'Where I own the next action', open.map(t => t.id).filter(id => {
       const c = cards[id], t = taskOf(id);
       if (!ownsNext(id) || ['client', 'external', 'profit'].includes(c.waitingOn.kind)) return false;
-      if (c.waitingOn.kind === 'employee' && t.internalDeadline && t.internalDeadline < deps.today && c.waitingOn.ownerId === me.id) return true;
+      if (c.waitingOn.kind === 'employee' && internalDueOf(t, deps) && internalDueOf(t, deps) < deps.today && c.waitingOn.ownerId === me.id) return true;
       return c.clientRisk.state === 'overdue' || slaBreached(id);
     }), 'You have no overdue actions.'),
     tileOf('actions_done', 'Actions Completed Today', 'Actions, not tasks', doneToday.map(d => d.id), 'No actions completed yet today.'),
@@ -319,7 +342,7 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
   reportsOpen.forEach(t => { reportBreakdown[rState(t)]++; });
   const managerTiles = [
     tileOf('team_risk', 'Team Delivery at Risk', 'Whole team', open.map(t => t.id).filter(inRisk), 'No client deadlines are currently at risk.'),
-    tileOf('team_overdue', 'Team Overdue', 'Employee-owned only', open.filter(t => { const c = cards[t.id]; return c.waitingOn.kind === 'employee' && ['Assigned', 'In Progress'].includes(c.status) && t.internalDeadline && t.internalDeadline < deps.today; }).map(t => t.id), 'No team tasks are overdue.'),
+    tileOf('team_overdue', 'Team Overdue', 'Employee-owned only', open.filter(t => { const c = cards[t.id]; return c.waitingOn.kind === 'employee' && ['Assigned', 'In Progress'].includes(c.status) && internalDueOf(t, deps) && internalDueOf(t, deps) < deps.today; }).map(t => t.id), 'No team tasks are overdue.'),
     tileOf('reviews_blocking', 'Reviews Blocking Delivery', 'Reviewer owns the next action', open.map(t => t.id).filter(id => cards[id].status === 'In Review' && cards[id].waitingOn.kind === 'reviewer' && (inRisk(id) || slaBreached(id))), 'No reviews are blocking delivery.'),
     tileOf('reports_team', 'Reports Not Sent', 'Whole team', reportsOpen.map(t => t.id), 'All approved reports have been sent.', { breakdown: reportBreakdown }),
     tileOf('waiting_client', 'Waiting on Client', 'Authorised holds', open.map(t => t.id).filter(id => cards[id].waitingOn.kind === 'client'), 'Nothing is waiting on a client.'),
@@ -361,4 +384,4 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
 // "Good morning / afternoon / evening" from the BUSINESS clock (hour 0–23 in the company timezone).
 function greetingFor(hour) { return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'; }
 
-module.exports = { buildModes, DEFAULT_REVIEW_SLA_HOURS, status, subState, waitingOn, clientRisk, commitmentTag, reviewWaiting, tracker, nextAction, card, buildToday, greetingFor, daysBetween, taskKindLabel, isClientTask, needsOrder, EXEMPT_HOLDS };
+module.exports = { internalDueOf, firstSubmission, buildModes, DEFAULT_REVIEW_SLA_HOURS, status, subState, waitingOn, clientRisk, commitmentTag, reviewWaiting, tracker, nextAction, card, buildToday, greetingFor, daysBetween, taskKindLabel, isClientTask, needsOrder, EXEMPT_HOLDS };

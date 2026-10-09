@@ -1330,6 +1330,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
         <div class="nav-item nav-sub" data-view="assignments" onclick="showView('assignments', this)"><span class="nav-icon">🔀</span> Team Assignments</div>
         <div class="nav-item nav-sub" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Types</div>
         <div class="nav-item nav-sub" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Inbound Admin</div>
+        <div class="nav-item nav-sub" id="qaNavItemV2" onclick="openQueryAudit()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openQueryAudit(); }"><span class="nav-icon">⏸</span> Client-query audit</div>
       </details>
     </div>
 
@@ -1364,6 +1365,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
         <div class="nav-item nav-sub" id="attendanceNavSection" data-view="attendance" style="display:none;" onclick="showView('attendance', this)"><span class="nav-icon">🕒</span> Attendance Log</div>
         <div id="employeesNavSection" style="display:none;">
           <div class="nav-item nav-sub" id="adminNavItem" data-view="admin" onclick="showView('admin', this)"><span class="nav-icon">▣</span> Admin</div>
+          <div class="nav-item nav-sub" id="qaNavItem" style="display:none;" onclick="openQueryAudit()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openQueryAudit(); }"><span class="nav-icon">⏸</span> Client-query audit</div>
           <div class="nav-item nav-sub" data-view="employees" onclick="showView('employees', this)"><span class="nav-icon">☰</span> Employees</div>
           <div class="nav-item nav-sub" data-view="taxonomy" onclick="showView('taxonomy', this)"><span class="nav-icon">🗂</span> Task Taxonomy</div>
           <div class="nav-item nav-sub" data-view="assignments" onclick="showView('assignments', this)"><span class="nav-icon">🔀</span> Team Assignments</div>
@@ -1618,6 +1620,11 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
         <div class="banner">
           <span>▣</span>
           <span><b>Admin space.</b> Tasks created in Slack — from a call card or the “Convert to Task” shortcut — land here automatically, assigned to whoever, and show on their dashboard. The call itself (recording, listening, AI draft) stays in Slack.</span>
+        </div>
+
+        <div class="panel" id="qaPanel" style="display:none;">
+          <div class="panel-head"><h2>Client-query audit</h2><div class="panel-head-actions"><button class="btn small" onclick="openQueryAudit()">Open the audit</button></div></div>
+          <div style="padding:4px 2px;font-size:13px;color:var(--text-dim);">Lists every task that was recorded as waiting on the client, with the signs that it was never a real query (no detail typed, no reply logged). You choose which to dismiss; the record stays, only the commitment-date freeze it caused is lifted.</div>
         </div>
 
         <div class="stat-grid" id="adminStatGrid" style="grid-template-columns:repeat(4,1fr);">
@@ -3183,6 +3190,8 @@ let mgScopeIds = null; // { emps:Set<id>, tasks:Set<id> } | null
 function mgTasks(){ return mgScopeIds ? tasks.filter(t => mgScopeIds.tasks.has(t.id)) : tasks; }
 function mgEmps(){ return mgScopeIds ? employees.filter(e => mgScopeIds.emps.has(e.id)) : employees; }
 function mgWorkload(){ return mgScopeIds ? (workload||[]).filter(w => mgScopeIds.emps.has(w.id)) : (workload||[]); }
+// A timestamp in New Zealand time. A value that is only a day (older records) shows the day alone — never a made-up clock time.
+function fmtStamp(iso){ if(!iso) return ''; if(/^\d{4}-\d{2}-\d{2}$/.test(iso)) return fmtDate(iso); const d = new Date(iso); return d.toLocaleDateString('en-NZ', { day:'2-digit', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }); }
 function fmtDate(iso){ if(!iso) return '—'; const d = new Date(iso+'T00:00:00'); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}); }
 function fmtClock(s){
   const h = String(Math.floor(s/3600)).padStart(2,'0');
@@ -3413,6 +3422,9 @@ function myReviewTasks(){
 // Can the viewer re-open a closed task (marked done, or reviewed clean)
 // and send it to someone for a review? The assignee, whoever assigned it,
 // or an admin over them.
+function iCanChangeReviewer(t){
+  return !!(t && t.status === 'completed' && !t.reviewStatus && t.reviewerId && !(t.escalation && t.escalation.status === 'open') && t.assignedTo === currentViewerId);
+}
 function iCanSendForReview(t){
   if(!t || t.status !== 'completed') return false;
   if(t.reviewStatus !== 'done' && t.reviewStatus !== 'clean') return false;
@@ -4743,7 +4755,7 @@ function showView(id, el, classic){
   if(id === 'command') renderCommandCenter();
   if(id === 'attendance') renderAttendance();
   if(id === 'founder') renderFounderView();
-  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); renderPcSettings(); { const p = document.getElementById('dqPanel'); if(p) p.style.display = isSuperAdmin ? '' : 'none'; } }
+  if(id === 'admin'){ renderAdminView(); loadCrmConnection(); renderPcSettings(); { const p = document.getElementById('dqPanel'); if(p) p.style.display = isSuperAdmin ? '' : 'none'; const q = document.getElementById('qaPanel'); if(q) q.style.display = isSuperAdmin ? '' : 'none'; } }
   if(id === 'teamboard') renderTeamBoard();
   if(id === 'whatsapp') renderWhatsAppView();
   if(['manager','teamboard','founder','command'].includes(id)){
@@ -6373,6 +6385,7 @@ function commitmentBadge(t){
   if(s === 'met')     return `<span class="badge completed dot" title="Delivered on or before ${eff}${shifted}">✓ Commitment Met</span>`;
   if(s === 'missed')  return `<span class="badge overdue dot" title="Effective commitment date ${eff}${shifted}">✗ Commitment Missed</span>`;
   if(s === 'exempt')  return `<span class="badge awaiting dot" title="Clock frozen while waiting on the client">⏸ Clock Paused — client query</span>`;
+  if(s === 'on_hold') return `<span class="badge awaiting dot" title="On hold — not counted as missed or at risk until it resumes">⏸ On hold</span>`;
   if(s === 'at-risk') return `<span class="badge overdue dot" title="Due ${eff}${shifted}">⚠ At Risk</span>`;
   if(s === 'rework')  return `<span class="badge overdue dot" title="Not counted toward commitment until fixed and resubmitted">⏳ Pending Rework</span>`;
   return '';
@@ -6428,6 +6441,7 @@ function actionCell(t){
       // things you can actually do.
       if(iCanReview(t)) html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
       else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
+      if(iCanChangeReviewer(t)) html += `<button class="verify-btn" onclick="openChangeReviewerModal('${t.id}')" title="Send this to a different reviewer">Change reviewer</button>`;
       if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open this job for re-review (e.g. marked done by mistake)">Reopen for Re-review</button>`;
     }
     if(iCanRemoveTask(t)) html += `<button class="verify-btn" style="border-color:var(--coral);color:#C2410C;" onclick="removeTask('${t.id}')">Remove</button>`;
@@ -6485,7 +6499,8 @@ function actionCell(t){
     // Actions only carries what this viewer can do about it.
     if(!t.reviewStatus && iCanReview(t)) html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>`;
     else if(!t.reviewStatus) html += `<span class="act-muted">awaiting review</span>`;
-    else if(t.reviewStatus === 'clean' || t.reviewStatus === 'error') html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewViewModal('${t.id}')">View review</button>`;
+    if(iCanChangeReviewer(t)) html += `<button class="verify-btn" onclick="openChangeReviewerModal('${t.id}')" title="Send this to a different reviewer">Change reviewer</button>`;
+    if(t.reviewStatus === 'clean' || t.reviewStatus === 'error') html += `<button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewViewModal('${t.id}')">View review</button>`;
     if(iCanSendForReview(t)) html += `<button class="verify-btn" onclick="openSendForReviewModal('${t.id}')" title="Re-open this job for re-review (e.g. marked done by mistake)">Reopen for Re-review</button>`;
   }
   if(isAdmin && t.status !== 'completed' && t.status !== 'pending_approval'){
@@ -7779,7 +7794,7 @@ function tdRiskTag(c){
   if(r.state === 'overdue') return '<span class="td-tag red">⚠ Client overdue ' + (-r.days) + 'd</span>';
   if(r.state === 'due_today') return '<span class="td-tag amber">⏰ Client due today</span>';
   if(r.state === 'at_risk') return '<span class="td-tag amber">⚠ At risk · ' + r.days + 'd left</span>';
-  if(r.state === 'waiting_client') return '<span class="td-tag grey">⏸ Waiting on client</span>';
+  if(r.state === 'waiting_client') return '<span class="td-tag grey">⏸ ' + esc(r.label || 'Waiting on client') + '</span>';
   if(r.state === 'done') return '<span class="td-tag green">✓ Done</span>';
   if(r.state === 'ok') return '<span class="td-tag blue">On track · ' + r.days + 'd</span>';
   return '<span class="td-tag grey">' + esc(c.kindLabel) + '</span>';
@@ -7981,7 +7996,7 @@ function tdPrimary(id){
 function tdDetailHtml(id, given){
   if(!id || !(given || (_today && _today.cards[id]))) return '<div class="td-empty" style="padding:30px 10px;">Nothing to show here — no task matches the tile and filters you chose.</div>';
   const c = given || _today.cards[id], t = findTask(id);
-  const dt = iso => { const d = new Date(iso); return d.toLocaleDateString('en-NZ', { day:'2-digit', month:'short', year:'numeric', timeZone:'Pacific/Auckland' }) + ', ' + d.toLocaleTimeString('en-NZ', { hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }); };
+  const dt = fmtStamp;
   const fact = (label, val) => '<div><b>' + label + '</b><span>' + (val || '<span style="color:var(--text-faint);">—</span>') + '</span></div>';
   const grp = (title, ...rows) => { const r = rows.join(''); return r ? '<div class="td-card"><h5>' + title + '</h5><div class="td-rows">' + r + '</div></div>' : ''; };
   const track = c.tracker.applicable ? '<div class="td-track" role="list" aria-label="Delivery progress">' + c.tracker.steps.map(st => '<span class="td-step ' + st.state + '" role="listitem">' + (st.state === 'done' ? '✓ ' : st.state === 'attention' ? '⚠ ' : '') + esc(st.label) + '</span>').join('') + '</div>'
@@ -7998,7 +8013,7 @@ function tdDetailHtml(id, given){
   const sheet = fact('Google Sheet', (t.sheetLink || (t.sheetFiles || []).length) ? slotCell(t.sheetLink, 'Open Sheet', t.sheetFiles) : '');
   const cash = fact('Cashbook', (t.cashbookLink || (t.cashbookFiles || []).length) ? slotCell(t.cashbookLink, 'Open Cashbook', t.cashbookFiles) : '');
   const client = fact('Client commitment', c.clientDate ? esc(fmtDate(c.clientDate)) + '<span class="sub">' + esc(c.clientRisk.label) + '</span>' : '');
-  const internal = fact('Internal submission date', c.internalDeadline ? esc(fmtDate(c.internalDeadline)) : '');
+  const internal = fact('Internal commitment date', c.internalDeadline ? esc(fmtDate(c.internalDeadline)) + (c.internalDue && c.internalDue !== c.internalDeadline ? '<span class="sub">held to ' + esc(fmtDate(c.internalDue)) + ' — the client-query wait is not counted against the employee</span>' : '') : '');
   const waitFact = c.reviewWaiting ? fact('Waiting for review', c.reviewWaiting.days + (c.reviewWaiting.days === 1 ? ' day' : ' days') + (c.reviewWaiting.hours > slaH ? ' <b style="color:var(--coral);display:inline;font-size:inherit;">· past the ' + slaH + ' h review SLA</b>' : '') + '<span class="sub">since ' + esc(dt(c.reviewWaiting.since)) + '</span>') : '';
   const dh = (t.dateHistory || []).map(h => esc(dt(h.at)) + ' — ' + esc(h.note || 'changed')).join('<br>');
   let facts;
@@ -8008,11 +8023,11 @@ function tdDetailHtml(id, given){
       + grp('Work', fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), fact('Rework cycles', c.reworkCount ? String(c.reworkCount) : '0'), fact('Escalation', c.escalation ? 'Open — ' + esc(c.escalation.toName || '') + (c.escalation.decisionDate ? ' by ' + esc(c.escalation.decisionDate) : '') : 'None'));
   } else if(mode === 'review'){
     facts = grp('Submission', fact('Submitted', c.submittedAt ? esc(dt(c.submittedAt)) + (c.assigneeName ? '<span class="sub">by ' + esc(c.assigneeName) + '</span>' : '') : ''), waitFact, fact('Previous corrections', c.reworkCount ? c.reworkCount + (c.correction && c.correction.category ? ' · last: ' + esc(c.correction.category) : '') : 'None'))
-      + grp('Dates', client, fact('Internal commitment', esc(c.commitment.label)))
+      + grp('Dates', client, fact('Internal commitment', esc(c.commitment.label) + (c.commitment.detail ? '<span class="sub">' + esc(c.commitment.detail.replace(/(\d{4}-\d{2}-\d{2})/g, m => fmtDate(m))) + '</span>' : '')))
       ;
   } else {
     facts = grp('People', fact('Assigned employee', esc(c.assigneeName || '')), fact('Reviewer', esc(c.reviewerName || '')))
-      + grp('Dates', internal, client, fact('Employee\'s commitment', esc(c.commitment.label)))
+      + grp('Dates', internal, client, fact('Employee\'s commitment', esc(c.commitment.label) + (c.commitment.detail ? '<span class="sub">' + esc(c.commitment.detail.replace(/(\d{4}-\d{2}-\d{2})/g, m => fmtDate(m))) + '</span>' : '')))
       + grp('Work', fact('Task type', esc(c.taskType || c.kindLabel)), fact('Allocated hours', c.allocatedHours != null ? esc(String(c.allocatedHours)) + ' h' : ''), waitFact, fact('Rework cycle', c.reworkCount ? String(c.reworkCount) : 'None'));
   }
   const links = grp('Links', sheet, cash);
@@ -8021,7 +8036,7 @@ function tdDetailHtml(id, given){
   const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
   const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
   // Order: actions (Open review / Full history) → My actions → Links → attachments + latest note → People / Dates / Work
-  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
+  body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + mgrBtns + (iCanChangeReviewer(t) ? '<button type="button" class="btn td-act" onclick="openChangeReviewerModal(\'' + esc(id) + '\')" title="Send this to a different reviewer">Change reviewer</button>' : '') + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
     + (mineOpen ? '<div class="td-own"><b>My actions</b>' + actionCell(t) + '</div>' : '')
     + links
     + ((t.reviewAttachments || []).length ? '<div style="margin:0 0 10px;"><b style="font-size:12px;color:var(--text-faint);text-transform:uppercase;">Attachments</b>' + downloadListHtml(t.reviewAttachments) + '</div>' : '')
@@ -8569,10 +8584,10 @@ async function acceptTask(id){
 function iCanHold(t){
   return t && (t.assignedTo === currentViewerId || empManagesWork(currentViewer(), t.assignedTo));
 }
-function openQuery(t){ return (t.queries||[]).find(q => ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode) && !q.replyAt); }
+function openQuery(t){ return (t.queries||[]).find(q => !q.dismissedAt && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode) && !q.replyAt); }
 // A summary of every query on a task: sent → reply → resume, and the shift it earned.
 function queryDetailHtml(t){
-  const qs = (t.queries||[]).filter(q => ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode));
+  const qs = (t.queries||[]).filter(q => !q.dismissedAt && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(q.reasonCode));
   if(!qs.length) return '';
   const rows = qs.map(q => {
     const reply = q.replyAt ? fmtDate(q.replyAt) : '<span style="color:var(--amber,#B45309);">awaiting</span>';
@@ -8608,11 +8623,35 @@ function holdControlsHtml(t){
       ? `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="openResumeReplyModal('${t.id}','${q.id}')">Resume</button>`
       : `<button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="unholdTask('${t.id}')">Resume</button>`;
     if(q) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openLogReplyModal('${t.id}','${q.id}')">Log client reply</button>`;
+    if(!q && t.clientDate && ['CLIENT_QUERY','CLIENT_DOCS','THIRD_PARTY'].includes(t.holdReasonCode)) h += `<button class="verify-btn" style="border-color:#5E4F97;color:#5E4F97;" onclick="openRecordQueryModal('${t.id}')" title="Only if you really sent the client a query — this pauses the client commitment date">Record client query</button>`;
     h += `<button class="verify-btn" onclick="openAddHoursModal('${t.id}')" title="Add time you spent on this task while it's on hold">+ Add time</button>`;
     h += `<button class="verify-btn" onclick="openHoldDetailModal('${t.id}')">Why on hold</button>`;
     return h;
   }
   return `<button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
+}
+function openRecordQueryModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Record the client query</h3>
+    <div class="modal-sub">${esc(t.name)} · ${esc(holdReasonLabel(t))}</div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">Only record this if you really sent the client a query. It pauses the client commitment date from the moment you give below until the reply is logged. Nothing is filled in for you.</p>
+    ${clientQueryFieldsHtml()}
+    <div class="field"><label for="qNote">What did you ask? <span style="color:var(--text-faint);">(optional)</span></label><textarea id="qNote" rows="2"></textarea></div>
+    <div class="modal-error" id="qRecErr"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitRecordQuery('${id}')">Record query</button></div>`;
+  openModal();
+  if(t.holdReasonCode === 'THIRD_PARTY'){ const f = document.getElementById('qSourceField'); if(f) f.style.display = 'none'; }
+}
+async function submitRecordQuery(id){
+  const t = findTask(id), err = document.getElementById('qRecErr');
+  const qf = readQueryFields(t && t.holdReasonCode);
+  if(qf.error){ err.textContent = qf.error; err.style.display = 'block'; return; }
+  try {
+    await api('/api/tasks/' + encodeURIComponent(id) + '/query', { method:'POST', body: JSON.stringify({ ...qf, note: (document.getElementById('qNote') || {}).value || '' }) });
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Query recorded', 'The client commitment date is paused until the reply is logged.');
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
 }
 function openLogReplyModal(taskId, qid){
   const t = findTask(taskId); if(!t) return;
@@ -8700,17 +8739,12 @@ function openHoldModal(id){
     <h3>Put on hold — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(clientLabel(t))} · It stays on the list as pending. Time already logged is kept; when it resumes, new time adds on top — the agreed hours don't change.</div>
     <div class="field"><label>Reason</label>
-      <select id="holdReasonCode" onchange="_holdReasonChanged()">${opts}</select></div>
+      <select id="holdReasonCode" onchange="_holdReasonChanged()"><option value="" selected disabled>— Choose the reason —</option>${opts}</select></div>
     <div class="field" id="holdDetailField"><label id="holdDetailLabel">Detail <span style="color:var(--text-faint);">(optional)</span></label>
       <textarea id="holdReason" rows="2" placeholder="e.g. asked which entity owns the vehicle for GST"></textarea></div>
     <div id="holdExemptBox" style="display:none;">
-      <div style="font-size:12.5px;color:var(--teal);margin:-4px 0 10px;">✓ The client commitment date pauses now, and moves forward by the working days spent waiting for the reply.</div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div class="field" style="flex:1;min-width:150px;"><label>How was it raised?</label>
-          <select id="qSource"><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>
-        <div class="field" style="flex:1;min-width:150px;"><label>Query sent on</label>
-          <input type="date" id="qSentAt" value="${esc(todayISO())}" max="${esc(todayISO())}"></div>
-      </div>
+      <label style="display:flex;gap:8px;align-items:flex-start;margin:0 0 8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="qConfirm" style="margin-top:3px;" onchange="document.getElementById('qFields').style.display = this.checked ? '' : 'none'"><span><b>I sent the client a query — pause the client commitment date.</b> <span style="color:var(--text-dim);">Leave this unticked unless you really did. Nothing is paused for you, and you can record the query later from the task.</span></span></label>
+      <div id="qFields" style="display:none;">${clientQueryFieldsHtml()}</div>
     </div>
     <div id="holdV2" style="display:none;">
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
@@ -8735,6 +8769,27 @@ function openHoldModal(id){
   _holdReasonChanged();
 }
 const HOLD_RESP_DEFAULT = { CLIENT_QUERY:'client', CLIENT_DOCS:'client', THIRD_PARTY:'third_party', INTERNAL_REVIEW:'reviewer', CAPACITY:'manager', BLOCKED_OTHER:'employee' };
+// The fields for recording a client query — nothing is pre-filled: the owner says how, and the real date and time it was sent.
+function clientQueryFieldsHtml(){
+  return '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+    + '<div class="field" id="qSourceField" style="flex:1;min-width:150px;"><label for="qSource">How did you ask the client? <span class="req-mark">*</span></label><select id="qSource"><option value="" selected disabled>— Choose —</option><option value="email">Email</option><option value="phone">Phone</option><option value="whatsapp">WhatsApp</option><option value="in_person">In person</option></select></div>'
+    + '<div class="field" style="flex:1;min-width:150px;"><label for="qSentAt">Date sent <span class="req-mark">*</span></label><input type="date" id="qSentAt" max="' + esc(todayISO()) + '"></div>'
+    + '<div class="field" style="flex:1;min-width:120px;"><label for="qSentTime">Time sent (NZ) <span class="req-mark">*</span></label><input type="time" id="qSentTime"></div>'
+    + '</div><button type="button" class="btn small" style="margin:-2px 0 8px;" onclick="qUseNow()">Use the current date and time</button>';
+}
+function qUseNow(){
+  const d = document.getElementById('qSentAt'), t = document.getElementById('qSentTime');
+  if(d) d.value = todayISO();
+  if(t) t.value = new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hourCycle:'h23', timeZone:'Pacific/Auckland' });
+}
+// Read the query fields; returns { error } or the values to send.
+function readQueryFields(reasonCode){
+  const v = id => (document.getElementById(id) || {}).value || '';
+  const q = { querySource: reasonCode === 'THIRD_PARTY' ? 'manual' : v('qSource'), querySentAt: v('qSentAt'), querySentTime: v('qSentTime') };
+  if(reasonCode !== 'THIRD_PARTY' && !q.querySource) return { error: 'Say how you asked the client (email, phone, WhatsApp or in person).' };
+  if(!q.querySentAt || !q.querySentTime) return { error: 'Say the date and the time the query was sent — it is never filled in for you.' };
+  return q;
+}
 function _holdReasonChanged(){
   const code = document.getElementById('holdReasonCode').value;
   const m = HOLD_REASONS[code] || {};
@@ -8743,9 +8798,10 @@ function _holdReasonChanged(){
     ? 'Detail <span style="color:var(--flag,#C2410C);">(required)</span>'
     : 'Detail <span style="color:var(--text-faint);">(optional)</span>';
   document.getElementById('holdExemptBox').style.display = m.exempting ? 'block' : 'none';
+  const qsf = document.getElementById('qSourceField'); if(qsf) qsf.style.display = code === 'THIRD_PARTY' ? 'none' : '';   // IRD / bank / third party: nothing was "asked of the client"
   const resp = document.getElementById('holdResp'); if(resp) resp.value = HOLD_RESP_DEFAULT[code] || 'employee';
   const ck = document.getElementById('holdClocks');
-  if(ck) ck.innerHTML = '⏸ Your work timer stops now. ' + (m.exempting ? '⏸ The <b>client commitment clock pauses</b> too, because the wait is on the client or a third party.' : '▶ The <b>client commitment clock keeps running</b> — this is an internal wait.');
+  if(ck) ck.innerHTML = '⏸ Your work timer stops now. ' + (m.exempting ? 'The client commitment date is <b>only paused if you tick the box above</b> and record the query.' : '▶ The <b>client commitment clock keeps running</b> — this is an internal wait.');
 }
 let _holdShotData = null;
 async function previewHoldShot(fileEl){
@@ -8779,6 +8835,7 @@ async function submitHold(id){
   const reasonCode = document.getElementById('holdReasonCode').value;
   const detail = (document.getElementById('holdReason').value || '').trim();
   const errEl = document.getElementById('holdErr');
+  if(!reasonCode){ errEl.textContent = 'Choose why the task is going on hold.'; errEl.style.display = 'block'; return; }
   if((HOLD_REASONS[reasonCode]||{}).needsDetail && !detail){
     errEl.textContent = 'This reason needs a short note.'; errEl.style.display = 'block'; return;
   }
@@ -8788,15 +8845,17 @@ async function submitHold(id){
     body.followUpDate = (document.getElementById('holdFollow') || {}).value;
     if(!body.followUpDate){ errEl.textContent = 'Pick the date you will follow this up.'; errEl.style.display = 'block'; return; }
   }
-  if((HOLD_REASONS[reasonCode]||{}).exempting){
-    body.querySource = (document.getElementById('qSource')||{}).value || 'manual';
-    body.querySentAt = (document.getElementById('qSentAt')||{}).value || undefined;
+  const recording = !!((HOLD_REASONS[reasonCode]||{}).exempting && (document.getElementById('qConfirm') || {}).checked);
+  if(recording){
+    const qf = readQueryFields(reasonCode);
+    if(qf.error){ errEl.textContent = qf.error; errEl.style.display = 'block'; return; }
+    Object.assign(body, qf, { queryConfirmed: true });
   }
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/hold`, { method:'POST', body: JSON.stringify(body) });
     _holdShotData = null;
     closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
-    showToast('success', 'On hold', (HOLD_REASONS[reasonCode]||{}).exempting ? 'Client commitment clock paused.' : 'Stays on the list as pending until resumed.');
+    showToast('success', 'On hold', recording ? 'Client commitment date paused.' : 'Stays on the list as pending until resumed. The commitment date was not paused.');
   } catch(e){ errEl.textContent = e.message; errEl.style.display = 'block'; }
 }
 async function unholdTask(id){
@@ -8958,6 +9017,30 @@ function openCompleteModal(id){
     }
   }
 // Re-open a closed task (Done / Reviewed clean) and send it for review.
+function reviewerOptionsHtml(t, current){
+  return eligibleReviewersFor(t.assignedTo).slice().sort((a, b) => a.name.localeCompare(b.name)).map(e => '<option value="' + esc(e.id) + '"' + (e.id === current ? ' selected' : '') + '>' + esc(e.name) + (e.id === current ? ' (current reviewer)' : '') + '</option>').join('');
+}
+function openChangeReviewerModal(id){
+  const t = findTask(id); if(!t) return;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>Change reviewer — ${esc(t.name)}</h3>
+    <div class="modal-sub">${esc(clientLabel(t))} · now with <b>${esc((empById(t.reviewerId) || {}).name || '—')}</b></div>
+    <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin:8px 0;">The task moves to the person you pick. The new reviewer is told, it leaves the previous reviewer's list, and the change is kept in the task history. The time it has already waited is not reset.</p>
+    <div class="field"><label for="crReviewer">Send for review to</label><select id="crReviewer">${reviewerOptionsHtml(t, t.reviewerId)}</select></div>
+    <div class="field"><label for="crReason">Reason <span style="color:var(--text-faint);">(optional)</span></label><input id="crReason" maxlength="300" placeholder="e.g. Parvinder is on leave"></div>
+    <div class="modal-error" id="crErr" role="alert"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="submitChangeReviewer('${esc(id)}')">Change reviewer</button></div>`;
+  openModal();
+}
+async function submitChangeReviewer(id){
+  const t = findTask(id), err = document.getElementById('crErr'), v = document.getElementById('crReviewer').value;
+  if(t && v === t.reviewerId){ err.textContent = 'Pick a different person — that one is already the reviewer.'; err.style.display = 'block'; return; }
+  try {
+    await api('/api/tasks/' + encodeURIComponent(id) + '/change-reviewer', { method:'POST', body: JSON.stringify({ reviewerId: v, reason: document.getElementById('crReason').value }) });
+    closeModal(); await refreshTasks(); await refreshActivity({ silent:true });
+    showToast('success', 'Reviewer changed', 'The new reviewer has been told.');
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
+}
 function openSendForReviewModal(id){
   const t = findTask(id);
   if(!t) return;
@@ -13293,16 +13376,21 @@ function openReviewViewModal(id){
 // The task's chronological events (shared by the history window and the Today side panel).
 function taskTimelineEvents(t){
   const nm = eid => eid ? ((empById(eid)||{}).name || '—') : null;
-  const dt = iso => { if(!iso) return ''; const d = new Date(iso); return d.toLocaleDateString('en-NZ',{day:'2-digit',month:'short',year:'numeric'}) + ', ' + d.toLocaleTimeString('en-NZ',{hour:'numeric',minute:'2-digit'}); };
+  const dt = fmtStamp;
   const ev = [];
-  const push = (at, icon, text, extra) => ev.push({ at: at || '', icon, text, extra: extra || '' });
+  const push = (at, icon, text, extra, cap) => ev.push({ at: at || '', icon, text, extra: extra || '', cap: cap || '' });
+  // A day-only "taken off hold / client replied / resumed" has no clock time. It must not jump AFTER a later hold that was raised the
+  // same day, so it is capped to just before that next hold (the real order: resumed in the morning, put on hold again at 1:36 pm).
+  const nextHoldCap = (holds, i, day) => { const nx = holds[i + 1]; return nx && nx.heldAt && dayOf(nx.heldAt) === String(day).slice(0, 10) ? nx.heldAt : ''; };
 
   const assignedByName = nm(t.assignedBy), assignedToName = nm(t.assignedTo);
   const srcLabel = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'from a call' : 'from Slack') : null;
+  const d0 = (t.dateHistory || [])[0], origInternal = t.originalInternalDeadline || (d0 && d0.from && d0.from.internal) || t.internalDeadline, origClient = t.originalClientDate || (d0 && d0.from && d0.from.client) || t.clientDate;
+  const datesNow = (origInternal || origClient) ? ` <span style="color:var(--text-faint);">Internal commitment <b>${origInternal ? fmtDate(origInternal) : '—'}</b>${origClient ? ' · client commitment <b>' + fmtDate(origClient) + '</b>' : ''}.</span>` : '';
   push(t.assignedAt, '📌',
-    (t.assignedBy && t.assignedBy === t.assignedTo)
+    ((t.assignedBy && t.assignedBy === t.assignedTo)
       ? `<b>${esc(assignedToName)}</b> self-assigned this task${srcLabel ? ' ('+srcLabel+')' : ''}.`
-      : `<b>${esc(assignedByName||'—')}</b> assigned this to <b>${esc(assignedToName||'—')}</b>${srcLabel ? ' ('+srcLabel+')' : ''}.`);
+      : `<b>${esc(assignedByName||'—')}</b> assigned this to <b>${esc(assignedToName||'—')}</b>${srcLabel ? ' ('+srcLabel+')' : ''}.`) + datesNow);
 
   if(t.overAllocated){
     push(t.overAllocated.at, '⚡', `<b>${esc(t.overAllocated.byName||assignedByName||'—')}</b> assigned this over capacity — ${t.overAllocated.overBy}h beyond what ${esc(assignedToName||'they')} could fit by ${fmtDate(t.overAllocated.dueDate)} (only ${t.overAllocated.roomAtAssign}h was free). Counts as extra hours.`);
@@ -13314,11 +13402,11 @@ function taskTimelineEvents(t){
 
   if(t.acceptedAt) push(t.acceptedAt, '✅', `<b>${esc(assignedToName||'—')}</b> accepted it.`);
 
-  (t.holdHistory||[]).forEach(h => {
+  (t.holdHistory||[]).forEach((h, hi, holds) => {
     const lbl = (HOLD_REASONS[h.reasonCode]||{}).label;
     const ex = (HOLD_REASONS[h.reasonCode]||{}).exempting ? ' — client clock paused' : '';
     push(h.heldAt, '⏸', `<b>${esc(h.by||assignedToName||'—')}</b> put it on hold${lbl ? ': ' + esc(lbl) : ''}${ex}${h.reason && h.reason !== lbl ? ' — “'+esc(h.reason)+'”' : ''}${h.hasShot ? ' (screenshot)' : ''}.`);
-    if(h.resumedAt) push(h.resumedAt, '▶', `Taken off hold.`);
+    if(h.resumedAt) push(h.resumedTs || h.resumedAt, '▶', `Taken off hold.`, '', h.resumedTs ? '' : nextHoldCap(holds, hi, h.resumedAt));
   });
   (t.dateHistory||[]).forEach(h => {
     const bits = [];
@@ -13333,26 +13421,57 @@ function taskTimelineEvents(t){
     if(h.added){ push(h.at, '⏱', `<b>${esc(h.by||'—')}</b> added ${Number(h.added).toFixed(2)}h of time spent while on hold — now ${Number(h.to).toFixed(1)}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`); return; }
     push(h.at, '🛠', `<b>${esc(h.by||'—')}</b> corrected the logged hours — ${Number(h.from).toFixed(1)}h → ${Number(h.to).toFixed(1)}h${h.note ? ' (“'+esc(h.note)+'”)' : ''}.`);
   });
+  (t.reviewerHistory||[]).forEach(h => {
+    push(h.at, '🔀', `<b>${esc(h.byName || nm(h.by) || '—')}</b> changed the reviewer from <b>${esc(nm(h.from) || '—')}</b> to <b>${esc(nm(h.to) || '—')}</b>${h.via === 'resubmit' ? ' while resubmitting the corrected work' : ''}${h.reason ? ' — “' + esc(h.reason) + '”' : ''}.`);
+  });
   (t.nameHistory||[]).forEach(h => {
     push(h.at, '✏', `<b>${esc(h.by||'—')}</b> renamed it — “${esc(h.from)}” → “${esc(h.to)}”.`);
   });
   (t.queries||[]).forEach(q => {
-    push(q.sentAt, '❓', `Query to the client raised (${esc(q.source)})${q.note ? ': “'+esc(q.note)+'”' : ''} — commitment clock frozen.`);
-    if(q.replyAt) push(q.replyAt, '📨', `Client replied${q.replySource ? ' by ' + esc(q.replySource) : ''} — freeze ends.`);
-    if(q.resumedAt) push(q.resumedAt.slice(0,10), '▶', `Work resumed after the query.`);
+    // The query was raised the moment the task went on hold for it — that hold has the exact time. Backdated or older queries show the day only.
+    const holdOf = (t.holdHistory || []).find(h => h.queryId === q.id), sentStamp = q.sentTs || (holdOf && holdOf.heldAt && dayOf(holdOf.heldAt) === String(q.sentAt).slice(0, 10) ? holdOf.heldAt : String(q.sentAt).slice(0, 10));
+    const via = (q.source && q.source !== 'manual') ? ' (via ' + ({ email:'email', phone:'phone', whatsapp:'WhatsApp', in_person:'in person' }[q.source] || esc(q.source)) + ')' : '';
+    const kind = ({ CLIENT_QUERY:['❓', 'Query to the client raised' + via, 'Client replied', ' — freeze ends.'], CLIENT_DOCS:['📂', 'Documents requested from the client' + via, 'Client sent the documents', ' — freeze ends.'], THIRD_PARTY:['🏛', 'Waiting on IRD / bank / a third party', 'The third party responded', ' — freeze ends.'] })[q.reasonCode] || ['❓', 'Client wait started', 'Client replied', ' — freeze ends.'];
+    if(q.dismissedAt){
+      push(sentStamp, '⚪', 'Put on hold and recorded as a client wait' + via + ' — <b>later dismissed: it was not a real client query</b>. No commitment-date freeze applies.' + (q.dismissedReason ? ' <span style="color:var(--text-faint);">(' + esc(q.dismissedReason) + ')</span>' : ''));
+      return;
+    }
+    push(sentStamp, kind[0], kind[1] + (q.note ? ': “'+esc(q.note)+'”' : '') + ' — commitment clock frozen.');
+    const holds = t.holdHistory || [], hi = holds.indexOf(holdOf);
+    const capFor = (ts, day) => (ts || hi < 0) ? '' : nextHoldCap(holds, hi, day);
+    if(q.replyAt) push(q.replyTs || String(q.replyAt).slice(0, 10), '📨', kind[2] + (q.replySource ? ' by ' + esc(q.replySource) : '') + kind[3], '', capFor(q.replyTs, q.replyAt));
+    if(q.resumedAt) push(q.resumedTs || q.resumedAt.slice(0,10), '▶', 'Work resumed after the wait.', '', capFor(q.resumedTs, q.resumedAt));
   });
 
   (t.reworkHistory||[]).forEach(h => {
     if(h.startedAt) push(h.startedAt, '⚠', `Sent back for rework (round ${h.round||'?'})${h.faultType ? ' — ' + (h.faultType === 'processor' ? 'processor fault' : h.faultType === 'other' ? 'other cause' : 'SOP / manager fault') : ''}${h.reviewNote ? ': “'+esc(h.reviewNote)+'”' : ''}.`,
       (h.attachments || []).length ? `<div class="trail-files">${downloadListHtml(h.attachments)}</div>` : '');
-    if(h.endedAt) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
+    if(h.endedAt && !(t.submissions || []).some(x => x.kind === 'resubmit' && x.at === h.endedAt)) push(h.endedAt, '🔁', `<b>${esc(assignedToName||'—')}</b> resubmitted the fix${h.durationHours ? ' ('+h.durationHours.toFixed(1)+' h in rework)' : ''}.`);
   });
 
-  if(t.completedAt){
+  const effInternal = t.effectiveInternalDate || t.internalDeadline || null;
+  const internalNote = (whenIso, first) => {
+    if(!effInternal) return '';
+    const due = `Internal commitment <b>${fmtDate(effInternal)}</b>${effInternal !== t.internalDeadline && t.internalDeadline ? ' <span style="color:var(--text-faint);">(' + fmtDate(t.internalDeadline) + ' + client-query wait)</span>' : ''}`;
+    if(!first) return ' ' + due + '.';
+    const day = dayOf(whenIso), late = day > effInternal;
+    return ' ' + due + ' — <b style="color:' + (late ? '#C2410C' : 'var(--teal)') + ';">' + (late ? 'submitted after it' : 'submitted on time') + '</b>.';
+  };
+  if((t.submissions || []).length){
+    t.submissions.forEach((x, i) => {
+      const who = '<b>' + esc(nm(x.byId) || assignedToName || '—') + '</b>', rv = x.reviewerId ? '<b>' + esc(nm(x.reviewerId) || '—') + '</b>' : null;
+      const first = i === 0 && x.kind !== 'reopened';
+      if(x.kind === 'done') push(x.at, '🏁', who + ' marked it done — no review needed.' + internalNote(x.at, first));
+      else if(x.kind === 'direct_profit') push(x.at, '📤', who + ' sent it straight for profit confirmation.' + internalNote(x.at, first));
+      else if(x.kind === 'resubmit') push(x.at, '🔁', who + ' sent the corrected work back to ' + (rv || 'the reviewer') + ' for re-review (correction ' + (x.round || 1) + ').');
+      else if(x.kind === 'reopened') push(x.at, '🔄', who + ' re-opened it and sent it to ' + (rv || 'a reviewer') + ' for re-review.');
+      else push(x.at, '📤', who + ' sent it to ' + (rv || 'the reviewer') + ' for review.' + internalNote(x.at, first));
+    });
+  } else if(t.completedAt){
     if(t.reviewStatus === 'done'){
       push(t.closedAt || t.completedAt, '🏁', `<b>${esc(nm(t.closedBy)||assignedToName||'—')}</b> marked it done — no review needed.`);
     } else {
-      push(t.completedAt, '📤', `<b>${esc(assignedToName||'—')}</b> marked it complete${t.reviewerId ? ' and sent it to <b>'+esc(nm(t.reviewerId)||'—')+'</b> to review' : ' for review'}.`);
+      push(t.completedAt, '📤', `<b>${esc(assignedToName||'—')}</b> marked it complete${t.reviewerId ? ' and sent it to <b>'+esc(nm(t.reviewerId)||'—')+'</b> to review' : ' for review'}.` + internalNote(t.completedAt, !(t.reworkCount > 0)));
     }
   }
 
@@ -13385,7 +13504,8 @@ function taskTimelineEvents(t){
         : `<b>${esc(nm(t.sentToClientBy)||'—')}</b> decided not to send it to the client.`);
   }
 
-  ev.sort((a,b) => (a.at||'').localeCompare(b.at||''));
+  const sortKey = e => { const a = e.at || ''; if(a.length !== 10) return a; return e.cap ? new Date(new Date(e.cap).getTime() - 1).toISOString() : a + 'T23:59:59Z'; };   // a day-only event sorts to the end of its day — but before a later hold raised that same day
+  ev.sort((a,b) => sortKey(a).localeCompare(sortKey(b)));
   return { ev, dt, nm };
 }
 // Every task list runs NEWEST first — the latest-assigned task on top (task numbers rise with every new task, so they break ties).
@@ -13438,6 +13558,41 @@ function notConvertedSubHtml(p){
   return bits.join(' · ');
 }
 /* ---------------- Data quality report (superadmin, read-only) ---------------- */
+let _qa = null, _qaShowAll = false;
+async function openQueryAudit(){
+  document.getElementById('modalBox').innerHTML = '<h3>Client-query audit</h3><div class="td-empty">Checking every task…</div>'; openModal();
+  try { _qa = await api('/api/admin/query-audit'); } catch(e){ document.getElementById('modalBox').innerHTML = '<h3>Client-query audit</h3><div class="modal-error" style="display:block;" role="alert">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>'; return; }
+  drawQueryAudit();
+}
+function drawQueryAudit(){
+  const r = _qa, rows = r.rows.filter(x => !x.dismissedAt && (_qaShowAll || x.suspect));
+  const fmt = iso => iso ? fmtStamp(iso) : '—';
+  const body = rows.map(x => '<tr><td data-l="Pick"><input type="checkbox" class="qaPick" data-t="' + esc(x.taskId) + '" data-q="' + esc(x.queryId) + '"' + (x.suspect ? ' checked' : '') + ' aria-label="Dismiss this query"></td>'
+    + '<td data-l="Task"><b>' + esc(x.taskName) + '</b><div class="tm-sub">' + esc(x.clientName || '—') + ' · ' + esc(x.assigneeName || '—') + '</div></td>'
+    + '<td data-l="Recorded as">' + esc(x.reasonLabel) + '<div class="tm-sub">' + esc(x.source || '') + ' · by ' + esc(x.raisedBy || '—') + '</div></td>'
+    + '<td data-l="When">' + esc(fmt(x.sentTs || x.sentAt)) + '</td>'
+    + '<td data-l="Detail typed">' + (x.typedDetail ? esc(x.typedDetail) : '<span style="color:var(--coral);">none</span>') + '</td>'
+    + '<td data-l="Reply logged">' + (x.replyAt ? esc(fmtDate(x.replyAt)) : '<span style="color:var(--coral);">no</span>') + '</td>'
+    + '<td data-l="Days it moved the date">' + x.shiftDays + '</td></tr>').join('');
+  document.getElementById('modalBox').innerHTML = '<h3>Client-query audit</h3>'
+    + '<div class="modal-sub">' + r.total + ' client-wait records · <b>' + r.suspect + '</b> look like they were never a real query · ' + r.dismissed + ' already dismissed · together they moved commitment dates by ' + r.daysGranted + ' working day' + (r.daysGranted === 1 ? '' : 's') + '.</div>'
+    + '<div style="font-size:13px;color:var(--text-dim);margin:4px 0 8px;">The Hold box used to start on “Awaiting client answer to a query”, so a hold put on for another reason could be recorded as a query. A query with <b>no detail</b> and <b>no reply logged</b> is most likely that. Untick any that were real.</div>'
+    + '<label style="font-size:13px;display:flex;gap:6px;align-items:center;margin:0 0 8px;"><input type="checkbox" id="qaAll"' + (_qaShowAll ? ' checked' : '') + ' onchange="_qaShowAll = this.checked; drawQueryAudit()"> Show every client-wait record, not only the suspicious ones</label>'
+    + (rows.length ? '<div class="tm-scroll" style="max-height:44vh;overflow:auto;"><table class="tm-table"><thead><tr><th></th><th>Task</th><th>Recorded as</th><th>When</th><th>Detail typed</th><th>Reply logged</th><th>Days it moved the date</th></tr></thead><tbody>' + body + '</tbody></table></div>' : '<div class="td-empty">Nothing to review.</div>')
+    + '<div class="field" style="margin-top:10px;"><label for="qaReason">Reason (kept on each task)</label><input id="qaReason" value="Hold was recorded as a client query by default — no query was raised"></div>'
+    + '<div class="modal-error" id="qaErr" role="alert"></div>'
+    + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button>' + (rows.length ? '<button class="btn primary" onclick="dismissQueries()">Dismiss the ticked ones</button>' : '') + '</div>';
+}
+async function dismissQueries(){
+  const items = [...document.querySelectorAll('.qaPick:checked')].map(c => ({ taskId: c.dataset.t, queryId: c.dataset.q })), err = document.getElementById('qaErr');
+  if(!items.length){ err.textContent = 'Tick at least one.'; err.style.display = 'block'; return; }
+  if(!confirm('Dismiss ' + items.length + ' query record' + (items.length === 1 ? '' : 's') + '?\n\nThe commitment dates they moved go back, and each task keeps a note of why. Nothing is deleted.')) return;
+  try {
+    const res = await api('/api/admin/query-audit/dismiss', { method:'POST', body: JSON.stringify({ items, reason: document.getElementById('qaReason').value }) });
+    showToast('success', 'Dismissed', res.dismissed + ' query record' + (res.dismissed === 1 ? '' : 's') + ' — commitment dates recalculated.');
+    await refreshTasks(); openQueryAudit();
+  } catch(e){ err.textContent = e.message; err.style.display = 'block'; }
+}
 const DQ_LABEL = { duplicate_user:'Possible duplicate people', system_or_test_user:'Test / shared logins', hr_in_productivity:'HR login in Productivity', missing_client:'Client Task with no client', fake_client_value:'Placeholder client name', wrong_classification:'Client / Admin mixed up', zero_allocated_hours:'Zero or missing hours', missing_internal_due:'No internal due date', email_in_title:'Email address in a title', phone_in_title:'Phone number in a title', possible_misspelling:'Possible misspelling', duplicate_task_type:'Duplicate task types' };
 async function openDataQuality(){
   document.getElementById('modalBox').innerHTML = '<h3>Data quality</h3><div class="td-empty">Checking…</div>'; openModal();
@@ -13470,7 +13625,8 @@ function openTaskTrailModal(id){
       </div>
     </div>`).join('');
 
-  const stateNow = (t.reviewStatus === 'clean' || t.reviewStatus === 'done') ? 'Done'
+  const stateNow = t.status === 'on_hold' ? 'On hold' + (t.reviewStatus === 'error' ? ' (correction pending)' : '')
+    : (t.reviewStatus === 'clean' || t.reviewStatus === 'done') ? 'Done'
     : t.reviewStatus === 'error' ? 'In rework' : statusLabel(t.status);
   document.getElementById('modalBox').innerHTML = `
     <h3>Task history — ${esc(t.name)}</h3>
@@ -13580,11 +13736,12 @@ function openReworkDetailModal(id){
       <div style="margin-top:6px;"><b style="color:#7A2A0C;">What was wrong:</b><br>${t.reviewNote ? esc(t.reviewNote) : 'No notes recorded.'}</div>
       ${t.reviewScore != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Score given:</b> ${t.reviewScore}/100</div>` : ''}
       ${t.reviewMarks ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Marks:</b> ${t.reviewMarks > 0 ? '+' : ''}${t.reviewMarks}</div>` : ''}
-      ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Time in rework so far:</b> ${fmtHrsMins(t.reworkElapsedHours)}</div>` : ''}
+      ${t.reworkElapsedHours != null ? `<div style="margin-top:6px;"><b style="color:#7A2A0C;">Working time on this correction:</b> ${fmtHrsMins(t.reworkElapsedHours)} <span style="color:var(--text-faint);font-size:12px;">— counts only while your timer is running, not while on hold or paused</span></div>` : ''}
       ${t.correction ? `<div style="margin-top:8px;">${t.correction.category ? `<b style="color:#7A2A0C;">Correction category:</b> ${esc(t.correction.category)} · ` : ''}<b style="color:#7A2A0C;">Due:</b> ${esc(fmtDate(t.correction.dueDate))}</div>` : ''}
       ${(t.reviewAttachments || []).length ? `<div style="margin-top:10px;"><b style="color:#7A2A0C;">Attached by the reviewer:</b>${reviewFilesByRoundHtml(t)}</div>` : ''}
       ${t.hasReviewScreenshot ? `<div id="reviewShotHolder" style="margin-top:10px;"><span style="color:#7A2A0C;font-size:12px;">Loading screenshot…</span></div>` : ''}
     </div>
+    <div class="field" style="margin-bottom:10px;"><label for="rsReviewer">Send for re-review to</label><select id="rsReviewer">${reviewerOptionsHtml(t, t.reviewerId)}</select></div>
     <p style="font-size:13.5px; color:var(--text-dim); line-height:1.6; margin-bottom:16px;">Fix the issue above, then resubmit — this puts it back in front of a reviewer and the completion date used for commitment tracking will be updated to when you resubmit.</p>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -13600,12 +13757,14 @@ function openReworkDetailModal(id){
   }
 }
 async function submitResubmit(id){
+  const t = findTask(id), sel = document.getElementById('rsReviewer'), body = {};
+  if(sel && sel.value && t && sel.value !== t.reviewerId) body.reviewerId = sel.value;     // only when a different reviewer was chosen
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/resubmit`, { method:'POST' });
+    await api(`/api/tasks/${encodeURIComponent(id)}/resubmit`, { method:'POST', body: JSON.stringify(body) });
     closeModal();
     await refreshTasks();
     await refreshActivity({ silent: true });
-    showToast('success', 'Resubmitted', 'Sent back for re-review.');
+    showToast('success', 'Resubmitted', body.reviewerId ? 'Sent for re-review to ' + ((empById(body.reviewerId) || {}).name || 'the new reviewer') + '.' : 'Sent back for re-review.');
   } catch(e){
     showToast('error', 'Could not resubmit', e.message);
   }
@@ -14557,6 +14716,7 @@ async function onLoginComplete(){
   // the HR log, the employee directory, the Slack space, Command Center, or
   // the firm analytics engines.
   document.getElementById('adminNavItem').style.display = isSuperAdmin ? '' : 'none';
+  { const q = document.getElementById('qaNavItem'); if(q) q.style.display = isSuperAdmin ? '' : 'none'; }
   document.getElementById('employeesNavSection').style.display = isSuperAdmin ? '' : 'none';
   document.getElementById('attendanceNavSection').style.display = isSuperAdmin ? '' : 'none';
   // Founder View — actual founder(s) only (Manage Access → Founder), not
@@ -14640,6 +14800,7 @@ function logoutSession(){
   stopPolicyCompliancePolling(); policyGateOpen=false; policyAdminWarningShown=false;
   if(clockInterval){ clearInterval(clockInterval); clockInterval = null; }
   document.getElementById('adminNavItem').style.display = 'none';
+  { const q = document.getElementById('qaNavItem'); if(q) q.style.display = 'none'; }
   document.getElementById('employeesNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
