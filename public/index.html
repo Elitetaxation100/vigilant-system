@@ -291,6 +291,8 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .td-colhead{ display:grid; grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); gap:8px; align-items:center; padding:7px 12px; background:var(--purple-dim); color:var(--purple); font-weight:800; font-size:12px; letter-spacing:.04em; text-transform:uppercase; border-top:1px solid var(--panel-border); border-bottom:1px solid var(--panel-border); }
 .td-list .td-row{ grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); }
 .td-row .tr-name, .td-row .tr-work, .td-row .tr-who, .td-row .tr-st, .td-row .tr-link{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
+.mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
 .td-row .tr-name{ font-weight:700; } .td-row .tr-work{ color:var(--text); } .td-row .tr-who{ font-size:13px; color:var(--text); } .td-row .tr-st{ font-size:12px; color:var(--text-dim); }
 .td-row .tr-date{ display:flex; gap:6px; align-items:center; text-align:left; font-size:12.5px; color:var(--text); white-space:nowrap; min-width:0; }
@@ -1309,6 +1311,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
       <button type="button" class="nv2-new" onclick="openNewTask()">＋ New Task</button>
       <div class="nv2-label">Work</div>
       <div class="nav-item" data-view="today" onclick="showView('today', this)"><span class="nav-icon">◉</span> Today</div>
+      <div class="nav-item v2-emp" data-view="mytasks" style="display:none;" onclick="showView('mytasks', this)"><span class="nav-icon">✓</span> My Tasks</div>
       <div class="nav-item v2-mgr" data-view="mtasks" onclick="showView('mtasks', this)"><span class="nav-icon">✓</span> Tasks</div>
       <div class="nav-item" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadgeV2" style="display:none;"></span></div>
       <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
@@ -1420,6 +1423,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
       <!-- ===================== TODAY (v2) ===================== -->
       <section class="view" id="view-team"><div id="tmRoot"></div></section>
   <section class="view" id="view-mtasks"><div id="mtRoot"></div></section>
+  <section class="view" id="view-mytasks"><div id="mkRoot"></div></section>
   <section class="view" id="view-today"><div id="tdRoot" aria-live="polite"></div></section>
 
       <!-- ===================== DASHBOARD VIEW ===================== -->
@@ -3489,6 +3493,7 @@ const titles = {
   today: ['Today', 'What needs you now, what is waiting on others, and what you finished'],
   team: ['My Team', 'Who has what, who is stuck, and what needs a manager'],
   mtasks: ['Tasks', 'Every task in your team — filter, page, calendar and timeline'],
+  mytasks: ['My tasks', 'Everything assigned to you — to do, on hold, with a reviewer and finished'],
   dashboard: ['My Dashboard', 'Your work, your numbers, your commitments'],
   tasks: ['Tasks', 'My Tasks, Team Tasks and All Tasks — with saved filters, recurring tasks, and Recently Removed'],
   reviews: ['Reviews', 'Everything waiting on you — the ones most at risk of missing the client date come first'],
@@ -4718,6 +4723,7 @@ function showView(id, el, classic){
   mtMenuClose();
   // v2 managers: Tasks means the new list; the classic list stays one click away. Manager-only views fall back to Today.
   if(id === 'tasks' && v2Manager() && !classic){ id = 'mtasks'; el = document.querySelector('#navV2 .nav-item[data-view="mtasks"]'); }
+  if(id === 'mytasks' && !(session && session.dashboardV2 && !isAdmin)){ id = (session && session.dashboardV2) ? 'today' : 'dashboard'; el = document.querySelector('.nav-item[data-view="' + id + '"]'); }
   if((id === 'team' || id === 'mtasks') && !v2Manager()){ id = (session && session.dashboardV2) ? 'today' : 'dashboard'; el = document.querySelector('.nav-item[data-view="' + id + '"]'); }
   // hard gate — these screens are superadmin-only (nav is hidden too, this
   // catches a stale link or a programmatic call)
@@ -4746,6 +4752,7 @@ function showView(id, el, classic){
   if(id === 'today') renderToday();
   if(id === 'team') renderTeamView();
   if(id === 'mtasks') renderMTasks();
+  if(id === 'mytasks') renderMyTasks();
   if(id === 'dashboard'){ renderTaskTable(); refreshToday(); }
   if(id === 'tasks') renderTasksPage(true);
   if(id === 'reviews') renderReviewsView();
@@ -7782,6 +7789,7 @@ function applyDashboardV2(){
   document.body.classList.toggle('v2-dash', on);
   const n = document.getElementById('todayNavItem'); if(n) n.style.display = on ? '' : 'none';
   document.querySelectorAll('#navV2 .v2-mgr').forEach(x => x.style.display = (on && isAdmin) ? '' : 'none');
+  document.querySelectorAll('#navV2 .v2-emp').forEach(x => x.style.display = (on && !isAdmin) ? '' : 'none');   // processors get their own Tasks page; managers have the team Tasks page
   const ag = document.getElementById('v2AdminGroup'); if(ag) ag.style.display = (on && isSuperAdmin) ? '' : 'none';
 }
 // Choose the right layout AS SOON AS we know who signed in — before the (slow) data loads — so nobody sees the old layout while they wait.
@@ -7819,15 +7827,16 @@ function linkCellHtml(c){
 const colHeadHtml = dateLabel => '<div class="td-colhead" aria-hidden="true"><span>Name</span><span>Work</span><span>Processor</span><span>Status</span><span>' + dateLabel + '</span><span>Link</span></div>';
 const TD_COLHEAD = colHeadHtml('Client commitment date');
 // One slim line per task: Name | Work | Processor | Status | Client commitment date (+ risk) | Link. The detail panel opens on click.
-function tdCardHtml(id, note){
-  const c = _today.cards[id]; if(!c) return '';
+function tdCardHtml(id, note, cardArg, pickFn, selId){
+  const c = cardArg || (_today && _today.cards[id]); if(!c) return '';
+  const pk = pickFn || 'tdSelect', cur = selId !== undefined ? selId : _tdSel;
   const when = c.clientDate ? fmtDate(c.clientDate) : (c.internalDeadline ? 'Due ' + fmtDate(c.internalDeadline) : '—');
   const processor = c.assigneeName || (c.waitingOn && c.waitingOn.ownerName) || '—';   // the processor = who did / sent the work
   const tip = (note ? note + ' · ' : '') + c.status + (c.subState ? ' · ' + c.subState : '') + ' — ' + c.waitingOn.label + (c.waitingOn.ownerName ? ' (' + c.waitingOn.ownerName + ')' : '') + ' → ' + c.nextAction;
   const sid = esc(id);
-  return '<div class="td-card td-row' + (_tdSel === id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();tdSelect(\'' + sid + '\');}" title="' + esc(tip) + '" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status + '. ' + tip) + '">'
+  return '<div class="td-card td-row' + (cur === id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="' + pk + '(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();' + pk + '(\'' + sid + '\');}" title="' + esc(tip) + '" aria-label="' + esc((c.clientName || 'Admin task') + ' — ' + c.name + ' — ' + c.status + '. ' + tip) + '">'
     + '<span class="tr-name">' + esc(c.clientName || 'Admin task') + '</span>'
-    + '<span class="tr-work"><button type="button" class="tr-open" data-id="' + sid + '" aria-label="Open ' + esc(c.name) + ' for ' + esc(c.clientName || 'admin task') + ', ' + esc(c.primaryStatus || c.status) + '" onclick="event.stopPropagation(); tdSelect(this.dataset.id)">' + esc(c.name) + '</button></span>'
+    + '<span class="tr-work"><button type="button" class="tr-open" data-id="' + sid + '" aria-label="Open ' + esc(c.name) + ' for ' + esc(c.clientName || 'admin task') + ', ' + esc(c.primaryStatus || c.status) + '" onclick="event.stopPropagation(); ' + pk + '(this.dataset.id)">' + esc(c.name) + '</button></span>'
     + '<span class="tr-who">' + esc(processor) + '</span>'
     + '<span class="tr-st">' + esc(c.primaryStatus || c.status) + (c.hold ? '<span class="tm-sub" style="display:block;">Held ' + esc(c.hold.ageText) + (c.hold.waitingOnPerson ? ' · ' + esc(c.hold.waitingOnPerson) : '') + (c.hold.responsibilityPaused ? ' · responsibility paused' : '') + '</span>' : '') + '</span>'
     + '<span class="tr-date"><span class="tr-dt">' + esc(when) + '</span>' + tdRiskTag(c) + '</span>'
@@ -7952,7 +7961,8 @@ function procStripHtml(){
     + part('fix needed', hrs(tile('p_fix')), 'Allocated hours of corrections returned to you')
     + part('on hold', hrs([...tile('p_waiting'), ...tile('p_ready')]), 'Allocated hours of your tasks on hold (waiting on others or ready to resume)')
     + part('sent for review', hrs(tile('p_sent')), 'Allocated hours of your work waiting for a reviewer')
-    + '<span style="color:var(--text-faint);">Allocated hours are the estimate agreed for each task — not time spent, and not your capacity.</span></div>';
+    + '<span style="color:var(--text-faint);">Allocated hours are the estimate agreed for each task — not time spent, and not your capacity.</span>'
+    + '<button type="button" class="btn small" style="margin-left:auto;" onclick="showView(\'mytasks\', document.querySelector(\'#navV2 .nav-item[data-view=mytasks]\'))">All my tasks →</button></div>';
 }
 function tdDrawBody(){
   const body = document.getElementById('tdBody'); if(!body || !_today) return;
@@ -8018,7 +8028,7 @@ function tdPrimary(id){
   if(c.waitingOn.kind === 'employee' && c.waitingOn.ownerId && c.waitingOn.ownerId !== currentViewerId) return btn('Nudge ' + esc((c.waitingOn.ownerName || '').split(' ')[0]), "nudgeTask('" + esc(id) + "')");
   return '';
 }
-function tdDetailHtml(id, given){
+function tdDetailHtml(id, given, actionable){
   if(!id || !(given || (_today && _today.cards[id]))) return '<div class="td-empty" style="padding:30px 10px;">Nothing to show here — no task matches the tile and filters you chose.</div>';
   const c = given || _today.cards[id], t = findTask(id);
   const dt = fmtStamp;
@@ -8067,7 +8077,7 @@ function tdDetailHtml(id, given){
   ].join('');
   const prim = given ? '' : tdPrimary(id);
   // Work assigned to ME: every action that belongs to it — accept, start, mark done, send for review, hold / client query, resume, dates
-  const mineOpen = !given && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
+  const mineOpen = (!given || actionable) && t && t.assignedTo === currentViewerId && t.status !== 'completed' && t.status !== 'pending_approval';
   const mgrBtns = (mode === 'manager' && !given) ? ['reassign|Reassign', 'change_due|Edit dates', 'change_reviewer|Change reviewer'].map(x => { const [k, l] = x.split('|'); return '<button type="button" class="btn td-act" onclick="mtAction(\'' + k + '\',\'' + esc(id) + '\')">' + l + '</button>'; }).join('') : '';
   // Order: actions (Open review / Full history) → My actions → Links → attachments + latest note → People / Dates / Work
   body += '<div class="td-sticky" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px;">' + prim + stateBtns + mgrBtns + (iCanChangeReviewer(t) ? '<button type="button" class="btn td-act" onclick="openChangeReviewerModal(\'' + esc(id) + '\')" title="Send this to a different reviewer">Change reviewer</button>' : '') + (iCanSendForReview(t) ? '<button type="button" class="btn td-act" onclick="openSendForReviewModal(\'' + esc(id) + '\')" title="Re-open this job and send it for review again (e.g. closed by mistake)">Reopen for re-review</button>' : '') + '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(id) + '\')">Full history</button></div>'
@@ -8085,6 +8095,77 @@ function tdDetailHtml(id, given){
       : '<div class="td-empty">No recorded events yet.</div>');
   return body;
 }
+
+/* =========================================================================
+   MY TASKS — every task assigned to the signed-in person, current and finished. Filtered and paged on the server (which only ever returns
+   the caller's own tasks). The same list rows and the same task panel as the dashboard, so a task looks and acts the same everywhere.
+   ========================================================================= */
+const MK_ORDER = ['New / Awaiting Acceptance', 'To Do', 'In Progress', 'Fix Needed', 'On Hold', 'Ready to Resume', 'Sent for Review', 'Reviewed Clean', 'Ready to Send', 'Report Sent', 'Completed'];
+let _mk = { q: '', primary: '', client: '', due: '', sort: 'newest', page: 1, pageSize: 25, sel: null }, _mkData = null, _mkSeq = 0;
+function mkQuery(){
+  const p = new URLSearchParams();
+  [['q', _mk.q.trim()], ['primary', _mk.primary], ['client', _mk.client], ['due', _mk.due], ['sort', _mk.sort], ['page', _mk.page], ['pageSize', _mk.pageSize]].forEach(([k, v]) => { if(v) p.set(k, v); });
+  return p.toString();
+}
+async function renderMyTasks(){
+  const box = document.getElementById('mkRoot'); if(!box) return;
+  if(!box.dataset.built){
+    box.dataset.built = '1';
+    box.innerHTML = '<div class="tm-head"><h2 class="td-greet">My tasks</h2><div class="td-date">Every task assigned to you — to do, on hold, with a reviewer and finished.</div></div>'
+      + '<div class="flt-bar" role="group" aria-label="Filters">'
+      + '<label class="flt-q"><span class="sr-only">Search</span><input type="search" id="mkQ" placeholder="Search client, task or number…" oninput="mkSet(\'q\', this.value, true)"></label>'
+      + '<label class="flt-f"><span>Client</span><select id="mkClient" onchange="mkSet(\'client\', this.value)"><option value="">All clients</option></select></label>'
+      + '<label class="flt-f"><span>Internal due</span><select id="mkDue" onchange="mkSet(\'due\', this.value)"><option value="">Any date</option><option value="overdue">Overdue</option><option value="today">Today</option><option value="week">Next 7 days</option></select></label>'
+      + '<label class="flt-f"><span>Sort by</span><select id="mkSort" onchange="mkSet(\'sort\', this.value)"><option value="newest">Newest first</option><option value="internal">Internal due date</option><option value="client">Client commitment date</option><option value="risk">Client risk</option><option value="hours">Allocated hours</option></select></label>'
+      + '<button type="button" class="btn" onclick="mkClear()">Clear</button></div>'
+      + '<div id="mkBody" aria-live="polite"></div>';
+  }
+  await mkLoad();
+}
+let _mkTimer = null;
+function mkSet(k, v, debounce){
+  _mk[k] = v; _mk.page = 1; _mk.sel = null;
+  clearTimeout(_mkTimer);
+  if(debounce) _mkTimer = setTimeout(mkLoad, 250); else mkLoad();
+}
+function mkClear(){ _mk = { q: '', primary: '', client: '', due: '', sort: 'newest', page: 1, pageSize: _mk.pageSize, sel: null }; ['mkQ', 'mkClient', 'mkDue'].forEach(i => { const e = document.getElementById(i); if(e) e.value = ''; }); const s = document.getElementById('mkSort'); if(s) s.value = 'newest'; mkLoad(); }
+async function mkLoad(){
+  const body = document.getElementById('mkBody'); if(!body) return;
+  const seq = ++_mkSeq;                                       // the latest filter wins
+  if(!_mkData) body.innerHTML = '<div class="td-empty" role="status">Loading your tasks…</div>';
+  else { const l = document.getElementById('mkList'); if(l) l.style.opacity = '.55'; }
+  let data;
+  try { data = await api('/api/workflow/my-tasks?' + mkQuery()); }
+  catch(e){ if(seq === _mkSeq) body.innerHTML = '<div class="td-empty" role="alert">Could not load your tasks: ' + esc(e.message) + ' <button type="button" class="btn small td-act" onclick="mkLoad()">Retry</button></div>'; return; }
+  if(seq !== _mkSeq) return;
+  _mkData = data; mkDraw();
+}
+function mkDraw(){
+  const D = _mkData, body = document.getElementById('mkBody'); if(!D || !body) return;
+  const sel = document.getElementById('mkClient'); if(sel && sel.options.length <= 1){ sel.innerHTML = '<option value="">All clients</option>' + D.facets.clients.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join(''); sel.value = _mk.client; }
+  const chip = (k, label, n) => '<button type="button" class="mk-chip' + (_mk.primary === k ? ' on' : '') + '" aria-pressed="' + (_mk.primary === k) + '" onclick="mkSet(\'primary\', \'' + esc(k) + '\')"><b>' + n + '</b> ' + esc(label) + '</button>';
+  const chips = chip('', 'All', D.all) + MK_ORDER.filter(k => D.counts[k]).map(k => chip(k, k, D.counts[k])).join('');
+  const pager = D.pages > 1 ? '<div class="mk-pager"><button type="button" class="btn small" ' + (D.page <= 1 ? 'disabled' : '') + ' onclick="_mk.page--; _mk.sel = null; mkLoad()">← Previous</button> <span>Page ' + D.page + ' of ' + D.pages + '</span> <button type="button" class="btn small" ' + (D.page >= D.pages ? 'disabled' : '') + ' onclick="_mk.page++; _mk.sel = null; mkLoad()">Next →</button></div>' : '';
+  const head = '<div class="td-sec"><span>' + (_mk.primary ? esc(_mk.primary) : 'All my tasks') + '</span><span>' + D.total + (D.total === D.all ? '' : ' of ' + D.all) + '</span></div>';
+  const rows = D.rows.map(r => tdCardHtml(r.id, '', r, 'mkSelect', _mk.sel)).join('');
+  body.innerHTML = '<div id="mkChipsInner" class="mk-chips" role="group" aria-label="Filter by status">' + chips + '</div>'
+    + '<div class="td-grid' + (_mk.sel ? ' has-sel' : '') + '" id="mkGrid"><div class="td-list" id="mkList" role="list">' + head + (D.rows.length ? TD_COLHEAD + rows + pager : '<div class="td-empty">' + (D.all ? 'No tasks match these filters.' : 'No tasks have been assigned to you yet.') + '</div>') + '</div>'
+    + '<div class="td-detail" id="mkDetail" aria-live="polite">' + mkDetailHtml(_mk.sel) + '</div></div>';
+}
+function mkRow(id){ return _mkData && _mkData.rows.find(r => r.id === id); }
+function mkDetailHtml(id){
+  const r = id && mkRow(id);
+  if(!r) return '';
+  return tdDetailHtml(id, r, true).replace('onclick="tdBack()"', 'onclick="mkCloseDetail()"');
+}
+function mkSelect(id){
+  _mk.sel = id;
+  document.querySelectorAll('#mkList .td-card').forEach(b => b.classList.toggle('sel', b.dataset.id === id));
+  const d = document.getElementById('mkDetail'); if(d) d.innerHTML = mkDetailHtml(id);
+  const g = document.getElementById('mkGrid'); if(g){ g.classList.add('has-sel'); g.classList.add('show-detail'); }
+  const h = d && d.querySelector('h3'); if(h){ h.setAttribute('tabindex', '-1'); try { h.focus({ preventScroll: true }); } catch(e){ h.focus(); } }
+}
+function mkCloseDetail(){ _mk.sel = null; mkDraw(); }
 
 /* =========================================================================
    MANAGER VIEWS (v2) — My Team, Needs Manager Attention, the Tasks list (server-side filtered + paginated), Calendar and Timeline.
@@ -8506,7 +8587,7 @@ async function refreshTasks(){
     const unchanged = sig === _tasksSig && (now - _lastFullRender) < 60000;
     tasks = fresh; _tasksSig = sig;
     checkForNewAssignments();
-    if(!unchanged){ renderTaskTable(); _lastFullRender = now; if(todayViewActive()) renderToday(true); if(viewActive('team')) renderTeamView(); if(viewActive('mtasks') && _mt.tab === 'list') mtLoad(); }
+    if(!unchanged){ renderTaskTable(); _lastFullRender = now; if(todayViewActive()) renderToday(true); if(viewActive('team')) renderTeamView(); if(viewActive('mtasks') && _mt.tab === 'list') mtLoad(); if(viewActive('mytasks')) mkLoad(); }
     updateReviewsNavBadge();
   } catch(e){ console.error('Failed to refresh tasks', e); }
   await refreshWorkload();
@@ -11011,7 +11092,7 @@ function productivityCardsHtml(p, opts){
     ${card('Reviewed-clean allocated hours', p.qualifiedHours.toFixed(1)+'h', (p.qualifiedTasks || []).some(r => r.qualifyingEventType === 'admin_completed') ? 'includes completed admin allocated hours' : 'allocated, not time worked')}
     ${card('Eligible capacity hours', p.capacityHours.toFixed(1)+'h', capacitySubHtml(p))}
     ${card('Eligible capacity not yet converted', p.capacityNotConverted.toFixed(1)+'h', notConvertedSubHtml(p))}
-    ${card('Internal Commitment Met', commitmentPct, commitmentSub, p.commitmentPct==null?null:scoreColor(p.commitmentPct))}
+    ${opts.commitOnclick && p.commitmentTasks ? `<button type="button" class="metric-tile" style="text-align:left;cursor:pointer;font:inherit;color:inherit;" onclick="${opts.commitOnclick}" aria-label="Internal commitment met ${esc(commitmentPct)}, ${esc(commitmentSub)}. Show which were not met."><div class="mt-label">Internal commitment met</div><div class="mt-value"${p.commitmentPct==null?'':` style="color:${scoreColor(p.commitmentPct)};"`}>${commitmentPct}</div><div style="font-size:11px;color:var(--text-faint);margin-top:2px;">${esc(commitmentSub)} · <span style="color:var(--purple);font-weight:600;">see which →</span></div></button>` : card('Internal Commitment Met', commitmentPct, commitmentSub, p.commitmentPct==null?null:scoreColor(p.commitmentPct))}
   </div>
   <p style="font-size:12px;color:var(--text-faint);margin:10px 0 0;max-width:70ch;line-height:1.5;">Productivity shows completed allocated hours as a percentage of adjusted capacity. A lower percentage does not automatically mean poor employee performance — capacity not yet converted into completed output may include work still in progress, work awaiting review, or capacity management hasn't allocated. Not an employee penalty.</p>
   ${p.additionalHours>0 ? `<p style="font-size:12px;color:var(--text-dim);margin:6px 0 0;">Raw capacity utilisation: <b>${p.rawUtilisationPct}%</b> — additional qualifying output: <b>${p.additionalHours.toFixed(1)}h</b> beyond the 100% cap.</p>` : ''}
@@ -11127,6 +11208,28 @@ function capacityDaysHtml(p){
     + '<thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);"><th style="padding:5px 6px;">Date</th><th style="padding:5px 6px;">Day</th><th style="padding:5px 6px;text-align:right;">Standard</th><th style="padding:5px 6px;text-align:right;">Leave</th><th style="padding:5px 6px;text-align:right;">Workshop</th><th style="padding:5px 6px;text-align:right;">Weekly off</th><th style="padding:5px 6px;text-align:right;">Other</th><th style="padding:5px 6px;text-align:right;">Final</th><th style="padding:5px 6px;">Reason</th><th style="padding:5px 6px;">Source</th></tr></thead><tbody>'
     + rows.map(r => '<tr style="border-top:1px solid var(--panel-border);' + (r.finalHours === 0 ? 'color:var(--text-faint);' : '') + '"><td style="padding:4px 6px;white-space:nowrap;">' + esc(fmtDate(r.date)) + '</td><td style="padding:4px 6px;">' + esc(r.day) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.standardHours) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.leaveDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.workshopDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.weeklyOffDeduction) + '</td><td style="padding:4px 6px;text-align:right;">' + h(r.otherDeduction) + '</td><td style="padding:4px 6px;text-align:right;font-weight:700;">' + h(r.finalHours) + '</td><td style="padding:4px 6px;">' + esc(r.reason) + '</td><td style="padding:4px 6px;color:var(--text-faint);">' + esc(r.source ? r.source.label : '—') + '</td></tr>').join('')
     + '</tbody><tfoot><tr style="border-top:2px solid var(--panel-border);font-weight:700;"><td colspan="7" style="padding:5px 6px;">Eligible capacity</td><td style="padding:5px 6px;text-align:right;">' + h(sum) + '</td><td colspan="2"></td></tr></tfoot></table></div>';
+}
+// Internal commitment, task by task: which were handed in after their internal date, which are still open past it, and which were met.
+function openCommitmentModal(p){
+  if(!p || !p.commitmentTasks) return;
+  const C = p.commitmentTasks, missed = C.counted.filter(r => !r.met), met = C.counted.filter(r => r.met);
+  const th = t => '<th style="padding:5px 6px;">' + t + '</th>';
+  const note = r => [r.reworkCount ? 'returned ' + r.reworkCount + '×' : '', r.dateChanged ? 'date changed' : '', r.paused ? 'internal date moved by an approved pause' : ''].filter(Boolean).join(' · ');
+  const hist = r => '<button type="button" class="btn small" aria-label="History of ' + esc(r.name) + '" onclick="closeModal(); openTaskTrailModal(\'' + esc(r.id) + '\')">History</button>';
+  const tbl = (rows, cols, cell) => rows.length ? '<div style="overflow-x:auto;max-height:26vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:12.5px;"><thead><tr style="text-align:left;color:var(--text-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0;background:var(--panel);">' + cols.map(th).join('') + '</tr></thead><tbody>' + rows.map(cell).join('') + '</tbody></table></div>' : '<p style="font-size:12.5px;color:var(--text-faint);padding:6px 0;">None.</p>';
+  const td = v => '<td style="padding:5px 6px;">' + v + '</td>';
+  document.getElementById('modalBox').innerHTML = `<div class="calc-modal">
+    <h3>${esc(p.name)} — internal commitment</h3>
+    <div class="modal-sub">${p.commitmentMet} of ${p.commitmentTotal} handed in on or before their internal date${p.commitmentPct == null ? '' : ' · ' + p.commitmentPct + '%'}</div>
+    <div style="font-size:12.5px;color:var(--text-dim);margin:8px 0 0;line-height:1.5;">Judged on the <b>first time</b> the work was handed in, against the internal due date. A reviewer's delay, or a reviewer sending it back, never counts against the processor. This is separate from productivity.</div>
+    <div style="font-size:13px;font-weight:600;margin:14px 0 6px;color:var(--coral);">Not met — handed in after the internal date (${missed.length})</div>
+    ${tbl(missed, ['Client', 'Task', 'Internal due', 'Handed in', 'Late by', 'Notes', ''], r => '<tr style="border-top:1px solid var(--panel-border);">' + td(esc(r.clientName)) + td('<b>' + esc(r.name) + '</b>') + td(esc(fmtDate(r.internalDue))) + td(esc(fmtStamp(r.submittedAt))) + td('<b>' + r.daysLate + ' day' + (r.daysLate === 1 ? '' : 's') + '</b>') + td('<span style="color:var(--text-faint);">' + esc(note(r)) + '</span>') + td(hist(r)) + '</tr>')}
+    <div style="font-size:13px;font-weight:600;margin:16px 0 6px;">Still open and past the internal date (${C.openPastDue.length}) <span style="font-weight:400;color:var(--text-faint);">— not in the percentage yet, because nothing has been handed in</span></div>
+    ${tbl(C.openPastDue, ['Client', 'Task', 'Internal due', 'Overdue by', 'Status', ''], r => '<tr style="border-top:1px solid var(--panel-border);">' + td(esc(r.clientName)) + td('<b>' + esc(r.name) + '</b>') + td(esc(fmtDate(r.internalDue))) + td(r.daysLate + ' day' + (r.daysLate === 1 ? '' : 's')) + td(r.onHold ? 'On hold (a hold does not remove the miss)' : esc(String(r.status).replace('_', ' '))) + td(hist(r)) + '</tr>')}
+    <details style="margin-top:16px;"><summary style="cursor:pointer;font-size:13px;font-weight:600;">Met (${met.length})</summary>
+    ${tbl(met, ['Client', 'Task', 'Internal due', 'Handed in', ''], r => '<tr style="border-top:1px solid var(--panel-border);">' + td(esc(r.clientName)) + td(esc(r.name)) + td(esc(fmtDate(r.internalDue))) + td(esc(fmtStamp(r.submittedAt))) + td(hist(r)) + '</tr>')}</details>
+    <div class="modal-actions" style="margin-top:16px;"><button class="btn" onclick="closeModal()">Close</button></div></div>`;
+  openModal();
 }
 function openProductivityCalcModal(p){
   if(!p) return;
@@ -14080,7 +14183,7 @@ async function renderReportCard(){
   document.getElementById('rcName').textContent = p.name;
   document.getElementById('rcRole').textContent = `${p.jobTitle || emp.jobTitle || 'Team member'} · ${p.team} · ${periodLbl}`;
 
-  document.getElementById('rcCards').innerHTML = productivityCardsHtml(p, { calcOnclick: `openProductivityCalcModal(_rcData.people.find(x=>x.id==='${esc(p.id)}'))` });
+  document.getElementById('rcCards').innerHTML = productivityCardsHtml(p, { calcOnclick: `openProductivityCalcModal(_rcData.people.find(x=>x.id==='${esc(p.id)}'))`, commitOnclick: `openCommitmentModal(_rcData.people.find(x=>x.id==='${esc(p.id)}'))` });
 
   document.getElementById('rcReportSent').innerHTML = `<div class="top-grid">
     <div class="metric-tile"><div class="mt-label">Required</div><div class="mt-value">${p.reportsRequired}</div></div>
