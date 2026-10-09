@@ -84,3 +84,44 @@ test('the new layout is chosen the moment sign-in succeeds — before the slow d
   assert.ok(done.indexOf('landV2Early()') < done.indexOf('await refreshEmployees()'), 'before the first slow load');
   assert.match(html, /_v2Landed = false; applyDashboardV2\(\);/, 'a new sign-in lands again after logout');
 });
+
+test('every task list has bold, coloured column headings in the same order as its rows: Name, Work, Processor, (Status,) Client commitment date, Link', () => {
+  assert.match(html, /const colHeadHtml = dateLabel => [^;]*<span>Name<\/span><span>Work<\/span><span>Processor<\/span><span>Status<\/span><span>' \+ dateLabel \+ '<\/span><span>Link<\/span>/);
+  assert.match(html, /const TD_COLHEAD = colHeadHtml\('Client commitment date'\)/);
+  assert.match(html, /\.td-colhead\{[^}]*background:var\(--purple-dim\);[^}]*color:var\(--purple\);[^}]*font-weight:800/);
+  assert.match(html, /const RQ_HEAD = [^;]*<span>Name<\/span><span>Work<\/span><span>Processor<\/span><span>Client commitment date<\/span><span>Link<\/span>/);
+  assert.match(html, /<thead><tr><th>Name<\/th><th>Work<\/th><th>Processor<\/th><th>Status<\/th><th>Internal due<\/th><th>Client commitment date<\/th><th>Link<\/th>/);
+  assert.match(html, /\.tm-table thead th\{ background:var\(--purple-dim\); color:var\(--purple\); font-weight:800; \}/);
+  const row = html.slice(html.indexOf('function tdCardHtml'), html.indexOf('/* ---------------- One filter bar'));
+  const order = ['tr-name', 'tr-work', 'tr-who', 'tr-st', 'tr-date', 'tr-link'].map(c => row.indexOf('class="' + c + '"') + 0 || row.indexOf('"' + c));
+  assert.ok(order.every((v, i) => v > 0 && (i === 0 || v > order[i - 1])), 'cells are in the same order as the headings');
+  assert.match(row, /<div class="td-card td-row/, 'a row is a div, so the links inside it are real links');
+  assert.match(html, /\.td-list \.td-row\{ grid-template-columns:/, 'headings and rows share one column layout');
+});
+test('the Sheet and Cashbook links are real links that open in a new tab and never trigger the row', () => {
+  const fn = html.slice(html.indexOf('function linkCellHtml'), html.indexOf('const TD_COLHEAD'));
+  assert.match(fn, /target="_blank" rel="noopener noreferrer" onclick="event\.stopPropagation\(\)"/);
+  assert.match(fn, /📎/);
+});
+test('the right-hand panel opens the first task by itself on a computer, never an empty box; a phone keeps a list', () => {
+  assert.match(html, /function tdFirstVisibleId\(\)/);
+  assert.match(html, /if\(!_tdSel && window\.matchMedia\('\(min-width: 901px\)'\)\.matches\)\{ const f = tdFirstVisibleId\(\); if\(f\) _tdSel = f; \}/);
+  assert.doesNotMatch(html, /Select a task on the left to see everything about it here/);
+});
+test('every list has a Processor filter: Today (3 views), Reviews, the Tasks list, Calendar and Timeline', () => {
+  assert.match(html, /<span>Processor<\/span><select id="flt_' \+ ns \+ '_processor"/);
+  assert.match(html, /if\(f\.processor && c\.assigneeId !== f\.processor\) return false;/);
+  assert.match(html, /function fltProcessors\(ns\)/);
+  assert.match(html, /mtSel\('mtf_employee', 'Processor'/);
+  assert.match(html, /sel\('employee', 'Processor'/);
+});
+
+test('the Calendar opens on TODAY and shows only today\'s client commitment dates and today\'s internal due dates', () => {
+  assert.match(html, /let _mtCalView = 'today',/);
+  assert.match(html, /\[\['today', 'Today'\], \['month', 'Month'\], \['week', 'Week'\], \['agenda', 'Agenda'\]\]/);
+  const fn = html.slice(html.indexOf("if(_mtCalView === 'today'){"), html.indexOf("} else if(_mtCalView === 'month'){"));
+  assert.match(fn, /todays = k => ev\.filter\(e => e\.date === today && e\.kind === k\)/);
+  assert.match(fn, /todays\('client'\)/); assert.match(fn, /todays\('internal'\)/);
+  assert.doesNotMatch(fn, /correction|followup/, 'no other kind of date is mixed in');
+  assert.match(fn, /colHeadHtml\(label\)/, 'the same column headings as every other list');
+});

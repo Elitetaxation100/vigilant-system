@@ -162,7 +162,7 @@ function toneFor(r, date, today) {
 }
 function calendarEvents(rows, deps) {
   const out = [], today = deps.today;
-  const push = (r, date, kind, label) => { if (!date) return; out.push({ id: r.id, date, kind, label, name: r.name, clientName: r.clientName, assigneeName: r.assigneeName, status: r.status, tone: toneFor(r, date, today) }); };
+  const push = (r, date, kind, label) => { if (!date) return; out.push({ id: r.id, date, kind, label, name: r.name, clientName: r.clientName, assigneeId: r.assigneeId, assigneeName: r.assigneeName, status: r.status, tone: toneFor(r, date, today), clientDate: r.clientDate, internalDeadline: r.internalDeadline, sheetLink: r.sheetLink || null, cashbookLink: r.cashbookLink || null, hasSheet: !!r.hasSheet, hasCashbook: !!r.hasCashbook }); };
   for (const r of rows) {
     push(r, r.internalDeadline, 'internal', 'Internal due');
     push(r, r.clientDate, 'client', 'Client commitment');
