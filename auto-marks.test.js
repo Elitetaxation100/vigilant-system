@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const am = require('./auto-marks');
 
 /* ---------------- rule 1: acknowledgement ---------------- */
-test('ack: −10 for EVERY call or email left unacknowledged, nothing when all are acknowledged', () => {
-  assert.equal(am.ackDeduction(5, 5), 50);   // five unacknowledged = five lots of 10
-  assert.equal(am.ackDeduction(1, 1), 10);
-  assert.equal(am.ackDeduction(10, 3), 30);
-  assert.equal(am.ackDeduction(40, 1), 10, 'one missed item among many is still −10');
+test('ack: −50 for EVERY call or email left unacknowledged, nothing when all are acknowledged', () => {
+  assert.equal(am.ackDeduction(5, 5), 250);   // five unacknowledged = five lots of 50
+  assert.equal(am.ackDeduction(1, 1), 50);
+  assert.equal(am.ackDeduction(10, 3), 150);
+  assert.equal(am.ackDeduction(40, 1), 50, 'one missed item among many is still −50');
   assert.equal(am.ackDeduction(10, 0), 0);   // all acknowledged
   assert.equal(am.ackDeduction(0, 0), 0);    // nothing came in
 });
@@ -152,13 +152,13 @@ test('a day: emails and calls are judged separately; unowned mailboxes are ignor
   const created = [];
   const r = am.evaluateAckDay(s, '2026-10-12', people, { today: '2026-10-13', onCreated: row => created.push(row) });
   const by = (id, ch) => r.find(x => x.toId === id && x.channel === ch);
-  assert.equal(by('e1', 'emails').marks, 40); assert.equal(by('e1', 'calls'), undefined);
-  assert.equal(by('e2', 'emails').marks, 30); assert.equal(by('e2', 'calls').marks, 40);
+  assert.equal(by('e1', 'emails').marks, 200); assert.equal(by('e1', 'calls'), undefined);
+  assert.equal(by('e2', 'emails').marks, 150); assert.equal(by('e2', 'calls').marks, 200);
   assert.equal(r.filter(x => x.toId === 'e3').length, 0);
   assert.equal(r.filter(x => x.toId === 'mailbox@x').length, 0);
   assert.equal(created.length, 3);
-  assert.deepEqual(s.marks.map(m => [m.toId, m.points]).sort(), [['e1', -40], ['e2', -40], ['e2', -30]].sort());
-  assert.match(s.marks.find(m => m.toId === 'e2' && m.points === -30).reason, /3 of 10 emails on .* not acknowledged \(−10 each\)/);
+  assert.deepEqual(s.marks.map(m => [m.toId, m.points]).sort(), [['e1', -200], ['e2', -200], ['e2', -150]].sort());
+  assert.match(s.marks.find(m => m.toId === 'e2' && m.points === -150).reason, /3 of 10 emails on .* not acknowledged \(−50 each\)/);
 });
 test('a day: running it again never doubles up; a dry run changes nothing', () => {
   const s = { employees: staff, marks: [] };
@@ -221,15 +221,15 @@ test('runDays: switched off, it does not catch up when switched back on', () => 
 test('settings: defaults, validation, and activeFrom stays put', () => {
   const s = {};
   const d = am.settingsOf(s, '2026-10-12');
-  assert.deepEqual(d.points, { ackPerItem: 10, processorLinks: 20, reviewerLinks: 30, reportLate: 10, mailReplyLate: 10 });
-  assert.deepEqual(d.enabled, { acknowledgement: true, links: true, reports: true, mailReply: true });
+  assert.deepEqual(d.points, { ackPerItem: 50, processorLinks: 20, reviewerLinks: 30, reportLate: 250, mailReplyLate: 10, callbackLate: 50, submitLate: 50 });
+  assert.deepEqual(d.enabled, { acknowledgement: true, links: true, reports: true, mailReply: true, callback: true, submitLate: true });
   assert.equal(d.activeFrom, '2026-10-12');
   assert.equal(am.settingsOf(s, '2026-11-01').activeFrom, '2026-10-12');
   am.updateSettings(s, { enabled: { links: false, nonsense: true }, points: { processorLinks: '15', reviewerLinks: -5, ackPerItem: 'abc' }, activeFrom: 'tomorrow' }, '2026-10-12');
   assert.equal(s.autoMarks.settings.enabled.links, false); assert.equal(s.autoMarks.settings.enabled.acknowledgement, true);
   assert.equal(s.autoMarks.settings.points.processorLinks, 15);
   assert.equal(s.autoMarks.settings.points.reviewerLinks, 30, 'a negative number is ignored');
-  assert.equal(s.autoMarks.settings.points.ackPerItem, 10, 'a non-number is ignored');
+  assert.equal(s.autoMarks.settings.points.ackPerItem, 50, 'a non-number is ignored');
   assert.equal(s.autoMarks.settings.activeFrom, '2026-10-12', 'an invalid date is ignored');
 });
 

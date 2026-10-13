@@ -1702,6 +1702,8 @@ function runAutoMarks(reason) {
   const d = autoMarksDeps(state);
   res.mail = autoMarks.evaluateReassignedMail(state, { today: d.today, nowMinutes: d.nowMinutes, cutoffMinutes: d.cutoffMinutes, nzDay: d.nzDay, nzMinutes: d.nzMinutes, isWorkingDay: d.isWorkingDay, workingDayAfter: d.workingDayAfter, skip: d.skip, onCreated: d.onCreated }).filter(r => r.created).length;
   res.created += res.mail;
+  res.callbacks = autoMarks.evaluateCallbacks(state, { today: d.today, nowMinutes: d.nowMinutes, cutoffMinutes: d.cutoffMinutes, nzDay: d.nzDay, nzMinutes: d.nzMinutes, isWorkingDay: d.isWorkingDay, workingDayAfter: d.workingDayAfter, skip: d.skip, onCreated: d.onCreated, responsible: c => responsiblePeopleForCall(state, c) }).filter(r => r.created).length;   // missed calls not called back in time
+  res.created += res.callbacks;
   db.save();
   if (res.created) clog('info', 'automatic marks given', { reason, created: res.created, days: res.days.map(d => d.day) });
   return res;

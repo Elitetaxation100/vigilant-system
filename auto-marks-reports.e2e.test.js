@@ -67,7 +67,7 @@ test('setup: three reports awaiting send, rules started long ago', async () => {
   const client = (await http('POST', '/api/clients', { token: SA, body: { name: 'Reports Ltd', email: 'rp' + Date.now() + '@t.co' } })).j.client;
   for (const n of ['Late report A', 'Late report B', 'On time report', 'Before the rules started', 'Late, sent by Disha']) ids.push((await awaitingSend(n, client)).id);
   const rules = (await http('GET', '/api/auto-marks/rules', { token: RJ })).j;
-  assert.deepEqual(rules.reports, { enabled: true, late: 10 });
+  assert.deepEqual(rules.reports, { enabled: true, late: 250 });
 });
 
 test('make the committed dates past (stop, edit the data file, restart)', async () => {
@@ -88,7 +88,7 @@ test('a late report sent BEFORE any check has run is charged to whoever sends it
   assert.equal((await lateMarks(DI, ids[4])).length, 0);
   assert.equal((await http('POST', `/api/tasks/${enc(ids[4])}/send-to-client`, { token: DI, body: { decision: 'yes' } })).status, 200);
   const m = await lateMarks(DI, ids[4]);
-  assert.equal(m.length, 1); assert.equal(m[0].points, -10); assert.equal(m[0].toId, emp('disha').id, 'charged to the sender, not the original processor');
+  assert.equal(m.length, 1); assert.equal(m[0].points, -250); assert.equal(m[0].toId, emp('disha').id, 'charged to the sender, not the original processor');
   assert.equal((await lateMarks(RJ, ids[4])).length, 0);
 });
 
@@ -96,7 +96,7 @@ test('the daily check charges the person who has the report to send — once —
   const run = await http('POST', '/api/admin/auto-marks/run', { token: SA });
   assert.equal(run.status, 200); assert.ok(run.j.reports >= 2, JSON.stringify(run.j));
   const a = await lateMarks(RJ, ids[0]);
-  assert.equal(a.length, 1); assert.equal(a[0].points, -10); assert.equal(a[0].toId, emp('ranjit').id); assert.equal(a[0].byId, null);
+  assert.equal(a.length, 1); assert.equal(a[0].points, -250); assert.equal(a[0].toId, emp('ranjit').id); assert.equal(a[0].byId, null);
   assert.match(a[0].reason, /report for "Late report A" was not sent to the client by the committed date \(2026-09-20\)/);
   assert.equal((await lateMarks(RJ, ids[2])).length, 0, 'not due yet');
   assert.equal((await lateMarks(RJ, ids[3])).length, 0, 'it was already overdue before the rules started — no retroactive deduction');
@@ -125,5 +125,5 @@ test('switching the rule off stops it', async () => {
   await http('POST', '/api/admin/auto-marks/settings', { token: SA, body: { enabled: { reports: false } } });
   assert.equal((await http('GET', '/api/auto-marks/rules', { token: RJ })).j.reports.enabled, false);
   const log = (await http('GET', '/api/admin/auto-marks', { token: SA })).j;
-  assert.equal(log.settings.enabled.reports, false); assert.equal(log.settings.points.reportLate, 10);
+  assert.equal(log.settings.enabled.reports, false); assert.equal(log.settings.points.reportLate, 250);
 });

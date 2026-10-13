@@ -23,6 +23,7 @@ const workflow = require('./workflow');
 const holdModel = require('./hold-model');
 const mgr = require('./manager-views');
 const founderMetrics = require('./founder-metrics');
+const watch = require('./commitment-watch');
 const crmHealth = require('./crm-health');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
@@ -3048,6 +3049,7 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   t.status = 'completed';
   t.reviewerId = direct ? null : reviewerId;
   t.completedAt = recordSubmission(t, req.employee, direct ? 'direct_profit' : 'review');
+  giveLateSubmissionMark(state, t);
   const linksBefore = snapLinks(t);
   if (sheetLinkN.value !== undefined) t.sheetLink = sheetLinkN.value;
   if (cashbookLinkN.value !== undefined) t.cashbookLink = cashbookLinkN.value;
@@ -3114,6 +3116,7 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed';
   t.completedAt = recordSubmission(t, req.employee, 'done');
+  giveLateSubmissionMark(state, t);
   // 'done' is a terminal review state meaning "closed, no formal review
   // needed" — so the task reads as done, not "sent for review".
   t.reviewStatus = 'done'; t.reviewerId = null; t.awaitingClientDecision = false;
@@ -3465,7 +3468,7 @@ app.post('/api/tasks/:id/send-to-client', requireAuth, (req, res) => {
     t.reportDeliveryStatus = null; // superseded by the sentToClient fact itself
     t.awaitingClientDecision = false;
     giveLinkMarks(state, t, 'reviewer', t.reviewedBy || req.employee.id);
-    giveReportMarks(state, t, req.employee.id);
+    giveReportMarks(state, t, req.employee.id, { reportStage: true });
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}" was sent directly to the client by <b>${escHtml(req.employee.name)}</b>${channel ? ' (' + channel + ')' : ''}.`);
     managersOfEmployee(state, t.assignedTo).forEach(m => {
       logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml(findEmployee(state, t.assignedTo)?.name || '—')}</b> was sent directly to the client.`);
@@ -3560,6 +3563,7 @@ app.post('/api/tasks/:id/profit-confirm/done', requireAuth, (req, res) => {
   t.profitConfirmStatus = 'confirmed';
   t.profitConfirmAt = new Date().toISOString();
   t.profitConfirmBy = req.employee.id;
+  t.readyForReportAt = t.profitConfirmAt;             // stage timestamp: marked ready for report (profit confirmed)
   t.awaitingClientDecision = true;
   const sendTo = t.reportSendOwner || t.assignedTo;
   if (sendTo) {
@@ -3635,6 +3639,7 @@ function applyReturnToProcessor(state, t, actor, processor) {
   processor = sender;
   t.reportSendOwner = processor.id;
   t.reportReturnedAt = new Date().toISOString();
+  t.readyForReportAt = t.reportReturnedAt;           // stage timestamp: marked ready for report
   t.reportReturnedBy = actor.id;
   giveLinkMarks(state, t, 'reviewer', t.reviewedBy || actor.id);
   logEvent(state, processor.id, `<b>${escHtml(actor.name)}</b> reviewed "${escHtml(t.name)}" — it's clean and needs no profit confirmation. Please send the report to the client.`);
@@ -3733,6 +3738,7 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
       t.awaitingClientDecision = isClient;
       if (isClient) t.reportSendOwner = t.reportSenderId || t.assignedTo;
       logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
+      if (!isClient || t.reportRequired === false) notify(state, t.assignedTo, 'reviewed', `${me.name} reviewed "${t.name}" — it is approved and finished.`, t.id);
       managersOfEmployee(state, t.assignedTo).forEach(m => logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml((assignee || {}).name || '—')}</b> was reviewed clean by <b>${escHtml(me.name)}</b>.`));
       if (isClient && t.reportRequired === false) {
         // "No report needed" was decided when the task was created — it is closed, not left waiting to be sent.
@@ -4001,30 +4007,66 @@ function giveLinkMarks(state, t, who, reviewerId) {
 }
 // A client report that has not gone out by the committed date (query-aware, so a
 // client query that froze the clock is respected) costs whoever is sending it.
-function giveReportMarks(state, t, toId) {
+function giveReportMarks(state, t, toId, opts) {
   const s = autoMarks.settingsOf(state, todayISO());
   if (!s.enabled.reports || !toId) return null;
   const committed = effectiveClientDate(t);
-  if (!autoMarks.reportIsLate(committed, todayISO(), s.activeFrom)) return null;
+  // A report already waiting to be sent has been judged since the rules started; work that had not even reached the report stage is only judged
+  // from the day the commitment-breach amount came in, so nothing older is suddenly charged.
+  const from = (opts && opts.reportStage) || t.awaitingClientDecision ? s.activeFrom : (s.scaleFrom && s.scaleFrom > s.activeFrom ? s.scaleFrom : s.activeFrom);
+  if (!autoMarks.reportIsLate(committed, todayISO(), from)) return null;
+  // ONE commitment breach per task — never again for a later rework round, and never on top of the earlier per-round marks (voided ones count too).
+  if ((state.marks || []).some(m => m.autoKey && m.autoKey.startsWith(`report:${t.id}:`))) return null;
   const row = autoMarks.createAutoMark(state, {
     toId, points: s.points.reportLate, type: 'auto_report_late', key: `report:${t.id}:${t.reworkCount || 0}`, taskId: t.id,
-    reason: `Automatic: the report for "${t.name}" was not sent to the client by the committed date (${committed})`,
+    reason: `Automatic: client commitment breach — the report for "${t.name}" was not sent to the client by the committed date (${committed})`,
   });
   if (row) announceAutoMark(state, row);
   return row;
 }
-// Run by the daily job: every report still waiting to be sent, past its date.
+// Run by the daily job: every client task whose commitment date has passed and whose report has not gone out. The mark goes to whoever owns the
+// next action (the report sender, the reviewer, the processor…), exactly as the workflow card says.
 function sweepReportDeadlines(state) {
   let n = 0;
+  const deps = workflowDeps(state, { id: '_sweep', accessRole: 'superadmin', name: 'System' });
   (state.tasks || []).forEach(t => {
-    if (t.awaitingClientDecision && t.kind !== 'internal' && giveReportMarks(state, t, t.reportSendOwner || t.assignedTo)) n++;
+    if (t.kind === 'internal' && !t.clientId) return;
+    if (t.awaitingClientDecision) { if (giveReportMarks(state, t, t.reportSendOwner || t.assignedTo, { reportStage: true })) n++; return; }
+    const b = watch.breachOf(t, workflow.card(t, deps), deps);
+    if (b && giveReportMarks(state, t, b.ownerId)) n++;
   });
   return n;
+}
+// WORK SUBMITTED LATE: the first hand-in after the (query-shifted) internal due date, or a correction handed back after its correction date when the
+// correction was the employee's own responsibility. Judged once per hand-in, from the day the rule started. −50 by default.
+function giveLateSubmissionMark(state, t) {
+  const s = autoMarks.settingsOf(state, todayISO());
+  if (!s.enabled.submitLate) return null;
+  const subs = t.submissions || [], sub = subs[subs.length - 1];
+  if (!sub || sub.invalid || !sub.byId || !sub.at) return null;
+  const day = nzDay(sub.at);
+  if (!s.ruleFrom.submitLate || day < s.ruleFrom.submitLate) return null;
+  let due = null, what = 'handed in';
+  if (sub.kind === 'resubmit') {
+    if (!t.correction || t.correction.responsibility !== 'Employee') return null;       // a manager's / reviewer's / client's fault is not the processor's miss
+    due = t.correction.dueDate; what = 'corrected';
+  } else if (['review', 'direct_profit', 'done'].includes(sub.kind)) {
+    if (subs.some((x, i) => i < subs.length - 1 && !x.invalid && ['review', 'direct_profit', 'done'].includes(x.kind))) return null;   // only the FIRST valid hand-in
+    due = workflow.internalDueOf(t, { queryShiftDays: taskShiftDays, addWorkingDays: cal.addWorkingDays });
+  } else return null;
+  if (!due || day <= due) return null;
+  const late = Math.max(1, workflow.daysBetween(due, day));
+  const row = autoMarks.createAutoMark(state, {
+    toId: sub.byId, points: s.points.submitLate, type: 'auto_submit_late', key: `latework:${t.id}:${subs.length}`, taskId: t.id, at: sub.at,
+    reason: `Automatic: "${t.name}" was ${what} ${late} day${late === 1 ? '' : 's'} after its due date (${due})`,
+  });
+  if (row) announceAutoMark(state, row);
+  return row;
 }
 // What everyone is told up front (the Mark Complete and review screens quote these numbers).
 app.get('/api/auto-marks/rules', requireAuth, (req, res) => {
   const s = autoMarks.settingsOf(db.get(), todayISO());
-  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, perItem: s.points.ackPerItem }, reports: { enabled: s.enabled.reports, late: s.points.reportLate }, mailReply: { enabled: s.enabled.mailReply, late: s.points.mailReplyLate } });
+  res.json({ links: { enabled: s.enabled.links, processor: s.points.processorLinks, reviewer: s.points.reviewerLinks }, acknowledgement: { enabled: s.enabled.acknowledgement, perItem: s.points.ackPerItem }, reports: { enabled: s.enabled.reports, late: s.points.reportLate }, mailReply: { enabled: s.enabled.mailReply, late: s.points.mailReplyLate }, callback: { enabled: s.enabled.callback, late: s.points.callbackLate }, submitLate: { enabled: s.enabled.submitLate, late: s.points.submitLate } });
 });
 app.get('/api/admin/auto-marks', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
@@ -4040,7 +4082,7 @@ app.post('/api/admin/auto-marks/settings', requireAuth, (req, res) => {
   if (req.employee.accessRole !== 'superadmin') return res.status(403).json({ error: 'Superadmin access required.' });
   const state = db.get();
   const s = autoMarks.updateSettings(state, req.body, todayISO());
-  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}, late reports ${s.enabled.reports ? 'on' : 'off'}, reassigned-mail replies ${s.enabled.mailReply ? 'on' : 'off'}; ack −${s.points.ackPerItem} per call/email, links −${s.points.processorLinks}/−${s.points.reviewerLinks}, late report −${s.points.reportLate}, unreplied reassigned mail −${s.points.mailReplyLate}).`);
+  logEvent(state, req.employee.id, `Changed the automatic marks settings (acknowledgement ${s.enabled.acknowledgement ? 'on' : 'off'}, links ${s.enabled.links ? 'on' : 'off'}, late reports ${s.enabled.reports ? 'on' : 'off'}, reassigned-mail replies ${s.enabled.mailReply ? 'on' : 'off'}; ack −${s.points.ackPerItem} per call/email, links −${s.points.processorLinks}/−${s.points.reviewerLinks}, late report −${s.points.reportLate}, unreplied reassigned mail −${s.points.mailReplyLate}, late callback −${s.points.callbackLate}, work submitted late −${s.points.submitLate}).`);
   db.save();
   res.json({ settings: s });
 });
@@ -4322,6 +4364,7 @@ app.post('/api/tasks/:id/resubmit', requireAuth, async (req, res) => {
   t.reworkStartedAt = null; t.reworkLoggedAtStart = null;
   t.status = 'completed';
   t.completedAt = recordSubmission(t, req.employee, 'resubmit', endedAt);
+  giveLateSubmissionMark(state, t);
   t.reviewStatus = null;
   t.reviewedBy = null;
   t.reviewedAt = null;
@@ -6668,7 +6711,7 @@ app.post('/api/admin/workflow-settings', requireAuth, requireSuperAdmin, (req, r
 // resolved automatically — the notification drops out of the inbox — as soon as the problem is gone. A problem that comes back
 // after being resolved is a new episode and is raised again.
 // ---------------------------------------------------------------------------
-const ALERT_TYPES = new Set(['blocked_long', 'followup_due', 'report_unsent', 'profit_overdue', 'repeated_return', 'no_review_attempt', 'missing_reviewer']);
+const ALERT_TYPES = new Set(['not_submitted', 'review_not_done', 'no_update', 'commitment_breach', 'blocked_long', 'followup_due', 'report_unsent', 'profit_overdue', 'repeated_return', 'no_review_attempt', 'missing_reviewer']);
 function alertRecipients(state, type, t, exceptId) {
   const to = new Set();
   const founders = state.employees.filter(e => e.accessRole === 'superadmin' && !e.accessDisabled);
@@ -6676,6 +6719,9 @@ function alertRecipients(state, type, t, exceptId) {
   if (t.assignedBy) { const a = findEmployee(state, t.assignedBy); if (a && isAdminRole(a.accessRole)) to.add(a.id); }
   if (type === 'followup_due' && t.assignedTo) to.add(t.assignedTo);
   if (type === 'report_unsent') { to.add(t.reportSendOwner || t.assignedTo); }
+  if (type === 'not_submitted' || type === 'no_update') { to.add(t.assignedTo); }
+  if (type === 'review_not_done') { to.add(t.reviewerId || t.assignedReviewerId); }
+  if (type === 'commitment_breach') { to.add(t.reportSendOwner || t.assignedTo); state.employees.filter(e => e.accessRole === 'superadmin' && !e.accessDisabled).forEach(f => to.add(f.id)); }
   if (type === 'profit_overdue') { const po = profitConfirmOwner(state, t); if (po) to.add(po.id); founders.forEach(f => to.add(f.id)); }
   if (!t.assignedTo) founders.forEach(f => to.add(f.id));
   to.delete(exceptId); to.delete(null); to.delete(undefined);
@@ -6698,6 +6744,15 @@ function sweepManagerAlerts(state) {
   // A missing reviewer only alerts once the internal due date is within two working days — before it is, it stays on the exceptions list.
   const soon = cal.addWorkingDays(deps.today, 2);
   const found = mgr.exceptions(rows, byId, { today: deps.today, nowMs: deps.nowMs }).filter(a => ALERT_TYPES.has(a.type) && (a.type !== 'missing_reviewer' || ((byId[a.id] || {}).internalDeadline || '9999') <= soon));
+  // Commitment watch: late / at-risk flags and breaches. Only for dates on/after the day the rules started — nothing older floods the inbox.
+  const wFrom = (autoMarks.settingsOf(state, deps.today).ruleFrom || {}).submitLate || deps.today;
+  for (const t of state.tasks) {
+    if (t.deletedAt) continue;
+    const c = workflow.card(t, deps), nm = { clientName: t.clientName || (t.kind === 'internal' ? 'Admin task' : ''), name: t.name, assigneeName: deps.nameOf(t.assignedTo) };
+    watch.flagsOf(t, c, deps).forEach(f => { if (f.code === 'no_update' && f.tone === 'late') return; if (f.date && f.date >= wFrom) found.push({ type: f.code, id: t.id, label: f.label, detail: f.detail, ...nm }); });
+    const b = watch.breachOf(t, c, deps);
+    if (b && b.commitmentDate >= wFrom) { byId[t.id] = t; found.push({ type: 'commitment_breach', id: t.id, label: 'Client commitment breached', detail: 'Committed ' + b.commitmentDate + ' — ' + b.daysOver + (b.daysOver === 1 ? ' day' : ' days') + ' over, report not sent' + (b.waitingOn ? ' (' + b.waitingOn + ')' : ''), ...nm }); }
+  }
   const open = new Set();
   let raised = 0, resolved = 0;
   for (const a of found) {
@@ -6718,6 +6773,64 @@ if (process.env.NODE_ENV !== 'test') {
   setInterval(() => { try { sweepManagerAlerts(db.get()); } catch (e) { console.error('[alerts] sweep failed:', e && e.message); } }, 30 * 60 * 1000).unref();
   setTimeout(() => { try { sweepManagerAlerts(db.get()); } catch (e) { /* first sweep is best-effort */ } }, 60 * 1000).unref();
 }
+
+// ---------------------------------------------------------------------------
+// COMMITMENT WATCH — the stage timestamps of a task, its late / at-risk flags, and the client commitment breach list. Read-only, scoped by role
+// (an employee sees their own work, a manager their team's, the founder everyone's). The pure rules live in commitment-watch.js.
+// ---------------------------------------------------------------------------
+function watchRowOf(state, t, c, deps) {
+  const st = Object.fromEntries(watch.stageTimeline(t, deps).map(x => [x.key, x]));
+  const flags = watch.flagsOf(t, c, deps), breach = watch.breachOf(t, c, deps);
+  return { t, c, flags, breach, st };
+}
+function commitmentWatch(state, me, opts) {
+  const deps = workflowDeps(state, me), nm = id => deps.nameOf(id) || '';
+  const only = opts && opts.ids ? new Set(opts.ids) : null;
+  const flagged = [], breaches = [];
+  for (const t of visibleTasks(state, me)) {
+    if (t.deletedAt || (only && !only.has(t.id))) continue;
+    const c = workflow.card(t, deps), r = watchRowOf(state, t, c, deps);
+    const base = {
+      id: t.id, name: t.name, clientName: t.clientName || (t.kind === 'internal' ? 'Admin task' : ''), status: c.status, processor: nm(t.assignedTo), processorId: t.assignedTo || null,
+      reviewer: nm(t.reviewerId || t.assignedReviewerId), internalDue: workflow.internalDueOf(t, deps) || null, commitmentDate: t.clientDate || null,
+      waitingOn: (c.waitingOn || {}).label || null, owner: nm((c.waitingOn || {}).ownerId),
+      submittedAt: r.st.submitted.at, reviewedAt: r.st.reviewed.at, sentBackAt: r.st.sent_back.at, readyForReportAt: r.st.ready_for_report.at, reportSentAt: r.st.report_sent.at,
+    };
+    if (r.breach) breaches.push({ ...base, daysOver: r.breach.daysOver, stage: r.breach.stage, flags: r.flags.map(f => f.code) });
+    if (r.flags.length) flagged.push({ ...base, flags: r.flags.map(f => ({ code: f.code, tone: f.tone, label: f.label, detail: f.detail })) });
+  }
+  const byDue = (a, b) => String(a.commitmentDate || a.internalDue || '').localeCompare(String(b.commitmentDate || b.internalDue || ''));
+  breaches.sort((a, b) => b.daysOver - a.daysOver || byDue(a, b));
+  flagged.sort((a, b) => (b.flags.some(f => f.tone === 'late') ? 1 : 0) - (a.flags.some(f => f.tone === 'late') ? 1 : 0) || byDue(a, b));
+  return { today: deps.today, breaches, flagged };
+}
+app.get('/api/commitment-watch', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const out = commitmentWatch(state, me);
+  if (req.query.format === 'csv') {
+    const kind = req.query.kind === 'flags' ? 'flags' : 'breaches', list = kind === 'flags' ? out.flagged : out.breaches;
+    const head = kind === 'flags' ? ['Task', 'Client', 'Processor', 'Reviewer', 'Status', 'Internal due', 'Commitment date', 'Flags', 'Submitted', 'Reviewed', 'Sent back', 'Ready for report', 'Report sent']
+      : ['Task', 'Client', 'Processor', 'Reviewer', 'Status', 'Commitment date', 'Days over', 'Waiting on', 'Next action owner', 'Submitted', 'Reviewed', 'Sent back', 'Ready for report', 'Report sent'];
+    const rows = list.map(r => kind === 'flags'
+      ? [r.name, r.clientName, r.processor, r.reviewer, r.status, r.internalDue || '', r.commitmentDate || '', r.flags.map(f => f.label).join(' · '), r.submittedAt || '', r.reviewedAt || '', r.sentBackAt || '', r.readyForReportAt || '', r.reportSentAt || '']
+      : [r.name, r.clientName, r.processor, r.reviewer, r.status, r.commitmentDate || '', r.daysOver, r.waitingOn || '', r.owner || '', r.submittedAt || '', r.reviewedAt || '', r.sentBackAt || '', r.readyForReportAt || '', r.reportSentAt || '']);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + (kind === 'flags' ? 'late-and-at-risk-' : 'commitment-breaches-') + out.today + '.csv"');
+    return res.send(founderMetrics.toCsv(head, rows));
+  }
+  res.json({ ...out, rules: { breachMarks: autoMarks.settingsOf(state, todayISO()).points.reportLate } });
+});
+app.get('/api/tasks/:id/watch', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const t = visibleTasks(state, me).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const deps = workflowDeps(state, me), c = workflow.card(t, deps);
+  const nm = id => deps.nameOf(id) || null;
+  res.json({
+    stages: watch.stageTimeline(t, deps).map(x => ({ ...x, byName: nm(x.byId) })),
+    flags: watch.flagsOf(t, c, deps), breach: watch.breachOf(t, c, deps), lastUpdateAt: watch.lastUpdateAt(t),
+  });
+});
 
 // The reporting measures — each one separate (see manager-views.js measures).
 app.get('/api/workflow/measures', requireAuth, requireAdmin, (req, res) => {
