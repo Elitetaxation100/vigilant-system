@@ -291,6 +291,15 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .td-colhead{ display:grid; grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); gap:8px; align-items:center; padding:7px 12px; background:var(--purple-dim); color:var(--purple); font-weight:800; font-size:12px; letter-spacing:.04em; text-transform:uppercase; border-top:1px solid var(--panel-border); border-bottom:1px solid var(--panel-border); }
 .td-list .td-row{ grid-template-columns:minmax(90px,1fr) minmax(100px,1.1fr) minmax(80px,.8fr) minmax(74px,.6fr) minmax(130px,1.1fr) minmax(84px,.7fr); }
 .td-row .tr-name, .td-row .tr-work, .td-row .tr-who, .td-row .tr-st, .td-row .tr-link{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cw-flags{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 4px; } .cw-flag{ font-size:12px; font-weight:600; padding:3px 9px; border-radius:999px; background:var(--panel-border); color:var(--text); }
+.cw-flag.cw-late{ background:var(--coral-dim); color:var(--coral); } .cw-flag.cw-risk{ background:var(--amber-dim); color:var(--amber); }
+.cw-breach{ margin:10px 0 4px; padding:9px 12px; border-radius:8px; background:var(--coral-dim); color:var(--coral); font-size:13px; }
+.cw-stages{ margin:10px 0 2px; border:1px solid var(--panel-border); border-radius:10px; overflow:hidden; } .cw-stage{ display:grid; grid-template-columns:170px 1fr; gap:2px 12px; padding:7px 12px; font-size:13px; border-top:1px solid var(--panel-border); } .cw-stage:first-child{ border-top:0; }
+.cw-stage-name{ font-weight:600; } .cw-stage-by{ grid-column:2; font-size:12px; color:var(--text-dim); } .cw-stage-by:empty{ display:none; } .cw-stage.empty .cw-stage-name{ color:var(--text-dim); font-weight:500; }
+.cw-none{ color:var(--text-faint); font-size:12px; } .cw-tabs{ display:flex; gap:8px; margin:12px 0 6px; flex-wrap:wrap; } .cw-tab{ font:inherit; font-size:13px; padding:6px 12px; border-radius:8px; border:1px solid var(--panel-border); background:transparent; color:var(--text); cursor:pointer; } .cw-tab.on{ background:var(--purple-dim); color:var(--purple); border-color:var(--purple); font-weight:600; }
+.cw-help{ font-size:12.5px; color:var(--text-dim); margin:4px 0 8px; } .cw-empty{ padding:22px 8px; text-align:center; color:var(--text-dim); font-size:13.5px; } .cw-scroll{ max-height:52vh; overflow:auto; border:1px solid var(--panel-border); border-radius:10px; }
+.cw-table{ width:100%; border-collapse:collapse; font-size:13px; } .cw-table th{ text-align:left; padding:7px 10px; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-dim); position:sticky; top:0; background:var(--panel); } .cw-table td{ padding:8px 10px; border-top:1px solid var(--panel-border); vertical-align:top; }
+.cw-row{ cursor:pointer; } .cw-row:hover, .cw-row:focus-visible{ background:var(--purple-dim); outline:none; } .cw-sub{ font-size:12px; color:var(--text-dim); } .cw-late-text{ color:var(--coral); } .cw-times{ font-size:12px; color:var(--text-dim); white-space:nowrap; }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -580,6 +589,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
   .mg-tile.active{ border-color:var(--purple); box-shadow:var(--glow); }
   #modalOverlay:has(.tasklist-modal) .modal-box{ max-width:780px; }
   #modalOverlay:has(.calc-modal) .modal-box{ max-width:900px; }
+  #modalOverlay:has(.cw-modal) .modal-box{ max-width:980px; }
   .tasklist-modal table{ width:100%; border-collapse:collapse; font-size:13px; }
   .tasklist-modal th{ text-align:left; padding:7px 10px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); border-bottom:1px solid var(--panel-border); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .tasklist-modal td{ padding:8px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; overflow:hidden; }
@@ -1325,6 +1335,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
       <details class="nav-drop" id="v2PerfGroup">
         <summary class="nav-item"><span class="nav-icon">◈</span> Performance <span style="margin-left:auto;">▾</span></summary>
         <div class="nav-item nav-sub" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> My Performance</div>
+        <div class="nav-item nav-sub" id="cwNavItemV2" onclick="openCommitmentWatch()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openCommitmentWatch(); }"><span class="nav-icon">⚑</span> Commitment watch</div>
         <div class="nav-item nav-sub" data-view="kudos" onclick="showView('kudos', this)"><span class="nav-icon">🏆</span> Kudos · Points · Marks</div>
       </details>
       <details class="nav-drop" id="v2AdminGroup" style="display:none;margin-top:10px;">
@@ -1357,6 +1368,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
       <details class="nav-drop" id="perfNavGroup">
         <summary class="nav-item nav-sub"><span class="nav-icon">▾</span> Performance</summary>
         <div class="nav-item nav-sub" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
+        <div class="nav-item nav-sub" id="cwNavItem" onclick="openCommitmentWatch()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openCommitmentWatch(); }"><span class="nav-icon">⚑</span> Commitment watch</div>
         <div class="nav-item nav-sub" data-view="kudos" onclick="showView('kudos', this)"><span class="nav-icon">🏆</span> Recognition</div>
       </details>
       <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
@@ -3644,7 +3656,7 @@ async function renderAutoMarksPanel(){
   try { d = await api('/api/admin/auto-marks'); }
   catch(e){ panel.innerHTML = `<div style="color:var(--coral);padding:10px;">${esc(e.message)}</div>`; return; }
   const s = d.settings, p = s.points;
-  const num = (id, v) => `<input type="number" id="${id}" min="0" max="100" step="1" value="${v}" style="width:70px;">`;
+  const num = (id, v) => `<input type="number" id="${id}" min="0" max="1000" step="1" value="${v}" style="width:80px;">`;
   const rows = d.recent.map(m => `<tr${m.voidedAt ? ' style="opacity:.55;"' : ''}>
       <td style="white-space:nowrap;color:var(--text-faint);">${fmtDate(dayOf(m.createdAt))}</td>
       <td>${esc(m.toName)}</td><td style="color:var(--coral);font-weight:700;${m.voidedAt ? 'text-decoration:line-through;' : ''}">${m.points}</td>
@@ -3657,7 +3669,9 @@ async function renderAutoMarksPanel(){
       The system deducts marks by itself. Each one is a normal mark (the person and their manager see it, it counts in the totals) and you can void any of them.<br>
       <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: <b>−${p.ackPerItem} for every call or email not acknowledged</b>. Judged at <b>6:45 pm NZ the same day</b> — when the daily Calls &amp; Email report goes to the admins — on exactly what that report counts; leave, holidays and workshop days are skipped.<br>
       <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). GST work needs only the Sheet — a missing Cashbook is never marked. Admin Tasks never need links.<br>
-      <b>Reports</b> — a client report not sent to the client by its committed date (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever is sending it, once per task. Only dates after “Starts from” count.<br>
+      <b>Client commitment breach</b> — the committed date has passed and the report has not been sent (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever owns the next step (the processor, the reviewer or the report sender), once per task. Only dates after “Starts from” count.<br>
+      <b>Work submitted late</b> — the first hand-in after the internal due date (or a correction handed back after its correction date, when the correction was the employee's own) → <b>−${p.submitLate}</b> to the person who handed it in, once per hand-in.<br>
+      <b>Late callback</b> — a missed or voicemail call must be called back <b>the same working day before 6:45 pm NZ</b> (the next working day if it came in later or on a day off). A later outbound call, or an answered call, from the same number counts as the callback; handled calls (outcome logged, made a task, no action) never count. Otherwise <b>−${p.callbackLate}</b> to each person the call was routed to, once per call.<br>
       <b>Reassigned mail</b> — a mail reassigned to someone must be replied to (or marked “no reply needed”) <b>the same working day, before the daily Calls &amp; Email report goes to the admins (6:45 pm NZ)</b>; handed over after that report, or on a day off, it is due before the next working day's report. Otherwise <b>−${p.mailReplyLate}</b> to that person, once per hand-off. Leave days push the deadline on. The mail shows on their dashboard until it is handled.
     </div></details>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">
@@ -3665,10 +3679,12 @@ async function renderAutoMarksPanel(){
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnLinks" ${s.enabled.links ? 'checked' : ''}> Missing links</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnReports" ${s.enabled.reports ? 'checked' : ''}> Report not sent on time</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnMail" ${s.enabled.mailReply ? 'checked' : ''}> Reassigned mail not replied</label>
+      <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnCallback" ${s.enabled.callback ? 'checked' : ''}> Late callback</label>
+      <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnSubmit" ${s.enabled.submitLate ? 'checked' : ''}> Work submitted late</label>
     </div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:13px;margin-bottom:10px;">
       <span>Per call / email not acknowledged ${num('amAckItem', p.ackPerItem)}</span>
-      <span>Processor links ${num('amProc', p.processorLinks)}</span><span>Reviewer links ${num('amRev', p.reviewerLinks)}</span><span>Late report ${num('amLate', p.reportLate)}</span><span>Unreplied mail ${num('amMail', p.mailReplyLate)}</span>
+      <span>Processor links ${num('amProc', p.processorLinks)}</span><span>Reviewer links ${num('amRev', p.reviewerLinks)}</span><span>Commitment breach ${num('amLate', p.reportLate)}</span><span>Unreplied mail ${num('amMail', p.mailReplyLate)}</span><span>Late callback ${num('amCallback', p.callbackLate)}</span><span>Submitted late ${num('amSubmit', p.submitLate)}</span>
       <span>Starts from <input type="date" id="amFrom" value="${esc(s.activeFrom || '')}"></span>
       <button class="btn small primary" onclick="saveAutoMarks()">Save</button>
     </div>
@@ -3686,8 +3702,8 @@ async function saveAutoMarks(){
   const n = id => Number(document.getElementById(id).value);
   try {
     await api('/api/admin/auto-marks/settings', { method:'POST', body: JSON.stringify({
-      enabled: { acknowledgement: document.getElementById('amOnAck').checked, links: document.getElementById('amOnLinks').checked, reports: document.getElementById('amOnReports').checked, mailReply: document.getElementById('amOnMail').checked },
-      points: { ackPerItem: n('amAckItem'), processorLinks: n('amProc'), reviewerLinks: n('amRev'), reportLate: n('amLate'), mailReplyLate: n('amMail') },
+      enabled: { acknowledgement: document.getElementById('amOnAck').checked, links: document.getElementById('amOnLinks').checked, reports: document.getElementById('amOnReports').checked, mailReply: document.getElementById('amOnMail').checked, callback: document.getElementById('amOnCallback').checked, submitLate: document.getElementById('amOnSubmit').checked },
+      points: { ackPerItem: n('amAckItem'), processorLinks: n('amProc'), reviewerLinks: n('amRev'), reportLate: n('amLate'), mailReplyLate: n('amMail'), callbackLate: n('amCallback'), submitLate: n('amSubmit') },
       activeFrom: document.getElementById('amFrom').value || undefined }) });
     showToast('success', 'Saved', 'Automatic marks settings updated.');
     await loadAutoRules();
@@ -8166,6 +8182,62 @@ function mkSelect(id){
   const h = d && d.querySelector('h3'); if(h){ h.setAttribute('tabindex', '-1'); try { h.focus({ preventScroll: true }); } catch(e){ h.focus(); } }
 }
 function mkCloseDetail(){ _mk.sel = null; mkDraw(); }
+
+/* =========================================================================
+   COMMITMENT WATCH — stage timestamps on a task, late / at-risk flags, and the client commitment breach list
+   ========================================================================= */
+const CW_TONE = { late: 'cw-late', at_risk: 'cw-risk' };
+function cwStamp(iso){ return iso ? esc(fmtStamp(iso)) : '<span class="cw-none" title="Nothing recorded for this stage">—</span>'; }
+async function cwLoadTaskWatch(id){
+  try {
+    const d = await api('/api/tasks/' + encodeURIComponent(id) + '/watch');
+    const el = document.getElementById('ttWatch'); if(!el) return;
+    const flags = (d.flags || []).map(f => '<span class="cw-flag ' + (CW_TONE[f.tone] || '') + '" title="' + esc(f.detail || '') + '">' + esc(f.label) + '</span>').join('');
+    const breach = d.breach ? '<div class="cw-breach" role="alert"><b>Client commitment breached</b> — committed ' + esc(fmtDate(d.breach.commitmentDate)) + ', ' + d.breach.daysOver + (d.breach.daysOver === 1 ? ' day' : ' days') + ' over and the report has not been sent' + (d.breach.waitingOn ? ' (' + esc(d.breach.waitingOn) + ')' : '') + '.</div>' : '';
+    const rows = (d.stages || []).map(x => '<div class="cw-stage' + (x.at ? '' : ' empty') + '"><span class="cw-stage-name">' + esc(x.label) + '</span><span class="cw-stage-at">' + cwStamp(x.at) + (x.at && x.exact === false ? ' <span class="cw-none" title="Worked out from an older record">(approx.)</span>' : '') + '</span><span class="cw-stage-by">' + (x.byName ? esc(x.byName) : '') + (x.note ? (x.byName ? ' · ' : '') + esc(x.note) : '') + '</span></div>').join('');
+    el.innerHTML = breach + (flags ? '<div class="cw-flags">' + flags + '</div>' : '') + '<div class="cw-stages" role="list" aria-label="Stage timestamps">' + rows + '</div>';
+  } catch(e){ /* the history below still works without it */ }
+}
+let _cw = null, _cwTab = 'breaches';
+async function openCommitmentWatch(tab){
+  _cwTab = tab || _cwTab || 'breaches';
+  document.getElementById('modalBox').innerHTML = '<h3>Commitment watch</h3><div class="modal-sub">Loading…</div>';
+  openModal();
+  try { _cw = await api('/api/commitment-watch'); } catch(e){ document.getElementById('modalBox').innerHTML = '<h3>Commitment watch</h3><div class="modal-error" style="display:block;">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>'; return; }
+  drawCommitmentWatch();
+}
+function cwSetTab(t){ _cwTab = t; drawCommitmentWatch(); }
+function drawCommitmentWatch(){
+  const d = _cw; if(!d) return;
+  const list = _cwTab === 'flags' ? d.flagged : d.breaches, CAP = 200;
+  const th = h => '<th>' + h + '</th>';
+  const body = list.slice(0, CAP).map(r => {
+    const flags = _cwTab === 'flags' ? r.flags.map(f => '<span class="cw-flag ' + (CW_TONE[f.tone] || '') + '" title="' + esc(f.detail || '') + '">' + esc(f.label) + '</span>').join(' ')
+      : '<b class="cw-late-text">' + r.daysOver + (r.daysOver === 1 ? ' day' : ' days') + ' over</b>' + (r.waitingOn ? '<div class="cw-sub">' + esc(r.waitingOn) + (r.owner ? ' · ' + esc(r.owner) : '') + '</div>' : '');
+    return '<tr class="cw-row" tabindex="0" role="button" onclick="closeModal();openTaskTrailModal(\'' + esc(r.id) + '\')" onkeydown="if(event.key===\'Enter\'){ this.click(); }">'
+      + '<td><b>' + esc(r.name) + '</b><div class="cw-sub">' + esc(r.clientName || '') + '</div></td><td>' + esc(r.processor || '—') + '<div class="cw-sub">' + esc(r.reviewer ? 'Reviewer ' + r.reviewer : '') + '</div></td>'
+      + '<td>' + (r.commitmentDate ? esc(fmtDate(r.commitmentDate)) : '—') + (_cwTab === 'flags' && r.internalDue ? '<div class="cw-sub">internal ' + esc(fmtDate(r.internalDue)) + '</div>' : '') + '</td><td>' + flags + '</td>'
+      + '<td class="cw-times"><div>Submitted ' + cwStamp(r.submittedAt) + '</div><div>Reviewed ' + cwStamp(r.reviewedAt) + '</div><div>Sent back ' + cwStamp(r.sentBackAt) + '</div><div>Ready ' + cwStamp(r.readyForReportAt) + '</div><div>Report sent ' + cwStamp(r.reportSentAt) + '</div></td></tr>';
+  }).join('');
+  const tab = (k, label, n) => '<button type="button" class="cw-tab' + (_cwTab === k ? ' on' : '') + '" role="tab" aria-selected="' + (_cwTab === k) + '" onclick="cwSetTab(\'' + k + '\')">' + label + ' <b>' + n + '</b></button>';
+  document.getElementById('modalBox').innerHTML = '<div class="cw-modal"><h3>Commitment watch</h3>'
+    + '<div class="modal-sub">As of ' + esc(fmtDate(d.today)) + ' · each client commitment breach costs ' + esc(String(d.rules && d.rules.breachMarks != null ? d.rules.breachMarks : '')) + ' marks.</div>'
+    + '<div class="cw-tabs" role="tablist">' + tab('breaches', 'Commitment breaches', d.breaches.length) + tab('flags', 'Late &amp; at risk', d.flagged.length) + '</div>'
+    + '<div class="cw-help">' + (_cwTab === 'flags'
+      ? 'Not submitted by the internal due date · review not done by the commitment date · no update since the working day before the commitment date.'
+      : 'The commitment date has passed and the report has not been sent to the client.') + '</div>'
+    + (list.length ? '<div class="cw-scroll"><table class="cw-table"><thead><tr>' + th('Task') + th('Processor') + th('Commitment') + th(_cwTab === 'flags' ? 'Flags' : 'Overdue') + th('Stage times') + '</tr></thead><tbody>' + body + '</tbody></table></div>'
+      + (list.length > CAP ? '<div class="cw-help">Showing the first ' + CAP + ' of ' + list.length + ' — download the CSV for all of them.</div>' : '')
+      : '<div class="cw-empty">' + (_cwTab === 'flags' ? 'Nothing is late or at risk right now.' : 'No client commitment has been breached.') + '</div>')
+    + '<div class="modal-actions"><button type="button" class="btn" onclick="cwCsv()">Download CSV</button><button type="button" class="btn" onclick="closeModal()">Close</button></div></div>';
+}
+async function cwCsv(){
+  try {
+    const res = await fetch(API_BASE + '/api/commitment-watch?format=csv&kind=' + (_cwTab === 'flags' ? 'flags' : 'breaches'), { headers: { Authorization: 'Bearer ' + authToken } });
+    if(!res.ok) throw new Error('Could not build the file.');
+    const blob = await res.blob(), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (_cwTab === 'flags' ? 'late-and-at-risk' : 'commitment-breaches') + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+  } catch(e){ showToast('error', 'Could not download', e.message); }
+}
 
 /* =========================================================================
    MANAGER VIEWS (v2) — My Team, Needs Manager Attention, the Tasks list (server-side filtered + paginated), Calendar and Timeline.
@@ -13956,6 +14028,7 @@ function openTaskTrailModal(id){
     <h3>Task history — ${esc(t.name)}</h3>
     <div class="modal-sub">${esc(clientLabel(t))} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${taskNo(t.id)} · now: <b>${esc(stateNow)}</b></div>
     <div id="ttNotifyStatus"></div>
+    <div id="ttWatch" aria-live="polite"></div>
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -13974,6 +14047,7 @@ function openTaskTrailModal(id){
       window.__trailShot = r && r.screenshot;
     }).catch(() => { const h = document.getElementById('trailReviewShot'); if(h) h.textContent = ''; });
   }
+  cwLoadTaskWatch(id);
   // did the assignee open their alerts for this? (manager / assigner view)
   if(t.assignedTo && (isAdmin || t.assignedBy === currentViewerId || t.assignedTo === currentViewerId)){
     api(`/api/tasks/${encodeURIComponent(id)}/notify-status`).then(d => {

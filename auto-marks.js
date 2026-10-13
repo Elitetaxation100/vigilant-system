@@ -27,11 +27,15 @@
 // given twice for the same thing, and can be voided by a superadmin.
 // ---------------------------------------------------------------------------
 const DEFAULTS = {
-  enabled: { acknowledgement: true, links: true, reports: true, mailReply: true },
-  points: { ackPerItem: 10, processorLinks: 20, reviewerLinks: 30, reportLate: 10, mailReplyLate: 10 },
+  enabled: { acknowledgement: true, links: true, reports: true, mailReply: true, callback: true, submitLate: true },
+  // 2026-10 scale: −50 for a call / email not acknowledged, a late callback, or work submitted late; −250 for a client commitment breach.
+  points: { ackPerItem: 50, processorLinks: 20, reviewerLinks: 30, reportLate: 250, mailReplyLate: 10, callbackLate: 50, submitLate: 50 },
 };
+// One-time move to the 2026-10 scale. Settings are stored the first time they are read, so changing DEFAULTS alone would never reach a live
+// database — this stamps `scale` once, sets the new amounts once, and never runs again (a superadmin can still change any amount afterwards).
+const SCALE = 2, SCALE_POINTS = { ackPerItem: 50, reportLate: 250, callbackLate: 50, submitLate: 50 };
 const isDay = s => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-const clampInt = (v, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= 100 ? n : d; };
+const clampInt = (v, d) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 0 && n <= 1000 ? n : d; };
 
 // Current settings (defaults filled in). `activeFrom` is stamped the first time
 // the rules are read, so nothing is ever deducted retroactively.
@@ -41,6 +45,10 @@ function settingsOf(state, today) {
   s.enabled = { ...DEFAULTS.enabled, ...(s.enabled || {}) };
   s.points = { ...DEFAULTS.points, ...(s.points || {}) };
   if (!isDay(s.activeFrom) && isDay(today)) s.activeFrom = today;
+  // The two new rules (late callback, late submission) and the new amounts start TODAY — nothing earlier is ever judged by them.
+  if (s.scale !== SCALE && isDay(today)) { Object.assign(s.points, SCALE_POINTS); s.scale = SCALE; s.scaleFrom = today; }
+  s.ruleFrom = s.ruleFrom || {};
+  ['callback', 'submitLate'].forEach(k => { if (!isDay(s.ruleFrom[k]) && isDay(today)) s.ruleFrom[k] = s.scaleFrom || today; });
   return s;
 }
 function updateSettings(state, input, today) {
@@ -137,6 +145,61 @@ function evaluateReassignedMail(state, ctx) {
   return out;
 }
 
+// ---- rule 5: a missed call must be CALLED BACK in time ----------------------------
+// An inbound call nobody picked up (or that went to voicemail) is owed a callback: the same working day, before the daily report goes out
+// (18:45 NZ); missed after that, or on a non-working day, it is due by that cutoff on the next working day. A callback is any LATER call
+// to / from the same number that was an outbound attempt or an answered call — or the call was already handled (outcome logged, made into a
+// task, marked no action). Late = no callback by the deadline, or a callback made after it. Judged for calls missed on/after the day
+// the rule started; leave / holiday / workshop days push the deadline on, per person.
+const isOutboundCall = c => String((c && c.direction) || '').toLowerCase() === 'outbound';
+const isMissedInbound = c => !!c && !isOutboundCall(c) && ['not_picked_up', 'voicemail'].includes(c.status) && !c.stub && !c.recovered && !!c.occurredAt && !!c.callerPhone;
+function callbackOf(state, c) {
+  const t0 = new Date(c.occurredAt).getTime();
+  const later = (state.calls || []).filter(x => x !== c && !x.stub && x.callerPhone === c.callerPhone && x.occurredAt && new Date(x.occurredAt).getTime() > t0
+    && (isOutboundCall(x) || x.status === 'ended' || x.status === 'no_action')).sort((a, b) => new Date(a.occurredAt) - new Date(b.occurredAt))[0];
+  return later ? { at: later.occurredAt, callId: later.id } : null;
+}
+function callbackDeadline(c, personId, ctx) {
+  const day = ctx.nzDay(c.occurredAt);
+  const cutoff = ctx.cutoffMinutes != null ? ctx.cutoffMinutes : digestCutoffMinutes();
+  let deadline = (ctx.isWorkingDay(day) && ctx.nzMinutes(c.occurredAt) < cutoff) ? day : ctx.workingDayAfter(day);
+  let guard = 0;
+  while (ctx.skip && ctx.skip(personId, deadline) && guard++ < 30) deadline = ctx.workingDayAfter(deadline);
+  return { day, deadline, cutoff };
+}
+const pastCutoff = (day, mins, deadline, cutoff) => day > deadline || (day === deadline && mins >= cutoff);
+function evaluateCallbacks(state, ctx) {
+  const settings = settingsOf(state, ctx.today);
+  const out = [];
+  if (!settings.enabled.callback) return out;
+  const from = settings.ruleFrom.callback;
+  (state.calls || []).forEach(c => {
+    if (!isMissedInbound(c) || c.finalOutcome || c.taskId || c.status === 'no_action') return;
+    const day = ctx.nzDay(c.occurredAt);
+    if (!isDay(day) || day < from) return;
+    const people = ctx.responsible ? ctx.responsible(c) : [];
+    if (!people.length) return;
+    const cb = callbackOf(state, c);
+    people.forEach(p => {
+      const d = callbackDeadline(c, p.id, ctx);
+      const late = cb ? pastCutoff(ctx.nzDay(cb.at), ctx.nzMinutes(cb.at), d.deadline, d.cutoff)
+                      : pastCutoff(ctx.today, ctx.nowMinutes, d.deadline, d.cutoff);
+      if (!late) return;
+      const who = c.contactName || c.clientName || c.callerPhone;
+      const r = { callId: c.id, toId: p.id, name: p.name, caller: who, missedOn: day, deadline: d.deadline, calledBackAt: cb ? cb.at : null, marks: settings.points.callbackLate, created: false };
+      if (!ctx.dryRun) {
+        const row = createAutoMark(state, {
+          toId: p.id, points: r.marks, type: 'auto_callback_late', key: `callback:${c.id}:${p.id}`,
+          reason: `Automatic: the missed call from ${String(who).slice(0, 60)} on ${dayLabel(day)} was ${cb ? 'called back late' : 'not called back'} (due by ${cutoffLabel(d.cutoff)} on ${dayLabel(d.deadline)})`,
+        });
+        if (row) { r.created = true; if (ctx.onCreated) ctx.onCreated(row); }
+      }
+      out.push(r);
+    });
+  });
+  return out;
+}
+
 // ---- creating a mark ---------------------------------------------------------
 function dayLabel(day) {
   return new Date(day + 'T12:00:00Z').toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -212,6 +275,7 @@ function runDays(state, deps) {
 }
 
 module.exports = {
+  isMissedInbound, callbackOf, callbackDeadline, evaluateCallbacks, SCALE,
   DEFAULTS, settingsOf, updateSettings, ackDeduction, linksRequired, missingLinks, isGstWork, linkMarks, reportIsLate, reassignedMailDeadline, reassignedMailIsDue, evaluateReassignedMail, digestCutoffMinutes, cutoffLabel,
   createAutoMark, evaluateAckDay, runDays, addDays, dayLabel,
 };
