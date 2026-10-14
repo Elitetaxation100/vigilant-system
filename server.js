@@ -6870,11 +6870,14 @@ app.get('/api/time-ledger', requireAuth, (req, res) => {
   }
   res.json({ ...rep, name: emp.name, today: todayISO(), sources: timeLedger.SOURCES });
 });
+function timePeopleFor(state, me) {
+  return (firmWide(me) ? state.employees.filter(canReceiveNewWork) : [me, ...teamRoster(state, me).filter(canReceiveNewWork)]).filter((e, i, a) => a.findIndex(x => x.id === e.id) === i);
+}
 app.get('/api/time-ledger/team', requireAuth, (req, res) => {
   const state = db.get(), me = req.employee;
   if (!isAdminRole(me.accessRole) && !me.dashObserver) return res.status(403).json({ error: 'Managers only.' });
   const w = ledgerWindow(req.query); if (w.error) return res.status(400).json({ error: w.error });
-  const people = (firmWide(me) ? state.employees.filter(canReceiveNewWork) : [me, ...teamRoster(state, me).filter(canReceiveNewWork)]).filter((e, i, a) => a.findIndex(x => x.id === e.id) === i);
+  const people = timePeopleFor(state, me);
   const rows = people.map(e => { const r = personTime(state, e, w.from, w.to); return { id: e.id, name: e.name, hours: r.totalHours, days: Object.fromEntries(r.days.filter(d => d.hours).map(d => [d.day, d.hours])), tasks: Object.fromEntries(r.byTask.map(b => [b.taskId, b.hours])), topClients: r.byClient.slice(0, 3) }; })
     .sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
   res.json({ from: w.from, to: w.to, people: rows });
@@ -6956,6 +6959,29 @@ app.post('/api/tasks/:id/resume-on', requireAuth, (req, res) => {
   t.resumeOn = date; t.resumeNotifiedOn = null; if (!date) t.resumeNote = null;
   db.save();
   res.json({ task: taskForClient(t) });
+});
+// DASHBOARD STRIP — the same few numbers on every dashboard (employee, manager, founder): commitment breaches, late / at-risk work, time worked today, and
+// what is planned to continue today. Scoped like everything else: your own work, your team's, or the firm's.
+app.get('/api/dashboard-strip', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee, today = todayISO();
+  const isMgr = isAdminRole(me.accessRole) || !!me.dashObserver;
+  const w = commitmentWatch(state, me);
+  const late = w.flagged.filter(r => r.flags.some(f => f.tone === 'late')).length;
+  const mine = personTime(state, me, timeLedger.addDay(today, -((new Date(today + 'T12:00:00Z').getUTCDay() + 6) % 7)), today);
+  const todayRow = mine.days.find(d => d.day === today) || { hours: 0, standard: 0 };
+  const out = {
+    scope: firmWide(me) ? 'firm' : (isMgr ? 'team' : 'mine'), today,
+    watch: { breaches: w.breaches.length, late, atRisk: w.flagged.length - late, rule: autoMarks.settingsOf(state, today).points.reportLate },
+    time: { today: todayRow.hours, standard: todayRow.standard, week: mine.totalHours },
+    resumeToday: state.tasks.filter(t => t.assignedTo === me.id && !t.deletedAt && t.resumeOn && t.resumeOn <= today && taskIsOpen(t)).length,
+  };
+  if (isMgr) {
+    const people = timePeopleFor(state, me).filter(e => e.id !== me.id);
+    let hours = 0, working = 0;
+    people.forEach(e => { const h = personTime(state, e, today, today).totalHours; hours += h; if (h > 0) working++; });
+    out.team = { people: people.length, workedToday: Math.round(hours * 100) / 100, working };
+  }
+  res.json(out);
 });
 app.get('/api/tasks/:id/time', requireAuth, (req, res) => {
   const state = db.get(), me = req.employee;
