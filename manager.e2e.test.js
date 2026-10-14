@@ -179,7 +179,8 @@ test('manager-change: reassign and change reviewer follow the same boundaries as
   assert.equal((await go({ action: 'reassign', newAssigneeId: 'nobody', reason: 'no such person' })).status, 400);
   const rv = await go({ action: 'change_reviewer', reviewerId: emp('shubham').id, reason: 'Founder to review this one' });
   assert.equal(rv.status, 200); assert.equal(rv.j.task.reviewerId, emp('shubham').id);
-  assert.equal((await go({ action: 'change_reviewer', reviewerId: emp('ranjit').id, reason: 'an employee' })).status, 400, 'a reviewer must be a manager');
+  const emp2 = await go({ action: 'change_reviewer', reviewerId: emp('ranjit').id, reason: 'an employee can review too' });
+  assert.equal(emp2.status, 200, 'any active colleague can be the reviewer, not only a manager: ' + JSON.stringify(emp2.j)); assert.equal(emp2.j.task.reviewerId, emp('ranjit').id);
   assert.equal((await go({ action: 'change_reviewer', reviewerId: emp('disha').id, reason: 'doing the work' })).status, 400, 'not the person doing the work');
   assert.equal((await http('POST', `/api/tasks/${enc('missing')}/manager-change`, { token: PK, body: { action: 'reassign', reason: 'none' } })).status, 404);
 });
