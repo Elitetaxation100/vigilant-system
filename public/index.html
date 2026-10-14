@@ -189,7 +189,8 @@ i.cal-ev{ display:inline-block; width:12px; height:12px; padding:0; vertical-ali
   .cal-cell{ min-height:70px; } .cal-ev{ font-size:10.5px; }
 }
 /* ---- Today (v2): the personal command centre ---- */
-body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
+/* there is no Punch In/Out, clock or Online/Offline status in the sidebar for anyone — attendance comes from ET-CRM */
+.clock-card{ display:none !important; }
 .td-head{ display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
 .td-greet{ font-size:26px; font-weight:700; letter-spacing:-.01em; margin:0; }
 .td-date{ color:var(--text-dim); font-size:13.5px; margin-top:2px; }
@@ -3699,16 +3700,6 @@ async function renderAutoMarksPanel(){
       <td>${m.voidedAt ? '<span style="color:var(--text-faint);font-size:12px;">voided</span>' : `<button class="btn small" onclick="voidMark('${esc(m.id)}')">Void</button>`}</td></tr>`).join('');
   panel.innerHTML = `
     <div class="panel-head"><h2>Automatic marks</h2></div>
-    <details style="margin-bottom:10px;"><summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--purple);">How the automatic marks work</summary>
-    <div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-top:8px;">
-      The system deducts marks by itself. Each one is a normal mark (the person and their manager see it, it counts in the totals) and you can void any of them.<br>
-      <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: <b>−${p.ackPerItem} for every call or email not acknowledged</b>. Judged at <b>6:45 pm NZ the same day</b> — when the daily Calls &amp; Email report goes to the admins — on exactly what that report counts; leave, holidays and workshop days are skipped.<br>
-      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). GST work needs only the Sheet — a missing Cashbook is never marked. Admin Tasks never need links.<br>
-      <b>Client commitment breach</b> — the committed date has passed and the report has not been sent (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever owns the next step (the processor, the reviewer or the report sender), once per task. Only dates after “Starts from” count.<br>
-      <b>Work submitted late</b> — the first hand-in after the internal due date (or a correction handed back after its correction date, when the correction was the employee's own) → <b>−${p.submitLate}</b> to the person who handed it in, once per hand-in.<br>
-      <b>Late callback</b> — a missed or voicemail call must be called back <b>the same working day before 6:45 pm NZ</b> (the next working day if it came in later or on a day off). A later outbound call, or an answered call, from the same number counts as the callback; handled calls (outcome logged, made a task, no action) never count. Otherwise <b>−${p.callbackLate}</b> to each person the call was routed to, once per call.<br>
-      <b>Reassigned mail</b> — a mail reassigned to someone must be replied to (or marked “no reply needed”) <b>the same working day, before the daily Calls &amp; Email report goes to the admins (6:45 pm NZ)</b>; handed over after that report, or on a day off, it is due before the next working day's report. Otherwise <b>−${p.mailReplyLate}</b> to that person, once per hand-off. Leave days push the deadline on. The mail shows on their dashboard until it is handled.
-    </div></details>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnAck" ${s.enabled.acknowledgement ? 'checked' : ''}> Email &amp; call acknowledgement</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnLinks" ${s.enabled.links ? 'checked' : ''}> Missing links</label>
@@ -10311,7 +10302,7 @@ function renderGuide(){
   if(!wrap) return;
   if(!session || guideDismissed() || isMirroring()){ wrap.innerHTML = ''; return; }
   const g = guideSteps();
-  if(_crmMode.attendanceFromCrm){ g.steps = g.steps.filter(x => x[0] !== 'Punch in'); if(/three/.test(g.title)) g.title = 'Your daily steps'; }
+  g.steps = g.steps.filter(x => x[0] !== 'Punch in'); if(/three/.test(g.title)) g.title = 'Your daily steps';      // no Punch In/Out anywhere
   wrap.innerHTML = `<div class="guide-card">
     <div class="guide-head"><b>👋 ${esc(g.title)}</b><button class="guide-x" onclick="dismissGuide()" title="Got it — hide this" aria-label="Hide the guide">Got it ✕</button></div>
     <div class="guide-steps">${g.steps.map((s, i) => `<div class="guide-step">

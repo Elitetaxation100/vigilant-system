@@ -146,7 +146,7 @@ test('Founder dashboard: three real tabs, tiles are buttons, one set of lists at
   assert.match(fd, /Loading/); assert.match(fd, /role="alert"/); assert.ok(fd.includes('Showing highest-risk'));
   assert.match(fd, /<details class="fd-sec fd-more" id="fdMore"' \+ \(_fdMoreOpen \? ' open' : ''\)/, 'More insights starts collapsed');
   for (const gone of ['Time Clock', 'Punch', 'Online', 'Offline', 'worked hours', 'Worked hours']) assert.ok(!fd.includes(gone), gone + ' is not on the Founder dashboard');
-  assert.match(html, /body\.v2-dash \.clock-card, body\.fd-active \.clock-card\{ display:none !important; \}/);
+  assert.ok(html.includes('\n.clock-card{ display:none !important; }'), 'the Time Clock / Punch In card is hidden for everyone');
   assert.equal((html.match(/id="view-founder"/g) || []).length, 1, 'one Founder page');
   assert.match(fd, /\/api\/founder\/dashboard/); assert.doesNotMatch(fd, /state\.tasks|allTasks\.filter/, 'the screen does no calculating of its own');
 });

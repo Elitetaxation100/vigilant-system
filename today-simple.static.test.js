@@ -25,3 +25,9 @@ test('the list is calm: one "Do this first" card, short one-line rows with one p
   assert.equal((fn.match(/class="ts-pill/g) || []).length, 1, 'one pill per row');
   assert.ok(!fn.includes('ts-when') && !fn.includes('ts-why'), 'no extra date / reason columns in a row');
 });
+
+test('no Punch In / Time Clock card for anyone, and the automatic-marks "how it works" help is not shown on the Marks panel', () => {
+  assert.ok(html.includes('.clock-card{ display:none !important; }') && !html.includes('body.v2-dash .clock-card'));
+  assert.ok(!html.includes('How the automatic marks work'));
+  assert.ok(html.includes('Automatic marks</h2>') && html.includes('amLate'), 'the settings themselves are still there');
+});
