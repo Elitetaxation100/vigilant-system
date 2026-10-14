@@ -2403,13 +2403,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
       if (rv.id === assignee) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
       assignedReviewerId = rv.id;
     }
-    reviewRequired = isInternal ? body0.reviewRequired === true : body0.reviewRequired !== false;   // client work is reviewed unless a manager says otherwise
-    if (!isInternal && body0.reviewRequired === false) {
-      if (!isAdminRole(req.employee.accessRole)) return res.status(403).json({ error: 'Only a manager or the founder can waive the review on client work.', code: 'REVIEW_REQUIRED' });
-      const why = String(body0.noReviewReason || '').trim();
-      if (why.length < 5) return res.status(400).json({ error: 'Say why this client task needs no review — it is kept on the record.', code: 'REVIEW_REASON' });
-      noReviewAuth = { by: req.employee.id, at: new Date().toISOString(), reason: why };
-    }
+    reviewRequired = body0.reviewRequired === true;   // a review is optional everywhere: it is compulsory only when the person creating the task ticks it (the processor can always choose "Send for review" themselves)
     // A task that needs review must name its reviewer now — or say, with a reason, that it will be assigned later. Never silently left blank.
     if (reviewRequired && !assignedReviewerId) {
       if (body0.reviewerLater === true) {
@@ -3131,6 +3125,9 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   // needed" — so the task reads as done, not "sent for review".
   t.reviewStatus = 'done'; t.reviewerId = null; t.awaitingClientDecision = false;
   t.closedBy = req.employee.id; t.closedAt = t.completedAt;
+  if (workflow.isClientTask(t) && !t.noReviewAuthorizedAt) {        // review was optional on this task and the person chose to close it without one — kept on the record
+    t.noReviewAuthorizedBy = req.employee.id; t.noReviewAuthorizedAt = t.completedAt; t.noReviewAuthorizedReason = 'Review was optional — closed without one by ' + req.employee.name;
+  }
   const kind = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'call' : 'Slack') + ' task' : 'no review needed';
   logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (${kind}).`);
   db.save();
@@ -3704,9 +3701,10 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
 
     // ---------- validate EVERYTHING first, so a refused decision changes nothing ----------
     let owner = null, to = null;
+    const next = ['report', 'profit', 'done'].includes(b.next) ? b.next : (b.profitRequired === true ? 'profit' : 'report');   // what the reviewer chose to happen after approving
     if (decision === 'approve') {
       if (b.clean === false) return res.status(400).json({ error: 'If the work is not clean and ready, use Return for Correction.' });
-      if (b.profitRequired === true && isClient) {
+      if (next === 'profit' && isClient) {
         if (!hasSheetOrCashbook(t)) return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before asking for profit confirmation.' });
         owner = profitConfirmOwner(state, t);
         if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
@@ -3744,16 +3742,16 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
     if (decision === 'approve') {
       t.reviewStatus = 'clean'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note || null;
       t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
-      ev.profitRequired = !!owner;
+      ev.profitRequired = !!owner; ev.next = isClient ? next : null;
       t.awaitingClientDecision = isClient;
       if (isClient) t.reportSendOwner = t.reportSenderId || t.assignedTo;
       logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
-      if (!isClient || t.reportRequired === false) notify(state, t.assignedTo, 'reviewed', `${me.name} reviewed "${t.name}" — it is approved and finished.`, t.id);
+      if (!isClient || t.reportRequired === false || next === 'done') notify(state, t.assignedTo, 'reviewed', `${me.name} reviewed "${t.name}" — it is approved and finished.`, t.id);
       managersOfEmployee(state, t.assignedTo).forEach(m => logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml((assignee || {}).name || '—')}</b> was reviewed clean by <b>${escHtml(me.name)}</b>.`));
-      if (isClient && t.reportRequired === false) {
-        // "No report needed" was decided when the task was created — it is closed, not left waiting to be sent.
+      if (isClient && (t.reportRequired === false || next === 'done')) {
+        // No report to send — decided when the task was created, or by the reviewer now ("Mark done"). It is closed, not left waiting to be sent.
         t.awaitingClientDecision = false; t.sentToClient = false; t.sentToClientAt = now; t.sentToClientBy = me.id;
-        t.reportDeliveryStatus = 'sending_not_required'; t.reportDeliveryWaivedReason = 'not_required_at_creation'; t.reportDeliveryWaivedBy = t.assignedBy || me.id; t.reportDeliveryWaivedAt = now;
+        t.reportDeliveryStatus = 'sending_not_required'; t.reportDeliveryWaivedReason = t.reportRequired === false ? 'not_required_at_creation' : 'reviewer_marked_done'; t.reportDeliveryWaivedBy = t.reportRequired === false ? (t.assignedBy || me.id) : me.id; t.reportDeliveryWaivedAt = now;
       } else if (isClient) { if (owner) applyProfitRequest(state, t, me, owner); else applyReturnToProcessor(state, t, me, assignee); }
     } else if (decision === 'return') {
       t.reviewStatus = 'error'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note;
@@ -6958,29 +6956,6 @@ app.post('/api/tasks/:id/resume-on', requireAuth, (req, res) => {
   t.resumeOn = date; t.resumeNotifiedOn = null; if (!date) t.resumeNote = null;
   db.save();
   res.json({ task: taskForClient(t) });
-});
-// DASHBOARD STRIP — the same few numbers on every dashboard (employee, manager, founder): commitment breaches, late / at-risk work, time worked today, and
-// what is planned to continue today. Scoped like everything else: your own work, your team's, or the firm's.
-app.get('/api/dashboard-strip', requireAuth, (req, res) => {
-  const state = db.get(), me = req.employee, today = todayISO();
-  const isMgr = isAdminRole(me.accessRole) || !!me.dashObserver;
-  const w = commitmentWatch(state, me);
-  const late = w.flagged.filter(r => r.flags.some(f => f.tone === 'late')).length;
-  const mine = personTime(state, me, timeLedger.addDay(today, -((new Date(today + 'T12:00:00Z').getUTCDay() + 6) % 7)), today);
-  const todayRow = mine.days.find(d => d.day === today) || { hours: 0, standard: 0 };
-  const out = {
-    scope: firmWide(me) ? 'firm' : (isMgr ? 'team' : 'mine'), today,
-    watch: { breaches: w.breaches.length, late, atRisk: w.flagged.length - late, rule: autoMarks.settingsOf(state, today).points.reportLate },
-    time: { today: todayRow.hours, standard: todayRow.standard, week: mine.totalHours },
-    resumeToday: state.tasks.filter(t => t.assignedTo === me.id && !t.deletedAt && t.resumeOn && t.resumeOn <= today && taskIsOpen(t)).length,
-  };
-  if (isMgr) {
-    const people = timePeopleFor(state, me).filter(e => e.id !== me.id);
-    let hours = 0, working = 0;
-    people.forEach(e => { const h = personTime(state, e, today, today).totalHours; hours += h; if (h > 0) working++; });
-    out.team = { people: people.length, workedToday: Math.round(hours * 100) / 100, working };
-  }
-  res.json(out);
 });
 app.get('/api/tasks/:id/time', requireAuth, (req, res) => {
   const state = db.get(), me = req.employee;

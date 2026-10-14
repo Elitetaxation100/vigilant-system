@@ -313,11 +313,22 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .lg-resume{ font-size:12.5px; color:var(--text-dim); display:inline-flex; gap:6px; align-items:center; } .lg-modal select, .lg-modal input[type=number], .lg-modal input[type=text]{ width:100%; }
 @media (max-width:640px){ .lg-main{ grid-template-columns:minmax(0,1fr) 84px auto; } .lg-sub{ grid-template-columns:1fr; } }
 .lg-dates{ display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:8px 0 2px; font-size:13px; } .lg-dates label{ display:inline-flex; gap:6px; align-items:center; } .lg-line-total{ font-size:12.5px; color:var(--text-dim); }
-.ws{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 14px; align-items:stretch; }
-.ws-tile{ font:inherit; color:var(--text); text-align:left; display:flex; flex-direction:column; gap:2px; padding:10px 14px; border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); cursor:pointer; }
-.ws-tile b{ font-size:22px; line-height:1.1; font-variant-numeric:tabular-nums; } .ws-tile span{ font-size:13px; font-weight:600; } .ws-tile small{ font-size:12px; color:var(--text-dim); }
-.ws-tile:hover, .ws-tile:focus-visible{ border-color:var(--purple); outline:none; } .ws-tile.bad b{ color:var(--coral); } .ws-tile.bad{ border-color:var(--coral); } .ws-tile.warn b{ color:var(--amber); } .ws-tile.ok b{ color:var(--teal); } .ws-tile.time b{ color:var(--text); }
-.ws-log{ font:inherit; font-size:13px; font-weight:600; border:1px dashed var(--panel-border); border-radius:12px; background:transparent; color:var(--purple); cursor:pointer; padding:10px 14px; } .ws-log:hover, .ws-log:focus-visible{ border-color:var(--purple); outline:none; }
+body.td-simple-on #deadlineBannerWrap{ display:none; }
+.ts-sum{ font-size:18px; margin:2px 0 14px; } .ts-sum b{ font-size:24px; }
+.ts-next{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 18px; align-items:center; padding:18px 20px; margin:0 0 14px; border:1px solid var(--panel-border); border-left:5px solid var(--teal); border-radius:14px; background:var(--panel); cursor:pointer; }
+.ts-next.sel, .ts-next:hover, .ts-next:focus-visible{ border-color:var(--purple); outline:none; } .ts-next-l{ grid-column:1 / -1; font-size:11.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--teal); }
+.ts-next-t{ display:flex; flex-direction:column; gap:1px; } .ts-next-t b{ font-size:19px; } .ts-next-t span{ font-size:13.5px; color:var(--text-dim); } .ts-next-w{ font-size:13.5px; color:var(--text-dim); margin-top:6px; } .ts-next .btn{ padding:12px 22px; font-size:15px; }
+.ts-rows{ border:1px solid var(--panel-border); border-radius:14px; overflow:hidden; background:var(--panel); }
+.ts-row{ display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:4px 14px; align-items:center; padding:10px 16px; border-top:1px solid var(--panel-border); cursor:pointer; } .ts-row:first-child{ border-top:0; }
+.ts-row:hover, .ts-row:focus-visible{ background:var(--purple-dim); outline:none; } .ts-row.sel{ background:var(--purple-dim); }
+.ts-line{ min-width:0; display:flex; flex-wrap:wrap; gap:0 10px; align-items:baseline; } .ts-line b{ font-size:15px; overflow-wrap:anywhere; } .ts-line span{ font-size:13px; color:var(--text-dim); }
+.ts-pill{ font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; background:var(--panel-border); color:var(--text); } .ts-pill.red{ background:var(--coral-dim); color:var(--coral); } .ts-pill.amber{ background:var(--amber-dim); color:var(--amber); }
+.ts-act .btn{ white-space:nowrap; } .ts-more{ display:block; width:100%; margin:8px 0 0; padding:10px; font:inherit; font-size:13.5px; color:var(--purple); background:none; border:1px dashed var(--panel-border); border-radius:10px; cursor:pointer; }
+.ts-foot{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 16px; margin:18px 2px 4px; font-size:13px; color:var(--text-dim); } .ts-foot-l{ display:flex; gap:16px; }
+.ts-link{ font:inherit; font-size:inherit; background:none; border:0; padding:0; color:var(--purple); cursor:pointer; text-decoration:underline; }
+.ts-clear{ padding:34px 12px; text-align:center; color:var(--text-dim); font-size:14.5px; border:1px dashed var(--panel-border); border-radius:12px; } .ts-back{ margin:0 0 10px; }
+@media (max-width:640px){ .ts-row{ grid-template-columns:minmax(0,1fr) auto; } .ts-row .ts-act{ grid-column:1 / -1; } .ts-row .ts-act .btn, .ts-next .btn{ width:100%; } .ts-next{ grid-template-columns:1fr; } }
+.rv2-nexts{ display:grid; gap:8px; } .rv2-next{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--panel-border); border-radius:10px; cursor:pointer; } .rv2-next:has(input:checked){ border-color:var(--purple); background:var(--purple-dim); } .rv2-next input{ margin-top:3px; } .rv2-next span{ display:flex; flex-direction:column; gap:1px; } .rv2-next small{ font-size:12.5px; color:var(--text-dim); font-weight:400; }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -1586,7 +1597,6 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
         </div>
 
         <div id="deliveryStrip"></div>
-        <div class="ws-mount"></div>
 
         <details class="panel panel-fold" id="todoPanel">
           <summary>
@@ -3527,7 +3537,7 @@ function dashboardScopeLabelShort(){ return ''; }
    VIEW SWITCHING
    ========================================================================= */
 const titles = {
-  today: ['Today', 'What needs you now, what is waiting on others, and what you finished'],
+  today: ['Today', 'What needs you today'],
   team: ['My Team', 'Who has what, who is stuck, and what needs a manager'],
   mtasks: ['Tasks', 'Every task in your team — filter, page, calendar and timeline'],
   mytasks: ['My tasks', 'Everything assigned to you — to do, on hold, with a reviewer and finished'],
@@ -4760,6 +4770,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('DOMContentLoaded', enhanceNavItems);
 function showView(id, el, classic){
+  document.body.classList.toggle('td-simple-on', id === 'today' && typeof tdIsSimple === 'function' && tdIsSimple());
   closeMobileNav();
   mtMenuClose();
   // v2 managers: Tasks means the new list; the classic list stays one click away. Manager-only views fall back to Today.
@@ -6816,7 +6827,6 @@ function renderEmployeeStats(){
   // now — not on the Commitment Dashboard.
   renderMirrorBanner();
   renderDeliveryStrip('deliveryStrip', mine, isMirroring() ? (me.name || '') : null);
-  wsLoad();
   refreshMyCallStats();
   refreshProfitConfirmTile();
   refreshReportsToSendTile();
@@ -7844,6 +7854,15 @@ function tdLoadMode(){ try { const m = localStorage.getItem('tdMode'); return TD
 let _today = null, _tdMode = tdLoadMode(), _tdTile = null, _tdOpen = null, _tdSel = null;
 const tdDefaultOpen = () => _tdMode === 'today' ? 'my_work' : _tdMode === 'processor' ? 'p_due' : null;      // on Today, "My work" is the one section that starts open
 _tdOpen = tdDefaultOpen();
+// The SIMPLE Today: only what needs this person today, sorted. "Show everything" brings back the full dashboard; the choice is remembered.
+let _tdSimple = true;
+try { if(localStorage.getItem('tdSimple') === '0') _tdSimple = false; } catch(e){}
+function tdIsSimple(){ return _tdSimple && ['today', 'processor'].includes(_tdMode) && !!(_today && _today.attention); }
+function tdSetSimple(on){
+  _tdSimple = !!on; _tdSel = null; _tdTile = null; window.__tdMobileOpen = false;
+  try { localStorage.setItem('tdSimple', on ? '1' : '0'); } catch(e){}
+  drawToday();
+}
 function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
   document.body.classList.toggle('v2-dash', on);
@@ -8025,28 +8044,85 @@ function procStripHtml(){
     + '<button type="button" class="btn small" style="margin-left:auto;" onclick="openLogTime()" title="Put the work you did today on the right client and task">✎ Log my work</button>'
     + '<button type="button" class="btn small" onclick="showView(\'mytasks\', document.querySelector(\'#navV2 .nav-item[data-view=mytasks]\'))">All my tasks →</button></div>';
 }
+/* ---- the simple Today: ONE thing to do next, then a short plain list ---- */
+let _tdMore = false;
+const TS_SHOW = 6;                                                     // how many rows show before "Show N more"
+function tdSimpleAction(a, c){
+  const id = esc(a.id), t = findTask(a.id), b = (label, fn, cls) => '<button type="button" class="btn ' + (cls || 'primary') + ' td-act" onclick="' + fn + '">' + label + '</button>';
+  if(a.action === 'review') return b('Review', "openReviewV2('" + id + "')");
+  if(a.action === 'accept') return b('Accept', "acceptTask('" + id + "')");
+  if(a.action === 'send_report') return b('Send report', "openSendToClientModal('" + id + "')");
+  if(a.action === 'escalation') return b('Decide', "openEscalationDecision('" + id + "')");
+  if(a.action === 'decide'){ const p = tdPrimary(a.id); return p ? p.split('</button>')[0] + '</button>' : b('Open', "tdSimpleSelect('" + id + "')", ''); }
+  if(t && ['accepted', 'rework'].includes(t.status) && !t.timerStartedAt) return b(t.startedAt ? 'Continue' : 'Start', "resumeTask('" + id + "')");
+  return b('Open', "tdSimpleSelect('" + id + "')", '');
+}
+// One short word or two for WHY it is here.
+function tdSimplePill(a, c){
+  const r = (c.clientRisk || {}).state;
+  if(r === 'overdue') return ['Client date passed', 'red'];
+  if(r === 'due_today') return ['Client date today', 'red'];
+  const label = { send_report: 'Send report', review: 'Review', correction_resubmitted: 'Review', accept: c.status === 'Correction Required' ? 'Fix needed' : 'New', escalation: 'Decision', decision: 'Decision', profit_confirm: 'Decision', unassigned: 'Assign', fix: 'Fix needed', overdue: 'Overdue', due: 'Due today', resume: 'Ready to continue', continue: 'Continue today', running: 'In progress' }[a.type] || 'Today';
+  return [label, a.rank === 1 ? 'amber' : 'grey'];
+}
+function tdSimpleRow(a){
+  const c = _today.cards[a.id]; if(!c) return '';
+  const sid = esc(a.id), pill = tdSimplePill(a, c);
+  return '<div class="ts-row' + (_tdSel === a.id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
+    + '<div class="ts-line"><b>' + esc(c.name) + '</b><span>' + esc(c.clientName || 'Admin task') + '</span></div>'
+    + '<span class="ts-pill ' + pill[1] + '">' + esc(pill[0]) + '</span>'
+    + '<div class="ts-act" onclick="event.stopPropagation()">' + tdSimpleAction(a, c) + '</div></div>';
+}
+function tdSimpleNext(a){
+  const c = _today.cards[a.id]; if(!c) return '';
+  const sid = esc(a.id), pill = tdSimplePill(a, c);
+  const when = c.clientDate ? 'Client date ' + fmtDate(c.clientDate) : (c.internalDeadline ? 'Due ' + fmtDate(c.internalDeadline) : '');
+  return '<div class="ts-next" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
+    + '<div class="ts-next-l">Do this first</div>'
+    + '<div class="ts-next-b"><div class="ts-next-t"><b>' + esc(c.name) + '</b><span>' + esc(c.clientName || 'Admin task') + '</span></div>'
+    + '<div class="ts-next-w"><span class="ts-pill ' + pill[1] + '">' + esc(pill[0]) + '</span> ' + esc(a.why) + (when ? ' · ' + esc(when) : '') + '</div></div>'
+    + '<div class="ts-act" onclick="event.stopPropagation()">' + tdSimpleAction(a, c) + '</div></div>';
+}
+function tdSimpleSelect(id){
+  tdSelect(id);
+  document.querySelectorAll('#tdList .ts-row, #tdList .ts-next').forEach(r => r.classList.toggle('sel', r.dataset.id === id));
+}
+function tdSimpleMore(){ _tdMore = !_tdMore; tdDrawBody(); }
+function tdSimpleHtml(){
+  const A = _today.attention, S = _today.attentionSummary;
+  const rest = A.slice(1), shown = _tdMore ? rest : rest.slice(0, TS_SHOW - 1), hidden = rest.length - shown.length;
+  const head = '<div class="ts-sum">' + (A.length ? '<b>' + A.length + '</b> ' + (A.length === 1 ? 'thing needs' : 'things need') + ' you today' : '<b>✓ All clear for today</b>') + '</div>';
+  const list = A.length
+    ? tdSimpleNext(A[0]) + (shown.length ? '<div class="ts-rows">' + shown.map(tdSimpleRow).join('') + '</div>' : '')
+      + (hidden > 0 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show ' + hidden + ' more</button>' : (_tdMore && rest.length > TS_SHOW - 1 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show fewer</button>' : ''))
+    : '<div class="ts-clear">Nothing is waiting for you.</div>';
+  const bits = [S.waitingOthers ? S.waitingOthers + ' waiting on others' : '', S.doneToday ? S.doneToday + ' done today' : ''].filter(Boolean);
+  const foot = '<div class="ts-foot">' + (bits.length ? '<span>' + bits.join(' · ') + '</span>' : '') + '<span class="ts-foot-l"><button type="button" class="ts-link" onclick="openLogTime()">Log my work</button><button type="button" class="ts-link" onclick="tdSetSimple(false)">Show everything</button></span></div>';
+  return head + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + list + foot + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
+}
 function tdDrawBody(){
   const body = document.getElementById('tdBody'); if(!body || !_today) return;
+  if(tdIsSimple()){ body.innerHTML = tdSimpleHtml(); return; }
   const M = tdModeData(), S = _tdTile ? M.tiles.find(x => x.key === _tdTile) : null;
   const reportsNote = S && S.key === 'reports_team' && S.breakdown ? '<div class="td-empty" role="note">Overdue to send: <b>' + S.breakdown.overdue + '</b> · Due today: <b>' + S.breakdown.today + '</b> · Due later: <b>' + S.breakdown.later + '</b> · Waiting for profit confirmation: <b>' + S.breakdown.profit + '</b>. A report is never counted late before its client date.</div>' : '';
   const groupsNote = S && S.key === 'p_waiting' && S.groups ? '<div class="td-empty" role="note">' + Object.entries(S.groups).map(([k, v]) => ({ client: 'Client', external: 'External authority', manager: 'Manager', reviewer: 'Reviewer', internal: 'Internal dependency', scheduled: 'Scheduled for later', other: 'Other' }[k] || k) + ': <b>' + v.length + '</b>').join(' · ') + '</div>' : '';
   body.innerHTML = '<div class="td-counts" role="group" aria-label="' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + ' summary">' + tdTilesHtml() + '</div>'
     + (_tdMode === 'processor' ? procStripHtml() : '')
+    + (['today', 'processor'].includes(_tdMode) && _today.attention ? '<div class="ts-back"><button type="button" class="btn small" onclick="tdSetSimple(true)">← Simple view</button></div>' : '')
     + (S ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(S.label) + '</b> <button type="button" class="btn small td-act" onclick="tdSetTile(null)">Back to ' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + '</button></div>' + reportsNote + groupsNote : '')
     + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + tdListHtml() + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
 }
 function drawToday(){
   const T = _today, box = document.getElementById('tdRoot'); if(!box) return;
+  document.body.classList.toggle('td-simple-on', tdIsSimple() && todayViewActive());
   const first = (T.name || '').split(' ')[0];
   const dateLabel = new Date(T.today + 'T12:00:00').toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   const tabs = TD_MODES.map(([k, l]) => '<button type="button" role="tab" id="tdTab_' + k + '" class="' + (_tdMode === k ? 'on' : '') + '" aria-selected="' + (_tdMode === k) + '" aria-controls="tdPanel" tabindex="' + (_tdMode === k ? 0 : -1) + '" onclick="tdSetMode(\'' + k + '\')">' + l + '</button>').join('');
   box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(T.greeting) + ', ' + esc(first) + '</h2><div class="td-date">' + esc(dateLabel) + ' · ' + esc(T.timezone.replace('Pacific/Auckland', 'New Zealand time')) + '</div></div>'
     + (TD_MODES.length > 1 ? '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div>' : '') + '</div>'
-    + '<div class="ws-mount"></div>'
-    + fltBarHtml('td')
+    + (tdIsSimple() ? '' : fltBarHtml('td'))
     + '<div id="tdPanel" role="tabpanel" aria-labelledby="tdTab_' + _tdMode + '"><div id="tdBody"></div></div>';
   tdDrawBody();
-  wsLoad();
 }
 function tdSetMode(m, focusTab){
   if(m === _tdMode && !focusTab) return;
@@ -8461,7 +8537,6 @@ async function lgSave(){
   try {
     const r = await api('/api/time-ledger/log', { method: 'POST', body: JSON.stringify({ from: _lg.from, to: _lg.to, entries }) });
     await refreshTasks();
-    wsLoad(true);
     closeModal();
     showToast('success', 'Logged ' + tlH(r.added) + (r.days > 1 ? ' over ' + r.days + ' working days' : ''), r.entries.map(e => e.name + (e.resumeOn ? ' (continue ' + fmtDate(e.resumeOn) + ')' : '')).join(', '));
   } catch(e){ fail(e.message); }
@@ -8472,34 +8547,6 @@ async function tlCsv(){
     if(!res.ok) throw new Error('Could not build the file.');
     const blob = await res.blob(), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'time-ledger.csv'; document.body.appendChild(a); a.click(); a.remove();
   } catch(e){ showToast('error', 'Could not download', e.message); }
-}
-
-/* =========================================================================
-   DASHBOARD STRIP — the same few numbers on every dashboard (employee, manager, founder)
-   ========================================================================= */
-let _ws = { at: 0, data: null, busy: false };
-function wsHtml(d){
-  const w = d.watch, t = d.time, who = { mine: 'your work', team: 'your team', firm: 'the whole firm' }[d.scope] || 'your work';
-  const tile = (cls, big, label, sub, fn, tip) => '<button type="button" class="ws-tile ' + cls + '" onclick="' + fn + '" title="' + esc(tip || '') + '"><b>' + big + '</b><span>' + label + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
-  const flagged = w.late + w.atRisk;
-  const tiles = [
-    tile(w.breaches ? 'bad' : 'ok', w.breaches, w.breaches === 1 ? 'commitment breach' : 'commitment breaches', w.breaches ? 'report not sent · ' + w.rule + ' marks each' : 'none in ' + who, "openCommitmentWatch('breaches')", 'The commitment date has passed and the report has not been sent'),
-    tile(flagged ? (w.late ? 'bad' : 'warn') : 'ok', flagged, 'late or at risk', flagged ? w.late + ' late · ' + w.atRisk + ' at risk' : 'all on track', "openCommitmentWatch('flags')", 'Not submitted by the due date · review not done before the commitment date · no update before the commitment date'),
-    tile('time', tlH(t.today), 'worked today', t.standard ? 'of ' + tlH(t.standard) + ' · ' + tlH(t.week) + ' this week' : 'day off · ' + tlH(t.week) + ' this week', 'openTimeLedger()', 'Time recorded on the work clock and logged by you — click for the day-by-day'),
-  ];
-  if(d.team) tiles.push(tile('time', tlH(d.team.workedToday), 'team worked today', d.team.working + ' of ' + d.team.people + ' logged time', "openTimeLedger(null, null, null, 'team')", 'Time recorded today across ' + who + ' — click for each person'));
-  if(d.resumeToday) tiles.push(tile('warn', d.resumeToday, d.resumeToday === 1 ? 'task to continue today' : 'tasks to continue today', 'you planned these', "showView('mytasks', document.querySelector('.nav-item[data-view=mytasks]'))", 'Tasks you said you would pick up again today'));
-  return '<div class="ws" role="group" aria-label="Commitments and time">' + tiles.join('') + '<button type="button" class="ws-log" onclick="openLogTime()" title="Put the work you did on the right task and client">✎ Log my work</button></div>';
-}
-function wsPaint(){
-  document.querySelectorAll('.ws-mount').forEach(el => { el.innerHTML = (!_ws.data || (typeof isMirroring === 'function' && isMirroring())) ? '' : wsHtml(_ws.data); });
-}
-function wsLoad(force){
-  wsPaint();
-  if(!force && Date.now() - _ws.at < 45000) return;
-  if(_ws.busy) return;
-  _ws.busy = true;
-  api('/api/dashboard-strip').then(d => { _ws = { at: Date.now(), data: d, busy: false }; wsPaint(); }).catch(() => { _ws.busy = false; _ws.at = Date.now(); });
 }
 
 /* =========================================================================
@@ -10091,16 +10138,6 @@ function openNewTask(who){
       <div class="field"><label for="atPriority">Priority</label><select id="atPriority"><option value="normal" selected>Normal</option><option value="low">Low</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
       <div class="field"><label for="atInstructions">Instructions <span class="at-hint">optional — what the person needs to know</span></label><textarea id="atInstructions" rows="3" placeholder="e.g. Use the 2025 workbook; client prefers PDF"></textarea></div>
     </div>
-    <div id="atV2Review" style="display:none;">
-      <div id="atReviewerBlock">
-        <div class="field"><label for="atReviewer">Reviewer <span class="at-hint">who checks this before it goes to the client</span></label><select id="atReviewer"></select></div>
-        <div class="field"><label class="at-check"><input type="checkbox" id="atReviewerLater" onchange="atReviewerLaterToggle()"> <span>Assign the reviewer later</span></label>
-          <div id="atReviewerLaterWhy" style="display:none;margin-top:6px;"><label for="atReviewerLaterReason">Why later? <span class="req-mark">*</span> <span class="at-hint">kept on the record — your manager is alerted before the due date</span></label><textarea id="atReviewerLaterReason" rows="2"></textarea></div></div>
-      </div>
-      <div class="field"><label class="at-check"><input type="checkbox" id="atReviewReq" checked onchange="atReviewToggle()"> <span id="atReviewReqLabel">Review required before this goes to the client</span></label>
-        <div id="atReviewNote" class="at-note"></div></div>
-      <div class="field" id="atNoReviewWhy" style="display:none;"><label for="atNoReviewReason">Why does this client task need no review? <span class="req-mark">*</span> <span class="at-hint">kept on the record</span></label><textarea id="atNoReviewReason" rows="2" placeholder="e.g. Repeat of last month's return, already reviewed by the founder"></textarea></div>
-    </div>
     <div id="atImpossibleWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 45%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55; color:var(--flag); font-weight:600;"></div>
     <div id="atOverloadWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 35%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55;">
       <div id="atOverloadText" style="color:var(--flag); font-weight:600;"></div>
@@ -10109,13 +10146,6 @@ function openNewTask(who){
         <input type="checkbox" id="atAcceptOverload" onchange="atRefreshSubmitBtn()" style="margin-top:2px;">
         <span>Assign anyway — push the task(s) above out to make room.</span>
       </label>
-    </div>
-    <div id="atV2Delivery" style="display:none;">
-      <div class="field"><label>Report required</label><div class="rv2-yn"><label><input type="radio" name="atReportReq" value="yes" checked onchange="atDeliveryChanged()"> Yes</label><label><input type="radio" name="atReportReq" value="no" onchange="atDeliveryChanged()"> No</label></div></div>
-      <div id="atDeliveryMore">
-        <div class="field"><label for="atReportSender">Report sender <span class="at-hint">who sends it to the client once it is approved</span></label><select id="atReportSender"></select></div>
-        <div class="field"><label>Profit confirmation required</label><div class="rv2-yn"><label><input type="radio" name="atProfitReq" value="yes"> Yes</label><label><input type="radio" name="atProfitReq" value="no" checked> No</label></div></div>
-      </div>
     </div>
     <details class="at-more">
       <summary>Supporting work <span>Google Sheet, Cashbook</span></summary>
@@ -10185,20 +10215,9 @@ function atReviewerLaterToggle(){
 }
 function atReviewKindChanged(){
   if(!atV2On()) return;
-  const internal = _assignKind === 'internal', box = document.getElementById('atReviewReq'); if(!box) return;
-  ['atV2Delivery', 'atCashWrap'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = internal ? 'none' : ''; });
+  const internal = _assignKind === 'internal';
+  const cash = document.getElementById('atCashWrap'); if(cash) cash.style.display = internal ? 'none' : '';
   const refw = document.getElementById('atInternalRefWrap'); if(refw) refw.style.display = 'none';   // an Admin Task never takes a client name
-  const canWaive = isAdmin;
-  box.checked = !internal;
-  box.disabled = !internal && !canWaive;
-  document.getElementById('atReviewReqLabel').textContent = internal ? 'This admin task needs a review' : 'Review required before this goes to the client';
-  document.getElementById('atReviewNote').textContent = internal ? 'Admin tasks have no client report, so a review is optional.' : (canWaive ? 'Untick only for the rare client task that needs no review — you will be asked for a reason.' : 'Client work is always reviewed. Only a manager or the founder can waive that.');
-  atReviewToggle();
-}
-function atReviewToggle(){
-  const box = document.getElementById('atReviewReq'), why = document.getElementById('atNoReviewWhy'); if(!box || !why) return;
-  why.style.display = (_assignKind !== 'internal' && !box.checked) ? '' : 'none';
-  const rb = document.getElementById('atReviewerBlock'); if(rb) rb.style.display = box.checked ? '' : 'none';   // no review → no reviewer to name
 }
 function atLinkCheck(input){
   const msg = document.getElementById(input.id + 'Msg'); if(!msg) return;
@@ -10598,12 +10617,7 @@ async function submitAssign(mode){
     const rv = (document.getElementById('atReviewer') || {}).value || '';
     if(rv) payload.reviewerId = rv;
     const req = document.getElementById('atReviewReq');
-    payload.reviewRequired = req ? req.checked : !isInternal;
-    if(!isInternal && req && !req.checked){
-      const why = ((document.getElementById('atNoReviewReason') || {}).value || '').trim();
-      if(why.length < 5){ showErr('Say why this client task needs no review — it is kept on the record.'); return; }
-      payload.noReviewReason = why;
-    }
+    payload.reviewRequired = req ? req.checked : false;
     const sh = ((document.getElementById('atSheet') || {}).value || '').trim(), cb = isInternal ? '' : ((document.getElementById('atCash') || {}).value || '').trim();
     if(sh) payload.sheetLink = sh;
     if(cb) payload.cashbookLink = cb;
@@ -13345,6 +13359,17 @@ function openReviewV2(id){
     + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="rv2Submit" onclick="rv2Submit()" disabled>Choose a decision</button></div>';
   openModal();
 }
+// After approving a client task the reviewer picks ONE of three outcomes. Rework is the separate "Return for Correction" card.
+function rv2NextHtml(t){
+  const who = (empById(t.reportSenderId || t.assignedTo) || {}).name || 'the person who did the work', first = who.split(' ')[0];
+  const def = t.profitRequiredDefault ? 'profit' : 'report';
+  const opt = (v, title, sub) => '<label class="rv2-next"><input type="radio" name="rv2Next" value="' + v + '"' + (def === v ? ' checked' : '') + '><span><b>' + title + '</b><small>' + sub + '</small></span></label>';
+  return '<div class="field"><label>What happens next?</label><div class="rv2-nexts">'
+    + opt('report', '✉ Send the report to the client', 'Goes to ' + esc(first) + ', ready to send. Approving never marks the report as sent.')
+    + opt('profit', '💰 Send for profit confirmation', 'Goes to ' + esc(pcName(t)) + ', then straight back to ' + esc(first) + ' to send the report.')
+    + opt('done', '✓ Mark done', 'Nothing to send to the client — the task is complete.')
+    + '</div></div>';
+}
 function rv2Pick(d){
   _rv2.decision = d;
   const t = findTask(_rv2.id), isClient = t.kind !== 'internal' || !!t.clientId;
@@ -13355,7 +13380,7 @@ function rv2Pick(d){
   const opts = arr => '<option value="">— Choose —</option>' + arr.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('');
   if(d === 'approve'){
     box.innerHTML = '<h4>C · Approve</h4><div style="font-size:13px;color:var(--text-dim);margin:0 0 8px;">Approving means the work is clean and ready for the next stage. If it is not, choose Return for Correction.</div>'
-      + (isClient && t.reportRequired === false ? '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">This task was set up with no client report, so approving it completes it.</div>' : isClient ? '<div class="field"><label>Is profit confirmation required?</label>' + yn('rv2Profit', !!t.profitRequiredDefault) + '<div style="font-size:12.5px;color:var(--text-faint);">If yes it goes to ' + esc(pcName(t)) + '; if no it goes to the report sender, ready to send. Approving never marks the report as sent.</div></div>' : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
+      + (isClient && t.reportRequired === false ? '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">This task was set up with no client report, so approving it completes it.</div>' : isClient ? rv2NextHtml(t) : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
       + note('Reviewer note', false);
     sub.textContent = 'Approve';
   } else if(d === 'return'){
@@ -13386,7 +13411,7 @@ async function rv2Submit(){
   const body = { decision: d, requestId: _rv2.requestId, note: v('rv2Note').trim() };
   if(d === 'approve'){
     body.clean = true;
-    const p = document.querySelector('input[name="rv2Profit"]:checked'); body.profitRequired = !!(p && p.value === 'yes');
+    const nx = document.querySelector('input[name="rv2Next"]:checked'); if(nx){ body.next = nx.value; body.profitRequired = nx.value === 'profit'; }
   } else if(d === 'return'){
     if(body.note.length < 3) return fail('Write the correction note — what must be fixed.');
     if(!v('rv2Resp')) return fail('Choose who is responsible.');
@@ -13402,7 +13427,7 @@ async function rv2Submit(){
   try {
     await api('/api/tasks/' + encodeURIComponent(_rv2.id) + '/review-decision', { method:'POST', body: JSON.stringify(body) });
     closeModal();
-    showToast('success', d === 'approve' ? 'Approved' : d === 'return' ? 'Returned for correction' : 'Escalated', d === 'approve' ? 'It is ready for the next stage.' : d === 'return' ? 'The employee has been told, with your note and files.' : 'The decision-maker has been told.');
+    showToast('success', d === 'approve' ? 'Approved' : d === 'return' ? 'Returned for correction' : 'Escalated', d === 'approve' ? (body.next === 'profit' ? 'It has gone for profit confirmation, then back to the processor to send.' : body.next === 'done' ? 'Marked done — nothing to send to the client.' : 'It is with the processor, ready to send to the client.') : d === 'return' ? 'The employee has been told, with your note and files.' : 'The decision-maker has been told.');
     _rv2 = null;
     await refreshTasks(); await refreshActivity({ silent:true });
     if(todayViewActive()) renderToday(true);

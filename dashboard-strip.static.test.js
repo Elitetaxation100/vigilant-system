@@ -1,18 +1,15 @@
-// The shared strip is on the older dashboard and the Today page (not the Founder dashboard), and the recurring-task features on the older dashboards are still there (they must never be removed).
+// The commitments / time strip is NOT on the main dashboards (removed on request), and the recurring-task features on the older dashboards are still there (they must never be removed).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const html = fs.readFileSync(__dirname + '/public/index.html', 'utf8').replace(/\r\n/g, '\n');
 const server = fs.readFileSync(__dirname + '/server.js', 'utf8');
 
-test('the strip is mounted on the old dashboard and the Today page (NOT the Founder dashboard), and refreshes with them', () => {
-  assert.ok(html.includes('<div id="deliveryStrip"></div>\n        <div class="ws-mount"></div>'), 'the old dashboard mount');
-  assert.ok(html.includes("+ '<div class=\"ws-mount\"></div>'\n    + fltBarHtml('td')"), 'the Today page mount');
-  assert.ok(!html.includes("'<div class=\"ws-mount\"></div>' + fdKpiHtml()"), 'the Founder dashboard has no strip');
-  assert.equal((html.match(/class=\\?"ws-mount\\?"/g) || []).length, 2, 'exactly two mounts: the old dashboard and the Today page');
-  assert.ok((html.match(/\bwsLoad\(\);/g) || []).length >= 2, 'each of them calls wsLoad after it draws');
-  assert.ok(html.includes('/api/dashboard-strip') && /function wsHtml\(/.test(html));
-  assert.ok(server.includes("app.get('/api/dashboard-strip'"));
+test('no strip of commitment / time tiles sits at the top of the main dashboards', () => {
+  assert.ok(!html.includes('ws-mount') && !html.includes('wsLoad(') && !html.includes('/api/dashboard-strip'));
+  assert.ok(!server.includes("app.get('/api/dashboard-strip'"));
+  // the features themselves are still reachable from the menu
+  assert.ok(html.includes('openCommitmentWatch()') && html.includes('openTimeLedger()') && html.includes('openLogTime()'));
 });
 
 test('RECURRING TASKS stay on the older dashboards: the Tasks page menu, the My work tab and the To-do panel, plus the server routes', () => {
