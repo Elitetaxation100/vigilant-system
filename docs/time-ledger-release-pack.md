@@ -54,3 +54,10 @@ Revert the merge. The only stored addition is `timeLedger` on tasks; leaving it 
 
 - No earlier days can be reconstructed (see point 1).
 - Checked in the local preview with example numbers, not production data.
+
+## Update: choose any dates in Log my work (draft `feat/log-range`)
+
+Log my work now has **From** and **To** date pickers (plus Today / Yesterday / This week so far) instead of only today and yesterday.
+- **One date:** any day in the last **60 days** (a day off is allowed — people do work on one).
+- **A range (up to 31 days):** the hours you enter are **per working day**; Sundays and holidays in the range are skipped. The screen shows the maths ("6 working days × 2.5 h = 15 h") before you save, and what is already recorded for those dates.
+- Entries for days more than **two days ago** are labelled **"Logged later by the employee"** in the ledger so a manager can tell them from same-week entries. Everything else is unchanged: all-or-nothing checks, 16 h per line per day, 20 h per day, no logging while the clock runs, no future dates.

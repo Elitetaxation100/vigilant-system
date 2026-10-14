@@ -6881,14 +6881,29 @@ app.get('/api/time-ledger/team', requireAuth, (req, res) => {
 });
 // An employee records work they did on a day — on any of their tasks, so a client's work can be put where it belongs even when the clock was not
 // used — and can say which day they will pick a task up again. Everything is checked first; if anything is wrong, nothing is saved.
-const LOG_DAYS_BACK = 2, LOG_MAX_HOURS = 16, LOG_MAX_DAY = 20;
+const LOG_DAYS_BACK = 60, LOG_LATE_AFTER = 2, LOG_MAX_RANGE_DAYS = 31, LOG_MAX_HOURS = 16, LOG_MAX_DAY = 20;
 function dayHoursOf(state, empId, day) {
   return state.tasks.reduce((n, t) => n + timeLedger.entriesOf(t).concat(timeLedger.liveEntries(t)).filter(x => x.e === empId && x.d === day).reduce((m, x) => m + x.h, 0), 0);
 }
+// The days a "from … to" covers: a single day is always allowed (even a day off — people do work Saturdays); a range counts WORKING days only.
+function logDays(from, to) {
+  if (from === to) return [from];
+  const out = [];
+  for (let d = from; d <= to; d = timeLedger.addDay(d, 1)) if (cal.isWorkingDay(d)) out.push(d);
+  return out;
+}
+// An employee records work they did — on a day or over a range of days — on any of their tasks, so a client's work can be put where it belongs even
+// when the clock was not used. For a range the hours are PER WORKING DAY. Everything is checked first; if anything is wrong, nothing is saved.
 app.post('/api/time-ledger/log', requireAuth, (req, res) => {
   const state = db.get(), me = req.employee, b = req.body || {}, today = todayISO();
-  const day = b.day || today;
-  if (!isDayStr(day) || day > today || day < timeLedger.addDay(today, -LOG_DAYS_BACK)) return res.status(400).json({ error: 'Choose today, or one of the last ' + LOG_DAYS_BACK + ' days.' });
+  const from = b.from || b.day || today, to = b.to || b.from || b.day || today;
+  if (!isDayStr(from) || !isDayStr(to)) return res.status(400).json({ error: 'Choose the date, or the first and last date.' });
+  if (from > to) return res.status(400).json({ error: 'The first date is after the last date.' });
+  if (to > today) return res.status(400).json({ error: 'You can only log work that has already happened — not a future date.' });
+  if (from < timeLedger.addDay(today, -LOG_DAYS_BACK)) return res.status(400).json({ error: 'You can log work from the last ' + LOG_DAYS_BACK + ' days. For anything older, ask your manager.' });
+  if (timeLedger.addDay(from, LOG_MAX_RANGE_DAYS - 1) < to) return res.status(400).json({ error: 'A range can cover up to ' + LOG_MAX_RANGE_DAYS + ' days at a time.' });
+  const days = logDays(from, to);
+  if (!days.length) return res.status(400).json({ error: 'There is no working day between those dates.' });
   const list = Array.isArray(b.entries) ? b.entries : [];
   if (!list.length || list.length > 10) return res.status(400).json({ error: 'Add between one and ten tasks.' });
   const seen = new Set(), plan = [];
@@ -6897,33 +6912,40 @@ app.post('/api/time-ledger/log', requireAuth, (req, res) => {
     if (!t || t.deletedAt || t.assignedTo !== me.id) return res.status(404).json({ error: 'You can only log time on your own tasks.' });
     if (seen.has(t.id)) return res.status(400).json({ error: '"' + t.name + '" is in the list twice — add its hours together.' });
     seen.add(t.id);
-    const finishedAfter = t.status === 'completed' && t.completedAt && timeLedger.nzDayIso(t.completedAt) >= day;
-    if (!['accepted', 'rework', 'on_hold'].includes(t.status) && !finishedAfter) return res.status(400).json({ error: 'You can log time on work in progress, on hold, or finished on or after that day — not on "' + t.name + '".' });
+    const finishedAfter = t.status === 'completed' && t.completedAt && timeLedger.nzDayIso(t.completedAt) >= to;
+    if (!['accepted', 'rework', 'on_hold'].includes(t.status) && !finishedAfter) return res.status(400).json({ error: 'You can log time on work in progress, on hold, or finished on or after the last of those days — not on "' + t.name + '".' });
     if (t.timerStartedAt) return res.status(400).json({ error: 'The clock is running on "' + t.name + '" — pause it first (or let it run) so the time is not counted twice.' });
     const hours = Math.round(Number(e.hours) * 100) / 100;
-    if (!(hours >= 0.1 && hours <= LOG_MAX_HOURS)) return res.status(400).json({ error: 'Enter between 0.1 and ' + LOG_MAX_HOURS + ' hours for "' + t.name + '".' });
+    if (!(hours >= 0.1 && hours <= LOG_MAX_HOURS)) return res.status(400).json({ error: 'Enter between 0.1 and ' + LOG_MAX_HOURS + ' hours' + (days.length > 1 ? ' a day' : '') + ' for "' + t.name + '".' });
     let resumeOn = null;
     if (e.resumeOn) {
       if (!isDayStr(e.resumeOn) || e.resumeOn <= today || e.resumeOn > timeLedger.addDay(today, 60)) return res.status(400).json({ error: 'Choose a day after today (within two months) to continue "' + t.name + '".' });
-      if (['completed'].includes(t.status)) return res.status(400).json({ error: '"' + t.name + '" is finished — there is nothing to continue.' });
+      if (t.status === 'completed') return res.status(400).json({ error: '"' + t.name + '" is finished — there is nothing to continue.' });
       resumeOn = e.resumeOn;
     }
     plan.push({ t, hours, resumeOn, note: String(e.note || '').trim().slice(0, 200) });
   }
-  const add = plan.reduce((n, p) => n + p.hours, 0), already = dayHoursOf(state, me.id, day);
-  if (already + add > LOG_MAX_DAY) return res.status(400).json({ error: 'That would make ' + Math.round((already + add) * 100) / 100 + ' hours on one day (' + Math.round(already * 100) / 100 + ' h already recorded). Check the hours.' });
+  const perDay = plan.reduce((n, p) => n + p.hours, 0);
+  for (const d of days) {
+    const already = dayHoursOf(state, me.id, d);
+    if (already + perDay > LOG_MAX_DAY) return res.status(400).json({ error: 'That would make ' + Math.round((already + perDay) * 100) / 100 + ' hours on ' + d + ' (' + Math.round(already * 100) / 100 + ' h already recorded). Check the hours.' });
+  }
+  const late = d => d < timeLedger.addDay(today, -LOG_LATE_AFTER);          // entered well after the day — the ledger says so
+  const range = days.length > 1 ? from + ' to ' + to : from;
   for (const p of plan) {
     const { t } = p, before = Number(t.logged) || 0;
-    t.logged = Math.round((before + p.hours) * 100) / 100;
-    timeLedger.addAdjustment(t, p.hours, 'manual', day, p.note);
+    days.forEach(d => timeLedger.addAdjustment(t, p.hours, late(d) ? 'manual_late' : 'manual', d, p.note));
+    t.logged = Math.round((before + p.hours * days.length) * 100) / 100;
     t.loggedHistory = t.loggedHistory || [];
-    t.loggedHistory.push({ at: new Date().toISOString(), by: me.name, from: before, to: t.logged, added: p.hours, note: p.note || null, via: 'manual', day });
+    t.loggedHistory.push({ at: new Date().toISOString(), by: me.name, from: before, to: t.logged, added: Math.round(p.hours * days.length * 100) / 100, note: p.note || null, via: 'manual', day: from, ...(days.length > 1 ? { dayTo: to, days: days.length } : {}) });
     if (p.resumeOn) { t.resumeOn = p.resumeOn; t.resumeNote = p.note || null; t.resumeNotifiedOn = null; }
     else if (t.resumeOn && t.resumeOn <= today) t.resumeOn = null;       // they are working on it again
-    logEvent(state, me.id, '<b>' + escHtml(me.name) + '</b> logged <b>' + p.hours + 'h</b> on "' + escHtml(t.name) + '" for ' + day + (p.resumeOn ? ' and will continue on ' + p.resumeOn : '') + '.');
+    logEvent(state, me.id, '<b>' + escHtml(me.name) + '</b> logged <b>' + Math.round(p.hours * days.length * 100) / 100 + 'h</b> on "' + escHtml(t.name) + '" for ' + range + (days.length > 1 ? ' (' + p.hours + 'h a working day)' : '') + (p.resumeOn ? ' and will continue on ' + p.resumeOn : '') + '.');
   }
   db.save();
-  res.status(201).json({ day, added: Math.round(add * 100) / 100, dayTotal: Math.round((already + add) * 100) / 100, entries: plan.map(p => ({ taskId: p.t.id, name: p.t.name, hours: p.hours, resumeOn: p.resumeOn })) });
+  const add = Math.round(perDay * days.length * 100) / 100;
+  res.status(201).json({ from, to, day: from, days: days.length, perDay: Math.round(perDay * 100) / 100, added: add, dayTotal: Math.round((dayHoursOf(state, me.id, to)) * 100) / 100,
+    entries: plan.map(p => ({ taskId: p.t.id, name: p.t.name, hours: p.hours, resumeOn: p.resumeOn })) });
 });
 // Say — or take back — "I will continue this on <day>".
 app.post('/api/tasks/:id/resume-on', requireAuth, (req, res) => {

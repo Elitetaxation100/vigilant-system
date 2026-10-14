@@ -187,12 +187,12 @@ test('LOG WORK: several tasks at once, each with hours and a note — dated, lab
   assert.ok(rj.hours >= 4.5);
 });
 
-test('LOG WORK: for yesterday too, but never the future or the distant past', async () => {
+test('LOG WORK: for yesterday too, but never the future or more than 60 days back', async () => {
   const ok = await http('POST', '/api/time-ledger/log', { token: KH, body: { day: day(-1), entries: [{ taskId: ids.l2, hours: 2 }] } });
   assert.equal(ok.status, 201, JSON.stringify(ok.j));
   const yd = (await http('GET', '/api/time-ledger?from=' + day(-1) + '&to=' + day(-1), { token: KH })).j;
   assert.equal(yd.days[0].items.find(i => i.name === 'GST return Sep').hours, 2);
-  for (const bad of [day(1), day(-3), 'soon']) {
+  for (const bad of [day(1), day(-61), 'soon']) {
     assert.equal((await http('POST', '/api/time-ledger/log', { token: KH, body: { day: bad, entries: [{ taskId: ids.l2, hours: 1 }] } })).status, 400, bad);
   }
 });
@@ -218,7 +218,7 @@ test('LOG WORK is checked first, all or nothing: someone else\'s task, a running
   // a day cannot hold more than 20 hours
   assert.equal((await post([{ taskId: ids.l1, hours: 15 }])).status, 201);
   const over = await post([{ taskId: ids.l2, hours: 6 }]);
-  assert.equal(over.status, 400); assert.match(over.j.error, /on one day/);
+  assert.equal(over.status, 400); assert.match(over.j.error, /hours on [0-9]{4}-/);
   assert.equal((await http('POST', '/api/time-ledger/log', { body: { entries: [] } })).status, 401);
 });
 
@@ -246,4 +246,44 @@ test('CONTINUE ON ANOTHER DAY: set, change and take back; that morning the perso
   assert.ok(procDue.includes(ids.l1), 'it is in "Due today" — it is on their plate');
   assert.equal((await http('POST', T(ids.l1) + '/resume', { token: KH })).status, 200);
   assert.equal((await http('GET', '/api/tasks', { token: KH })).j.tasks.find(t => t.id === ids.l1).resumeOn, null, 'picked up again → the plan is done');
+});
+
+test('LOG WORK over a DATE RANGE: hours are per working day, Sundays and holidays skipped, days far back are marked as logged later', async () => {
+  const from = day(-12), to = day(-8);
+  const before = (await http('GET', T(ids.l2) + '/time', { token: KH })).j.logged;
+  const r = await http('POST', '/api/time-ledger/log', { token: KH, body: { from, to, entries: [{ taskId: ids.l2, hours: 2, note: 'Bookkeeping catch-up' }] } });
+  assert.equal(r.status, 201, JSON.stringify(r.j));
+  const led = (await http('GET', '/api/time-ledger?empId=' + enc(emp('khushi').id) + '&from=' + from + '&to=' + to, { token: SA })).j;
+  const working = led.days.filter(d => d.standard > 0);
+  assert.ok(working.length >= 3 && working.length <= 5, 'a five-day window has 3–5 working days: ' + working.length);
+  assert.equal(r.j.days, working.length); assert.equal(r.j.perDay, 2); assert.equal(r.j.added, 2 * working.length);
+  assert.ok(working.every(d => d.hours === 2 && d.items[0].name === 'GST return Sep'), 'every working day got its 2 h');
+  assert.ok(led.days.filter(d => d.standard === 0).every(d => d.hours === 0), 'days off in the range got nothing');
+  assert.deepEqual(working[0].items[0].sources, ['Logged later by the employee'], 'more than two days ago → marked as logged later');
+  const t = (await http('GET', T(ids.l2) + '/time', { token: KH })).j;
+  assert.equal(Math.round((t.logged - before) * 100) / 100, 2 * working.length); assert.equal(t.earlier, 0, 'the ledger still explains the whole total');
+  const hist = (await http('GET', '/api/tasks', { token: KH })).j.tasks.find(x => x.id === ids.l2).loggedHistory.at(-1);
+  assert.equal(hist.days, working.length); assert.equal(hist.dayTo, to);
+});
+
+test('LOG WORK ranges are checked: backwards, future, too long, no working day, a day that would pass the cap', async () => {
+  const post = body => http('POST', '/api/time-ledger/log', { token: KH, body });
+  const e = [{ taskId: ids.l2, hours: 1 }];
+  assert.equal((await post({ from: day(-3), to: day(-5), entries: e })).status, 400, 'backwards');
+  assert.equal((await post({ from: day(-3), to: day(1), entries: e })).status, 400, 'into the future');
+  assert.equal((await post({ from: day(-45), to: day(-5), entries: e })).status, 400, 'more than 31 days at once');
+  assert.equal((await post({ from: day(-70), to: day(-65), entries: e })).status, 400, 'older than 60 days');
+  // Sundays are the weekly day off: a Saturday–Sunday range counts only the Saturday (a workshop day); a single Sunday is still allowed
+  let sun = day(-3); while (new Date(sun + 'T12:00:00Z').getUTCDay() !== 0) sun = tl.addDay(sun, -1);
+  const sat = tl.addDay(sun, -1);
+  const wk = await post({ from: sat, to: sun, entries: e });
+  assert.equal(wk.status, 201, JSON.stringify(wk.j)); assert.equal(wk.j.days, 1, 'the Sunday is skipped in a range');
+  assert.equal((await post({ from: sun, to: sun, entries: e })).status, 201, 'a single day off is allowed — people do work on one');
+  // the day cap applies to each day of the range: that Saturday now holds 1 h (the Sunday single entry is a different day); 16 more is fine (17), another 16 would pass 20
+  assert.equal((await post({ from: sat, to: sat, entries: [{ taskId: ids.l2, hours: 16 }] })).status, 201);
+  assert.equal((await post({ from: sat, to: sat, entries: [{ taskId: ids.l2, hours: 16 }] })).status, 400);
+  // an old single-day entry also works (not only the last two days)
+  assert.equal((await post({ day: day(-20), entries: e })).status, 201);
+  // the old single-date body still works
+  assert.equal((await post({ day: day(-1), entries: [{ taskId: ids.l2, hours: 0.5 }] })).status, 201);
 });

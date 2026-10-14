@@ -16,7 +16,7 @@ const r2 = n => Math.round(n * 100) / 100;
 // How each entry came to be (shown to people).
 const SOURCES = {
   timer: 'Work clock', auto_pause: 'Forgotten clock, auto-paused', backdated: 'Hours entered when starting', actual_entered: 'Actual hours entered on Mark Done',
-  added_on_hold: 'Time added while on hold', correction: 'Correction', manual: 'Logged by the employee',
+  added_on_hold: 'Time added while on hold', correction: 'Correction', manual: 'Logged by the employee', manual_late: 'Logged later by the employee',
 };
 
 // Split [fromMs, toMs) at New Zealand midnights → [{ day, hours }].
