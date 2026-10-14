@@ -312,6 +312,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .lg-row{ border:1px solid var(--panel-border); border-radius:10px; padding:10px; margin:8px 0; display:grid; gap:8px; } .lg-main{ display:grid; grid-template-columns:minmax(0,1fr) 96px auto; gap:8px; align-items:center; } .lg-sub{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 12px; align-items:center; }
 .lg-resume{ font-size:12.5px; color:var(--text-dim); display:inline-flex; gap:6px; align-items:center; } .lg-modal select, .lg-modal input[type=number], .lg-modal input[type=text]{ width:100%; }
 @media (max-width:640px){ .lg-main{ grid-template-columns:minmax(0,1fr) 84px auto; } .lg-sub{ grid-template-columns:1fr; } }
+.lg-dates{ display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:8px 0 2px; font-size:13px; } .lg-dates label{ display:inline-flex; gap:6px; align-items:center; } .lg-line-total{ font-size:12.5px; color:var(--text-dim); }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -8361,21 +8362,28 @@ function tlDraw(){
     + '<div class="modal-actions"><button type="button" class="btn" onclick="tlCsv()">Download CSV</button>' + (!_tl.empId || _tl.empId === currentViewerId ? '<button type="button" class="btn primary" onclick="openLogTime()">+ Log work</button>' : '') + '<button type="button" class="btn" onclick="closeModal()">Close</button></div></div>';
 }
 /* ---- the employee logs the work they did (on any client / task) and can plan to continue another day ---- */
-let _lg = { day: null, rows: [], recorded: 0 };
-function lgEligible(t, day){
+let _lg = { from: null, to: null, rows: [], recorded: 0, workDays: 1 };
+function lgEligible(t, to){
   if(t.assignedTo !== currentViewerId || t.deletedAt) return false;
   if(['accepted', 'rework', 'on_hold'].includes(t.status)) return true;
-  return t.status === 'completed' && !!t.completedAt && dayOf(t.completedAt) >= day;
+  return t.status === 'completed' && !!t.completedAt && dayOf(t.completedAt) >= to;
 }
+const lgBlank = () => ({ taskId: '', hours: '', note: '', resumeOn: '' });
 async function openLogTime(day){
-  _lg = { day: day || todayISO(), rows: [{ taskId: '', hours: '', note: '', resumeOn: '' }], recorded: 0 };
+  const d = day || todayISO();
+  _lg = { from: d, to: d, rows: [lgBlank()], recorded: 0, workDays: 1 };
   document.getElementById('modalBox').innerHTML = '<h3>Log your work</h3><div class="modal-sub">Loading…</div>';
   openModal();
   await lgLoadRecorded();
   lgDraw();
 }
+// What is already recorded in the chosen dates, and how many working days they cover (the server counts a range by working days).
 async function lgLoadRecorded(){
-  try { const r = await api('/api/time-ledger?from=' + _lg.day + '&to=' + _lg.day); _lg.recorded = r.totalHours || 0; } catch(e){ _lg.recorded = 0; }
+  try {
+    const r = await api('/api/time-ledger?from=' + _lg.from + '&to=' + _lg.to);
+    _lg.recorded = r.totalHours || 0;
+    _lg.workDays = _lg.from === _lg.to ? 1 : r.days.filter(d => d.standard > 0).length;
+  } catch(e){ _lg.recorded = 0; _lg.workDays = 1; }
 }
 function lgSync(){
   _lg.rows.forEach((r, i) => {
@@ -8383,31 +8391,57 @@ function lgSync(){
     r.taskId = v('lgTask'); r.hours = v('lgHours'); r.note = v('lgNote'); r.resumeOn = v('lgResume');
   });
 }
-async function lgDay(d){ lgSync(); _lg.day = d; await lgLoadRecorded(); lgDraw(); }
-function lgAdd(){ lgSync(); if(_lg.rows.length < 10) _lg.rows.push({ taskId: '', hours: '', note: '', resumeOn: '' }); lgDraw(); }
-function lgRemove(i){ lgSync(); _lg.rows.splice(i, 1); if(!_lg.rows.length) _lg.rows.push({ taskId: '', hours: '', note: '', resumeOn: '' }); lgDraw(); }
+async function lgSetDates(from, to){
+  lgSync();
+  const today = todayISO();
+  if(!from || !to) return;
+  if(to > today) to = today;
+  if(from > to) from = to;
+  _lg.from = from; _lg.to = to;
+  await lgLoadRecorded(); lgDraw();
+}
+function lgDatesChanged(){ lgSetDates(document.getElementById('lgFrom').value, document.getElementById('lgTo').value || document.getElementById('lgFrom').value); }
+function lgAdd(){ lgSync(); if(_lg.rows.length < 10) _lg.rows.push(lgBlank()); lgDraw(); }
+function lgRemove(i){ lgSync(); _lg.rows.splice(i, 1); if(!_lg.rows.length) _lg.rows.push(lgBlank()); lgDraw(); }
 function lgDraw(){
-  const mine = tasks.filter(t => lgEligible(t, _lg.day));
+  const today = todayISO(), multi = _lg.from !== _lg.to;
+  const mine = tasks.filter(t => lgEligible(t, _lg.to));
   const byClient = {};
   mine.forEach(t => { (byClient[clientLabel(t) || 'Other'] = byClient[clientLabel(t) || 'Other'] || []).push(t); });
   const opts = sel => '<option value="">Choose a task…</option>' + Object.keys(byClient).sort().map(c => '<optgroup label="' + esc(c) + '">' + byClient[c].map(t =>
     '<option value="' + esc(t.id) + '"' + (t.timerStartedAt ? ' disabled' : '') + (t.id === sel ? ' selected' : '') + '>' + esc(t.name) + (t.timerStartedAt ? ' (clock running — pause it first)' : ' · ' + (t.tat ? t.tat + 'h allocated, ' : '') + (Number(t.logged) || 0).toFixed(1) + 'h logged') + '</option>').join('') + '</optgroup>').join('');
   const tomorrow = addDaysISO(1);
-  const days = [[todayISO(), 'Today'], [addDaysISO(-1), 'Yesterday'], [addDaysISO(-2), fmtDate(addDaysISO(-2))]];
-  const rows = _lg.rows.map((r, i) => '<div class="lg-row"><div class="lg-main">'
-    + '<select id="lgTask' + i + '" aria-label="Task">' + opts(r.taskId) + '</select>'
-    + '<input type="number" id="lgHours' + i + '" min="0.1" max="16" step="0.25" placeholder="Hours" aria-label="Hours worked" value="' + esc(r.hours) + '">'
-    + '<button type="button" class="btn small" aria-label="Remove this line" onclick="lgRemove(' + i + ')">✕</button></div>'
-    + '<div class="lg-sub"><input type="text" id="lgNote' + i + '" maxlength="200" placeholder="What you did (optional)" value="' + esc(r.note) + '">'
-    + '<label class="lg-resume">Continue on <input type="date" id="lgResume' + i + '" min="' + tomorrow + '" value="' + esc(r.resumeOn) + '"></label></div></div>').join('');
+  const chip = (label, f, t) => '<button type="button" class="tg-chip' + (_lg.from === f && _lg.to === t ? ' on' : '') + '" onclick="lgSetDates(\'' + f + '\', \'' + t + '\')">' + label + '</button>';
+  const wk = (() => { const d = new Date(today + 'T12:00:00'); const back = (d.getDay() + 6) % 7; return addDaysISO(-back); })();
+  const rows = _lg.rows.map((r, i) => {
+    const per = Number(r.hours) > 0 ? Number(r.hours) : 0;
+    return '<div class="lg-row"><div class="lg-main">'
+      + '<select id="lgTask' + i + '" aria-label="Task">' + opts(r.taskId) + '</select>'
+      + '<input type="number" id="lgHours' + i + '" min="0.1" max="16" step="0.25" placeholder="' + (multi ? 'Hours a day' : 'Hours') + '" aria-label="' + (multi ? 'Hours worked each working day' : 'Hours worked') + '" value="' + esc(r.hours) + '" oninput="lgTotals()">'
+      + '<button type="button" class="btn small" aria-label="Remove this line" onclick="lgRemove(' + i + ')">✕</button></div>'
+      + '<div class="lg-sub"><input type="text" id="lgNote' + i + '" maxlength="200" placeholder="What you did (optional)" value="' + esc(r.note) + '">'
+      + '<label class="lg-resume">Continue on <input type="date" id="lgResume' + i + '" min="' + tomorrow + '" value="' + esc(r.resumeOn) + '"></label></div>'
+      + (multi ? '<div class="lg-line-total" id="lgLine' + i + '">' + (per ? _lg.workDays + ' working day' + (_lg.workDays === 1 ? '' : 's') + ' × ' + tlH(per) + ' = <b>' + tlH(per * _lg.workDays) + '</b>' : '') + '</div>' : '') + '</div>';
+  }).join('');
+  const range = multi ? esc(fmtDate(_lg.from)) + ' – ' + esc(fmtDate(_lg.to)) : esc(fmtDate(_lg.from));
   document.getElementById('modalBox').innerHTML = '<div class="lg-modal"><h3>Log your work</h3>'
     + '<div class="modal-sub">Put the time you worked on the right task and client. It shows in your time ledger and to your manager.</div>'
-    + '<div class="tg-chips" role="group" aria-label="Day">' + days.map(([d, l]) => '<button type="button" class="tg-chip' + (_lg.day === d ? ' on' : '') + '" onclick="lgDay(\'' + d + '\')">' + esc(l) + '</button>').join('') + '</div>'
-    + '<div class="cw-help">' + (_lg.recorded ? 'Already recorded for ' + esc(fmtDate(_lg.day)) + ': <b>' + tlH(_lg.recorded) + '</b> — add only what is not in it yet.' : 'Nothing recorded yet for ' + esc(fmtDate(_lg.day)) + '.') + '</div>'
+    + '<div class="tg-chips" role="group" aria-label="Quick dates">' + chip('Today', today, today) + chip('Yesterday', addDaysISO(-1), addDaysISO(-1)) + chip('This week so far', wk, today) + '</div>'
+    + '<div class="lg-dates"><label>From <input type="date" id="lgFrom" value="' + esc(_lg.from) + '" min="' + addDaysISO(-60) + '" max="' + today + '" onchange="lgDatesChanged()"></label>'
+    + '<label>To <input type="date" id="lgTo" value="' + esc(_lg.to) + '" min="' + addDaysISO(-60) + '" max="' + today + '" onchange="lgDatesChanged()"></label></div>'
+    + '<div class="cw-help">' + (multi ? 'Hours are <b>per working day</b> — days off in the range (Sundays, holidays) are skipped (' + _lg.workDays + ' working day' + (_lg.workDays === 1 ? '' : 's') + '). ' : '')
+    + (_lg.recorded ? 'Already recorded for ' + range + ': <b>' + tlH(_lg.recorded) + '</b> — add only what is not in it yet.' : 'Nothing recorded yet for ' + range + '.') + '</div>'
     + (mine.length ? rows + '<button type="button" class="btn small" onclick="lgAdd()">+ Add another task</button>' : '<div class="cw-empty">You have no task in progress to log time on.</div>')
-    + '<div class="cw-help">“Continue on” leaves the task open and reminds you that morning — leave it empty if you are not planning a day.</div>'
+    + '<div class="cw-help">“Continue on” leaves the task open and reminds you that morning — leave it empty if you are not planning a day. You can log work from the last 60 days; entries for days more than two days ago are marked as logged later.</div>'
     + '<div class="modal-error" id="lgErr" role="alert"></div>'
     + '<div class="modal-actions"><button type="button" class="btn primary" onclick="lgSave()"' + (mine.length ? '' : ' disabled') + '>Save</button><button type="button" class="btn" onclick="closeModal()">Cancel</button></div></div>';
+}
+function lgTotals(){
+  if(_lg.from === _lg.to) return;
+  _lg.rows.forEach((r, i) => {
+    const el = document.getElementById('lgLine' + i), h = Number((document.getElementById('lgHours' + i) || {}).value);
+    if(el) el.innerHTML = h > 0 ? _lg.workDays + ' working day' + (_lg.workDays === 1 ? '' : 's') + ' × ' + tlH(h) + ' = <b>' + tlH(h * _lg.workDays) + '</b>' : '';
+  });
 }
 async function lgSave(){
   lgSync();
@@ -8416,10 +8450,10 @@ async function lgSave(){
   if(!entries.length) return fail('Choose a task and the hours you worked.');
   if(entries.some(e => !e.taskId || !(e.hours > 0))) return fail('Each line needs a task and the hours worked.');
   try {
-    const r = await api('/api/time-ledger/log', { method: 'POST', body: JSON.stringify({ day: _lg.day, entries }) });
+    const r = await api('/api/time-ledger/log', { method: 'POST', body: JSON.stringify({ from: _lg.from, to: _lg.to, entries }) });
     await refreshTasks();
     closeModal();
-    showToast('success', 'Logged ' + tlH(r.added), r.entries.map(e => e.name + (e.resumeOn ? ' (continue ' + fmtDate(e.resumeOn) + ')' : '')).join(', '));
+    showToast('success', 'Logged ' + tlH(r.added) + (r.days > 1 ? ' over ' + r.days + ' working days' : ''), r.entries.map(e => e.name + (e.resumeOn ? ' (continue ' + fmtDate(e.resumeOn) + ')' : '')).join(', '));
   } catch(e){ fail(e.message); }
 }
 async function tlCsv(){
