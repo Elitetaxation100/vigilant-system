@@ -313,11 +313,6 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .lg-resume{ font-size:12.5px; color:var(--text-dim); display:inline-flex; gap:6px; align-items:center; } .lg-modal select, .lg-modal input[type=number], .lg-modal input[type=text]{ width:100%; }
 @media (max-width:640px){ .lg-main{ grid-template-columns:minmax(0,1fr) 84px auto; } .lg-sub{ grid-template-columns:1fr; } }
 .lg-dates{ display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:8px 0 2px; font-size:13px; } .lg-dates label{ display:inline-flex; gap:6px; align-items:center; } .lg-line-total{ font-size:12.5px; color:var(--text-dim); }
-.ws{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 14px; align-items:stretch; }
-.ws-tile{ font:inherit; color:var(--text); text-align:left; display:flex; flex-direction:column; gap:2px; padding:10px 14px; border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); cursor:pointer; }
-.ws-tile b{ font-size:22px; line-height:1.1; font-variant-numeric:tabular-nums; } .ws-tile span{ font-size:13px; font-weight:600; } .ws-tile small{ font-size:12px; color:var(--text-dim); }
-.ws-tile:hover, .ws-tile:focus-visible{ border-color:var(--purple); outline:none; } .ws-tile.bad b{ color:var(--coral); } .ws-tile.bad{ border-color:var(--coral); } .ws-tile.warn b{ color:var(--amber); } .ws-tile.ok b{ color:var(--teal); } .ws-tile.time b{ color:var(--text); }
-.ws-log{ font:inherit; font-size:13px; font-weight:600; border:1px dashed var(--panel-border); border-radius:12px; background:transparent; color:var(--purple); cursor:pointer; padding:10px 14px; } .ws-log:hover, .ws-log:focus-visible{ border-color:var(--purple); outline:none; }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -1586,7 +1581,6 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
         </div>
 
         <div id="deliveryStrip"></div>
-        <div class="ws-mount"></div>
 
         <details class="panel panel-fold" id="todoPanel">
           <summary>
@@ -6816,7 +6810,6 @@ function renderEmployeeStats(){
   // now — not on the Commitment Dashboard.
   renderMirrorBanner();
   renderDeliveryStrip('deliveryStrip', mine, isMirroring() ? (me.name || '') : null);
-  wsLoad();
   refreshMyCallStats();
   refreshProfitConfirmTile();
   refreshReportsToSendTile();
@@ -8042,11 +8035,9 @@ function drawToday(){
   const tabs = TD_MODES.map(([k, l]) => '<button type="button" role="tab" id="tdTab_' + k + '" class="' + (_tdMode === k ? 'on' : '') + '" aria-selected="' + (_tdMode === k) + '" aria-controls="tdPanel" tabindex="' + (_tdMode === k ? 0 : -1) + '" onclick="tdSetMode(\'' + k + '\')">' + l + '</button>').join('');
   box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(T.greeting) + ', ' + esc(first) + '</h2><div class="td-date">' + esc(dateLabel) + ' · ' + esc(T.timezone.replace('Pacific/Auckland', 'New Zealand time')) + '</div></div>'
     + (TD_MODES.length > 1 ? '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div>' : '') + '</div>'
-    + '<div class="ws-mount"></div>'
     + fltBarHtml('td')
     + '<div id="tdPanel" role="tabpanel" aria-labelledby="tdTab_' + _tdMode + '"><div id="tdBody"></div></div>';
   tdDrawBody();
-  wsLoad();
 }
 function tdSetMode(m, focusTab){
   if(m === _tdMode && !focusTab) return;
@@ -8461,7 +8452,6 @@ async function lgSave(){
   try {
     const r = await api('/api/time-ledger/log', { method: 'POST', body: JSON.stringify({ from: _lg.from, to: _lg.to, entries }) });
     await refreshTasks();
-    wsLoad(true);
     closeModal();
     showToast('success', 'Logged ' + tlH(r.added) + (r.days > 1 ? ' over ' + r.days + ' working days' : ''), r.entries.map(e => e.name + (e.resumeOn ? ' (continue ' + fmtDate(e.resumeOn) + ')' : '')).join(', '));
   } catch(e){ fail(e.message); }
@@ -8472,34 +8462,6 @@ async function tlCsv(){
     if(!res.ok) throw new Error('Could not build the file.');
     const blob = await res.blob(), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'time-ledger.csv'; document.body.appendChild(a); a.click(); a.remove();
   } catch(e){ showToast('error', 'Could not download', e.message); }
-}
-
-/* =========================================================================
-   DASHBOARD STRIP — the same few numbers on every dashboard (employee, manager, founder)
-   ========================================================================= */
-let _ws = { at: 0, data: null, busy: false };
-function wsHtml(d){
-  const w = d.watch, t = d.time, who = { mine: 'your work', team: 'your team', firm: 'the whole firm' }[d.scope] || 'your work';
-  const tile = (cls, big, label, sub, fn, tip) => '<button type="button" class="ws-tile ' + cls + '" onclick="' + fn + '" title="' + esc(tip || '') + '"><b>' + big + '</b><span>' + label + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</button>';
-  const flagged = w.late + w.atRisk;
-  const tiles = [
-    tile(w.breaches ? 'bad' : 'ok', w.breaches, w.breaches === 1 ? 'commitment breach' : 'commitment breaches', w.breaches ? 'report not sent · ' + w.rule + ' marks each' : 'none in ' + who, "openCommitmentWatch('breaches')", 'The commitment date has passed and the report has not been sent'),
-    tile(flagged ? (w.late ? 'bad' : 'warn') : 'ok', flagged, 'late or at risk', flagged ? w.late + ' late · ' + w.atRisk + ' at risk' : 'all on track', "openCommitmentWatch('flags')", 'Not submitted by the due date · review not done before the commitment date · no update before the commitment date'),
-    tile('time', tlH(t.today), 'worked today', t.standard ? 'of ' + tlH(t.standard) + ' · ' + tlH(t.week) + ' this week' : 'day off · ' + tlH(t.week) + ' this week', 'openTimeLedger()', 'Time recorded on the work clock and logged by you — click for the day-by-day'),
-  ];
-  if(d.team) tiles.push(tile('time', tlH(d.team.workedToday), 'team worked today', d.team.working + ' of ' + d.team.people + ' logged time', "openTimeLedger(null, null, null, 'team')", 'Time recorded today across ' + who + ' — click for each person'));
-  if(d.resumeToday) tiles.push(tile('warn', d.resumeToday, d.resumeToday === 1 ? 'task to continue today' : 'tasks to continue today', 'you planned these', "showView('mytasks', document.querySelector('.nav-item[data-view=mytasks]'))", 'Tasks you said you would pick up again today'));
-  return '<div class="ws" role="group" aria-label="Commitments and time">' + tiles.join('') + '<button type="button" class="ws-log" onclick="openLogTime()" title="Put the work you did on the right task and client">✎ Log my work</button></div>';
-}
-function wsPaint(){
-  document.querySelectorAll('.ws-mount').forEach(el => { el.innerHTML = (!_ws.data || (typeof isMirroring === 'function' && isMirroring())) ? '' : wsHtml(_ws.data); });
-}
-function wsLoad(force){
-  wsPaint();
-  if(!force && Date.now() - _ws.at < 45000) return;
-  if(_ws.busy) return;
-  _ws.busy = true;
-  api('/api/dashboard-strip').then(d => { _ws = { at: Date.now(), data: d, busy: false }; wsPaint(); }).catch(() => { _ws.busy = false; _ws.at = Date.now(); });
 }
 
 /* =========================================================================
