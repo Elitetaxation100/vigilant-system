@@ -12781,10 +12781,9 @@ function fdDrawBody(){
   const tiles = _fdView === 'today' ? V.today.tiles : _fdView === 'review' ? V.review.tiles : V.founder.actionTiles;
   const intro = _fdView === 'today' ? '<div class="fd-note">Only <b>your own</b> responsibilities — not the firm.</div>' : _fdView === 'review' ? '<div class="fd-note">What waits for <b>your</b> review or decision, and where reviews are stuck across the firm.</div>' : '';
   p.innerHTML = intro + '<div class="td-counts fd-tiles" role="group" aria-label="Summary tiles">' + fdTilesHtml(tiles) + '</div>'
-    + (_fdView === 'founder' ? '<div class="ws-mount"></div>' + fdKpiHtml() : '')
+    + (_fdView === 'founder' ? fdKpiHtml() : '')
     + '<div id="fdDrill">' + fdDrillHtml() + '</div>'
     + (_fdView === 'founder' ? fdFounderRest() : '');
-  wsLoad();
 }
 function fdTilesHtml(tiles){
   return tiles.map(t => {

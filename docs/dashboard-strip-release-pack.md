@@ -15,7 +15,7 @@ The new features are now on **every dashboard**, in one shared strip at the top,
 | Tasks to continue today | Tasks you planned to pick up again today | My Tasks |
 | ✎ Log my work | — | Log my work |
 
-**Where:** the older "My Dashboard" (all employees and managers), the newer Today page (every mode) and the Founder view. Each person sees their own work; a manager their team's; the founder the firm's. It is hidden while a manager is viewing someone else's dashboard (read-only mirror). The tile counts equal the lists they open (tested).
+**Where:** the older "My Dashboard" (all employees and managers) and the newer Today page (every mode). **Not on the Founder dashboard** — left as it was, as asked. Each person sees their own work; a manager their team's; the founder the firm's. It is hidden while a manager is viewing someone else's dashboard (read-only mirror). The tile counts equal the lists they open (tested).
 
 One small endpoint, `/api/dashboard-strip`, feeds all of it (cached for 45 s in the page and refreshed after you log time).
 

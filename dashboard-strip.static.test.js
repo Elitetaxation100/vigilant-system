@@ -1,15 +1,16 @@
-// Every dashboard shows the shared strip, and the recurring-task features on the older dashboards are still there (they must never be removed).
+// The shared strip is on the older dashboard and the Today page (not the Founder dashboard), and the recurring-task features on the older dashboards are still there (they must never be removed).
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
-const html = fs.readFileSync(__dirname + '/public/index.html', 'utf8');
+const html = fs.readFileSync(__dirname + '/public/index.html', 'utf8').replace(/\r\n/g, '\n');
 const server = fs.readFileSync(__dirname + '/server.js', 'utf8');
 
-test('the strip is mounted on the old dashboard, the Today page and the Founder view, and refreshes with them', () => {
-  assert.ok(html.includes('<div id="deliveryStrip"></div>\n        <div class="ws-mount"></div>') || html.includes('<div id="deliveryStrip"></div>\r\n        <div class="ws-mount"></div>'), 'the old dashboard mount');
-  assert.ok(html.includes("+ '<div class=\"ws-mount\"></div>'\n    + fltBarHtml('td')") || html.includes("+ '<div class=\"ws-mount\"></div>'\r\n    + fltBarHtml('td')"), 'the Today page mount');
-  assert.ok(html.includes("'<div class=\"ws-mount\"></div>' + fdKpiHtml()"), 'the Founder mount');
-  assert.ok((html.match(/\bwsLoad\(\);/g) || []).length >= 3, 'each dashboard calls wsLoad after it draws');
+test('the strip is mounted on the old dashboard and the Today page (NOT the Founder dashboard), and refreshes with them', () => {
+  assert.ok(html.includes('<div id="deliveryStrip"></div>\n        <div class="ws-mount"></div>'), 'the old dashboard mount');
+  assert.ok(html.includes("+ '<div class=\"ws-mount\"></div>'\n    + fltBarHtml('td')"), 'the Today page mount');
+  assert.ok(!html.includes("'<div class=\"ws-mount\"></div>' + fdKpiHtml()"), 'the Founder dashboard has no strip');
+  assert.equal((html.match(/class=\\?"ws-mount\\?"/g) || []).length, 2, 'exactly two mounts: the old dashboard and the Today page');
+  assert.ok((html.match(/\bwsLoad\(\);/g) || []).length >= 2, 'each of them calls wsLoad after it draws');
   assert.ok(html.includes('/api/dashboard-strip') && /function wsHtml\(/.test(html));
   assert.ok(server.includes("app.get('/api/dashboard-strip'"));
 });
