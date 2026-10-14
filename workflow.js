@@ -365,14 +365,40 @@ function buildToday(tasks, me, deps) {
   const completedReviews = [...new Set(doneToday.filter(d => /approved|Returned|scalated/.test(d.action)).map(d => d.id))];
   const review = { urgent, resubmitted, fresh, waitingEmployee, completed: completedReviews };
   const reviewCounts = { urgent: urgent.length, newSubmissions: fresh.length, resubmitted: resubmitted.length, waitingEmployee: waitingEmployee.length, completedToday: completedReviews.length };
+  // ---- D. THE SIMPLE TODAY LIST — only what needs ME today (the next action is mine), most urgent first, ONE short reason each.
+  // rank 0 = the client commitment is overdue / due today · 1 = a decision, a correction or a deadline that has already passed · 2 = normal work for today.
+  const attention = [];
+  {
+    const seenA = new Set(), clientUrgent = id => ['overdue', 'due_today'].includes(cards[id].clientRisk.state);
+    const addA = (t, type, why, base, action, since) => {
+      if (seenA.has(t.id)) return; seenA.add(t.id);
+      attention.push({ id: t.id, type, why, action, rank: clientUrgent(t.id) ? 0 : base, urgent: clientUrgent(t.id), since: since || null });
+    };
+    const NEED_BASE = { review: 2, correction_resubmitted: 2, escalation: 1, profit_confirm: 1, send_report: 2, accept: 2, decision: 1, unassigned: 1 };
+    needs.forEach(n => addA(byId[n.id], n.type, n.why, n.type === 'accept' && cards[n.id].status === 'Correction Required' ? 1 : (NEED_BASE[n.type] != null ? NEED_BASE[n.type] : 2), n.type === 'accept' ? 'accept' : (n.type === 'review' || n.type === 'correction_resubmitted') ? 'review' : n.type === 'send_report' ? 'send_report' : n.type === 'escalation' ? 'escalation' : 'decide', n.since));
+    for (const t of open) {
+      if (t.assignedTo !== me.id || seenA.has(t.id)) continue;
+      const c = cards[t.id], due = internalDueOf(t, deps);
+      if (c.status === 'Correction Required') addA(t, 'fix', 'Sent back for a correction — fix it and send it again', 1, 'work', t.reviewedAt);
+      else if (c.status === 'On Hold' && t.holdResolvedAt) addA(t, 'resume', 'What you were waiting for has arrived — ready to continue', 2, 'work', t.holdResolvedAt);
+      else if (['Assigned', 'In Progress'].includes(c.status)) {
+        if (due && due < deps.today) addA(t, 'overdue', 'Overdue — was due ' + due, 1, 'work', due);
+        else if (due && due === deps.today) addA(t, 'due', 'Due today', 2, 'work', due);
+        else if (t.resumeOn && t.resumeOn <= deps.today) addA(t, 'continue', 'You planned to continue this today', 2, 'work', t.resumeOn);
+        else if (t.timerStartedAt) addA(t, 'running', 'You are working on this now', 2, 'work', t.timerStartedAt);
+      }
+    }
+    attention.sort((a, b) => a.rank - b.rank || String(cards[a.id].clientDate || '9999').localeCompare(String(cards[b.id].clientDate || '9999')) || String(a.since || '').localeCompare(String(b.since || '')));
+  }
+  const attentionSummary = { total: attention.length, urgent: attention.filter(a => a.urgent || a.rank === 0).length, waitingOthers: waiting.reduce((n, g) => n + g.ids.filter(id => !attention.some(a => a.id === id)).length, 0), doneToday: doneToday.length };
   const counts = Object.fromEntries(Object.entries(filters).map(([k, v]) => [k, v.length]));
   // only ship the cards the page will actually show
-  const used = new Set([...Object.values(review).flat(), ...needs.map(n => n.id), ...waiting.flatMap(g => g.ids), ...doneToday.map(d => d.id), ...Object.values(filters).flat()]);
+  const used = new Set([...attention.map(a => a.id), ...Object.values(review).flat(), ...needs.map(n => n.id), ...waiting.flatMap(g => g.ids), ...doneToday.map(d => d.id), ...Object.values(filters).flat()]);
   const outCards = Object.fromEntries([...used].map(id => [id, cards[id]]));
   const modes = buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, finishedIds });
   const modeIds = new Set(['today', 'manager', 'review', 'processor'].flatMap(k => [...modes[k].tiles.flatMap(x => x.ids), ...modes[k].default.primary.ids, ...modes[k].default.secondary.flatMap(x => x.ids)]));
   modeIds.forEach(id => { if (cards[id]) outCards[id] = cards[id]; });
-  return { counts, filters, review, reviewCounts, modes, sections: { needs: needs.map(({ id, type, why }) => ({ id, type, why })), waiting, completed: doneToday }, cards: outCards };
+  return { counts, filters, review, reviewCounts, modes, attention, attentionSummary, sections: { needs: needs.map(({ id, type, why }) => ({ id, type, why })), waiting, completed: doneToday }, cards: outCards };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------

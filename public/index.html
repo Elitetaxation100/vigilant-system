@@ -313,6 +313,17 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .lg-resume{ font-size:12.5px; color:var(--text-dim); display:inline-flex; gap:6px; align-items:center; } .lg-modal select, .lg-modal input[type=number], .lg-modal input[type=text]{ width:100%; }
 @media (max-width:640px){ .lg-main{ grid-template-columns:minmax(0,1fr) 84px auto; } .lg-sub{ grid-template-columns:1fr; } }
 .lg-dates{ display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:8px 0 2px; font-size:13px; } .lg-dates label{ display:inline-flex; gap:6px; align-items:center; } .lg-line-total{ font-size:12.5px; color:var(--text-dim); }
+body.td-simple-on #deadlineBannerWrap{ display:none; }
+.ts-sum{ display:flex; justify-content:space-between; align-items:center; gap:10px 16px; flex-wrap:wrap; margin:4px 0 14px; }
+.ts-sum-t{ font-size:17px; } .ts-sum-t b{ font-size:22px; } .ts-urgent{ color:var(--coral); font-weight:700; } .ts-links{ display:flex; gap:8px; flex-wrap:wrap; }
+.ts-sec{ font-size:11.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim); margin:14px 0 6px; } .ts-sec span{ color:var(--text-faint); font-weight:600; }
+.ts-row{ display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:6px 16px; align-items:center; padding:12px 14px; margin:0 0 8px; border:1px solid var(--panel-border); border-left:4px solid var(--panel-border); border-radius:12px; background:var(--panel); cursor:pointer; }
+.ts-row:hover, .ts-row:focus-visible{ border-color:var(--purple); outline:none; } .ts-row.sel{ border-color:var(--purple); background:var(--purple-dim); } .ts-row.urgent{ border-left-color:var(--coral); }
+.ts-main{ display:flex; flex-direction:column; min-width:0; gap:1px; } .ts-client{ font-size:12px; color:var(--text-dim); } .ts-task{ font-size:15.5px; font-weight:700; overflow-wrap:anywhere; } .ts-why{ font-size:13px; color:var(--text-dim); }
+.ts-row.urgent .ts-why{ color:var(--coral); } .ts-when{ font-size:12.5px; color:var(--text-dim); text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:3px; } .ts-act .btn{ white-space:nowrap; }
+.ts-foot{ margin:14px 2px 4px; font-size:13px; color:var(--text-dim); } .ts-link{ font:inherit; font-size:inherit; background:none; border:0; padding:0; color:var(--purple); cursor:pointer; text-decoration:underline; }
+.ts-clear{ padding:34px 12px; text-align:center; color:var(--text-dim); font-size:14.5px; border:1px dashed var(--panel-border); border-radius:12px; } .ts-back{ margin:0 0 10px; }
+@media (max-width:640px){ .ts-row{ grid-template-columns:minmax(0,1fr); } .ts-when{ text-align:left; align-items:flex-start; } .ts-act .btn{ width:100%; } }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -4754,6 +4765,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('DOMContentLoaded', enhanceNavItems);
 function showView(id, el, classic){
+  document.body.classList.toggle('td-simple-on', id === 'today' && typeof tdIsSimple === 'function' && tdIsSimple());
   closeMobileNav();
   mtMenuClose();
   // v2 managers: Tasks means the new list; the classic list stays one click away. Manager-only views fall back to Today.
@@ -7837,6 +7849,15 @@ function tdLoadMode(){ try { const m = localStorage.getItem('tdMode'); return TD
 let _today = null, _tdMode = tdLoadMode(), _tdTile = null, _tdOpen = null, _tdSel = null;
 const tdDefaultOpen = () => _tdMode === 'today' ? 'my_work' : _tdMode === 'processor' ? 'p_due' : null;      // on Today, "My work" is the one section that starts open
 _tdOpen = tdDefaultOpen();
+// The SIMPLE Today: only what needs this person today, sorted. "Show everything" brings back the full dashboard; the choice is remembered.
+let _tdSimple = true;
+try { if(localStorage.getItem('tdSimple') === '0') _tdSimple = false; } catch(e){}
+function tdIsSimple(){ return _tdSimple && ['today', 'processor'].includes(_tdMode) && !!(_today && _today.attention); }
+function tdSetSimple(on){
+  _tdSimple = !!on; _tdSel = null; _tdTile = null; window.__tdMobileOpen = false;
+  try { localStorage.setItem('tdSimple', on ? '1' : '0'); } catch(e){}
+  drawToday();
+}
 function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
   document.body.classList.toggle('v2-dash', on);
@@ -8018,24 +8039,60 @@ function procStripHtml(){
     + '<button type="button" class="btn small" style="margin-left:auto;" onclick="openLogTime()" title="Put the work you did today on the right client and task">✎ Log my work</button>'
     + '<button type="button" class="btn small" onclick="showView(\'mytasks\', document.querySelector(\'#navV2 .nav-item[data-view=mytasks]\'))">All my tasks →</button></div>';
 }
+/* ---- the simple Today: a short, sorted list of what needs ME today ---- */
+function tdSimpleAction(a, c){
+  const id = esc(a.id), t = findTask(a.id), b = (label, fn, cls) => '<button type="button" class="btn ' + (cls || 'primary') + ' td-act" onclick="' + fn + '">' + label + '</button>';
+  if(a.action === 'review') return b('Review', "openReviewV2('" + id + "')");
+  if(a.action === 'accept') return b('Accept', "acceptTask('" + id + "')");
+  if(a.action === 'send_report') return b('Send report', "openSendToClientModal('" + id + "')");
+  if(a.action === 'escalation') return b('Decide', "openEscalationDecision('" + id + "')");
+  if(a.action === 'decide'){ const p = tdPrimary(a.id); return p ? p.split('</button>')[0] + '</button>' : b('Open', "tdSimpleSelect('" + id + "')", ''); }
+  if(t && ['accepted', 'rework'].includes(t.status) && !t.timerStartedAt) return b(t.startedAt ? 'Continue' : 'Start', "resumeTask('" + id + "')");
+  return b('Open', "tdSimpleSelect('" + id + "')", '');
+}
+function tdSimpleRow(a){
+  const c = _today.cards[a.id]; if(!c) return '';
+  const sid = esc(a.id);
+  const when = c.clientDate ? 'Client date ' + fmtDate(c.clientDate) : (c.internalDeadline ? 'Due ' + fmtDate(c.internalDeadline) : '');
+  return '<div class="ts-row' + (a.rank === 0 ? ' urgent' : '') + (_tdSel === a.id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
+    + '<div class="ts-main"><span class="ts-client">' + esc(c.clientName || 'Admin task') + '</span><span class="ts-task">' + esc(c.name) + '</span><span class="ts-why">' + esc(a.why) + '</span></div>'
+    + '<div class="ts-when">' + esc(when) + (a.rank === 0 ? tdRiskTag(c) : '') + '</div>'
+    + '<div class="ts-act" onclick="event.stopPropagation()">' + tdSimpleAction(a, c) + '</div></div>';
+}
+function tdSimpleSelect(id){
+  tdSelect(id);
+  document.querySelectorAll('#tdList .ts-row').forEach(r => r.classList.toggle('sel', r.dataset.id === id));
+}
+function tdSimpleHtml(){
+  const A = _today.attention, S = _today.attentionSummary, urgent = A.filter(a => a.rank === 0), rest = A.filter(a => a.rank !== 0);
+  const sec = (title, list) => list.length ? '<div class="ts-sec">' + esc(title) + ' <span>' + list.length + '</span></div>' + list.map(tdSimpleRow).join('') : '';
+  const head = '<div class="ts-sum"><div class="ts-sum-t">' + (A.length ? '<b>' + A.length + '</b> ' + (A.length === 1 ? 'thing needs' : 'things need') + ' you today' + (S.urgent ? ' · <span class="ts-urgent">' + S.urgent + ' urgent</span>' : '') : '<b>✓ You are all clear for today</b>') + '</div>'
+    + '<div class="ts-links"><button type="button" class="btn small" onclick="openLogTime()" title="Put the work you did on the right task and client">✎ Log my work</button><button type="button" class="btn small" onclick="tdSetSimple(false)">Show everything</button></div></div>';
+  const list = A.length ? (urgent.length && rest.length ? sec('Urgent — client date today or passed', urgent) + sec('Today', rest) : sec(urgent.length ? 'Urgent — client date today or passed' : 'Today', A)) : '<div class="ts-clear">Nothing is waiting for you. Enjoy the quiet — or open <button type="button" class="ts-link" onclick="showView(\'mytasks\', document.querySelector(\'#navV2 .nav-item[data-view=mytasks]\'))">All my tasks</button>.</div>';
+  const foot = (S.waitingOthers || S.doneToday) ? '<div class="ts-foot">' + [S.waitingOthers ? S.waitingOthers + ' waiting on others' : '', S.doneToday ? S.doneToday + ' done today' : ''].filter(Boolean).join(' · ') + ' <button type="button" class="ts-link" onclick="tdSetSimple(false)">See them</button></div>' : '';
+  return head + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + list + foot + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
+}
 function tdDrawBody(){
   const body = document.getElementById('tdBody'); if(!body || !_today) return;
+  if(tdIsSimple()){ body.innerHTML = tdSimpleHtml(); return; }
   const M = tdModeData(), S = _tdTile ? M.tiles.find(x => x.key === _tdTile) : null;
   const reportsNote = S && S.key === 'reports_team' && S.breakdown ? '<div class="td-empty" role="note">Overdue to send: <b>' + S.breakdown.overdue + '</b> · Due today: <b>' + S.breakdown.today + '</b> · Due later: <b>' + S.breakdown.later + '</b> · Waiting for profit confirmation: <b>' + S.breakdown.profit + '</b>. A report is never counted late before its client date.</div>' : '';
   const groupsNote = S && S.key === 'p_waiting' && S.groups ? '<div class="td-empty" role="note">' + Object.entries(S.groups).map(([k, v]) => ({ client: 'Client', external: 'External authority', manager: 'Manager', reviewer: 'Reviewer', internal: 'Internal dependency', scheduled: 'Scheduled for later', other: 'Other' }[k] || k) + ': <b>' + v.length + '</b>').join(' · ') + '</div>' : '';
   body.innerHTML = '<div class="td-counts" role="group" aria-label="' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + ' summary">' + tdTilesHtml() + '</div>'
     + (_tdMode === 'processor' ? procStripHtml() : '')
+    + (['today', 'processor'].includes(_tdMode) && _today.attention ? '<div class="ts-back"><button type="button" class="btn small" onclick="tdSetSimple(true)">← Simple view</button></div>' : '')
     + (S ? '<div style="margin:-4px 0 10px;font-size:13px;">Showing: <b>' + esc(S.label) + '</b> <button type="button" class="btn small td-act" onclick="tdSetTile(null)">Back to ' + esc(TD_MODES.find(x => x[0] === _tdMode)[1]) + '</button></div>' + reportsNote + groupsNote : '')
     + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + tdListHtml() + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
 }
 function drawToday(){
   const T = _today, box = document.getElementById('tdRoot'); if(!box) return;
+  document.body.classList.toggle('td-simple-on', tdIsSimple() && todayViewActive());
   const first = (T.name || '').split(' ')[0];
   const dateLabel = new Date(T.today + 'T12:00:00').toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   const tabs = TD_MODES.map(([k, l]) => '<button type="button" role="tab" id="tdTab_' + k + '" class="' + (_tdMode === k ? 'on' : '') + '" aria-selected="' + (_tdMode === k) + '" aria-controls="tdPanel" tabindex="' + (_tdMode === k ? 0 : -1) + '" onclick="tdSetMode(\'' + k + '\')">' + l + '</button>').join('');
   box.innerHTML = '<div class="td-head"><div><h2 class="td-greet">' + esc(T.greeting) + ', ' + esc(first) + '</h2><div class="td-date">' + esc(dateLabel) + ' · ' + esc(T.timezone.replace('Pacific/Auckland', 'New Zealand time')) + '</div></div>'
     + (TD_MODES.length > 1 ? '<div class="td-seg" role="tablist" aria-label="Dashboard view" onkeydown="tdTabKey(event)">' + tabs + '</div>' : '') + '</div>'
-    + fltBarHtml('td')
+    + (tdIsSimple() ? '' : fltBarHtml('td'))
     + '<div id="tdPanel" role="tabpanel" aria-labelledby="tdTab_' + _tdMode + '"><div id="tdBody"></div></div>';
   tdDrawBody();
 }
