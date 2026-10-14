@@ -17,3 +17,11 @@ test('the duplicate alert banners are hidden on the simple Today page only', () 
   assert.ok(html.includes('body.td-simple-on #deadlineBannerWrap{ display:none; }'));
   assert.ok(html.includes("document.body.classList.toggle('td-simple-on', id === 'today' && typeof tdIsSimple === 'function' && tdIsSimple());"), 'switching to any other page brings them back');
 });
+
+test('the list is calm: one "Do this first" card, short one-line rows with one pill and one button, a cap with "Show more", no section headings or filters', () => {
+  assert.ok(html.includes('Do this first') && html.includes('function tdSimpleNext('));
+  assert.ok(html.includes('const TS_SHOW = 6;') && html.includes('class="ts-more"'));
+  const fn = html.slice(html.indexOf('function tdSimpleRow('), html.indexOf('function tdSimpleNext('));
+  assert.equal((fn.match(/class="ts-pill/g) || []).length, 1, 'one pill per row');
+  assert.ok(!fn.includes('ts-when') && !fn.includes('ts-why'), 'no extra date / reason columns in a row');
+});

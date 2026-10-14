@@ -314,16 +314,20 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 @media (max-width:640px){ .lg-main{ grid-template-columns:minmax(0,1fr) 84px auto; } .lg-sub{ grid-template-columns:1fr; } }
 .lg-dates{ display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:8px 0 2px; font-size:13px; } .lg-dates label{ display:inline-flex; gap:6px; align-items:center; } .lg-line-total{ font-size:12.5px; color:var(--text-dim); }
 body.td-simple-on #deadlineBannerWrap{ display:none; }
-.ts-sum{ display:flex; justify-content:space-between; align-items:center; gap:10px 16px; flex-wrap:wrap; margin:4px 0 14px; }
-.ts-sum-t{ font-size:17px; } .ts-sum-t b{ font-size:22px; } .ts-urgent{ color:var(--coral); font-weight:700; } .ts-links{ display:flex; gap:8px; flex-wrap:wrap; }
-.ts-sec{ font-size:11.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-dim); margin:14px 0 6px; } .ts-sec span{ color:var(--text-faint); font-weight:600; }
-.ts-row{ display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:6px 16px; align-items:center; padding:12px 14px; margin:0 0 8px; border:1px solid var(--panel-border); border-left:4px solid var(--panel-border); border-radius:12px; background:var(--panel); cursor:pointer; }
-.ts-row:hover, .ts-row:focus-visible{ border-color:var(--purple); outline:none; } .ts-row.sel{ border-color:var(--purple); background:var(--purple-dim); } .ts-row.urgent{ border-left-color:var(--coral); }
-.ts-main{ display:flex; flex-direction:column; min-width:0; gap:1px; } .ts-client{ font-size:12px; color:var(--text-dim); } .ts-task{ font-size:15.5px; font-weight:700; overflow-wrap:anywhere; } .ts-why{ font-size:13px; color:var(--text-dim); }
-.ts-row.urgent .ts-why{ color:var(--coral); } .ts-when{ font-size:12.5px; color:var(--text-dim); text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:3px; } .ts-act .btn{ white-space:nowrap; }
-.ts-foot{ margin:14px 2px 4px; font-size:13px; color:var(--text-dim); } .ts-link{ font:inherit; font-size:inherit; background:none; border:0; padding:0; color:var(--purple); cursor:pointer; text-decoration:underline; }
+.ts-sum{ font-size:18px; margin:2px 0 14px; } .ts-sum b{ font-size:24px; }
+.ts-next{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 18px; align-items:center; padding:18px 20px; margin:0 0 14px; border:1px solid var(--panel-border); border-left:5px solid var(--teal); border-radius:14px; background:var(--panel); cursor:pointer; }
+.ts-next.sel, .ts-next:hover, .ts-next:focus-visible{ border-color:var(--purple); outline:none; } .ts-next-l{ grid-column:1 / -1; font-size:11.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--teal); }
+.ts-next-t{ display:flex; flex-direction:column; gap:1px; } .ts-next-t b{ font-size:19px; } .ts-next-t span{ font-size:13.5px; color:var(--text-dim); } .ts-next-w{ font-size:13.5px; color:var(--text-dim); margin-top:6px; } .ts-next .btn{ padding:12px 22px; font-size:15px; }
+.ts-rows{ border:1px solid var(--panel-border); border-radius:14px; overflow:hidden; background:var(--panel); }
+.ts-row{ display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:4px 14px; align-items:center; padding:10px 16px; border-top:1px solid var(--panel-border); cursor:pointer; } .ts-row:first-child{ border-top:0; }
+.ts-row:hover, .ts-row:focus-visible{ background:var(--purple-dim); outline:none; } .ts-row.sel{ background:var(--purple-dim); }
+.ts-line{ min-width:0; display:flex; flex-wrap:wrap; gap:0 10px; align-items:baseline; } .ts-line b{ font-size:15px; overflow-wrap:anywhere; } .ts-line span{ font-size:13px; color:var(--text-dim); }
+.ts-pill{ font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; background:var(--panel-border); color:var(--text); } .ts-pill.red{ background:var(--coral-dim); color:var(--coral); } .ts-pill.amber{ background:var(--amber-dim); color:var(--amber); }
+.ts-act .btn{ white-space:nowrap; } .ts-more{ display:block; width:100%; margin:8px 0 0; padding:10px; font:inherit; font-size:13.5px; color:var(--purple); background:none; border:1px dashed var(--panel-border); border-radius:10px; cursor:pointer; }
+.ts-foot{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 16px; margin:18px 2px 4px; font-size:13px; color:var(--text-dim); } .ts-foot-l{ display:flex; gap:16px; }
+.ts-link{ font:inherit; font-size:inherit; background:none; border:0; padding:0; color:var(--purple); cursor:pointer; text-decoration:underline; }
 .ts-clear{ padding:34px 12px; text-align:center; color:var(--text-dim); font-size:14.5px; border:1px dashed var(--panel-border); border-radius:12px; } .ts-back{ margin:0 0 10px; }
-@media (max-width:640px){ .ts-row{ grid-template-columns:minmax(0,1fr); } .ts-when{ text-align:left; align-items:flex-start; } .ts-act .btn{ width:100%; } }
+@media (max-width:640px){ .ts-row{ grid-template-columns:minmax(0,1fr) auto; } .ts-row .ts-act{ grid-column:1 / -1; } .ts-row .ts-act .btn, .ts-next .btn{ width:100%; } .ts-next{ grid-template-columns:1fr; } }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -3532,7 +3536,7 @@ function dashboardScopeLabelShort(){ return ''; }
    VIEW SWITCHING
    ========================================================================= */
 const titles = {
-  today: ['Today', 'What needs you now, what is waiting on others, and what you finished'],
+  today: ['Today', 'What needs you today'],
   team: ['My Team', 'Who has what, who is stuck, and what needs a manager'],
   mtasks: ['Tasks', 'Every task in your team — filter, page, calendar and timeline'],
   mytasks: ['My tasks', 'Everything assigned to you — to do, on hold, with a reviewer and finished'],
@@ -8039,7 +8043,9 @@ function procStripHtml(){
     + '<button type="button" class="btn small" style="margin-left:auto;" onclick="openLogTime()" title="Put the work you did today on the right client and task">✎ Log my work</button>'
     + '<button type="button" class="btn small" onclick="showView(\'mytasks\', document.querySelector(\'#navV2 .nav-item[data-view=mytasks]\'))">All my tasks →</button></div>';
 }
-/* ---- the simple Today: a short, sorted list of what needs ME today ---- */
+/* ---- the simple Today: ONE thing to do next, then a short plain list ---- */
+let _tdMore = false;
+const TS_SHOW = 6;                                                     // how many rows show before "Show N more"
 function tdSimpleAction(a, c){
   const id = esc(a.id), t = findTask(a.id), b = (label, fn, cls) => '<button type="button" class="btn ' + (cls || 'primary') + ' td-act" onclick="' + fn + '">' + label + '</button>';
   if(a.action === 'review') return b('Review', "openReviewV2('" + id + "')");
@@ -8050,26 +8056,47 @@ function tdSimpleAction(a, c){
   if(t && ['accepted', 'rework'].includes(t.status) && !t.timerStartedAt) return b(t.startedAt ? 'Continue' : 'Start', "resumeTask('" + id + "')");
   return b('Open', "tdSimpleSelect('" + id + "')", '');
 }
+// One short word or two for WHY it is here.
+function tdSimplePill(a, c){
+  const r = (c.clientRisk || {}).state;
+  if(r === 'overdue') return ['Client date passed', 'red'];
+  if(r === 'due_today') return ['Client date today', 'red'];
+  const label = { send_report: 'Send report', review: 'Review', correction_resubmitted: 'Review', accept: c.status === 'Correction Required' ? 'Fix needed' : 'New', escalation: 'Decision', decision: 'Decision', profit_confirm: 'Decision', unassigned: 'Assign', fix: 'Fix needed', overdue: 'Overdue', due: 'Due today', resume: 'Ready to continue', continue: 'Continue today', running: 'In progress' }[a.type] || 'Today';
+  return [label, a.rank === 1 ? 'amber' : 'grey'];
+}
 function tdSimpleRow(a){
   const c = _today.cards[a.id]; if(!c) return '';
-  const sid = esc(a.id);
+  const sid = esc(a.id), pill = tdSimplePill(a, c);
+  return '<div class="ts-row' + (_tdSel === a.id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
+    + '<div class="ts-line"><b>' + esc(c.name) + '</b><span>' + esc(c.clientName || 'Admin task') + '</span></div>'
+    + '<span class="ts-pill ' + pill[1] + '">' + esc(pill[0]) + '</span>'
+    + '<div class="ts-act" onclick="event.stopPropagation()">' + tdSimpleAction(a, c) + '</div></div>';
+}
+function tdSimpleNext(a){
+  const c = _today.cards[a.id]; if(!c) return '';
+  const sid = esc(a.id), pill = tdSimplePill(a, c);
   const when = c.clientDate ? 'Client date ' + fmtDate(c.clientDate) : (c.internalDeadline ? 'Due ' + fmtDate(c.internalDeadline) : '');
-  return '<div class="ts-row' + (a.rank === 0 ? ' urgent' : '') + (_tdSel === a.id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
-    + '<div class="ts-main"><span class="ts-client">' + esc(c.clientName || 'Admin task') + '</span><span class="ts-task">' + esc(c.name) + '</span><span class="ts-why">' + esc(a.why) + '</span></div>'
-    + '<div class="ts-when">' + esc(when) + (a.rank === 0 ? tdRiskTag(c) : '') + '</div>'
+  return '<div class="ts-next" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
+    + '<div class="ts-next-l">Do this first</div>'
+    + '<div class="ts-next-b"><div class="ts-next-t"><b>' + esc(c.name) + '</b><span>' + esc(c.clientName || 'Admin task') + '</span></div>'
+    + '<div class="ts-next-w"><span class="ts-pill ' + pill[1] + '">' + esc(pill[0]) + '</span> ' + esc(a.why) + (when ? ' · ' + esc(when) : '') + '</div></div>'
     + '<div class="ts-act" onclick="event.stopPropagation()">' + tdSimpleAction(a, c) + '</div></div>';
 }
 function tdSimpleSelect(id){
   tdSelect(id);
-  document.querySelectorAll('#tdList .ts-row').forEach(r => r.classList.toggle('sel', r.dataset.id === id));
+  document.querySelectorAll('#tdList .ts-row, #tdList .ts-next').forEach(r => r.classList.toggle('sel', r.dataset.id === id));
 }
+function tdSimpleMore(){ _tdMore = !_tdMore; tdDrawBody(); }
 function tdSimpleHtml(){
-  const A = _today.attention, S = _today.attentionSummary, urgent = A.filter(a => a.rank === 0), rest = A.filter(a => a.rank !== 0);
-  const sec = (title, list) => list.length ? '<div class="ts-sec">' + esc(title) + ' <span>' + list.length + '</span></div>' + list.map(tdSimpleRow).join('') : '';
-  const head = '<div class="ts-sum"><div class="ts-sum-t">' + (A.length ? '<b>' + A.length + '</b> ' + (A.length === 1 ? 'thing needs' : 'things need') + ' you today' + (S.urgent ? ' · <span class="ts-urgent">' + S.urgent + ' urgent</span>' : '') : '<b>✓ You are all clear for today</b>') + '</div>'
-    + '<div class="ts-links"><button type="button" class="btn small" onclick="openLogTime()" title="Put the work you did on the right task and client">✎ Log my work</button><button type="button" class="btn small" onclick="tdSetSimple(false)">Show everything</button></div></div>';
-  const list = A.length ? (urgent.length && rest.length ? sec('Urgent — client date today or passed', urgent) + sec('Today', rest) : sec(urgent.length ? 'Urgent — client date today or passed' : 'Today', A)) : '<div class="ts-clear">Nothing is waiting for you. Enjoy the quiet — or open <button type="button" class="ts-link" onclick="showView(\'mytasks\', document.querySelector(\'#navV2 .nav-item[data-view=mytasks]\'))">All my tasks</button>.</div>';
-  const foot = (S.waitingOthers || S.doneToday) ? '<div class="ts-foot">' + [S.waitingOthers ? S.waitingOthers + ' waiting on others' : '', S.doneToday ? S.doneToday + ' done today' : ''].filter(Boolean).join(' · ') + ' <button type="button" class="ts-link" onclick="tdSetSimple(false)">See them</button></div>' : '';
+  const A = _today.attention, S = _today.attentionSummary;
+  const rest = A.slice(1), shown = _tdMore ? rest : rest.slice(0, TS_SHOW - 1), hidden = rest.length - shown.length;
+  const head = '<div class="ts-sum">' + (A.length ? '<b>' + A.length + '</b> ' + (A.length === 1 ? 'thing needs' : 'things need') + ' you today' : '<b>✓ All clear for today</b>') + '</div>';
+  const list = A.length
+    ? tdSimpleNext(A[0]) + (shown.length ? '<div class="ts-rows">' + shown.map(tdSimpleRow).join('') + '</div>' : '')
+      + (hidden > 0 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show ' + hidden + ' more</button>' : (_tdMore && rest.length > TS_SHOW - 1 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show fewer</button>' : ''))
+    : '<div class="ts-clear">Nothing is waiting for you.</div>';
+  const bits = [S.waitingOthers ? S.waitingOthers + ' waiting on others' : '', S.doneToday ? S.doneToday + ' done today' : ''].filter(Boolean);
+  const foot = '<div class="ts-foot">' + (bits.length ? '<span>' + bits.join(' · ') + '</span>' : '') + '<span class="ts-foot-l"><button type="button" class="ts-link" onclick="openLogTime()">Log my work</button><button type="button" class="ts-link" onclick="tdSetSimple(false)">Show everything</button></span></div>';
   return head + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + list + foot + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
 }
 function tdDrawBody(){
