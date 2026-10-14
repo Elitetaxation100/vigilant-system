@@ -265,3 +265,32 @@ test('waive_review as a manager action: reason required, client tasks only, audi
   const admin = (await create(PK, { taskKind: 'admin', name: 'x admin', clientDate: undefined })).j.task;
   assert.equal((await http('POST', T(admin.id) + '/manager-change', { token: PK, body: { action: 'waive_review', reason: 'not needed here' } })).status, 400);
 });
+
+test('SIMPLE FLOW: the reviewer picks what happens next — mark done, send the report, or profit confirmation (which comes back to the person who did the work)', async () => {
+  const submitted = async () => {
+    const t = (await create(PK, { taskKind: 'client', clientId: client.id, reviewRequired: false, reviewerId: undefined })).j.task;
+    assert.equal((await http('POST', T(t.id) + '/accept', { token: RJ })).status, 200);
+    const c = await http('POST', T(t.id) + '/complete', { token: RJ, body: { reviewerId: emp('parvinder').id, sheetLink: 'https://docs.google.com/spreadsheets/d/1', cashbookLink: 'https://example.com/cb' } });
+    assert.equal(c.status, 200, JSON.stringify(c.j));
+    return t;
+  };
+  const approve = (t, next) => http('POST', T(t.id) + '/review-decision', { token: PK, body: { decision: 'approve', next, note: 'ok' } });
+  // 1. mark done — nothing to send, the task is complete
+  const a = await submitted(); const ra = await approve(a, 'done');
+  assert.equal(ra.status, 200, JSON.stringify(ra.j));
+  assert.equal(ra.j.task.reviewStatus, 'clean'); assert.equal(ra.j.task.awaitingClientDecision, false); assert.equal(ra.j.task.reportDeliveryStatus, 'sending_not_required'); assert.equal(ra.j.task.reportDeliveryWaivedReason, 'reviewer_marked_done');
+  // 2. send the report — it goes to the person who did the work, ready to send
+  const b = await submitted(); const rb = await approve(b, 'report');
+  assert.equal(rb.status, 200, JSON.stringify(rb.j)); assert.equal(rb.j.task.awaitingClientDecision, true); assert.equal(rb.j.task.reportSendOwner, emp('ranjit').id);
+  assert.ok((await http('GET', '/api/notifications', { token: RJ })).j.notifications.some(n => n.type === 'send_report' && n.taskId === b.id), 'the processor is told to send the report');
+  // 3. profit confirmation — then straight back to the person who did the work
+  const c = await submitted(); const rc = await approve(c, 'profit');
+  assert.equal(rc.status, 200, JSON.stringify(rc.j)); assert.equal(rc.j.task.profitConfirmStatus, 'pending'); assert.equal(rc.j.task.sentToClient, null);
+  const pc = await http('POST', T(c.id) + '/profit-confirm/done', { token: SH });
+  assert.equal(pc.status, 200, JSON.stringify(pc.j)); assert.equal(pc.j.task.profitConfirmStatus, 'confirmed'); assert.equal(pc.j.task.awaitingClientDecision, true);
+  assert.ok((await http('GET', '/api/notifications', { token: RJ })).j.notifications.some(n => n.type === 'profit_confirm' && n.taskId === c.id && /send the report/.test(n.text)), 'back to the processor to send the report');
+  // the old yes/no profit flag still works for older clients of the API
+  const d = await submitted();
+  const rd = await http('POST', T(d.id) + '/review-decision', { token: PK, body: { decision: 'approve', profitRequired: true, note: 'ok' } });
+  assert.equal(rd.status, 200); assert.equal(rd.j.task.profitConfirmStatus, 'pending');
+});

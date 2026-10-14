@@ -328,6 +328,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
 .ts-link{ font:inherit; font-size:inherit; background:none; border:0; padding:0; color:var(--purple); cursor:pointer; text-decoration:underline; }
 .ts-clear{ padding:34px 12px; text-align:center; color:var(--text-dim); font-size:14.5px; border:1px dashed var(--panel-border); border-radius:12px; } .ts-back{ margin:0 0 10px; }
 @media (max-width:640px){ .ts-row{ grid-template-columns:minmax(0,1fr) auto; } .ts-row .ts-act{ grid-column:1 / -1; } .ts-row .ts-act .btn, .ts-next .btn{ width:100%; } .ts-next{ grid-template-columns:1fr; } }
+.rv2-nexts{ display:grid; gap:8px; } .rv2-next{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--panel-border); border-radius:10px; cursor:pointer; } .rv2-next:has(input:checked){ border-color:var(--purple); background:var(--purple-dim); } .rv2-next input{ margin-top:3px; } .rv2-next span{ display:flex; flex-direction:column; gap:1px; } .rv2-next small{ font-size:12.5px; color:var(--text-dim); font-weight:400; }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -10137,16 +10138,6 @@ function openNewTask(who){
       <div class="field"><label for="atPriority">Priority</label><select id="atPriority"><option value="normal" selected>Normal</option><option value="low">Low</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
       <div class="field"><label for="atInstructions">Instructions <span class="at-hint">optional — what the person needs to know</span></label><textarea id="atInstructions" rows="3" placeholder="e.g. Use the 2025 workbook; client prefers PDF"></textarea></div>
     </div>
-    <div id="atV2Review" style="display:none;">
-      <div id="atReviewerBlock">
-        <div class="field"><label for="atReviewer">Reviewer <span class="at-hint">who checks this before it goes to the client</span></label><select id="atReviewer"></select></div>
-        <div class="field"><label class="at-check"><input type="checkbox" id="atReviewerLater" onchange="atReviewerLaterToggle()"> <span>Assign the reviewer later</span></label>
-          <div id="atReviewerLaterWhy" style="display:none;margin-top:6px;"><label for="atReviewerLaterReason">Why later? <span class="req-mark">*</span> <span class="at-hint">kept on the record — your manager is alerted before the due date</span></label><textarea id="atReviewerLaterReason" rows="2"></textarea></div></div>
-      </div>
-      <div class="field"><label class="at-check"><input type="checkbox" id="atReviewReq" checked onchange="atReviewToggle()"> <span id="atReviewReqLabel">Review required before this goes to the client</span></label>
-        <div id="atReviewNote" class="at-note"></div></div>
-      <div class="field" id="atNoReviewWhy" style="display:none;"><label for="atNoReviewReason">Why does this client task need no review? <span class="req-mark">*</span> <span class="at-hint">kept on the record</span></label><textarea id="atNoReviewReason" rows="2" placeholder="e.g. Repeat of last month's return, already reviewed by the founder"></textarea></div>
-    </div>
     <div id="atImpossibleWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 45%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55; color:var(--flag); font-weight:600;"></div>
     <div id="atOverloadWarn" style="display:none; background:var(--coral-dim); border:1px solid color-mix(in srgb, var(--coral) 35%, transparent); border-radius:10px; padding:11px 13px; margin:4px 0 10px; font-size:12.5px; line-height:1.55;">
       <div id="atOverloadText" style="color:var(--flag); font-weight:600;"></div>
@@ -10155,13 +10146,6 @@ function openNewTask(who){
         <input type="checkbox" id="atAcceptOverload" onchange="atRefreshSubmitBtn()" style="margin-top:2px;">
         <span>Assign anyway — push the task(s) above out to make room.</span>
       </label>
-    </div>
-    <div id="atV2Delivery" style="display:none;">
-      <div class="field"><label>Report required</label><div class="rv2-yn"><label><input type="radio" name="atReportReq" value="yes" checked onchange="atDeliveryChanged()"> Yes</label><label><input type="radio" name="atReportReq" value="no" onchange="atDeliveryChanged()"> No</label></div></div>
-      <div id="atDeliveryMore">
-        <div class="field"><label for="atReportSender">Report sender <span class="at-hint">who sends it to the client once it is approved</span></label><select id="atReportSender"></select></div>
-        <div class="field"><label>Profit confirmation required</label><div class="rv2-yn"><label><input type="radio" name="atProfitReq" value="yes"> Yes</label><label><input type="radio" name="atProfitReq" value="no" checked> No</label></div></div>
-      </div>
     </div>
     <details class="at-more">
       <summary>Supporting work <span>Google Sheet, Cashbook</span></summary>
@@ -10231,19 +10215,9 @@ function atReviewerLaterToggle(){
 }
 function atReviewKindChanged(){
   if(!atV2On()) return;
-  const internal = _assignKind === 'internal', box = document.getElementById('atReviewReq'); if(!box) return;
-  ['atV2Delivery', 'atCashWrap'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = internal ? 'none' : ''; });
+  const internal = _assignKind === 'internal';
+  const cash = document.getElementById('atCashWrap'); if(cash) cash.style.display = internal ? 'none' : '';
   const refw = document.getElementById('atInternalRefWrap'); if(refw) refw.style.display = 'none';   // an Admin Task never takes a client name
-  box.checked = false;                 // a review is optional everywhere — ticked only when whoever creates the task wants it compulsory
-  box.disabled = false;
-  document.getElementById('atReviewReqLabel').textContent = internal ? 'This admin task needs a review' : 'Make a review compulsory before this goes to the client';
-  document.getElementById('atReviewNote').textContent = 'Optional. Leave it unticked and the processor decides — they can still choose “Send for review” whenever they want. Tick it to make a review compulsory.';
-  atReviewToggle();
-}
-function atReviewToggle(){
-  const box = document.getElementById('atReviewReq'), why = document.getElementById('atNoReviewWhy'); if(!box || !why) return;
-  why.style.display = 'none';          // no reason is needed any more: a review is optional
-  const rb = document.getElementById('atReviewerBlock'); if(rb) rb.style.display = box.checked ? '' : 'none';   // no review → no reviewer to name
 }
 function atLinkCheck(input){
   const msg = document.getElementById(input.id + 'Msg'); if(!msg) return;
@@ -13385,6 +13359,17 @@ function openReviewV2(id){
     + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="rv2Submit" onclick="rv2Submit()" disabled>Choose a decision</button></div>';
   openModal();
 }
+// After approving a client task the reviewer picks ONE of three outcomes. Rework is the separate "Return for Correction" card.
+function rv2NextHtml(t){
+  const who = (empById(t.reportSenderId || t.assignedTo) || {}).name || 'the person who did the work', first = who.split(' ')[0];
+  const def = t.profitRequiredDefault ? 'profit' : 'report';
+  const opt = (v, title, sub) => '<label class="rv2-next"><input type="radio" name="rv2Next" value="' + v + '"' + (def === v ? ' checked' : '') + '><span><b>' + title + '</b><small>' + sub + '</small></span></label>';
+  return '<div class="field"><label>What happens next?</label><div class="rv2-nexts">'
+    + opt('report', '✉ Send the report to the client', 'Goes to ' + esc(first) + ', ready to send. Approving never marks the report as sent.')
+    + opt('profit', '💰 Send for profit confirmation', 'Goes to ' + esc(pcName(t)) + ', then straight back to ' + esc(first) + ' to send the report.')
+    + opt('done', '✓ Mark done', 'Nothing to send to the client — the task is complete.')
+    + '</div></div>';
+}
 function rv2Pick(d){
   _rv2.decision = d;
   const t = findTask(_rv2.id), isClient = t.kind !== 'internal' || !!t.clientId;
@@ -13395,7 +13380,7 @@ function rv2Pick(d){
   const opts = arr => '<option value="">— Choose —</option>' + arr.map(x => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('');
   if(d === 'approve'){
     box.innerHTML = '<h4>C · Approve</h4><div style="font-size:13px;color:var(--text-dim);margin:0 0 8px;">Approving means the work is clean and ready for the next stage. If it is not, choose Return for Correction.</div>'
-      + (isClient && t.reportRequired === false ? '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">This task was set up with no client report, so approving it completes it.</div>' : isClient ? '<div class="field"><label>Is profit confirmation required?</label>' + yn('rv2Profit', !!t.profitRequiredDefault) + '<div style="font-size:12.5px;color:var(--text-faint);">If yes it goes to ' + esc(pcName(t)) + '; if no it goes to the report sender, ready to send. Approving never marks the report as sent.</div></div>' : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
+      + (isClient && t.reportRequired === false ? '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">This task was set up with no client report, so approving it completes it.</div>' : isClient ? rv2NextHtml(t) : '<div style="font-size:13px;color:var(--text-dim);margin-bottom:8px;">Admin task — approving completes it.</div>')
       + note('Reviewer note', false);
     sub.textContent = 'Approve';
   } else if(d === 'return'){
@@ -13426,7 +13411,7 @@ async function rv2Submit(){
   const body = { decision: d, requestId: _rv2.requestId, note: v('rv2Note').trim() };
   if(d === 'approve'){
     body.clean = true;
-    const p = document.querySelector('input[name="rv2Profit"]:checked'); body.profitRequired = !!(p && p.value === 'yes');
+    const nx = document.querySelector('input[name="rv2Next"]:checked'); if(nx){ body.next = nx.value; body.profitRequired = nx.value === 'profit'; }
   } else if(d === 'return'){
     if(body.note.length < 3) return fail('Write the correction note — what must be fixed.');
     if(!v('rv2Resp')) return fail('Choose who is responsible.');
@@ -13442,7 +13427,7 @@ async function rv2Submit(){
   try {
     await api('/api/tasks/' + encodeURIComponent(_rv2.id) + '/review-decision', { method:'POST', body: JSON.stringify(body) });
     closeModal();
-    showToast('success', d === 'approve' ? 'Approved' : d === 'return' ? 'Returned for correction' : 'Escalated', d === 'approve' ? 'It is ready for the next stage.' : d === 'return' ? 'The employee has been told, with your note and files.' : 'The decision-maker has been told.');
+    showToast('success', d === 'approve' ? 'Approved' : d === 'return' ? 'Returned for correction' : 'Escalated', d === 'approve' ? (body.next === 'profit' ? 'It has gone for profit confirmation, then back to the processor to send.' : body.next === 'done' ? 'Marked done — nothing to send to the client.' : 'It is with the processor, ready to send to the client.') : d === 'return' ? 'The employee has been told, with your note and files.' : 'The decision-maker has been told.');
     _rv2 = null;
     await refreshTasks(); await refreshActivity({ silent:true });
     if(todayViewActive()) renderToday(true);

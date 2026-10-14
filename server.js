@@ -3701,9 +3701,10 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
 
     // ---------- validate EVERYTHING first, so a refused decision changes nothing ----------
     let owner = null, to = null;
+    const next = ['report', 'profit', 'done'].includes(b.next) ? b.next : (b.profitRequired === true ? 'profit' : 'report');   // what the reviewer chose to happen after approving
     if (decision === 'approve') {
       if (b.clean === false) return res.status(400).json({ error: 'If the work is not clean and ready, use Return for Correction.' });
-      if (b.profitRequired === true && isClient) {
+      if (next === 'profit' && isClient) {
         if (!hasSheetOrCashbook(t)) return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before asking for profit confirmation.' });
         owner = profitConfirmOwner(state, t);
         if (!owner) return res.status(500).json({ error: 'Profit confirmation is not set up — nobody is configured to confirm profit.' });
@@ -3741,16 +3742,16 @@ app.post('/api/tasks/:id/review-decision', requireAuth, async (req, res) => {
     if (decision === 'approve') {
       t.reviewStatus = 'clean'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note || null;
       t.reviewScore = null; t.reviewHours = null; t.reviewMarks = null;
-      ev.profitRequired = !!owner;
+      ev.profitRequired = !!owner; ev.next = isClient ? next : null;
       t.awaitingClientDecision = isClient;
       if (isClient) t.reportSendOwner = t.reportSenderId || t.assignedTo;
       logEvent(state, t.assignedTo, `"${escHtml(t.name)}" reviewed — error-free.`);
-      if (!isClient || t.reportRequired === false) notify(state, t.assignedTo, 'reviewed', `${me.name} reviewed "${t.name}" — it is approved and finished.`, t.id);
+      if (!isClient || t.reportRequired === false || next === 'done') notify(state, t.assignedTo, 'reviewed', `${me.name} reviewed "${t.name}" — it is approved and finished.`, t.id);
       managersOfEmployee(state, t.assignedTo).forEach(m => logEvent(state, m.id, `"${escHtml(t.name)}" for <b>${escHtml((assignee || {}).name || '—')}</b> was reviewed clean by <b>${escHtml(me.name)}</b>.`));
-      if (isClient && t.reportRequired === false) {
-        // "No report needed" was decided when the task was created — it is closed, not left waiting to be sent.
+      if (isClient && (t.reportRequired === false || next === 'done')) {
+        // No report to send — decided when the task was created, or by the reviewer now ("Mark done"). It is closed, not left waiting to be sent.
         t.awaitingClientDecision = false; t.sentToClient = false; t.sentToClientAt = now; t.sentToClientBy = me.id;
-        t.reportDeliveryStatus = 'sending_not_required'; t.reportDeliveryWaivedReason = 'not_required_at_creation'; t.reportDeliveryWaivedBy = t.assignedBy || me.id; t.reportDeliveryWaivedAt = now;
+        t.reportDeliveryStatus = 'sending_not_required'; t.reportDeliveryWaivedReason = t.reportRequired === false ? 'not_required_at_creation' : 'reviewer_marked_done'; t.reportDeliveryWaivedBy = t.reportRequired === false ? (t.assignedBy || me.id) : me.id; t.reportDeliveryWaivedAt = now;
       } else if (isClient) { if (owner) applyProfitRequest(state, t, me, owner); else applyReturnToProcessor(state, t, me, assignee); }
     } else if (decision === 'return') {
       t.reviewStatus = 'error'; t.reviewedBy = me.id; t.reviewedAt = now; t.reviewNote = note;
