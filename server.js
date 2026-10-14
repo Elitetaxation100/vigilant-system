@@ -24,6 +24,7 @@ const holdModel = require('./hold-model');
 const mgr = require('./manager-views');
 const founderMetrics = require('./founder-metrics');
 const watch = require('./commitment-watch');
+const timeLedger = require('./time-ledger');
 const crmHealth = require('./crm-health');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
@@ -432,8 +433,7 @@ function isProfitConfirmer(state, emp) {
     const now = Date.now();
     state.tasks.forEach(other => {
       if (other.id !== exceptId && other.assignedTo === assigneeId && other.timerStartedAt) {
-        other.logged += (now - new Date(other.timerStartedAt).getTime()) / 3600000;
-        other.timerStartedAt = null;
+        timeLedger.bank(other, { endMs: now });
       }
     });
   }
@@ -676,7 +676,7 @@ function taskForClient(t) {
   // task list (fetched every few seconds by every open tab). It's pulled on
   // demand via /api/tasks/:id/hold-screenshot when someone opens the detail.
   // Same story for a review's error screenshot (/review-screenshot).
-  const { holdScreenshot, reviewScreenshot, holdScreenshotFile, reviewScreenshotFile, ...rest } = t;
+  const { holdScreenshot, reviewScreenshot, holdScreenshotFile, reviewScreenshotFile, timeLedger: _ledger, ...rest } = t;   // the day-by-day ledger is fetched on demand (/api/tasks/:id/time), never sent with every poll
   return {
     ...rest,
     hasHoldScreenshot: !!(holdScreenshot || holdScreenshotFile),
@@ -1211,6 +1211,19 @@ function maybeEscalateChase(state, t) {
 // day still gets caught, and the sweep is safe to run on every /api/tasks call.
 // It's cheap — a field-check filter over the task list, and it only touches the
 // event log when there's actually a candidate to chase.
+// A processor can say "I will continue this on <day>". That morning they are told once (and the task shows as "Continue today").
+function sweepResumeReminders(state) {
+  const today = todayISO();
+  let n = 0;
+  (state.tasks || []).forEach(t => {
+    if (!t.resumeOn || t.resumeOn > today || !t.assignedTo || !taskIsOpen(t) || t.resumeNotifiedOn === t.resumeOn) return;
+    t.resumeNotifiedOn = t.resumeOn;
+    notify(state, t.assignedTo, 'resume', `Time to continue "${t.name}" — you planned to pick it up today.`, t.id);
+    n++;
+  });
+  if (n) db.save();
+  return n;
+}
 function sweepAutoReminders(state) {
   const today = todayISO();
   const soon = cal.addWorkingDays(today, 1);
@@ -1255,8 +1268,7 @@ function sweepRunawayTimers(state) {
     if (!t.timerStartedAt) return;
     const elapsedH = (now - new Date(t.timerStartedAt).getTime()) / 3600000;
     if (elapsedH <= RUNAWAY_TIMER_HOURS) return;
-    t.logged = (Number(t.logged) || 0) + RUNAWAY_TIMER_HOURS;
-    t.timerStartedAt = null;
+    timeLedger.bank(t, { capHours: RUNAWAY_TIMER_HOURS, source: 'auto_pause' });
     logEvent(state, t.assignedTo, `"${escHtml(t.name)}"'s timer had been running for over ${RUNAWAY_TIMER_HOURS}h straight and looked forgotten, so it was auto-paused — ${RUNAWAY_TIMER_HOURS}h banked, the clock stopped. Resume it if you're still working on it.`);
     notify(state, t.assignedTo, 'timer_autopaused', `"${t.name}"'s timer ran for over ${RUNAWAY_TIMER_HOURS}h straight and was auto-paused. Resume it if you're still on it.`, t.id);
     n += 1;
@@ -1992,6 +2004,7 @@ app.get('/api/tasks', requireAuth, (req, res) => {
   const state = db.get();
   sweepAutoReminders(state); // chase due-soon tasks that never started (once/day per task)
   sweepRunawayTimers(state); // auto-pause a timer left running too long (see RUNAWAY_TIMER_HOURS)
+  sweepResumeReminders(state); // "continue on <day>" — tell the person that morning
   res.json({ tasks: visibleTasks(state, req.employee).map(taskForClient) });
 });
 // P2 — a manual "Nudge": whoever oversees a task records that they've chased
@@ -2590,8 +2603,7 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
     if (!['accepted', 'rework'].includes(t.status)) return res.status(400).json({ error: 'Only an active task can be paused.' });
     if (!t.timerStartedAt) return res.status(400).json({ error: "This task isn't running." });
-    t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
-    t.timerStartedAt = null;
+    timeLedger.bank(t);
     logEvent(state, t.assignedTo, `Paused "${escHtml(t.name)}".`);
     db.save();
     res.json({ task: taskForClient(t) });
@@ -2690,7 +2702,7 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
       shot = null; // ignore anything that isn't a reasonably-sized inline image
     }
     // ---- everything is valid: now change the task
-    if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+    timeLedger.bank(t);
     const statusBefore = t.status, now = new Date().toISOString();
     t.preHoldStatus = t.status;
     t.status = 'on_hold';
@@ -2943,9 +2955,10 @@ app.delete('/api/recurring-tasks/:id', requireAuth, (req, res) => {
     // at the agreed hours so a typo can't silently inflate worked time.
     if (first && backdatedHours != null) {
       const bh = Number(backdatedHours);
-      if (bh > 0) t.logged += Math.min(bh, Number(t.tat) > 0 ? Number(t.tat) : bh);
+      if (bh > 0) { const add = Math.min(bh, Number(t.tat) > 0 ? Number(t.tat) : bh); t.logged += add; timeLedger.addAdjustment(t, add, 'backdated', null); }   // no day was given — kept undated, never spread over days
     }
     t.timerStartedAt = new Date().toISOString();
+    if (t.resumeOn && t.resumeOn <= todayISO()) t.resumeOn = null;      // picked up again — the plan is done
     if (first) t.startedAt = t.timerStartedAt;
     pauseOtherActiveTasks(state, t.assignedTo, t.id);
     logEvent(state, t.assignedTo, `${first ? 'Started' : 'Resumed'} "${escHtml(t.name)}".${first && Number(backdatedHours) > 0 ? ` (${Math.min(Number(backdatedHours), Number(t.tat)||Number(backdatedHours)).toFixed(1)}h already logged from before today)` : ''}`);
@@ -3043,9 +3056,7 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   if (direct && !(sheetLinkN.value || (sheetLinkN.value === undefined && t.sheetLink) || cashbookLinkN.value || (cashbookLinkN.value === undefined && t.cashbookLink) || hasSheetOrCashbook(t, req))) {
     return res.status(400).json({ error: 'Attach a Google Sheet or Cashbook link, or a file, before sending for profit confirmation.' });
   }
-    const elapsed = t.timerStartedAt ? (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000 : 0;
-  t.logged += elapsed;
-    t.timerStartedAt = null;
+  timeLedger.bank(t);
   t.status = 'completed';
   t.reviewerId = direct ? null : reviewerId;
   t.completedAt = recordSubmission(t, req.employee, direct ? 'direct_profit' : 'review');
@@ -3106,13 +3117,13 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   if (!['accepted', 'rework', 'on_hold', 'awaiting_acceptance', 'window_proposed', 'pending'].includes(t.status)) {
     return res.status(400).json({ error: 'This task can\'t be marked done from its current state.' });
   }
-  if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+  timeLedger.bank(t);
   // Optional: a single "actual hours" figure entered on the Mark Done
   // dialog, for people who don't run the Start/Pause clock. It's
   // authoritative when given; blank leaves whatever the clock caught (0 →
   // the estimate is used downstream).
   const ah = Number((req.body || {}).actualHours);
-  if (ah > 0) t.logged = Math.round(ah * 100) / 100;
+  if (ah > 0) { const was = Number(t.logged) || 0; t.logged = Math.round(ah * 100) / 100; timeLedger.addAdjustment(t, t.logged - was, 'actual_entered'); }
   if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed';
   t.completedAt = recordSubmission(t, req.employee, 'done');
@@ -4357,7 +4368,7 @@ app.post('/api/tasks/:id/resubmit', requireAuth, async (req, res) => {
   const startedAt = t.reworkStartedAt;
   // Only the time the work clock actually ran counts — not time on hold, paused, or idle. Bank a running clock first; the rework hours are
   // what was logged since the correction began (they are already in t.logged, so nothing is added twice).
-  if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+  timeLedger.bank(t);
   const durationHours = typeof t.reworkLoggedAtStart === 'number' ? Math.round(Math.max(0, t.logged - t.reworkLoggedAtStart) * 100) / 100 : null;
   t.reworkHistory = t.reworkHistory || [];
   t.reworkHistory.push({ round: t.reworkCount, startedAt, endedAt, durationHours, reviewNote: t.reviewNote || null, faultType: t.faultType || null, attachments: (t.reviewAttachments || []).filter(a => a.cycle == null || a.cycle === t.reworkCount) });
@@ -4572,6 +4583,7 @@ app.post('/api/tasks/:id/correct-logged', requireAuth, requireSuperAdmin, (req, 
   t.loggedHistory = t.loggedHistory || [];
   t.loggedHistory.push({ at: new Date().toISOString(), by: req.employee.name, from: before, to: newLogged, note });
   t.logged = newLogged;
+  timeLedger.addAdjustment(t, newLogged - before, 'correction', undefined, note);
   logEvent(state, t.assignedTo, `Logged hours on "${escHtml(t.name)}" corrected by <b>${escHtml(req.employee.name)}</b> — ${before.toFixed(1)}h → ${newLogged.toFixed(1)}h (${escHtml(note)}).`);
   db.save();
   res.json({ task: taskForClient(t) });
@@ -4643,9 +4655,7 @@ function applyReassign(state, t, actor, newAssigneeId, reason) {
   // is flushed into t.logged before handing the task off, same idea as
   // the old stopTimer() — the new owner's clock starts clean from their
   // own Accept.
-    if (t.timerStartedAt) {
-    t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
-  }
+  timeLedger.bank(t);          // the time up to now stays with the person who did it
   t.reassignHistory = t.reassignHistory || [];
   t.reassignHistory.push({ from: t.assignedTo, to: newAssigneeId, by: req.employee.id, at: new Date().toISOString(), reason: reason || null });
   t.assignedTo = newAssigneeId;
@@ -5258,6 +5268,7 @@ app.post('/api/tasks/:id/add-hours', requireAuth, (req, res) => {
   const note = String((req.body || {}).note || '').trim().slice(0, 200);
   const before = Number(t.logged) || 0;
   t.logged = Math.round((before + h) * 100) / 100;
+  timeLedger.addAdjustment(t, t.logged - before, 'added_on_hold', undefined, note);
   t.loggedHistory = t.loggedHistory || [];
   t.loggedHistory.push({ at: new Date().toISOString(), by: me.name, from: before, to: t.logged, added: h, note: note || null });
   logEvent(state, t.assignedTo, `<b>${escHtml(me.name)}</b> added <b>${h}h</b> of time spent to "${escHtml(t.name)}" (on hold) — now ${t.logged.toFixed(1)}h.`);
@@ -5714,10 +5725,7 @@ app.post('/api/punch/toggle', requireAuth, (req, res) => {
     // shouldn't keep accruing "worked" hours after its owner has clocked off
     // for the day. Whatever accrued is banked, same as a manual Pause.
     state.tasks.forEach(t => {
-      if (t.assignedTo === req.employee.id && t.timerStartedAt) {
-        t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000;
-        t.timerStartedAt = null;
-      }
+      if (t.assignedTo === req.employee.id && t.timerStartedAt) timeLedger.bank(t);
     });
     st.seconds += Math.floor((Date.now() - st.punchedInAt) / 1000);
     st.punchedInAt = null;
@@ -6384,7 +6392,7 @@ app.patch('/api/int/tasks/:id', requireIntegrationAuth, (req, res) => {
   const status = String(b.status || '');
   const wantsDone = status === 'done' || status === 'completed';
   if (wantsDone && t.status !== 'completed') {
-    if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+    timeLedger.bank(t);
     if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
     t.status = 'completed';
     t.completedAt = recordSubmission(t, null, 'done');
@@ -6830,6 +6838,118 @@ app.get('/api/tasks/:id/watch', requireAuth, (req, res) => {
     stages: watch.stageTimeline(t, deps).map(x => ({ ...x, byName: nm(x.byId) })),
     flags: watch.flagsOf(t, c, deps), breach: watch.breachOf(t, c, deps), lastUpdateAt: watch.lastUpdateAt(t),
   });
+});
+
+// ---------------------------------------------------------------------------
+// TIME LEDGER — where each person's time went, task by task and day by day (time-ledger.js). Read-only, scoped: a person sees their own time, a manager
+// their team's, the founder everyone's.
+// ---------------------------------------------------------------------------
+const isDayStr = d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d));
+function canSeeTimeOf(state, me, empId) { return me.id === empId || me.accessRole === 'superadmin' || !!me.dashObserver || canManageEmployee(state, me, empId); }
+function ledgerWindow(q) {
+  const to = isDayStr(q.to) ? q.to : todayISO(), from = isDayStr(q.from) ? q.from : timeLedger.addDay(to, -6);
+  return from > to ? { error: 'The start date is after the end date.' } : (timeLedger.addDay(from, 92) < to ? { error: 'Choose a range of three months or less.' } : { from, to });
+}
+function personTime(state, emp, from, to) {
+  const tasks = state.tasks.filter(t => (t.timeLedger || []).some(x => x.e === emp.id) || (t.timerStartedAt && t.assignedTo === emp.id));
+  return timeLedger.personReport(tasks, emp.id, from, to, { standardHoursOn: d => (cal.isWorkingDay(d) ? capacityOf(emp) : 0) });
+}
+app.get('/api/time-ledger', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee, q = req.query;
+  const emp = findEmployee(state, q.empId || me.id);
+  if (!emp) return res.status(404).json({ error: 'Person not found.' });
+  if (!canSeeTimeOf(state, me, emp.id)) return res.status(403).json({ error: "You can only see your own time, or your team's." });
+  const w = ledgerWindow(q); if (w.error) return res.status(400).json({ error: w.error });
+  const rep = personTime(state, emp, w.from, w.to);
+  if (q.format === 'csv') {
+    const rows = [];
+    rep.days.forEach(d => d.items.forEach(i => rows.push([d.day, emp.name, i.name, i.client, i.hours, i.sources.join(' · ')])));
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="time-' + emp.name.replace(/[^A-Za-z0-9]+/g, '-') + '-' + w.from + '-to-' + w.to + '.csv"');
+    return res.send(founderMetrics.toCsv(['Date', 'Employee', 'Task', 'Client', 'Hours', 'How recorded'], rows));
+  }
+  res.json({ ...rep, name: emp.name, today: todayISO(), sources: timeLedger.SOURCES });
+});
+app.get('/api/time-ledger/team', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  if (!isAdminRole(me.accessRole) && !me.dashObserver) return res.status(403).json({ error: 'Managers only.' });
+  const w = ledgerWindow(req.query); if (w.error) return res.status(400).json({ error: w.error });
+  const people = (firmWide(me) ? state.employees.filter(canReceiveNewWork) : [me, ...teamRoster(state, me).filter(canReceiveNewWork)]).filter((e, i, a) => a.findIndex(x => x.id === e.id) === i);
+  const rows = people.map(e => { const r = personTime(state, e, w.from, w.to); return { id: e.id, name: e.name, hours: r.totalHours, days: Object.fromEntries(r.days.filter(d => d.hours).map(d => [d.day, d.hours])), tasks: Object.fromEntries(r.byTask.map(b => [b.taskId, b.hours])), topClients: r.byClient.slice(0, 3) }; })
+    .sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
+  res.json({ from: w.from, to: w.to, people: rows });
+});
+// An employee records work they did on a day — on any of their tasks, so a client's work can be put where it belongs even when the clock was not
+// used — and can say which day they will pick a task up again. Everything is checked first; if anything is wrong, nothing is saved.
+const LOG_DAYS_BACK = 2, LOG_MAX_HOURS = 16, LOG_MAX_DAY = 20;
+function dayHoursOf(state, empId, day) {
+  return state.tasks.reduce((n, t) => n + timeLedger.entriesOf(t).concat(timeLedger.liveEntries(t)).filter(x => x.e === empId && x.d === day).reduce((m, x) => m + x.h, 0), 0);
+}
+app.post('/api/time-ledger/log', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee, b = req.body || {}, today = todayISO();
+  const day = b.day || today;
+  if (!isDayStr(day) || day > today || day < timeLedger.addDay(today, -LOG_DAYS_BACK)) return res.status(400).json({ error: 'Choose today, or one of the last ' + LOG_DAYS_BACK + ' days.' });
+  const list = Array.isArray(b.entries) ? b.entries : [];
+  if (!list.length || list.length > 10) return res.status(400).json({ error: 'Add between one and ten tasks.' });
+  const seen = new Set(), plan = [];
+  for (const e of list) {
+    const t = state.tasks.find(x => x.id === e.taskId);
+    if (!t || t.deletedAt || t.assignedTo !== me.id) return res.status(404).json({ error: 'You can only log time on your own tasks.' });
+    if (seen.has(t.id)) return res.status(400).json({ error: '"' + t.name + '" is in the list twice — add its hours together.' });
+    seen.add(t.id);
+    const finishedAfter = t.status === 'completed' && t.completedAt && timeLedger.nzDayIso(t.completedAt) >= day;
+    if (!['accepted', 'rework', 'on_hold'].includes(t.status) && !finishedAfter) return res.status(400).json({ error: 'You can log time on work in progress, on hold, or finished on or after that day — not on "' + t.name + '".' });
+    if (t.timerStartedAt) return res.status(400).json({ error: 'The clock is running on "' + t.name + '" — pause it first (or let it run) so the time is not counted twice.' });
+    const hours = Math.round(Number(e.hours) * 100) / 100;
+    if (!(hours >= 0.1 && hours <= LOG_MAX_HOURS)) return res.status(400).json({ error: 'Enter between 0.1 and ' + LOG_MAX_HOURS + ' hours for "' + t.name + '".' });
+    let resumeOn = null;
+    if (e.resumeOn) {
+      if (!isDayStr(e.resumeOn) || e.resumeOn <= today || e.resumeOn > timeLedger.addDay(today, 60)) return res.status(400).json({ error: 'Choose a day after today (within two months) to continue "' + t.name + '".' });
+      if (['completed'].includes(t.status)) return res.status(400).json({ error: '"' + t.name + '" is finished — there is nothing to continue.' });
+      resumeOn = e.resumeOn;
+    }
+    plan.push({ t, hours, resumeOn, note: String(e.note || '').trim().slice(0, 200) });
+  }
+  const add = plan.reduce((n, p) => n + p.hours, 0), already = dayHoursOf(state, me.id, day);
+  if (already + add > LOG_MAX_DAY) return res.status(400).json({ error: 'That would make ' + Math.round((already + add) * 100) / 100 + ' hours on one day (' + Math.round(already * 100) / 100 + ' h already recorded). Check the hours.' });
+  for (const p of plan) {
+    const { t } = p, before = Number(t.logged) || 0;
+    t.logged = Math.round((before + p.hours) * 100) / 100;
+    timeLedger.addAdjustment(t, p.hours, 'manual', day, p.note);
+    t.loggedHistory = t.loggedHistory || [];
+    t.loggedHistory.push({ at: new Date().toISOString(), by: me.name, from: before, to: t.logged, added: p.hours, note: p.note || null, via: 'manual', day });
+    if (p.resumeOn) { t.resumeOn = p.resumeOn; t.resumeNote = p.note || null; t.resumeNotifiedOn = null; }
+    else if (t.resumeOn && t.resumeOn <= today) t.resumeOn = null;       // they are working on it again
+    logEvent(state, me.id, '<b>' + escHtml(me.name) + '</b> logged <b>' + p.hours + 'h</b> on "' + escHtml(t.name) + '" for ' + day + (p.resumeOn ? ' and will continue on ' + p.resumeOn : '') + '.');
+  }
+  db.save();
+  res.status(201).json({ day, added: Math.round(add * 100) / 100, dayTotal: Math.round((already + add) * 100) / 100, entries: plan.map(p => ({ taskId: p.t.id, name: p.t.name, hours: p.hours, resumeOn: p.resumeOn })) });
+});
+// Say — or take back — "I will continue this on <day>".
+app.post('/api/tasks/:id/resume-on', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee, t = findTask(state, req.params.id), date = (req.body || {}).date || null;
+  if (!t || t.assignedTo !== me.id) return res.status(404).json({ error: 'You can only plan your own tasks.' });
+  if (!taskIsOpen(t)) return res.status(400).json({ error: 'This task is finished.' });
+  if (date !== null && (!isDayStr(date) || date <= todayISO() || date > timeLedger.addDay(todayISO(), 60))) return res.status(400).json({ error: 'Choose a day after today (within two months).' });
+  t.resumeOn = date; t.resumeNotifiedOn = null; if (!date) t.resumeNote = null;
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+app.get('/api/tasks/:id/time', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee;
+  const t = visibleTasks(state, me).find(x => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const nm = id => (findEmployee(state, id) || {}).name || '—';
+  const groups = {};
+  timeLedger.entriesOf(t).concat(timeLedger.liveEntries(t)).forEach(x => {
+    const k = (x.d || 'undated') + '|' + x.e, g = groups[k] = groups[k] || { day: x.d || null, empId: x.e, name: nm(x.e), hours: 0, sources: new Set(), running: false };
+    g.hours += x.h; g.sources.add(x.s); if (x.live) g.running = true;
+  });
+  const rows = Object.values(groups).map(g => ({ ...g, hours: Math.round(g.hours * 100) / 100, sources: [...g.sources].map(s => timeLedger.SOURCES[s] || s) }))
+    .sort((a, b) => String(b.day || '').localeCompare(String(a.day || '')));
+  const byPerson = {}; rows.forEach(r => { byPerson[r.empId] = byPerson[r.empId] || { empId: r.empId, name: r.name, hours: 0 }; byPerson[r.empId].hours += r.hours; });
+  const run = timeLedger.liveEntries(t).reduce((n, x) => n + x.h, 0);
+  res.json({ taskId: t.id, name: t.name, ...timeLedger.totalsOf(t), runningHours: Math.round(run * 100) / 100, rows, byPerson: Object.values(byPerson).map(p => ({ ...p, hours: Math.round(p.hours * 100) / 100 })) });
 });
 
 // The reporting measures — each one separate (see manager-views.js measures).

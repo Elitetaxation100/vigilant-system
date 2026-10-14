@@ -497,7 +497,7 @@ function createTask(state, o) {
 function completeTask(state, taskId, byName) {
   const t = (state.tasks || []).find(x => x.id === taskId);
   if (!t || t.status === 'completed') return t;
-  if (t.timerStartedAt) { t.logged += (Date.now() - new Date(t.timerStartedAt).getTime()) / 3600000; t.timerStartedAt = null; }
+  require('./time-ledger').bank(t);
   if (t.status === 'on_hold') { t.preHoldStatus = null; t.heldAt = null; }
   t.status = 'completed'; t.completedAt = new Date().toISOString(); (t.submissions = t.submissions || []).push({ at: t.completedAt, byId: t.assignedTo || null, kind: 'done', round: t.reworkCount || 0, reviewerId: null, internalDue: t.internalDeadline || null, clientDue: t.clientDate || null }); if (!t.firstSubmittedAt) t.firstSubmittedAt = t.completedAt;
   // Call / Slack tasks skip review by default — mark them terminally 'done'

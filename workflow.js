@@ -232,6 +232,10 @@ function badgesOf(t, st, c, deps) {
     if (c.hold.pauseRequested) add('pause_requested', 'Pause awaiting manager', 'amber');
     if (c.hold.followUpDue) add('followup_due', 'Follow-up due', 'amber');
   }
+  if (t.resumeOn && !['Completed', 'Approved', 'In Review'].includes(st)) {          // the processor said "I will pick this up again on …"
+    if (t.resumeOn <= deps.today) add('resume_today', 'Continue today', 'amber');
+    else add('resume_later', 'Continue on ' + new Date(t.resumeOn + 'T12:00:00Z').toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', timeZone: 'UTC' }), 'blue');
+  }
   if ((t.reworkCount || 0) > 0 && st !== 'Correction Required') add('had_rework', 'Previous review required rework', 'grey');
   if (st === 'In Review' && c.reviewWaiting && deps.reviewSlaHours && c.reviewWaiting.hours > deps.reviewSlaHours) add('review_sla', 'Reviewer SLA breached', 'red');
   const r = deps.reportInfo ? deps.reportInfo(t) : null;
@@ -463,7 +467,7 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
   // number on it IS the length of that list (unique). A task held for any reason is NOT in Due Today and NOT in progress.
   const mine = open.filter(t => t.assignedTo === me.id);
   const stOf = id => cards[id].status;
-  const dueNow = t => { const due = internalDueOf(t, deps); return (due && due <= deps.today) || !!t.timerStartedAt; };
+  const dueNow = t => { const due = internalDueOf(t, deps); return (due && due <= deps.today) || !!t.timerStartedAt || !!(t.resumeOn && t.resumeOn <= deps.today); };
   const pDue = mine.filter(t => ['Assigned', 'In Progress'].includes(stOf(t.id)) && dueNow(t)).map(t => t.id);
   const pFix = mine.filter(t => stOf(t.id) === 'Correction Required').map(t => t.id);
   const pReady = mine.filter(t => stOf(t.id) === 'On Hold' && t.holdResolvedAt).map(t => t.id);
