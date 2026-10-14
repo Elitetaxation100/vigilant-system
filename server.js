@@ -2399,7 +2399,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
   if (v2Form) {
     if (body0.reviewerId) {
       const rv = findEmployee(state, body0.reviewerId);
-      if (!rv || !isAdminRole(rv.accessRole)) return res.status(400).json({ error: 'The reviewer must be a manager or the founder.' });
+      if (!rv || !canReceiveNewWork(rv)) return res.status(400).json({ error: 'Pick an active person as the reviewer.' });
       if (rv.id === assignee) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
       assignedReviewerId = rv.id;
     }
@@ -3034,11 +3034,9 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   if (!taskActionGuard(req, res, t, { mustBeAssignee: true })) return;
   if (t.status !== 'accepted') return res.status(400).json({ error: 'Only an accepted task can be marked complete.' });
   const { sheetLink, cashbookLink, directProfitConfirm } = req.body || {};
-  // A task created with "Assign reviewer later" cannot be submitted until a manager has assigned one.
-  if (t.reviewerLater && !t.assignedReviewerId && (req.body || {}).directProfitConfirm !== true) {
-    return res.status(409).json({ error: 'This task has no reviewer yet — ask your manager to assign one before you submit it.', code: 'REVIEWER_MISSING' });
-  }
-  const reviewerId = (t.reviewerLater ? t.assignedReviewerId : ((req.body || {}).reviewerId || t.assignedReviewerId)) || null;   // the reviewer picked when the task was created is the default
+  // The reviewer picked when the task was created is the default; whoever sends the work can choose anyone else (not themselves). A task created with
+  // "assign reviewer later" therefore never blocks: the person submitting it picks the reviewer right there.
+  const reviewerId = ((req.body || {}).reviewerId || t.assignedReviewerId) || null;
   const direct = directProfitConfirm === true;
   if (direct && !canDirectProfitConfirm(req.employee)) return res.status(403).json({ error: "You can't send a job straight to profit confirmation." });
   if (!direct && !reviewerId) return res.status(400).json({ error: 'Choose who should review this task.' });
@@ -3059,6 +3057,7 @@ app.post('/api/tasks/:id/complete', requireAuth, takeSlotFiles, (req, res) => {
   timeLedger.bank(t);
   t.status = 'completed';
   t.reviewerId = direct ? null : reviewerId;
+  if (!direct && t.reviewerLater && !t.reviewerLater.resolvedAt) { t.assignedReviewerId = reviewerId; t.reviewerLater = { ...t.reviewerLater, resolvedAt: new Date().toISOString(), resolvedBy: req.employee.id }; }
   t.completedAt = recordSubmission(t, req.employee, direct ? 'direct_profit' : 'review');
   giveLateSubmissionMark(state, t);
   const linksBefore = snapLinks(t);
@@ -7152,7 +7151,7 @@ app.post('/api/tasks/:id/manager-change', requireAuth, requireAdmin, (req, res) 
     }
     case 'change_reviewer': {
       const rv = findEmployee(state, b.reviewerId);
-      if (!rv || !isAdminRole(rv.accessRole)) return res.status(400).json({ error: 'Pick a manager or founder as reviewer.' });
+      if (!rv || !canReceiveNewWork(rv)) return res.status(400).json({ error: 'Pick an active person as the reviewer.' });
       if (rv.id === t.assignedTo) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
       if (t.status === 'completed' && t.reviewStatus !== 'done' && t.reviewStatus !== 'clean' && t.reviewStatus !== 'error') { /* in review: allowed */ }
       const from = t.reviewerId || t.assignedReviewerId || null;

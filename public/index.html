@@ -9551,10 +9551,8 @@ function openCompleteModal(id){
   const reviewers = eligibleReviewersFor(t.assignedTo).slice().sort((a,b) => a.name.localeCompare(b.name));
   const options = reviewers
   .map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-  const waitingForReviewer = !!(t.reviewerLater && !t.assignedReviewerId);
-  const picker = waitingForReviewer
-    ? `<div class="modal-error" style="display:block;">This task has no reviewer yet. Ask your manager to assign one — then you can send it for review.</div>`
-    : reviewers.length
+  const waitingForReviewer = false;      // a task with no reviewer yet no longer blocks — the reviewer is chosen right here
+  const picker = reviewers.length
     ? `<div class="field"><label>Send for review to</label><select id="cmpReviewer"><option value="">— Choose a reviewer —</option>${options.replace('value="' + (t.assignedReviewerId || '') + '"', 'value="' + (t.assignedReviewerId || '') + '" selected')}</select></div>`
     : `<div class="modal-error" style="display:block;">There's no one else to review this yet.</div>`;
   // Internal tasks get a Sheet link only — no client, no cashbook to
@@ -10161,12 +10159,12 @@ function atV2Setup(){
   atReviewers();
   atReviewKindChanged();
 }
-// Any manager or the founder can review — except the person doing the work. Keeps the current choice if it is still allowed.
+// Anyone active can review — except the person doing the work. Keeps the current choice if it is still allowed.
 function atReviewers(){
   if(!atV2On()) return;
   const sel = document.getElementById('atReviewer'); if(!sel) return;
   const who = (document.getElementById('atAssignee') || {}).value || currentViewerId, keep = sel.value;
-  const mgrs = employees.filter(e => (e.accessRole === 'admin' || e.accessRole === 'superadmin') && !e.accessDisabled && e.id !== who);
+  const mgrs = eligibleReviewersFor(who).slice().sort((a, b) => a.name.localeCompare(b.name));
   sel.innerHTML = '<option value="">Choose when the work is submitted</option>' + mgrs.map(e => '<option value="' + esc(e.id) + '"' + (e.id === keep ? ' selected' : '') + '>' + esc(e.name) + '</option>').join('');
 }
 // The person who will send the report: defaults to whoever does the work; anyone active can be named.

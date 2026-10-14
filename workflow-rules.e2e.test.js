@@ -114,8 +114,8 @@ test('submitting for review uses the reviewer chosen at creation when none is na
   assert.ok(td.sections.needs.some(n => n.id === t.id && n.type === 'review'), 'it reaches that reviewer\'s queue');
 });
 
-test('a review-required task must name its reviewer — or say "assign later" with a reason, and then it cannot be submitted until a manager assigns one', async () => {
-  const mk = body => http('POST', '/api/tasks', { token: PK, body: { mode: 'team', name: 'Later ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), taskKind: 'client', clientId: client.id, ...body } });
+test('a review-required task must name its reviewer — or say "assign later" with a reason, and then the person sending it picks ANY colleague as reviewer right there', async () => {
+  const mk = body => http('POST', '/api/tasks', { token: PK, body: { mode: 'team', name: 'Later ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), taskKind: 'client', clientId: client.id, ...body } })
   const none = await mk({});
   assert.equal(none.status, 400); assert.equal(none.j.code, 'REVIEWER_REQUIRED');
   const noWhy = await mk({ reviewerLater: true });
@@ -125,16 +125,21 @@ test('a review-required task must name its reviewer — or say "assign later" wi
   const t = ok.j.task;
   assert.ok(t.reviewerLater && t.reviewerLater.reason);
   await http('POST', T(t.id) + '/accept', { token: RJ });
-  const blocked = await http('POST', T(t.id) + '/complete', { token: RJ, body: { reviewerId: emp('parvinder').id } });
-  assert.equal(blocked.status, 409); assert.equal(blocked.j.code, 'REVIEWER_MISSING', 'the employee cannot pick a reviewer for it either');
   const team = (await http('GET', '/api/workflow/team', { token: PK })).j;
-  assert.ok(team.attention.some(a => a.id === t.id && a.type === 'missing_reviewer'), 'it is a manager exception until a reviewer is assigned');
-  const assign = await http('POST', T(t.id) + '/manager-change', { token: PK, body: { action: 'change_reviewer', reviewerId: emp('parvinder').id, reason: 'Parvinder will review' } });
-  assert.equal(assign.status, 200, JSON.stringify(assign.j));
+  assert.ok(team.attention.some(a => a.id === t.id && a.type === 'missing_reviewer'), 'it is a manager exception until a reviewer is chosen');
+  // it no longer blocks: the person submitting it chooses the reviewer — here an ordinary employee, not a manager
+  const done = await http('POST', T(t.id) + '/complete', { token: RJ, body: { reviewerId: emp('khushi').id, sheetLink: 'https://docs.google.com/spreadsheets/d/1', cashbookLink: 'https://example.com/cb' } });
+  assert.equal(done.status, 200, JSON.stringify(done.j)); assert.equal(done.j.task.reviewerId, emp('khushi').id);
+  assert.ok(done.j.task.reviewerLater.resolvedAt && done.j.task.assignedReviewerId === emp('khushi').id, 'the "later" is resolved');
   const team2 = (await http('GET', '/api/workflow/team', { token: PK })).j;
-  assert.ok(!team2.attention.some(a => a.id === t.id && a.type === 'missing_reviewer'), 'assigned: the exception is gone');
-  const done = await http('POST', T(t.id) + '/complete', { token: RJ, body: { sheetLink: 'https://docs.google.com/spreadsheets/d/1', cashbookLink: 'https://example.com/cb' } });
-  assert.equal(done.status, 200, JSON.stringify(done.j)); assert.equal(done.j.task.reviewerId, emp('parvinder').id);
+  assert.ok(!team2.attention.some(a => a.id === t.id && a.type === 'missing_reviewer'), 'chosen: the exception is gone');
+  // the chosen colleague can review it, and nobody can name the person doing the work
+  const KH2 = await login('khushi@elitetaxation.co.nz', 'Khushi@2026', 'employee');
+  assert.equal((await http('POST', T(t.id) + '/review-decision', { token: KH2, body: { decision: 'approve', note: 'ok' } })).status, 200, 'an ordinary employee can be the reviewer');
+  const self = await mk({ reviewerId: emp('ranjit').id });
+  assert.equal(self.status, 400, 'the reviewer cannot be the person doing the work');
+  const peer = await mk({ reviewerId: emp('khushi').id });
+  assert.equal(peer.status, 201, 'any active colleague can be named when the task is created: ' + JSON.stringify(peer.j));
 });
 
 test('links are real links: bad schemes, embedded passwords and host-less addresses are refused; every change is kept in the link history', async () => {
