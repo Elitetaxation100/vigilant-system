@@ -31,7 +31,7 @@ let SH, PK, RJ, DI, E, client;
 const emp = n => E.find(e => e.email === n + '@elitetaxation.co.nz');
 const day = n => new Date(Date.now() + n * 86400000).toLocaleDateString('en-CA', { timeZone: 'Pacific/Auckland' });   // the business calendar, not UTC
 const T = id => `/api/tasks/${enc(id)}`;
-const create = (body) => http('POST', '/api/tasks', { token: PK, body: { mode: 'team', name: 'Alert ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), clientDate: day(9), taskKind: 'client', clientId: client.id, reviewerId: emp('parvinder').id, ...body } });
+const create = (body) => http('POST', '/api/tasks', { token: PK, body: { mode: 'team', name: 'Alert ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), clientDate: day(9), taskKind: 'client', clientId: client.id, reviewRequired: true, reviewerId: emp('parvinder').id, ...body } });
 const sweep = async () => (await http('POST', '/api/admin/manager-alerts/run', { token: SH })).j;
 const inbox = async (tok, taskId) => (await http('GET', '/api/notifications', { token: tok })).j.notifications.filter(n => n.type === 'attention' && n.taskId === taskId);
 async function finish(t, status) {

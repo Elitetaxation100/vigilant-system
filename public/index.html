@@ -10234,16 +10234,15 @@ function atReviewKindChanged(){
   const internal = _assignKind === 'internal', box = document.getElementById('atReviewReq'); if(!box) return;
   ['atV2Delivery', 'atCashWrap'].forEach(id => { const el = document.getElementById(id); if(el) el.style.display = internal ? 'none' : ''; });
   const refw = document.getElementById('atInternalRefWrap'); if(refw) refw.style.display = 'none';   // an Admin Task never takes a client name
-  const canWaive = isAdmin;
-  box.checked = !internal;
-  box.disabled = !internal && !canWaive;
-  document.getElementById('atReviewReqLabel').textContent = internal ? 'This admin task needs a review' : 'Review required before this goes to the client';
-  document.getElementById('atReviewNote').textContent = internal ? 'Admin tasks have no client report, so a review is optional.' : (canWaive ? 'Untick only for the rare client task that needs no review — you will be asked for a reason.' : 'Client work is always reviewed. Only a manager or the founder can waive that.');
+  box.checked = false;                 // a review is optional everywhere — ticked only when whoever creates the task wants it compulsory
+  box.disabled = false;
+  document.getElementById('atReviewReqLabel').textContent = internal ? 'This admin task needs a review' : 'Make a review compulsory before this goes to the client';
+  document.getElementById('atReviewNote').textContent = 'Optional. Leave it unticked and the processor decides — they can still choose “Send for review” whenever they want. Tick it to make a review compulsory.';
   atReviewToggle();
 }
 function atReviewToggle(){
   const box = document.getElementById('atReviewReq'), why = document.getElementById('atNoReviewWhy'); if(!box || !why) return;
-  why.style.display = (_assignKind !== 'internal' && !box.checked) ? '' : 'none';
+  why.style.display = 'none';          // no reason is needed any more: a review is optional
   const rb = document.getElementById('atReviewerBlock'); if(rb) rb.style.display = box.checked ? '' : 'none';   // no review → no reviewer to name
 }
 function atLinkCheck(input){
@@ -10644,12 +10643,7 @@ async function submitAssign(mode){
     const rv = (document.getElementById('atReviewer') || {}).value || '';
     if(rv) payload.reviewerId = rv;
     const req = document.getElementById('atReviewReq');
-    payload.reviewRequired = req ? req.checked : !isInternal;
-    if(!isInternal && req && !req.checked){
-      const why = ((document.getElementById('atNoReviewReason') || {}).value || '').trim();
-      if(why.length < 5){ showErr('Say why this client task needs no review — it is kept on the record.'); return; }
-      payload.noReviewReason = why;
-    }
+    payload.reviewRequired = req ? req.checked : false;
     const sh = ((document.getElementById('atSheet') || {}).value || '').trim(), cb = isInternal ? '' : ((document.getElementById('atCash') || {}).value || '').trim();
     if(sh) payload.sheetLink = sh;
     if(cb) payload.cashbookLink = cb;

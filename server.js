@@ -2403,13 +2403,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
       if (rv.id === assignee) return res.status(400).json({ error: 'The reviewer cannot be the person doing the work.' });
       assignedReviewerId = rv.id;
     }
-    reviewRequired = isInternal ? body0.reviewRequired === true : body0.reviewRequired !== false;   // client work is reviewed unless a manager says otherwise
-    if (!isInternal && body0.reviewRequired === false) {
-      if (!isAdminRole(req.employee.accessRole)) return res.status(403).json({ error: 'Only a manager or the founder can waive the review on client work.', code: 'REVIEW_REQUIRED' });
-      const why = String(body0.noReviewReason || '').trim();
-      if (why.length < 5) return res.status(400).json({ error: 'Say why this client task needs no review — it is kept on the record.', code: 'REVIEW_REASON' });
-      noReviewAuth = { by: req.employee.id, at: new Date().toISOString(), reason: why };
-    }
+    reviewRequired = body0.reviewRequired === true;   // a review is optional everywhere: it is compulsory only when the person creating the task ticks it (the processor can always choose "Send for review" themselves)
     // A task that needs review must name its reviewer now — or say, with a reason, that it will be assigned later. Never silently left blank.
     if (reviewRequired && !assignedReviewerId) {
       if (body0.reviewerLater === true) {
@@ -3131,6 +3125,9 @@ app.post('/api/tasks/:id/done', requireAuth, (req, res) => {
   // needed" — so the task reads as done, not "sent for review".
   t.reviewStatus = 'done'; t.reviewerId = null; t.awaitingClientDecision = false;
   t.closedBy = req.employee.id; t.closedAt = t.completedAt;
+  if (workflow.isClientTask(t) && !t.noReviewAuthorizedAt) {        // review was optional on this task and the person chose to close it without one — kept on the record
+    t.noReviewAuthorizedBy = req.employee.id; t.noReviewAuthorizedAt = t.completedAt; t.noReviewAuthorizedReason = 'Review was optional — closed without one by ' + req.employee.name;
+  }
   const kind = (t.source && t.source !== 'manual') ? (t.source === 'call' ? 'call' : 'Slack') + ' task' : 'no review needed';
   logEvent(state, t.assignedTo || req.employee.id, `"${escHtml(t.name)}" marked done by <b>${escHtml(req.employee.name)}</b> (${kind}).`);
   db.save();

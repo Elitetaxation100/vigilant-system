@@ -36,7 +36,7 @@ const T = id => `/api/tasks/${enc(id)}`;
 const needsReviewer = b => b.taskKind === 'client' && b.reviewRequired !== false && b.reviewerId === undefined && b.reviewerLater === undefined;
 async function create(tok, body) {
   const extra = needsReviewer(body) ? { reviewerId: emp('parvinder').id } : {};
-  return http('POST', '/api/tasks', { token: tok, body: { mode: 'team', name: 'Rule task ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), clientDate: day(9), ...extra, ...body } });
+  return http('POST', '/api/tasks', { token: tok, body: { mode: 'team', name: 'Rule task ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), clientDate: day(9), reviewRequired: body.taskKind === 'client', ...extra, ...body } });
 }
 const mine = async (tok, id) => (await http('GET', '/api/tasks', { token: tok })).j.tasks.find(t => t.id === id);
 
@@ -53,7 +53,7 @@ test('Client Task and Admin Task: a client task needs a client; an admin task do
   assert.equal((await create(PK, { taskKind: 'client' })).status, 400, 'client task without a client');
   const c = await create(PK, { taskKind: 'client', clientId: client.id, reviewerId: emp('parvinder').id });
   assert.equal(c.status, 201, JSON.stringify(c.j));
-  assert.equal(c.j.task.kind, 'client'); assert.equal(c.j.task.reviewRequired, true); assert.equal(c.j.task.assignedReviewerId, emp('parvinder').id);
+  assert.equal(c.j.task.kind, 'client'); assert.equal(c.j.task.reviewRequired, true, 'ticked → compulsory'); assert.equal(c.j.task.assignedReviewerId, emp('parvinder').id);
   assert.equal(c.j.task.originalInternalDeadline, day(3)); assert.equal(c.j.task.originalClientDate, day(9), 'the dates it started with are recorded');
   const a = await create(PK, { taskKind: 'admin', name: 'Filing day', clientDate: undefined });
   assert.equal(a.status, 201, JSON.stringify(a.j));
@@ -65,15 +65,28 @@ test('Client Task and Admin Task: a client task needs a client; an admin task do
   assert.equal((await create(PK, { taskKind: 'client', clientId: client.id, reviewerId: 'nobody' })).status, 400);
 });
 
-test('waiving the review at creation: only a manager, only with a reason, and it is kept on the record', async () => {
-  const body = { taskKind: 'client', clientId: client.id, reviewRequired: false };
-  assert.equal((await create(RJ, { ...body, mode: undefined, assignedTo: undefined })).status, 403, 'an employee cannot waive review');
-  assert.equal((await create(PK, body)).status, 400, 'no reason');
-  assert.equal((await create(PK, { ...body, noReviewReason: 'ok' })).status, 400, 'a reason has to be a real sentence');
-  const r = await create(PK, { ...body, noReviewReason: 'Repeat of last month, already checked by the founder' });
-  assert.equal(r.status, 201, JSON.stringify(r.j));
-  assert.equal(r.j.task.reviewRequired, false); assert.equal(r.j.task.noReviewAuthorizedBy, emp('parvinder').id);
-  assert.match(r.j.task.noReviewAuthorizedReason, /Repeat of last month/); assert.ok(r.j.task.noReviewAuthorizedAt);
+test('a review is OPTIONAL: anyone can create a client task without one — no reason, no manager — and nothing is forced on the processor', async () => {
+  const body = { taskKind: 'client', clientId: client.id, reviewRequired: false, reviewerId: undefined };
+  const emp1 = await create(RJ, { ...body, mode: undefined, assignedTo: undefined });
+  assert.equal(emp1.status, 201, 'an employee can create it: ' + JSON.stringify(emp1.j));
+  assert.equal(emp1.j.task.reviewRequired, false); assert.equal(emp1.j.task.assignedReviewerId, null);
+  const mgr = await create(PK, body);
+  assert.equal(mgr.status, 201, JSON.stringify(mgr.j)); assert.equal(mgr.j.task.reviewRequired, false);
+  assert.ok(!mgr.j.task.noReviewAuthorizedAt, 'nothing is "waived" — there was never a requirement');
+  const unspecified = await http('POST', '/api/tasks', { token: PK, body: { mode: 'team', name: 'No flag', assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), clientDate: day(9), taskKind: 'client', clientId: client.id } });
+  assert.equal(unspecified.status, 201, JSON.stringify(unspecified.j)); assert.equal(unspecified.j.task.reviewRequired, false, 'optional is the default');
+});
+
+test('an optional-review client task: the processor can send it for review OR close it without one, and it still counts as completed work', async () => {
+  const mkOpt = async () => { const t = (await create(PK, { taskKind: 'client', clientId: client.id, reviewRequired: false, reviewerId: undefined })).j.task; assert.equal((await http('POST', T(t.id) + '/accept', { token: RJ })).status, 200); return t; };
+  const a = await mkOpt();
+  const d = await http('POST', T(a.id) + '/done', { token: RJ, body: {} });
+  assert.equal(d.status, 200, JSON.stringify(d.j));
+  assert.equal(d.j.task.status, 'completed'); assert.equal(d.j.task.reviewStatus, 'done');
+  assert.equal(d.j.task.noReviewAuthorizedBy, emp('ranjit').id, 'who chose to close it without a review is kept on the record'); assert.match(d.j.task.noReviewAuthorizedReason, /optional/i);
+  const b = await mkOpt();
+  const c = await http('POST', T(b.id) + '/complete', { token: RJ, body: { reviewerId: emp('khushi').id, sheetLink: 'https://docs.google.com/spreadsheets/d/1', cashbookLink: 'https://example.com/cb' } });
+  assert.equal(c.status, 200, JSON.stringify(c.j)); assert.equal(c.j.task.reviewerId, emp('khushi').id, 'or they choose to send it for review — to anyone');
 });
 
 test('closing a required-review client task without review: an employee is refused, the attempt is recorded and managers are told; a manager can waive with a reason', async () => {
@@ -115,7 +128,7 @@ test('submitting for review uses the reviewer chosen at creation when none is na
 });
 
 test('a review-required task must name its reviewer — or say "assign later" with a reason, and then the person sending it picks ANY colleague as reviewer right there', async () => {
-  const mk = body => http('POST', '/api/tasks', { token: PK, body: { mode: 'team', name: 'Later ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), taskKind: 'client', clientId: client.id, ...body } })
+  const mk = body => http('POST', '/api/tasks', { token: PK, body: { mode: 'team', name: 'Later ' + Math.random().toString(36).slice(2, 6), assignedTo: emp('ranjit').id, tat: 0.25, internalDeadline: day(3), taskKind: 'client', clientId: client.id, reviewRequired: true, ...body } })
   const none = await mk({});
   assert.equal(none.status, 400); assert.equal(none.j.code, 'REVIEWER_REQUIRED');
   const noWhy = await mk({ reviewerLater: true });

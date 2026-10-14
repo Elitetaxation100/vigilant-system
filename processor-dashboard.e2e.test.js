@@ -37,7 +37,7 @@ const rjRow = async tok => (await prod(tok, tok === RJ ? '&scope=me' : '')).peop
 async function mk(name, over) {
   const di = 1 + (clientSeq % 25);                       // spread the due dates so the capacity guard never blocks a test
   const clientId = (await http('POST', '/api/clients', { token: SA, body: { name: 'PD Client ' + (++clientSeq), email: 'pd' + clientSeq + '@t.co' } })).j.client.id;
-  const r = await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name, taskKind: 'client', clientId, assignedTo: emp('ranjit').id, tat: 0.5, internalDeadline: day(di), clientDate: day(di + 6), reviewerId: emp('parvinder').id, ...(over || {}) } });
+  const r = await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name, taskKind: 'client', clientId, assignedTo: emp('ranjit').id, tat: 0.5, internalDeadline: day(di), clientDate: day(di + 6), reviewRequired: true, reviewerId: emp('parvinder').id, ...(over || {}) } });
   assert.equal(r.status, 201, name + ' ' + JSON.stringify(r.j));
   assert.equal((await http('POST', T(r.j.task.id) + '/accept', { token: RJ })).status, 200);
   return r.j.task;
