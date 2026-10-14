@@ -31,3 +31,8 @@ test('no Punch In / Time Clock card for anyone, and the automatic-marks "how it 
   assert.ok(!html.includes('How the automatic marks work'));
   assert.ok(html.includes('Automatic marks</h2>') && html.includes('amLate'), 'the settings themselves are still there');
 });
+
+test('the automatic-marks on/off tick boxes are hidden (kept in the page so Save leaves every rule as it is)', () => {
+  assert.ok(html.includes('id="amSwitches" style="display:none;"'));
+  for (const id of ['amOnAck', 'amOnLinks', 'amOnReports', 'amOnMail', 'amOnCallback', 'amOnSubmit']) assert.ok(html.includes('id="' + id + '"'), id + ' still exists so saveAutoMarks keeps working');
+});

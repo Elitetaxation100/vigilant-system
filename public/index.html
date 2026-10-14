@@ -3700,7 +3700,7 @@ async function renderAutoMarksPanel(){
       <td>${m.voidedAt ? '<span style="color:var(--text-faint);font-size:12px;">voided</span>' : `<button class="btn small" onclick="voidMark('${esc(m.id)}')">Void</button>`}</td></tr>`).join('');
   panel.innerHTML = `
     <div class="panel-head"><h2>Automatic marks</h2></div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">
+    <div hidden aria-hidden="true" id="amSwitches" style="display:none;">   <!-- the on/off switches stay in the page (so Save keeps every rule as it is) but are not shown -->
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnAck" ${s.enabled.acknowledgement ? 'checked' : ''}> Email &amp; call acknowledgement</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnLinks" ${s.enabled.links ? 'checked' : ''}> Missing links</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnReports" ${s.enabled.reports ? 'checked' : ''}> Report not sent on time</label>
