@@ -300,6 +300,14 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .cw-help{ font-size:12.5px; color:var(--text-dim); margin:4px 0 8px; } .cw-empty{ padding:22px 8px; text-align:center; color:var(--text-dim); font-size:13.5px; } .cw-scroll{ max-height:52vh; overflow:auto; border:1px solid var(--panel-border); border-radius:10px; }
 .cw-table{ width:100%; border-collapse:collapse; font-size:13px; } .cw-table th{ text-align:left; padding:7px 10px; font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-dim); position:sticky; top:0; background:var(--panel); } .cw-table td{ padding:8px 10px; border-top:1px solid var(--panel-border); vertical-align:top; }
 .cw-row{ cursor:pointer; } .cw-row:hover, .cw-row:focus-visible{ background:var(--purple-dim); outline:none; } .cw-sub{ font-size:12px; color:var(--text-dim); } .cw-late-text{ color:var(--coral); } .cw-times{ font-size:12px; color:var(--text-dim); white-space:nowrap; }
+.tg-task{ margin:10px 0 2px; border:1px solid var(--panel-border); border-radius:10px; overflow:hidden; } .tg-task-h{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:8px 12px; font-size:13px; background:var(--purple-dim); } .tg-task-h span{ color:var(--text-dim); }
+.tg-line{ display:grid; grid-template-columns:1.2fr 1fr .7fr 1.4fr; gap:4px 12px; padding:7px 12px; font-size:13px; border-top:1px solid var(--panel-border); } .tg-hrs{ font-weight:700; font-variant-numeric:tabular-nums; } .tg-hrs em{ font-style:normal; font-weight:500; font-size:11.5px; color:var(--teal); } .tg-how{ font-size:12px; color:var(--text-dim); }
+.tg-controls{ display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin:8px 0 4px; } .tg-chips{ display:flex; gap:6px; flex-wrap:wrap; } .tg-chip{ font:inherit; font-size:12.5px; padding:5px 11px; border-radius:999px; border:1px solid var(--panel-border); background:transparent; color:var(--text); cursor:pointer; } .tg-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:600; }
+.tg-pick{ font-size:13px; display:inline-flex; gap:6px; align-items:center; } .tg-range{ font-size:13px; display:inline-flex; gap:6px; align-items:center; } .tg-body{ max-height:54vh; overflow:auto; }
+.tg-day{ border:1px solid var(--panel-border); border-radius:10px; margin:0 0 8px; overflow:hidden; } .tg-day.quiet{ opacity:.7; } .tg-day-h{ display:grid; grid-template-columns:110px 1fr 120px; gap:12px; align-items:center; padding:8px 12px; background:var(--panel); font-size:13.5px; } .tg-day-t{ text-align:right; font-weight:700; font-variant-numeric:tabular-nums; }
+.tg-bar{ height:8px; border-radius:999px; background:var(--panel-border); overflow:hidden; display:block; } .tg-bar i{ display:block; height:100%; background:var(--teal); border-radius:999px; }
+.tg-item{ display:grid; grid-template-columns:1.6fr .6fr 1.4fr; gap:4px 12px; padding:7px 12px; border-top:1px solid var(--panel-border); font-size:13px; } .tg-item-n{ display:flex; flex-direction:column; } .tg-sub{ font-size:12px; color:var(--text-dim); font-weight:400; } .tg-none{ padding:6px 12px 9px; }
+@media (max-width:640px){ .tg-line, .tg-item{ grid-template-columns:1fr 1fr; } .tg-day-h{ grid-template-columns:90px 1fr; } .tg-day-t{ grid-column:1 / -1; text-align:left; } }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -590,6 +598,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
   #modalOverlay:has(.tasklist-modal) .modal-box{ max-width:780px; }
   #modalOverlay:has(.calc-modal) .modal-box{ max-width:900px; }
   #modalOverlay:has(.cw-modal) .modal-box{ max-width:980px; }
+  #modalOverlay:has(.tg-modal) .modal-box{ max-width:900px; }
   .tasklist-modal table{ width:100%; border-collapse:collapse; font-size:13px; }
   .tasklist-modal th{ text-align:left; padding:7px 10px; font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-faint); border-bottom:1px solid var(--panel-border); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .tasklist-modal td{ padding:8px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; overflow:hidden; }
@@ -1335,6 +1344,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
       <details class="nav-drop" id="v2PerfGroup">
         <summary class="nav-item"><span class="nav-icon">◈</span> Performance <span style="margin-left:auto;">▾</span></summary>
         <div class="nav-item nav-sub" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> My Performance</div>
+        <div class="nav-item nav-sub" id="tlNavItemV2" onclick="openTimeLedger()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openTimeLedger(); }"><span class="nav-icon">⏱</span> Time ledger</div>
         <div class="nav-item nav-sub" id="cwNavItemV2" onclick="openCommitmentWatch()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openCommitmentWatch(); }"><span class="nav-icon">⚑</span> Commitment watch</div>
         <div class="nav-item nav-sub" data-view="kudos" onclick="showView('kudos', this)"><span class="nav-icon">🏆</span> Kudos · Points · Marks</div>
       </details>
@@ -1368,6 +1378,7 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
       <details class="nav-drop" id="perfNavGroup">
         <summary class="nav-item nav-sub"><span class="nav-icon">▾</span> Performance</summary>
         <div class="nav-item nav-sub" data-view="performance" onclick="showView('performance', this)"><span class="nav-icon">◈</span> Performance</div>
+        <div class="nav-item nav-sub" id="tlNavItem" onclick="openTimeLedger()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openTimeLedger(); }"><span class="nav-icon">⏱</span> Time ledger</div>
         <div class="nav-item nav-sub" id="cwNavItem" onclick="openCommitmentWatch()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openCommitmentWatch(); }"><span class="nav-icon">⚑</span> Commitment watch</div>
         <div class="nav-item nav-sub" data-view="kudos" onclick="showView('kudos', this)"><span class="nav-icon">🏆</span> Recognition</div>
       </details>
@@ -8240,6 +8251,98 @@ async function cwCsv(){
 }
 
 /* =========================================================================
+   TIME LEDGER — where each person's time went, task by task and day by day
+   ========================================================================= */
+const tlH = h => { const v = Math.round((Number(h) || 0) * 100) / 100; return v + ' h'; };
+const tlDay = d => new Date(d + 'T12:00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' });
+async function tlLoadTaskTime(id){
+  try {
+    const d = await api('/api/tasks/' + encodeURIComponent(id) + '/time');
+    const el = document.getElementById('ttTime'); if(!el) return;
+    if(!d.rows.length && !d.logged){ el.innerHTML = '<div class="tg-task"><div class="tg-task-h"><b>Time on this task</b><span>none logged yet</span></div></div>'; return; }
+    const rows = d.rows.map(r => '<div class="tg-line"><span class="tg-when">' + (r.day ? esc(tlDay(r.day)) : 'No day recorded') + '</span><span class="tg-who">' + esc(r.name) + '</span><span class="tg-hrs">' + tlH(r.hours) + (r.running ? ' <em>running</em>' : '') + '</span><span class="tg-how">' + esc(r.sources.join(' · ')) + '</span></div>').join('');
+    const earlier = d.earlier > 0 ? '<div class="tg-line"><span class="tg-when">Before day-by-day tracking</span><span class="tg-who">—</span><span class="tg-hrs">' + tlH(d.earlier) + '</span><span class="tg-how">logged before the days were recorded</span></div>' : (d.earlier < 0 ? '<div class="tg-line"><span class="tg-when">Earlier corrections</span><span class="tg-who">—</span><span class="tg-hrs">' + tlH(d.earlier) + '</span><span class="tg-how"></span></div>' : '');
+    el.innerHTML = '<div class="tg-task"><div class="tg-task-h"><b>Time on this task</b><span>' + tlH(d.logged) + ' logged' + (d.allocated ? ' of ' + tlH(d.allocated) + ' allocated' : '') + '</span></div>' + rows + earlier + '</div>';
+  } catch(e){ /* the history below still works without it */ }
+}
+let _tl = { empId: null, from: null, to: null, tab: 'days', data: null, team: null, preset: '7' };
+async function openTimeLedger(empId){
+  _tl = { empId: empId || null, from: null, to: null, tab: 'days', data: null, team: null, preset: '7' };
+  document.getElementById('modalBox').innerHTML = '<h3>Time ledger</h3><div class="modal-sub">Loading…</div>';
+  openModal();
+  tlPreset('7');
+}
+function tlPreset(p){
+  const t = todayISO();
+  _tl.preset = p;
+  if(p === 'today'){ _tl.from = t; _tl.to = t; }
+  else if(p === 'yesterday'){ _tl.from = addDaysISO(-1); _tl.to = addDaysISO(-1); }
+  else if(p === 'month'){ _tl.from = t.slice(0, 8) + '01'; _tl.to = t; }
+  else if(p === '7'){ _tl.from = addDaysISO(-6); _tl.to = t; }
+  tlLoad();
+}
+function tlCustom(){
+  const f = document.getElementById('tlFrom').value, t = document.getElementById('tlTo').value;
+  if(!f || !t) return;
+  _tl.preset = 'custom'; _tl.from = f; _tl.to = t; tlLoad();
+}
+async function tlLoad(){
+  const qs = '?from=' + _tl.from + '&to=' + _tl.to;
+  try {
+    _tl.data = await api('/api/time-ledger' + qs + (_tl.empId ? '&empId=' + encodeURIComponent(_tl.empId) : ''));
+    if(_tl.team === null){ try { _tl.team = await api('/api/time-ledger/team' + qs); } catch(e){ _tl.team = false; } }
+    else if(_tl.team && _tl.tab === 'team'){ _tl.team = await api('/api/time-ledger/team' + qs); }
+  } catch(e){
+    document.getElementById('modalBox').innerHTML = '<div class="tg-modal"><h3>Time ledger</h3><div class="modal-error" style="display:block;">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div></div>';
+    return;
+  }
+  tlDraw();
+}
+function tlTab(t){ _tl.tab = t; if(t === 'team' && _tl.team){ api('/api/time-ledger/team?from=' + _tl.from + '&to=' + _tl.to).then(r => { _tl.team = r; tlDraw(); }).catch(() => tlDraw()); return; } tlDraw(); }
+function tlPick(id){ _tl.empId = id; _tl.tab = 'days'; tlLoad(); }
+function tlDraw(){
+  const d = _tl.data; if(!d) return;
+  const chip = (k, label) => '<button type="button" class="tg-chip' + (_tl.preset === k ? ' on' : '') + '" onclick="tlPreset(\'' + k + '\')">' + label + '</button>';
+  const people = _tl.team && _tl.team.people ? _tl.team.people : null;
+  const picker = people ? '<label class="tg-pick">Person <select id="tlPerson" onchange="tlPick(this.value)">' + people.map(p => '<option value="' + esc(p.id) + '"' + (p.id === d.empId ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('') + '</select></label>' : '';
+  const tab = (k, label) => '<button type="button" class="cw-tab' + (_tl.tab === k ? ' on' : '') + '" role="tab" aria-selected="' + (_tl.tab === k) + '" onclick="tlTab(\'' + k + '\')">' + label + '</button>';
+  let body = '';
+  if(_tl.tab === 'days'){
+    body = d.days.map(day => {
+      const pctv = day.standard > 0 ? Math.min(100, Math.round(day.hours / day.standard * 100)) : (day.hours > 0 ? 100 : 0);
+      const items = day.items.map(i => '<div class="tg-item"><span class="tg-item-n"><b>' + esc(i.name) + '</b><span class="tg-sub">' + esc(i.client || '') + '</span></span><span class="tg-hrs">' + tlH(i.hours) + '</span><span class="tg-how">' + esc(i.sources.join(' · ')) + '</span></div>').join('');
+      return '<div class="tg-day' + (day.hours ? '' : ' quiet') + '"><div class="tg-day-h"><b>' + esc(tlDay(day.day)) + '</b><span class="tg-bar" aria-hidden="true"><i style="width:' + pctv + '%"></i></span><span class="tg-day-t">' + tlH(day.hours) + (day.standard ? ' <span class="tg-sub">of ' + tlH(day.standard) + '</span>' : ' <span class="tg-sub">day off</span>') + '</span></div>' + (items || (day.standard ? '<div class="tg-sub tg-none">No time recorded</div>' : '')) + '</div>';
+    }).join('');
+  } else if(_tl.tab === 'tasks'){
+    body = d.byTask.length ? '<div class="cw-scroll"><table class="cw-table"><thead><tr><th>Task</th><th>Client</th><th>Allocated</th><th>Worked in range</th><th>Days</th><th>Logged in total</th></tr></thead><tbody>'
+      + d.byTask.map(t => '<tr class="cw-row" tabindex="0" role="button" onclick="closeModal();openTaskTrailModal(\'' + esc(t.taskId) + '\')" onkeydown="if(event.key===\'Enter\'){ this.click(); }"><td><b>' + esc(t.name) + '</b></td><td>' + esc(t.client || '—') + '</td><td>' + (t.allocated ? tlH(t.allocated) : '—') + '</td><td><b>' + tlH(t.hours) + '</b></td><td>' + t.days + '</td><td>' + tlH(t.loggedTotal) + '</td></tr>').join('') + '</tbody></table></div>'
+      : '<div class="cw-empty">No time recorded on any task in this range.</div>';
+  } else if(_tl.tab === 'clients'){
+    body = d.byClient.length ? '<div class="cw-scroll"><table class="cw-table"><thead><tr><th>Client</th><th>Hours</th><th>Tasks</th><th>Share</th></tr></thead><tbody>'
+      + d.byClient.map(c => '<tr><td><b>' + esc(c.client) + '</b></td><td>' + tlH(c.hours) + '</td><td>' + c.tasks + '</td><td>' + (d.totalHours ? Math.round(c.hours / d.totalHours * 100) : 0) + '%</td></tr>').join('') + '</tbody></table></div>'
+      : '<div class="cw-empty">No time recorded for any client in this range.</div>';
+  } else if(_tl.tab === 'team' && people){
+    body = '<div class="cw-scroll"><table class="cw-table"><thead><tr><th>Person</th><th>Total</th><th>Where it went</th></tr></thead><tbody>'
+      + people.map(p => '<tr class="cw-row" tabindex="0" role="button" onclick="tlPick(\'' + esc(p.id) + '\')" onkeydown="if(event.key===\'Enter\'){ this.click(); }"><td><b>' + esc(p.name) + '</b></td><td>' + tlH(p.hours) + '</td><td>' + (p.topClients.length ? esc(p.topClients.map(c => c.client + ' ' + tlH(c.hours)).join(' · ')) : '<span class="tg-sub">nothing recorded</span>') + '</td></tr>').join('') + '</tbody></table></div>';
+  }
+  document.getElementById('modalBox').innerHTML = '<div class="tg-modal"><h3>Time ledger</h3>'
+    + '<div class="modal-sub">' + esc(d.name) + ' · ' + esc(fmtDate(d.from)) + (d.from === d.to ? '' : ' – ' + esc(fmtDate(d.to))) + ' · <b>' + tlH(d.totalHours) + '</b> recorded</div>'
+    + '<div class="tg-controls">' + picker + '<div class="tg-chips">' + chip('today', 'Today') + chip('yesterday', 'Yesterday') + chip('7', 'Last 7 days') + chip('month', 'This month') + '</div>'
+    + '<div class="tg-range"><input type="date" id="tlFrom" value="' + esc(d.from) + '" aria-label="From" onchange="tlCustom()"> – <input type="date" id="tlTo" value="' + esc(d.to) + '" aria-label="To" onchange="tlCustom()"></div></div>'
+    + '<div class="cw-tabs" role="tablist">' + tab('days', 'By day') + tab('tasks', 'By task') + tab('clients', 'By client') + (people ? tab('team', 'Whole team') : '') + '</div>'
+    + '<div class="tg-body">' + body + '</div>'
+    + '<div class="cw-help">Time is recorded each time the work clock stops, and split at midnight. ' + (d.undatedHours ? tlH(d.undatedHours) + ' entered without a day is not shown by day. ' : '') + 'Hours logged before day-by-day tracking began have no day recorded, so they are not in these figures.</div>'
+    + '<div class="modal-actions"><button type="button" class="btn" onclick="tlCsv()">Download CSV</button><button type="button" class="btn" onclick="closeModal()">Close</button></div></div>';
+}
+async function tlCsv(){
+  try {
+    const res = await fetch(API_BASE + '/api/time-ledger?format=csv&from=' + _tl.from + '&to=' + _tl.to + (_tl.data ? '&empId=' + encodeURIComponent(_tl.data.empId) : ''), { headers: { Authorization: 'Bearer ' + authToken } });
+    if(!res.ok) throw new Error('Could not build the file.');
+    const blob = await res.blob(), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'time-ledger.csv'; document.body.appendChild(a); a.click(); a.remove();
+  } catch(e){ showToast('error', 'Could not download', e.message); }
+}
+
+/* =========================================================================
    MANAGER VIEWS (v2) — My Team, Needs Manager Attention, the Tasks list (server-side filtered + paginated), Calendar and Timeline.
    Everything shown is derived by the server (manager-views.js); the only write is a manager action, which needs a reason.
    ========================================================================= */
@@ -14029,6 +14132,7 @@ function openTaskTrailModal(id){
     <div class="modal-sub">${esc(clientLabel(t))} ${t.scope && t.scope !== '—' ? '· '+esc(t.scope) : ''} · ${taskNo(t.id)} · now: <b>${esc(stateNow)}</b></div>
     <div id="ttNotifyStatus"></div>
     <div id="ttWatch" aria-live="polite"></div>
+    <div id="ttTime" aria-live="polite"></div>
     <div style="margin:14px 0 6px;max-height:52vh;overflow-y:auto;">${rowsHtml || '<div style="color:var(--text-faint);font-size:13px;padding:10px 0;">No recorded events.</div>'}</div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Close</button>
@@ -14048,6 +14152,7 @@ function openTaskTrailModal(id){
     }).catch(() => { const h = document.getElementById('trailReviewShot'); if(h) h.textContent = ''; });
   }
   cwLoadTaskWatch(id);
+  tlLoadTaskTime(id);
   // did the assignee open their alerts for this? (manager / assigner view)
   if(t.assignedTo && (isAdmin || t.assignedBy === currentViewerId || t.assignedTo === currentViewerId)){
     api(`/api/tasks/${encodeURIComponent(id)}/notify-status`).then(d => {
