@@ -165,3 +165,85 @@ test('CSV: the same rows as the list, with the hours', async () => {
   assert.equal(lines.length - 1, list.days.reduce((n, d) => n + d.items.length, 0), 'one line per day-and-task');
   assert.ok(lines.some(l => l.startsWith(day(-1) + ',Ranjit Choudhary,Client processing,Time Ltd,')));
 });
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// The employee logs the work they did, on a chosen task and day, and can plan to continue another day.
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+test('LOG WORK: several tasks at once, each with hours and a note — dated, labelled as logged by the employee, and in the team view', async () => {
+  // Khushi has no other time recorded, so her day starts clean
+  const mkK = async (name, tat) => { const c = await http('POST', '/api/tasks', { token: SA, body: { mode: 'team', name, clientId: client.id, assignedTo: emp('khushi').id, tat, internalDeadline: day(5), clientDate: day(9) } }); assert.equal(c.status, 201, JSON.stringify(c.j)); assert.equal((await http('POST', T(c.j.task.id) + '/accept', { token: KH })).status, 200); return c.j.task.id; };
+  ids.l1 = await mkK('Rental schedule Aug', 6); ids.l2 = await mkK('GST return Sep', 2);
+  const r = await http('POST', '/api/time-ledger/log', { token: KH, body: { day: today(), entries: [{ taskId: ids.l1, hours: 3, note: 'Did the bank reconciliation', resumeOn: day(1) }, { taskId: ids.l2, hours: 1.5 }] } });
+  assert.equal(r.status, 201, JSON.stringify(r.j));
+  assert.equal(r.j.added, 4.5); assert.equal(r.j.entries.length, 2);
+  const t1 = (await http('GET', T(ids.l1) + '/time', { token: KH })).j;
+  assert.equal(t1.logged, 3); assert.equal(t1.tracked, 3); assert.equal(t1.rows[0].day, today()); assert.deepEqual(t1.rows[0].sources, ['Logged by the employee']);
+  const mine = (await http('GET', '/api/tasks', { token: KH })).j.tasks.find(t => t.id === ids.l1);
+  assert.equal(mine.logged, 3); assert.equal(mine.resumeOn, day(1), 'the day to continue is kept on the task');
+  assert.equal(mine.loggedHistory.at(-1).via, 'manual');
+  const team = (await http('GET', '/api/time-ledger/team?from=' + today() + '&to=' + today(), { token: SA })).j;
+  const rj = team.people.find(p => p.id === emp('khushi').id);
+  assert.equal(rj.tasks[ids.l1], 3, 'per task, so a manager sees it in front of the task'); assert.equal(rj.tasks[ids.l2], 1.5);
+  assert.ok(rj.hours >= 4.5);
+});
+
+test('LOG WORK: for yesterday too, but never the future or the distant past', async () => {
+  const ok = await http('POST', '/api/time-ledger/log', { token: KH, body: { day: day(-1), entries: [{ taskId: ids.l2, hours: 2 }] } });
+  assert.equal(ok.status, 201, JSON.stringify(ok.j));
+  const yd = (await http('GET', '/api/time-ledger?from=' + day(-1) + '&to=' + day(-1), { token: KH })).j;
+  assert.equal(yd.days[0].items.find(i => i.name === 'GST return Sep').hours, 2);
+  for (const bad of [day(1), day(-3), 'soon']) {
+    assert.equal((await http('POST', '/api/time-ledger/log', { token: KH, body: { day: bad, entries: [{ taskId: ids.l2, hours: 1 }] } })).status, 400, bad);
+  }
+});
+
+test('LOG WORK is checked first, all or nothing: someone else\'s task, a running clock, bad hours, repeats, bad dates', async () => {
+  const before = (await http('GET', T(ids.l2) + '/time', { token: KH })).j.logged;
+  const post = (entries, token) => http('POST', '/api/time-ledger/log', { token: token || KH, body: { day: today(), entries } });
+  assert.equal((await post([{ taskId: ids.l2, hours: 1 }], RJ)).status, 404, 'a colleague cannot log on your task');
+  assert.equal((await post([{ taskId: 'nope', hours: 1 }])).status, 404);
+  for (const h of [0, -1, 0.05, 17, 'abc']) assert.equal((await post([{ taskId: ids.l2, hours: h }])).status, 400, 'hours ' + h);
+  assert.equal((await post([])).status, 400);
+  assert.equal((await post([{ taskId: ids.l2, hours: 1 }, { taskId: ids.l2, hours: 1 }])).status, 400, 'the same task twice');
+  assert.equal((await post([{ taskId: ids.l2, hours: 1, resumeOn: today() }])).status, 400, 'continue-on must be after today');
+  assert.equal((await post([{ taskId: ids.l2, hours: 1, resumeOn: day(90) }])).status, 400);
+  // all or nothing: a good line followed by a bad one saves nothing
+  assert.equal((await post([{ taskId: ids.l2, hours: 1 }, { taskId: ids.l1, hours: 0 }])).status, 400);
+  assert.equal((await http('GET', T(ids.l2) + '/time', { token: KH })).j.logged, before, 'nothing was saved');
+  // a running clock on that task: refuse (the time would be counted twice)
+  assert.equal((await http('POST', T(ids.l2) + '/resume', { token: KH })).status, 200);
+  const run = await post([{ taskId: ids.l2, hours: 1 }]);
+  assert.equal(run.status, 400); assert.match(run.j.error, /clock is running/);
+  assert.equal((await http('POST', T(ids.l2) + '/pause', { token: KH })).status, 200);
+  // a day cannot hold more than 20 hours
+  assert.equal((await post([{ taskId: ids.l1, hours: 15 }])).status, 201);
+  const over = await post([{ taskId: ids.l2, hours: 6 }]);
+  assert.equal(over.status, 400); assert.match(over.j.error, /on one day/);
+  assert.equal((await http('POST', '/api/time-ledger/log', { body: { entries: [] } })).status, 401);
+});
+
+test('CONTINUE ON ANOTHER DAY: set, change and take back; that morning the person is told once, and the task is on their plate; starting it again clears the plan', async () => {
+  const set = await http('POST', T(ids.l2) + '/resume-on', { token: KH, body: { date: day(2) } });
+  assert.equal(set.status, 200); assert.equal(set.j.task.resumeOn, day(2));
+  assert.equal((await http('POST', T(ids.l2) + '/resume-on', { token: RJ, body: { date: day(2) } })).status, 404, 'only the owner plans it');
+  for (const bad of [today(), day(-1), 'tomorrow', day(90)]) assert.equal((await http('POST', T(ids.l2) + '/resume-on', { token: KH, body: { date: bad } })).status, 400, String(bad));
+  assert.equal((await http('POST', T(ids.l2) + '/resume-on', { token: KH, body: { date: null } })).j.task.resumeOn, null, 'taken back');
+  // the planned day arrives: set it to today in the data file
+  await stop();
+  const f = path.join(dir, 'db.json'), st = JSON.parse(fs.readFileSync(f, 'utf8'));
+  Object.assign(st.tasks.find(x => x.id === ids.l1), { resumeOn: today(), resumeNotifiedOn: null });
+  fs.writeFileSync(f, JSON.stringify(st));
+  await start(); await sessions();
+  assert.ok((await http('GET', '/api/tasks', { token: KH })).j.tasks.length);
+  const n1 = (await http('GET', '/api/notifications', { token: KH })).j.notifications.filter(n => n.type === 'resume' && n.taskId === ids.l1);
+  assert.equal(n1.length, 1); assert.match(n1[0].text, /Rental schedule Aug/);
+  await http('GET', '/api/tasks', { token: KH });
+  assert.equal((await http('GET', '/api/notifications', { token: KH })).j.notifications.filter(n => n.type === 'resume' && n.taskId === ids.l1).length, 1, 'told once');
+  const wt = (await http('GET', '/api/workflow/today', { token: KH })).j;
+  const card = (wt.cards || {})[ids.l1];
+  assert.ok(card && card.badges.some(b => b.key === 'resume_today'), JSON.stringify(card && card.badges));
+  const procDue = wt.modes.processor.tiles.find(t => t.key === 'p_due').ids;
+  assert.ok(procDue.includes(ids.l1), 'it is in "Due today" — it is on their plate');
+  assert.equal((await http('POST', T(ids.l1) + '/resume', { token: KH })).status, 200);
+  assert.equal((await http('GET', '/api/tasks', { token: KH })).j.tasks.find(t => t.id === ids.l1).resumeOn, null, 'picked up again → the plan is done');
+});

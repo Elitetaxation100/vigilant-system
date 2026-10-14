@@ -22,6 +22,16 @@ Every time the work clock stops (Pause, Hold, Mark Complete, Mark Done, Reassign
 
 Who sees what: a person sees their own time, a manager their team's, the founder everyone's. The ledger is not sent with the normal task list (fetched only when opened), so nothing gets slower.
 
+## Added after your screenshot (manager view + employee logging)
+
+**Manager — My team (Today dashboard):** each person's row now shows **⏱ X h worked** for the range you have selected (Today, Yesterday, this week, custom…), and **in front of every task** it shows how long was recorded on that task in that range ("⏱ 3 h worked"; hover shows the task's total logged). Click a person's worked hours to open their full time ledger on the same dates.
+
+**Employee — Log my work** (menu, the ✎ button on the Today strip, and inside the Time ledger): put the work you did on any of your tasks, so it lands on the right client even if the clock was not used.
+- Choose the day (today, yesterday or the day before), then one or more tasks (grouped by client, showing allocated and logged hours), the hours, and optionally what you did.
+- It shows what is already recorded for that day so nothing is entered twice. A task whose clock is running is refused until it is paused. One line is 0.1–16 h and a day cannot go above 20 h. Everything is checked first — if any line is wrong, nothing is saved.
+- Entries show as "Logged by the employee", add to the task's logged hours (so "hours actual vs agreed" and Extra Hours include them) and appear in the task's history.
+- **Continue on <day>** (optional, per task): the task stays open and is marked "Continue on 15 Oct". That morning the person gets one notification, the task shows as "Continue today" and sits in their Due Today list. Starting the clock again clears the plan; it can also be changed or taken back.
+
 ## Things to know before approving
 
 1. **Nothing is invented for the past.** Hours logged before this goes live have no day recorded. They stay in the task total and show as **"Before day-by-day tracking"** on the task — they are never spread over days. Day-by-day figures therefore start the day this is published and fill in from then on.
@@ -30,9 +40,11 @@ Who sees what: a person sees their own time, a manager their team's, the founder
 4. **Per-day target** shows the standard 7 h on working days and "day off" on Sundays and holidays; it does not subtract part-day leave.
 5. **`fix/logged-audit`** (still unpublished) changes logged hours without a date. After both are live its corrections would show on a task as "earlier corrections". It still works; if you want its corrections dated too, that is a small follow-up when it is published.
 
+6. **Logged work is on trust, with a trail.** The manager sees who logged what and when (task history and the ledger say "Logged by the employee"). Days older than two days back cannot be logged from this screen.
+
 ## Files
 
-`time-ledger.js` (new — the rules) · `server.js` (every place the clock stops or hours change now goes through it; `/api/time-ledger`, `/api/time-ledger/team`, `/api/tasks/:id/time`) · `connector.js` (call/Slack task close) · `public/index.html` (Time ledger, task-history block) · tests `time-ledger.test.js` (10) and `time-ledger.e2e.test.js` (10).
+`time-ledger.js` (new — the rules) · `server.js` (every place the clock stops or hours change now goes through it; `/api/time-ledger`, `/api/time-ledger/team`, `/api/tasks/:id/time`) · `connector.js` (call/Slack task close) · `public/index.html` (Time ledger, task-history block) · `workflow.js` (the Continue badge and Due Today) · tests `time-ledger.test.js` (10) and `time-ledger.e2e.test.js` (14).
 
 ## Rollback
 
