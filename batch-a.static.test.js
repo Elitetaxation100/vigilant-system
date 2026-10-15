@@ -90,3 +90,8 @@ test('Today: a profit confirmation waiting for ME reaches my Today even when the
   assert.ok(server.includes('const mineToConfirm = t.profitConfirmStatus === \'pending\''), 'the Today scope includes tasks I must confirm');
   assert.ok(server.includes('|| mineToConfirm;'), 'and it is part of the "mine" test');
 });
+
+test('Mark done on a task that is waiting for profit confirmation says so — it is not "Already closed"', () => {
+  assert.ok(html.includes("t.reviewStatus === 'clean' && t.profitConfirmStatus === 'pending'"), 'the profit-pending case is recognised');
+  assert.ok(html.includes("'Waiting on profit confirmation', 'This task is not closed yet"), 'with an accurate message');
+});
