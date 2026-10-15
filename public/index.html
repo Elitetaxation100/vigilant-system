@@ -7162,13 +7162,20 @@ function dashCat(t){
   if(t.timerStartedAt) return 'progress';
   return 'todo';
 }
+// Finished work (the report went out, or it was closed): not shown in everyday lists — only when someone searches for it or picks Done.
+function taskIsClosed(t){
+  if(t.status !== 'completed') return false;
+  if(t.reviewStatus === 'done') return true;
+  if(t.reviewStatus === 'clean') return t.kind === 'internal' && !t.clientId ? true : (t.sentToClient !== null && t.sentToClient !== undefined);
+  return false;
+}
 function dashPersonRows(personId, from, to, status){
   const mine = tasks.filter(t => t.assignedTo === personId && t.status !== 'pending_approval');
   // The date range decides which tasks are in play; the status filter can only
   // narrow that list (Overdue included), never widen it — so "All work" always
   // contains whatever any other status shows.
   const inRange = mine.filter(t => taskInRange(t, from, to));
-  const rows = inRange.filter(t => status === 'overdue' ? isOverdueNow(t) : (status === '_all' || dashCat(t) === status))
+  const rows = inRange.filter(t => status === 'overdue' ? isOverdueNow(t) : (status === '_all' ? !taskIsClosed(t) : dashCat(t) === status))
     .sort(taskNewest);
   const groups = {};
   rows.forEach(t => { (groups[dashCat(t)] = groups[dashCat(t)] || []).push(t); });
@@ -12318,6 +12325,7 @@ function renderTasksPage(resetTabs){
   let list = tasksScopedList();
   if(_tasksSavedFilter) list = list.filter(t => tasksSavedFilterMatch(t, _tasksSavedFilter));
   if(statusVal !== '_all') list = list.filter(t => taskListCategories(t, currentViewerId).split(' ').includes(statusVal));
+  else if(!q && !_tasksSavedFilter) list = list.filter(t => !taskIsClosed(t));          // finished work only shows when searched for
   if(q) list = list.filter(t => {
     const o = empById(t.assignedTo);
     return (t.name + ' ' + (t.clientName||'') + ' ' + t.id + ' ' + (o?o.name:'')).toLowerCase().includes(q);
