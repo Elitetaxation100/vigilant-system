@@ -5562,6 +5562,11 @@ function markDoneAny(id){
   const t = findTask(id); if(!t) return;
   if(t.status !== 'completed') return markDoneNoReview(id);                 // work still to be done: the usual Mark Done (hours + close)
   const waitingReview = !t.reviewStatus, waitingReport = t.reviewStatus === 'clean' && t.awaitingClientDecision;
+  // Reviewed clean but profit confirmation is still pending: it is NOT closed — it is waiting on the confirmer, and cannot be sent or closed before that.
+  if(!waitingReview && !waitingReport && t.reviewStatus === 'clean' && t.profitConfirmStatus === 'pending'){
+    showToast('info', 'Waiting on profit confirmation', 'This task is not closed yet — it is waiting for ' + (typeof pcName === 'function' ? pcName(t) : 'the profit confirmer') + ' to confirm profit. After that it can be sent to the client or closed.');
+    return;
+  }
   if(!waitingReview && !waitingReport){ showToast('info', 'Already closed', 'This task is already done.'); return; }
   document.getElementById('modalBox').innerHTML = '<h3>Mark done — ' + esc(t.name || '') + '</h3>'
     + '<div class="modal-sub">' + esc(clientLabel(t) || '') + '</div>'
