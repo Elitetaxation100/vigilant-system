@@ -331,6 +331,10 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
 .ts-clear{ padding:34px 12px; text-align:center; color:var(--text-dim); font-size:14.5px; border:1px dashed var(--panel-border); border-radius:12px; } .ts-back{ margin:0 0 10px; }
 @media (max-width:860px){ .ts-head{ display:none; } .ts-row{ grid-template-columns:minmax(0,1fr) auto; } .ts-proc, .ts-date{ font-size:12.5px; color:var(--text-dim); } .ts-row .ts-act{ grid-column:1 / -1; } .ts-row .ts-act .btn{ width:100%; } }
 .rv2-nexts{ display:grid; gap:8px; } .rv2-next{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--panel-border); border-radius:10px; cursor:pointer; } .rv2-next:has(input:checked){ border-color:var(--purple); background:var(--purple-dim); } .rv2-next input{ margin-top:3px; } .rv2-next span{ display:flex; flex-direction:column; gap:1px; } .rv2-next small{ font-size:12.5px; color:var(--text-dim); font-weight:400; }
+.fdw{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 22px; margin:0 0 14px; padding:9px 16px; border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); }
+.fdw-t{ font-size:11.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--text-dim); }
+.fdw-i{ font:inherit; color:var(--text); background:none; border:0; padding:4px 0; display:inline-flex; align-items:baseline; gap:7px; cursor:pointer; } .fdw-i b{ font-size:20px; font-variant-numeric:tabular-nums; } .fdw-i span{ font-size:13px; color:var(--text-dim); }
+.fdw-i:hover span, .fdw-i:focus-visible span{ color:var(--purple); text-decoration:underline; outline:none; } .fdw-i.bad b{ color:var(--coral); } .fdw-i.warn b{ color:var(--amber); } .fdw-i.ok b{ color:var(--teal); }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -12761,6 +12765,29 @@ function fdQuery(extra){
   return p.toString();
 }
 function fdReset(keepFilters){ _fdTile = null; _fdSel = null; _fdPerfSel = null; _fdDrill = null; _fdDrillEmp = null; window.__fdMobileOpen = false; }
+/* ---- Founder view: ONE slim line for the commitments and time features (the lists they open are the same as everywhere else) ---- */
+let _fdw = { at: 0, data: null, busy: false };
+function fdwPaint(){
+  const el = document.getElementById('fdWatch'); if(!el) return;
+  const d = _fdw.data; if(!d){ el.innerHTML = ''; return; }
+  const item = (cls, big, label, fn, tip) => '<button type="button" class="fdw-i ' + cls + '" onclick="' + fn + '" title="' + esc(tip) + '"><b>' + big + '</b><span>' + label + '</span></button>';
+  el.innerHTML = '<span class="fdw-t">Commitments &amp; time</span>'
+    + item(d.breaches ? 'bad' : 'ok', d.breaches, d.breaches === 1 ? 'commitment breach' : 'commitment breaches', "openCommitmentWatch('breaches')", 'Commitment date passed and the report not sent — the whole firm')
+    + item(d.late ? 'bad' : (d.atRisk ? 'warn' : 'ok'), d.late + d.atRisk, 'late or at risk', "openCommitmentWatch('flags')", d.late + ' late · ' + d.atRisk + ' at risk')
+    + item('time', tlH(d.hours), 'team time today · ' + d.working + ' of ' + d.people + ' logged', "openTimeLedger(null, null, null, 'team')", 'Time recorded today across the firm — click for each person');
+}
+function fdLoadWatch(){
+  fdwPaint();
+  if(Date.now() - _fdw.at < 60000 || _fdw.busy) return;
+  _fdw.busy = true;
+  const t = todayISO();
+  Promise.all([api('/api/commitment-watch'), api('/api/time-ledger/team?from=' + t + '&to=' + t)]).then(([w, tm]) => {
+    const late = w.flagged.filter(r => r.flags.some(f => f.tone === 'late')).length;
+    _fdw = { at: Date.now(), busy: false, data: { breaches: w.breaches.length, late, atRisk: w.flagged.length - late, hours: tm.people.reduce((n, p) => n + p.hours, 0), working: tm.people.filter(p => p.hours > 0).length, people: tm.people.length } };
+    fdwPaint();
+  }).catch(() => { _fdw.busy = false; _fdw.at = Date.now(); });
+}
+
 async function renderFounderView(quiet){
   const box = document.getElementById('fdRoot'); if(!box) return;
   if(!(isSuperAdmin && session && session.isFounder)){ box.innerHTML = '<div class="td-empty">The Founder dashboard is for the founder only.</div>'; return; }
@@ -12818,9 +12845,10 @@ function fdDrawBody(){
   const tiles = _fdView === 'today' ? V.today.tiles : _fdView === 'review' ? V.review.tiles : V.founder.actionTiles;
   const intro = _fdView === 'today' ? '<div class="fd-note">Only <b>your own</b> responsibilities — not the firm.</div>' : _fdView === 'review' ? '<div class="fd-note">What waits for <b>your</b> review or decision, and where reviews are stuck across the firm.</div>' : '';
   p.innerHTML = intro + '<div class="td-counts fd-tiles" role="group" aria-label="Summary tiles">' + fdTilesHtml(tiles) + '</div>'
-    + (_fdView === 'founder' ? fdKpiHtml() : '')
+    + (_fdView === 'founder' ? '<div id="fdWatch" class="fdw" aria-live="polite"></div>' + fdKpiHtml() : '')
     + '<div id="fdDrill">' + fdDrillHtml() + '</div>'
     + (_fdView === 'founder' ? fdFounderRest() : '');
+  if(_fdView === 'founder') fdLoadWatch();
 }
 function fdTilesHtml(tiles){
   return tiles.map(t => {
