@@ -85,3 +85,8 @@ test('Give marks: a snip can be dragged and dropped onto the box (images only), 
   assert.ok(html.includes("f.type && f.type.startsWith('image/')") && html.includes('That is not an image'), 'only images are accepted');
   assert.ok(html.includes('#markSnipZone.drag{'), 'the box highlights while a file is over it');
 });
+
+test('Today: a profit confirmation waiting for ME reaches my Today even when the task belongs to another team', () => {
+  assert.ok(server.includes('const mineToConfirm = t.profitConfirmStatus === \'pending\''), 'the Today scope includes tasks I must confirm');
+  assert.ok(server.includes('|| mineToConfirm;'), 'and it is part of the "mine" test');
+});
