@@ -198,6 +198,11 @@ body.simple-layout:has(#view-stoday.active) #deadlineBannerWrap, body.simple-lay
 .sl-menu-list{ position:absolute; right:0; top:calc(100% + 4px); z-index:30; min-width:240px; background:var(--sl-card); border:1px solid var(--sl-line); border-radius:10px; padding:4px; box-shadow:0 8px 24px rgba(0,0,0,.14); }
 .sl-menu-list button{ display:block; width:100%; text-align:left; background:none; border:0; color:var(--sl-ink); font:inherit; padding:9px 10px; border-radius:7px; cursor:pointer; }
 .sl-menu-list button:hover{ background:var(--sl-okbg); }
+/* Inbound Admin in the simple layout: the tasks are in My tasks, so the page keeps only its checks */
+#view-admin .sl-only{ display:none; }
+body.simple-layout #view-admin .sl-only{ display:inline; }
+body.simple-layout #view-admin .banner > span:nth-child(2){ display:none; }
+body.simple-layout #view-admin #adminStatGrid, body.simple-layout #view-admin #adminTasksPanel{ display:none; }
 .sl-backbar{ display:none; margin:0 0 10px; } body.simple-layout .sl-backbar{ display:block; }
 .sl-row .sl-btn, .sl-row .btn{ flex:none; }
 .sl-more{ text-align:center; padding:10px 0 6px; }
@@ -1778,6 +1783,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
         <div class="banner">
           <span>▣</span>
           <span><b>Admin space.</b> Tasks created in Slack — from a call card or the “Convert to Task” shortcut — land here automatically, assigned to whoever, and show on their dashboard. The call itself (recording, listening, AI draft) stays in Slack.</span>
+          <span class="sl-only"><b>Admin space.</b> Tasks created from a call or a Slack message are in My tasks — they are not listed again here.</span>
         </div>
 
         <div class="panel" id="qaPanel" style="display:none;">
@@ -1792,7 +1798,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
           <div class="stat-card"><div class="label">Created today</div><div class="value teal" id="adminStatToday">0</div></div>
         </div>
 
-        <div class="panel">
+        <div class="panel" id="adminTasksPanel">
           <div class="panel-head">
             <h2>Tasks</h2>
             <div class="panel-head-actions"><span style="font-size:12.5px;color:var(--text-faint);align-self:center;">Created in Slack — they appear here automatically</span></div>
