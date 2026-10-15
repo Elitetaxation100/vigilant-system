@@ -190,7 +190,7 @@ function publicEmployee(e, viewerIsAdmin) {
   const { passwordHash, crmUserId, crmUserIdHistory, ...rest } = e;
   if (viewerIsAdmin) { rest.crmUserId = crmUserId; rest.crmUserIdHistory = crmUserIdHistory; }
   // The focused dashboard is the default for every ordinary employee (processor); a superadmin can still switch it off or on per person.
-  rest.dashboardV2 = e.dashboardV2 !== undefined && e.dashboardV2 !== null ? !!e.dashboardV2 : e.accessRole === 'employee';
+  rest.dashboardV2 = e.dashboardV2 !== undefined && e.dashboardV2 !== null ? !!e.dashboardV2 : (e.accessRole === 'employee' || !!e.isFounder);   // the founder gets the new layout too unless it was switched off for them in Manage Access
   rest.isProfitConfirmer = isProfitConfirmer(db.get(), e);
   rest.canDirectProfitConfirm = canDirectProfitConfirm(e);
   return rest;

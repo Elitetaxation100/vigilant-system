@@ -1363,7 +1363,8 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
       <div class="nav-item" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadgeV2" style="display:none;"></span></div>
       <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
       <div class="v2-mgr"><div class="nv2-label">Team</div>
-        <div class="nav-item" data-view="team" onclick="showView('team', this)"><span class="nav-icon">👥</span> My Team</div></div>
+        <div class="nav-item" data-view="team" onclick="showView('team', this)"><span class="nav-icon">👥</span> My Team</div>
+        <div class="nav-item" id="founderNavItemV2" data-view="founder" style="display:none;" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div></div>
       <div class="nv2-label">Communication</div>
       <div class="nav-item" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
       <div class="nav-item" data-view="emails" onclick="showView('emails', this)"><span class="nav-icon">✉</span> Email</div>
@@ -15537,6 +15538,7 @@ async function onLoginComplete(){
   // Founder View — actual founder(s) only (Manage Access → Founder), not
   // every superadmin.
   document.getElementById('founderNavSection').style.display = (isSuperAdmin && session.isFounder) ? '' : 'none';
+  { const fv = document.getElementById('founderNavItemV2'); if(fv) fv.style.display = (isSuperAdmin && session.isFounder) ? '' : 'none'; }       // the founder reaches the Founder dashboard from the new menu too
   document.getElementById('whatsappNavSection').style.display = (isSuperAdmin || session.whatsappAccess) ? '' : 'none';
   // Manager Dashboard stays with the Admin role — team oversight & the
   // review / approve / reassign actions live there.
@@ -15619,6 +15621,7 @@ function logoutSession(){
   document.getElementById('employeesNavSection').style.display = 'none';
   document.getElementById('attendanceNavSection').style.display = 'none';
   document.getElementById('founderNavSection').style.display = 'none';
+  { const fv = document.getElementById('founderNavItemV2'); if(fv) fv.style.display = 'none'; }
   document.getElementById('mgmtNavToggle').style.display = 'none';
   document.getElementById('whatsappNavSection').style.display = 'none';
   document.getElementById('teamBoardNavSection').style.display = 'none';
