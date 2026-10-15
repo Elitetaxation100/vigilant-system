@@ -335,6 +335,8 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
 .fdw-t{ font-size:11.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--text-dim); }
 .fdw-i{ font:inherit; color:var(--text); background:none; border:0; padding:4px 0; display:inline-flex; align-items:baseline; gap:7px; cursor:pointer; } .fdw-i b{ font-size:20px; font-variant-numeric:tabular-nums; } .fdw-i span{ font-size:13px; color:var(--text-dim); }
 .fdw-i:hover span, .fdw-i:focus-visible span{ color:var(--purple); text-decoration:underline; outline:none; } .fdw-i.bad b{ color:var(--coral); } .fdw-i.warn b{ color:var(--amber); } .fdw-i.ok b{ color:var(--teal); }
+.td-grid.ts-full{ grid-template-columns:minmax(0,1fr) !important; } .td-grid.ts-full .td-detail{ display:none !important; }
+.td-grid.ts-full.show-detail .td-list{ display:none; } .td-grid.ts-full.show-detail .td-detail{ display:block !important; position:fixed; inset:0; z-index:60; overflow:auto; border-radius:0; padding:22px 32px 90px; background:var(--panel); max-width:none; }
 .mk-chips{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 12px; } .mk-chip{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); border-radius:999px; padding:6px 12px; font:inherit; font-size:13px; cursor:pointer; min-height:36px; } .mk-chip.on{ background:var(--purple-dim); border-color:var(--purple); color:var(--purple); font-weight:700; } .mk-chip:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; }
 .mk-pager{ display:flex; gap:10px; align-items:center; justify-content:center; padding:10px; font-size:13px; }
 .td-row .tr-open{ background:none; border:0; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .td-row .tr-open:focus-visible{ outline:2px solid var(--purple); outline-offset:2px; border-radius:3px; }
@@ -7888,6 +7890,7 @@ async function renderToday(quiet){
   try { _today = await api('/api/workflow/today'); TD_MODES = (_today.tabs || ['today', 'manager', 'review']).map(k => [k, TD_LABELS[k]]); if(!TD_MODES.some(x => x[0] === _tdMode)){ _tdMode = TD_MODES[0][0]; _tdTile = null; _tdSel = null; _tdOpen = tdDefaultOpen(); } }
   catch(e){ box.innerHTML = '<div class="td-empty" role="alert">Could not load Today: ' + esc(e.message) + ' <button class="btn small td-act" onclick="renderToday()">Retry</button></div>'; return; }
   drawToday();
+  updateReviewsNavBadge();           // the menu number follows the same data the Reviews page shows
 }
 function tdRiskTag(c){
   const r = c.clientRisk || {};
@@ -8122,6 +8125,7 @@ function tsRedrawList(){
 function tsSet(k, v){ if(k === 'q') _tsQ = v; else if(k === 'proc') _tsProc = v; else if(k === 'sort') _tsSort = v; _tdMore = false; tsRedrawList(); }
 function tsClear(){ _tsQ = ''; _tsProc = ''; tdDrawBody(); }
 function tdSimpleHtml(){
+  if(_tdSel && !_today.cards[_tdSel]){ _tdSel = null; window.__tdMobileOpen = false; }          // a task that is no longer on the list leaves nothing selected (no empty panel)
   const A = _today.attention, S = _today.attentionSummary;
   const people = [...new Map(A.map(a => (_today.cards[a.id] || {})).filter(c => c.assigneeId).map(c => [c.assigneeId, c.assigneeName])).entries()].sort((x, y) => String(x[1]).localeCompare(String(y[1])));
   if(_tsProc && !people.some(p => p[0] === _tsProc)) _tsProc = '';
@@ -8133,7 +8137,7 @@ function tdSimpleHtml(){
     + ((_tsQ.trim() || _tsProc) ? '<button type="button" class="ts-link" onclick="tsClear()">Clear</button>' : '') + '</div>' : '';
   const bits = [S.waitingOthers ? S.waitingOthers + ' waiting on others' : '', S.doneToday ? S.doneToday + ' done today' : ''].filter(Boolean);
   const foot = '<div class="ts-foot">' + (bits.length ? '<span>' + bits.join(' · ') + '</span>' : '') + '<span class="ts-foot-l"><button type="button" class="ts-link" onclick="openLogTime()">Log my work</button><button type="button" class="ts-link" onclick="tdSetSimple(false)">Show everything</button></span></div>';
-  const html = head + ctl + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list"><div id="tsListWrap">' + tsListHtml() + '</div>' + foot + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
+  const html = head + ctl + '<div class="td-grid ts-full' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list"><div id="tsListWrap">' + tsListHtml() + '</div>' + foot + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
   setTimeout(tsRedrawList, 0);                       // fills the "N of M shown" note
   return html;
 }
@@ -12602,7 +12606,9 @@ function renderProfitStats(force){
 function updateReviewsNavBadge(){
   const badge = document.getElementById('reviewsNavBadge');
   if(!badge) return;
-  const n = myReviewTasks().length + profitConfirmsPendingFor().length + reportsToSendFor(currentViewerId).length;
+  // the number on the menu is the number of reviews WAITING on this person — the same ones the Reviews page lists (urgent + new + resubmitted)
+  const rc = _today && _today.reviewCounts;
+  const n = rc ? (rc.urgent + rc.newSubmissions + rc.resubmitted) : myReviewTasks().length;
   if(n > 0){ badge.textContent = n; badge.style.display = ''; } else badge.style.display = 'none';
   const b2 = document.getElementById('reviewsNavBadgeV2'); if(b2){ b2.textContent = n; b2.style.display = n > 0 ? '' : 'none'; }
 }

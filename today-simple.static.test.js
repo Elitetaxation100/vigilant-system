@@ -38,3 +38,11 @@ test('the automatic-marks on/off tick boxes are hidden (kept in the page so Save
   assert.ok(html.includes('id="amSwitches" style="display:none;"'));
   for (const id of ['amOnAck', 'amOnLinks', 'amOnReports', 'amOnMail', 'amOnCallback', 'amOnSubmit']) assert.ok(html.includes('id="' + id + '"'), id + ' still exists so saveAutoMarks keeps working');
 });
+
+test('a task opens FULL SCREEN from the Today list (no empty side panel), and the Reviews menu number is the number of reviews waiting — the same ones the Reviews page lists', () => {
+  assert.ok(html.includes('<div class="td-grid ts-full\''));
+  assert.ok(html.includes('.td-grid.ts-full .td-detail{ display:none !important; }') && html.includes('.td-grid.ts-full.show-detail .td-detail{ display:block !important; position:fixed; inset:0;'));
+  assert.ok(html.includes('if(_tdSel && !_today.cards[_tdSel]){ _tdSel = null;'), 'a stale selection never leaves an empty panel');
+  const fn = html.slice(html.indexOf('function updateReviewsNavBadge('), html.indexOf('function openMyReviewQueue('));
+  assert.ok(fn.includes('rc.urgent + rc.newSubmissions + rc.resubmitted') && !fn.includes('profitConfirmsPendingFor()') && !fn.includes('reportsToSendFor('));
+});
