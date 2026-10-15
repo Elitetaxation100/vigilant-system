@@ -210,6 +210,59 @@ body.simple-layout #view-admin #adminStatGrid, body.simple-layout #view-admin #a
 .sl-in{ background:var(--sl-card); border:1px solid var(--sl-line); border-radius:8px; padding:7px 12px; color:var(--sl-ink); font:inherit; min-height:36px; }
 .sl-filters .sl-in[type=search]{ min-width:200px; }
 @media (max-width:720px){ .sl-stats{ grid-template-columns:1fr 1fr; } .sl-row{ flex-wrap:wrap; } .sl-bar{ width:60px; } }
+/* ---- client ownership + client profile ---- */
+#view-clients, #view-cprofile{ --co-card:var(--panel); --co-line:var(--panel-border); --co-ink:var(--text); --co-mute:var(--text-dim); --co-bg:var(--panel-2); --co-ok:var(--purple); --co-bad:var(--coral); --co-warn:var(--amber); --co-info:var(--mint-deep); }
+body.simple-layout #view-clients, body.simple-layout #view-cprofile{ --co-card:var(--sl-card); --co-line:var(--sl-line); --co-ink:var(--sl-ink); --co-mute:var(--sl-mute); --co-bg:var(--sl-bg); --co-ok:var(--sl-ok); --co-bad:var(--sl-red); --co-warn:var(--sl-amber); --co-info:var(--sl-blue); color:var(--sl-ink); }
+.co-wrap{ max-width:1000px; }
+.co-tabs{ display:flex; gap:8px; margin:0 0 14px; flex-wrap:wrap; }
+.co-tabs button, .co-subtabs button{ border:1px solid var(--co-line); background:var(--co-card); color:var(--co-ink); padding:8px 14px; border-radius:999px; cursor:pointer; font:inherit; min-height:36px; }
+.co-tabs button.on{ background:var(--purple); color:#fff; border-color:var(--purple); font-weight:600; }
+body.simple-layout .co-tabs button.on{ background:var(--sl-green); border-color:var(--sl-green); color:var(--sl-card); }
+.co-card{ background:var(--co-card); border:1px solid var(--co-line); border-radius:14px; padding:16px; margin-bottom:14px; color:var(--co-ink); }
+.co-card h2{ font-size:18px; margin:0 0 4px; font-family:inherit; } .co-card h3{ margin:0 0 4px; font-size:15px; }
+.co-d{ color:var(--co-mute); font-size:13px; margin:0 0 12px; }
+.co-mute{ color:var(--co-mute); font-size:12.5px; }
+.co-two{ display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+.co-hdr{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+.co-filters{ display:flex; gap:8px; flex-wrap:wrap; }
+.co-in{ border:1px solid var(--co-line); border-radius:8px; padding:7px 12px; background:var(--co-bg); color:var(--co-ink); font:inherit; min-height:36px; }
+.co-stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.co-stat{ background:var(--co-bg); border-radius:12px; padding:12px; } .co-stat b{ font-size:24px; display:block; line-height:1.2; } .co-stat span{ color:var(--co-mute); font-size:12px; }
+.co-bars .co-r{ display:grid; grid-template-columns:90px 1fr 40px; gap:10px; align-items:center; padding:4px 6px; border-radius:8px; }
+.co-bars .co-r2{ grid-template-columns:110px 1fr 46px; }
+.co-bars .co-r[role=button]{ cursor:pointer; } .co-bars .co-r.sel{ background:var(--co-bg); } .co-bars .co-r:focus-visible{ outline:2px solid var(--co-ok); }
+.co-bar{ height:14px; background:var(--co-ok); border-radius:0 4px 4px 0; } .co-bar.big{ background:var(--co-bad); }
+.co-v{ text-align:right; font-variant-numeric:tabular-nums; }
+.co-scroll{ overflow-x:auto; }
+.co-table{ width:100%; border-collapse:collapse; }
+.co-table th, .co-table td{ padding:9px 8px; border-top:1px solid var(--co-line); text-align:left; vertical-align:middle; }
+.co-table th{ border-top:0; font-size:12px; color:var(--co-mute); font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+.co-meter{ height:8px; background:var(--co-line); border-radius:4px; overflow:hidden; min-width:80px; } .co-meter i{ display:block; height:100%; background:var(--co-ok); border-radius:4px; } .co-meter.mid i{ background:var(--co-warn); }
+.co-pill{ padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; display:inline-block; }
+.co-pill.co-ok{ background:color-mix(in srgb, var(--co-ok) 16%, var(--co-card)); color:var(--co-ok); }
+.co-pill.co-warn{ background:color-mix(in srgb, var(--co-warn) 18%, var(--co-card)); color:var(--co-warn); }
+.co-pill.co-bad{ background:color-mix(in srgb, var(--co-bad) 16%, var(--co-card)); color:var(--co-bad); }
+.co-pill.co-info{ background:color-mix(in srgb, var(--co-info) 16%, var(--co-card)); color:var(--co-info); }
+.co-pill.co-grey{ background:var(--co-line); color:var(--co-ink); }
+.co-link{ background:none; border:0; padding:0; font:inherit; color:var(--co-ok); font-weight:600; cursor:pointer; text-align:left; }
+.co-link:hover{ text-decoration:underline; } .co-link:focus-visible, .co-click:focus-visible, .co-mini:focus-visible{ outline:2px solid var(--co-ok); outline-offset:2px; }
+.co-click{ cursor:pointer; }
+.co-mini{ background:none; border:1px solid var(--co-line); color:var(--co-mute); border-radius:6px; font:inherit; font-size:11.5px; padding:0 6px; cursor:pointer; }
+.co-kv{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:12px; }
+.co-kv div{ background:var(--co-bg); border-radius:10px; padding:8px 12px; min-width:0; overflow-wrap:anywhere; } .co-kv small{ color:var(--co-mute); display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+.co-subtabs{ display:flex; gap:6px; margin-top:14px; flex-wrap:wrap; } .co-subtabs button{ border-radius:8px; border-color:transparent; background:var(--co-bg); color:var(--co-mute); } .co-subtabs button.on{ background:var(--purple); color:#fff; font-weight:600; }
+body.simple-layout .co-subtabs button.on{ background:var(--sl-green); color:var(--sl-card); }
+.co-tl{ border-left:2px solid var(--co-line); margin-left:6px; padding-left:16px; }
+.co-it{ position:relative; padding:8px 0; } .co-it:before{ content:""; position:absolute; left:-23px; top:14px; width:10px; height:10px; border-radius:50%; background:var(--co-ok); border:2px solid var(--co-card); } .co-it.open:before{ background:var(--co-warn); }
+.co-it small{ color:var(--co-mute); display:block; }
+.co-yr{ font-weight:700; margin:14px 0 2px; } .co-tag{ font-size:11px; background:color-mix(in srgb, var(--co-info) 16%, var(--co-card)); color:var(--co-info); padding:1px 8px; border-radius:6px; font-weight:600; }
+.co-chk{ display:grid; grid-template-columns:22px 1fr auto auto; gap:10px; align-items:center; padding:8px 0; border-top:1px solid var(--co-line); }
+.co-box{ width:18px; height:18px; border-radius:5px; border:2px solid var(--co-line); display:inline-block; position:relative; }
+.co-box.y{ background:var(--co-ok); border-color:var(--co-ok); } .co-box.y:after{ content:"✓"; color:#fff; font-size:12px; position:absolute; left:2px; top:-2px; font-weight:700; }
+.co-box.p{ border-color:var(--co-warn); } .co-box.l{ border-color:var(--co-bad); }
+.co-note{ background:color-mix(in srgb, var(--co-warn) 14%, var(--co-card)); border-left:4px solid var(--co-warn); padding:10px 14px; border-radius:8px; font-size:13px; color:var(--co-ink); }
+.co-empty{ color:var(--co-mute); padding:14px 0; }
+@media (max-width:760px){ .co-two{ grid-template-columns:1fr; } .co-kv{ grid-template-columns:1fr 1fr; } .co-chk{ grid-template-columns:22px 1fr auto; } .co-chk .co-mute{ display:none; } }
 /* the short New task form */
 #modalOverlay:has(.sl-nt) .modal-box{ max-width:520px; background:var(--sl-card); border-color:var(--sl-line); color:var(--sl-ink); border-radius:14px; }
 .modal-box:has(.sl-nt) h3{ font-size:18px; font-family:inherit; }
@@ -2552,7 +2605,9 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
       </section>
 
       <section class="view" id="view-clients">
-        <div class="panel">
+        <div class="co-tabs" role="tablist" aria-label="Clients"><button type="button" role="tab" id="coTabOwn" class="on" aria-selected="true" onclick="coTab(\'own\')">Client ownership</button><button type="button" role="tab" id="coTabDir" aria-selected="false" onclick="coTab(\'dir\')">Client directory</button></div>
+        <div id="coOwnership"></div>
+        <div class="panel" id="clDirectory" style="display:none;">
           <div class="panel-head">
             <h2>Client Directory</h2>
             <button class="btn primary small" onclick="openAddClientModal()">+ Add Client</button>
@@ -2568,6 +2623,8 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
           <div id="clientGrid"></div>
         </div>
       </section>
+
+      <section class="view" id="view-cprofile"><div id="cpRoot" aria-live="polite"></div></section>
 
       <!-- ===================== EMPLOYEES (ADMIN) VIEW ===================== -->
       <section class="view" id="view-employees">
@@ -3675,6 +3732,7 @@ const titles = {
   kudos: ['Recognition', 'Kudos, points and marks — in one place'],
   timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
+  cprofile: ['Client', 'Who owns the client, the work done for them, the yearly checklist and the hours'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
   command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
   attendance: ['Attendance Log', 'Daily login/logout history — your reports, or the whole firm'],
@@ -4954,7 +5012,8 @@ function showView(id, el, classic){
   if(id === 'assignments') renderTeamAssignmentsView();
   if(id === 'manager') refreshToday();
   if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
-  if(id === 'clients') renderClientGrid();
+  if(id === 'clients') renderClientsPage();
+  if(id === 'cprofile') renderClientProfile();
   if(id === 'manager') renderManagerStatics();
   if(id === 'performance') renderPerformanceView();
   if(id === 'kudos') renderKudosView();
@@ -5856,7 +5915,7 @@ function atSimplify(){
   if(notesF && r2.parentNode){ r2.after(notesF); const l = notesF.querySelector('label'); if(l) l.textContent = 'Notes (optional)'; const ta = $('atInstructions'); if(ta){ ta.rows = 2; ta.placeholder = 'What the person needs to know…'; } }
   // everything else lives under "More options"
   const more = box.querySelector('details.at-more');
-  if(more){ more.querySelector('summary').innerHTML = 'More options <span>Priority, client date, links</span>'; const top = [fieldOf('atPriority'), $('atClientDateWrap')].filter(Boolean); top.slice().reverse().forEach(f => more.querySelector('summary').after(f)); more.setAttribute('open', ''); more.removeAttribute('open'); }
+  if(more){ more.querySelector('summary').innerHTML = 'More options <span>Priority, client date, links</span>'; const top = [fieldOf('atPriority'), fieldOf('atFY'), $('atClientDateWrap')].filter(Boolean); top.slice().reverse().forEach(f => more.querySelector('summary').after(f)); more.setAttribute('open', ''); more.removeAttribute('open'); }
   const basics = $('atV2Basics'); if(basics && !basics.children.length) basics.remove();
   setAssignKind(_assignKind);
 }
@@ -10556,6 +10615,7 @@ function openNewTask(who){
     </div>
     <div class="field" id="atClientDateWrap"><label for="atClientDate">Client commitment date <span class="at-hint">auto from the due date, editable</span></label><input type="date" id="atClientDate" value="" oninput="_atClientDateTouched = true"></div>
     <div id="atV2Basics" style="display:none;">
+      <div class="field" id="atFYWrap"><label for="atFY">Financial year <span class="at-hint">which year this work is for — leave on Automatic to work it out from the dates</span></label><select id="atFY">${atFYOptions()}</select></div>
       <div class="field"><label for="atPriority">Priority</label><select id="atPriority"><option value="normal" selected>Normal</option><option value="low">Low</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
       <div class="field"><label for="atInstructions">Instructions <span class="at-hint">optional — what the person needs to know</span></label><textarea id="atInstructions" rows="3" placeholder="e.g. Use the 2025 workbook; client prefers PDF"></textarea></div>
     </div>
@@ -10600,6 +10660,10 @@ function openNewTask(who){
 }
 /* The new form (Parvinder's dashboard): Client Task / Admin Task wording, a reviewer chosen up front, and a review rule — client
    work is reviewed unless a manager or the founder waives it with a reason. Links are checked as you type. */
+function atFYOptions(){
+  const e = Number(todayISO().slice(0, 4)) + (Number(todayISO().slice(5, 7)) > 3 ? 1 : 0);
+  return '<option value="">Automatic</option>' + [e + 1, e, e - 1, e - 2].map(y => { const l = (y - 1) + '–' + String(y).slice(2); return '<option value="' + l + '">' + l + '</option>'; }).join('');
+}
 function atV2On(){ return !!(session && session.dashboardV2); }
 function atV2Setup(){
   if(!atV2On()) return;
@@ -10639,7 +10703,7 @@ function atReviewKindChanged(){
   if(!atV2On()) return;
   const internal = _assignKind === 'internal';
   const cash = document.getElementById('atCashWrap'); if(cash) cash.style.display = internal ? 'none' : '';
-  const refw = document.getElementById('atInternalRefWrap'); if(refw) refw.style.display = 'none';   // an Admin Task never takes a client name
+  const refw = document.getElementById('atInternalRefWrap'); if(refw) refw.style.display = internal ? '' : 'none';   // an Admin Task can name the client it is for (optional) so it shows on that client's profile
 }
 function atLinkCheck(input){
   const msg = document.getElementById(input.id + 'Msg'); if(!msg) return;
@@ -10986,7 +11050,7 @@ function setAssignKind(kind){
     const el = document.getElementById(id); if(el) el.style.display = isInternal ? 'none' : '';
   });
   const iref = document.getElementById('atInternalRefWrap');
-  if(iref) iref.style.display = (isInternal && !atV2On()) ? '' : 'none';   // the new form never asks an Admin Task for a client name
+  if(iref) iref.style.display = isInternal ? '' : 'none';   // an Admin Task can name its client (optional)
   const dl = document.getElementById('atDeadlineLabel');
   if(dl) dl.innerHTML = (slOn() ? 'Due' : isInternal ? 'Due date' : 'Manager due date (internal)') + ' <span class="req-mark">*</span>';
   const tl = document.getElementById('atTatLabel');
@@ -11054,6 +11118,7 @@ async function submitAssign(mode){
       payload.reviewerLater = true; payload.reviewerLaterReason = why;
     }
     payload.priority = (document.getElementById('atPriority') || {}).value || 'normal';
+    const fyPick = (document.getElementById('atFY') || {}).value || ''; if(fyPick) payload.financialYear = fyPick;
     const instr = ((document.getElementById('atInstructions') || {}).value || '').trim(); if(instr) payload.instructions = instr;
     const jt = (document.getElementById('atJobType') || {}).value || '';
     if(jt && !payload.department){ const [d, sv] = jt.split('||'); payload.department = d; if(sv) payload.service = sv; }
@@ -15190,7 +15255,7 @@ function renderClientGrid(){
         const openT = tasks.filter(t => t.clientId === c.id && t.status !== 'completed');
         const openHrs = openT.reduce((s,t) => s + (Number(t.tat) || 0), 0);
         return `<tr>
-          <td style="font-weight:600;">${esc(c.name)}</td>
+          <td style="font-weight:600;"><button type="button" class="co-link" onclick="cpOpen('${c.id}')">${esc(c.name)}</button></td>
           <td>${c.type ? `<span class="pill neutral" style="font-size:11px;">${esc(c.type)}</span>` : '<span style="color:var(--text-faint);">—</span>'}</td>
           <td>${c.email ? `<a href="mailto:${esc(c.email)}" style="color:var(--teal);">${esc(c.email)}</a>` : '<span style="color:var(--coral);">⚠ no email</span>'}</td>
           <td>${owner ? esc(owner.name) : '<span style="color:var(--coral);">⚠ unassigned</span>'}</td>
@@ -15203,6 +15268,131 @@ function renderClientGrid(){
         </tr>`;
       }).join('')}</tbody>
     </table></div>`;
+}
+/* ---- CLIENT OWNERSHIP AND CLIENT PROFILE — one owner per client, a yearly checklist per client type, and a profile built from the client's work ---- */
+let _co = { tab:'own', type:'', owner:'', data:null, err:null, seq:0 };
+let _cp = { id:null, fy:'', tab:'history', data:null, err:null, seq:0 };
+function coTab(k){
+  _co.tab = k;
+  document.getElementById('coTabOwn').classList.toggle('on', k === 'own'); document.getElementById('coTabDir').classList.toggle('on', k === 'dir');
+  document.getElementById('coTabOwn').setAttribute('aria-selected', k === 'own'); document.getElementById('coTabDir').setAttribute('aria-selected', k === 'dir');
+  document.getElementById('coOwnership').style.display = k === 'own' ? '' : 'none';
+  document.getElementById('clDirectory').style.display = k === 'dir' ? '' : 'none';
+  if(k === 'own') loadOwnership(); else renderClientGrid();
+}
+function renderClientsPage(){ coTab(_co.tab); }
+async function loadOwnership(quiet){
+  const box = document.getElementById('coOwnership'); if(!box) return;
+  const mine = ++_co.seq;
+  if(!quiet && !_co.data) box.innerHTML = '<div class="co-empty">Loading clients…</div>';
+  try { const d = await api('/api/client-ownership?type=' + encodeURIComponent(_co.type) + (_co.owner ? '&owner=' + encodeURIComponent(_co.owner) : '')); if(mine !== _co.seq) return; _co.data = d; _co.err = null; if(!_co.owner && d.owner) _co.owner = d.owner.id; }
+  catch(e){ if(mine !== _co.seq) return; _co.err = e.message; }
+  drawOwnership();
+}
+function coSet(k, v){ _co[k] = v; if(k === 'type') _co.owner = ''; loadOwnership(true); }
+function coStatusPill(s){ return '<span class="co-pill co-' + esc(s.tone) + '">' + esc(s.label) + '</span>'; }
+function drawOwnership(){
+  const box = document.getElementById('coOwnership'); if(!box) return;
+  if(_co.err){ box.innerHTML = '<div class="co-empty" role="alert">Could not load client ownership: ' + esc(_co.err) + ' <button class="btn small" onclick="loadOwnership()">Retry</button></div>'; return; }
+  const d = _co.data; if(!d) return;
+  const owner = d.owner || { id:'', name:'' }, first = String(owner.name || '').split(' ')[0] || 'Owner';
+  const typeSel = '<select class="co-in" aria-label="Client type" onchange="coSet(\'type\', this.value)"><option value="">All types</option>' + d.types.map(t => '<option' + (t === d.type ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>';
+  const ownSel = d.canPickOwner ? '<select class="co-in" aria-label="Owner" onchange="coSet(\'owner\', this.value)">' + d.perOwner.map(o => '<option value="' + esc(o.id) + '"' + (o.id === owner.id ? ' selected' : '') + '>' + esc(o.name) + ' (' + o.count + ')</option>').join('') + '</select>' : '';
+  const bars = d.perOwner.map((o, i) => '<div class="co-r' + (o.id === owner.id ? ' sel' : '') + '"' + (d.canPickOwner ? ' role="button" tabindex="0" onclick="coSet(\'owner\', \'' + esc(o.id) + '\')" onkeydown="if(event.key===\'Enter\'){ coSet(\'owner\', \'' + esc(o.id) + '\'); }"' : '') + '><span>' + esc(o.id === '__none__' ? 'No owner' : String(o.name).split(' ')[0]) + '</span><div><div class="co-bar' + (i === 0 && d.maxCount > 0 ? ' big' : '') + '" style="width:' + Math.max(1, Math.round(o.count / (d.maxCount || 1) * 100)) + '%"></div></div><span class="co-v">' + o.count + '</span></div>').join('') || '<div class="co-empty">No clients yet.</div>';
+  const S = d.stats, tile = (n, l, c) => '<div class="co-stat"><b' + (c ? ' style="color:var(--' + c + ')"' : '') + '>' + n + '</b><span>' + l + '</span></div>';
+  const rows = d.clients.map(c => {
+    const pct = c.checklist && c.checklist.total ? Math.round(c.checklist.done / c.checklist.total * 100) : 0, warn = c.late || c.status.tone === 'warn';
+    return '<tr><td><button type="button" class="co-link" onclick="cpOpen(\'' + esc(c.id) + '\')">' + esc(c.name) + '</button></td><td>' + esc(c.type || '—') + '</td><td>' + (c.checklist ? '<div class="co-meter' + (warn ? ' mid' : '') + '"><i style="width:' + pct + '%"></i></div>' + c.checklist.done + ' of ' + c.checklist.total + ' done' : '<span class="co-mute">No checklist for this type</span>') + '</td><td>' + (c.nextDue ? esc(slDay(c.nextDue)) : '—') + '</td><td>' + coStatusPill(c.status) + '</td></tr>';
+  }).join('');
+  box.innerHTML = '<div class="co-card"><div class="co-hdr"><div><h2>Client ownership</h2><p class="co-d">Every client has one owner who is responsible for all of that client\'s work</p></div><div class="co-filters">' + typeSel + ownSel + '</div></div>'
+    + '<div class="co-two"><div><h3>Clients per owner (' + d.total + ')</h3><p class="co-d">Counted from the Client Directory</p><div class="co-bars">' + bars + '</div></div>'
+    + '<div><h3>' + esc(owner.name || 'Owner') + (d.canPickOwner ? '' : ' (you)') + ': clients</h3><p class="co-d">What the owner sees on their own page</p><div class="co-stats">' + tile(S.owned, 'Clients owned') + tile(S.late, 'With late work', S.late ? 'coral' : '') + tile(S.waiting, 'Waiting on client', S.waiting ? 'amber' : '') + tile(S.upToDate, 'Up to date') + '</div>'
+    + '<p class="co-d" style="margin:12px 0 0">Red = the largest list. Balance the lists before making ownership part of productivity.</p></div></div></div>'
+    + '<div class="co-card"><h3>' + esc(first) + '\'s client list</h3><div class="co-scroll">' + (rows ? '<table class="co-table"><thead><tr><th>Client</th><th>Type</th><th>Yearly checklist</th><th>Next due</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="co-empty">' + (d.type ? 'No ' + esc(d.type) + ' clients for this owner.' : 'This owner has no clients.') + '</div>') + '</div></div>'
+    + '<div class="co-note"><b>How it works:</b> each client type has a standard yearly checklist (Rideshare: GST returns, annual accounts, income tax). The tool builds the list for each client, and the owner is accountable for every row. Others can do the work, and the client profile shows who did what.</div>';
+}
+
+/* ---------- the client profile ---------- */
+function cpOpen(id, fy){
+  _cp = { id, fy: fy || '', tab:'history', data:null, err:null, seq:_cp.seq };
+  showView('cprofile', document.querySelector('.nav-item[data-view="clients"]'));
+}
+async function renderClientProfile(){
+  const box = document.getElementById('cpRoot'); if(!box || !_cp.id) return;
+  const mine = ++_cp.seq;
+  if(!_cp.data || _cp.data.client.id !== _cp.id) box.innerHTML = '<div class="co-empty">Loading the client…</div>';
+  try { const d = await api('/api/clients/' + encodeURIComponent(_cp.id) + '/profile' + (_cp.fy ? '?fy=' + encodeURIComponent(_cp.fy) : '')); if(mine !== _cp.seq) return; _cp.data = d; _cp.err = null; if(!_cp.fy) _cp.fy = d.fy; }
+  catch(e){ if(mine !== _cp.seq) return; _cp.err = e.message; }
+  drawClientProfile();
+}
+function cpTab(k){ _cp.tab = k; drawClientProfile(); }
+function cpFY(v){ _cp.fy = v; renderClientProfile(); }
+function cpTaskClick(id){ if(isAdmin) mtOpenDetail(id); else if(findTask(id)) openTaskActions(id); }
+function cpChecklistHtml(ck, title, sub){
+  if(!ck) return '<div class="co-card"><h3>' + title + '</h3><p class="co-d">This client type has no standard checklist yet.</p></div>';
+  return '<div class="co-card"><h3>' + title + '</h3><p class="co-d">' + sub + ' · ' + ck.done + ' of ' + ck.total + ' done</p>' + ck.items.map(i => '<div class="co-chk"><span class="co-box ' + (i.done ? 'y' : i.tone === 'bad' ? 'l' : i.tone === 'warn' ? 'p' : '') + '" aria-hidden="true"></span><span' + (i.taskId ? ' class="co-click" tabindex="0" role="button" onclick="cpTaskClick(\'' + esc(i.taskId) + '\')" onkeydown="if(event.key===\'Enter\'){ cpTaskClick(\'' + esc(i.taskId) + '\'); }"' : '') + '>' + esc(i.label) + '</span><span class="co-pill co-' + esc(i.tone) + '">' + esc(i.pill) + '</span><span class="co-mute">' + (i.due && !i.done ? esc(slDay(i.due)) : '') + '</span></div>').join('') + (ck.otherWork ? '<p class="co-d" style="margin:10px 0 0">' + ck.otherWork + ' other ' + (ck.otherWork === 1 ? 'task' : 'tasks') + ' this year, not part of the checklist.</p>' : '') + '</div>';
+}
+function cpHoursBars(list){
+  const max = list.reduce((m, x) => Math.max(m, x.hours), 0) || 1;
+  return list.length ? '<div class="co-bars">' + list.map(x => '<div class="co-r co-r2"><span>' + esc(x.label) + '</span><div><div class="co-bar" style="width:' + Math.max(2, Math.round(x.hours / max * 100)) + '%"></div></div><span class="co-v">' + x.hours + 'h</span></div>').join('') + '</div>' : '<p class="co-d">No hours recorded for this year yet.</p>';
+}
+function drawClientProfile(){
+  const box = document.getElementById('cpRoot'); if(!box) return;
+  if(_cp.err){ box.innerHTML = '<div class="co-empty" role="alert">Could not load the client: ' + esc(_cp.err) + ' <button class="btn small" onclick="renderClientProfile()">Retry</button> <button class="btn small" onclick="showView(\'clients\', document.querySelector(\'.nav-item[data-view=clients]\'))">← Clients</button></div>'; return; }
+  const d = _cp.data; if(!d) return;
+  const c = d.client, tabs = [['history', 'Work history'], ['checklist', 'Yearly checklist'], ['hours', 'Hours & fee'], ['notes', 'Notes & documents']];
+  const kv = (l, v) => '<div><small>' + l + '</small>' + v + '</div>';
+  const open = d.stats.openCount ? d.stats.openCount + (d.stats.nextDue ? ' (client due ' + esc(slDay(d.stats.nextDue)) + ')' : '') : 'None';
+  let body = '';
+  if(_cp.tab === 'history'){
+    const hist = d.history.map((h, i) => '<div class="co-yr"' + (i === 0 ? ' style="margin-top:0"' : '') + '>' + esc(h.fy) + ' <span class="co-tag">' + h.done + ' done · ' + h.open + ' open</span></div><div class="co-tl">' + h.tasks.map(t => '<div class="co-it' + (t.state === 'done' ? '' : ' open') + '"><span class="co-click" tabindex="0" role="button" onclick="cpTaskClick(\'' + esc(t.id) + '\')" onkeydown="if(event.key===\'Enter\'){ cpTaskClick(\'' + esc(t.id) + '\'); }"><b>' + esc(t.name) + '</b></span> <span class="co-pill co-' + esc(t.tone) + '">' + esc(t.pill) + '</span>' + (d.canEdit ? ' <button type="button" class="co-mini" title="Change the financial year this work is for" onclick="cpSetFY(\'' + esc(t.id) + '\', \'' + esc(t.financialYearSet ? t.fy : '') + '\')">' + (t.financialYearSet ? 'year ' : 'year? ') + '✎</button>' : '') + '<small>' + esc(t.line) + '</small></div>').join('') + '</div>').join('') || '<p class="co-d">No work recorded for this client yet.</p>';
+    body = '<div class="co-two"><div class="co-card">' + hist + '</div><div>' + cpChecklistHtml(d.checklist, 'Yearly checklist ' + esc(d.fy), d.checklist ? 'Created from the ' + esc(c.type) + ' type' : '') + '<div class="co-card"><h3>Hours spent</h3><p class="co-d">All work for this client, ' + esc(d.fy) + '</p>' + cpHoursBars(d.hoursByType) + '</div></div></div>';
+  } else if(_cp.tab === 'checklist'){
+    body = '<div class="co-card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><label for="cpFYSel" class="co-d" style="margin:0">Financial year</label><select id="cpFYSel" class="co-in" onchange="cpFY(this.value)">' + d.fyOptions.map(f => '<option' + (f === d.fy ? ' selected' : '') + '>' + esc(f) + '</option>').join('') + '</select><span class="co-d" style="margin:0">Balance date ' + esc(c.balanceLabel) + '</span></div>' + cpChecklistHtml(d.checklist, 'Yearly checklist ' + esc(d.fy), d.checklist ? 'Created from the ' + esc(c.type) + ' type' : '');
+  } else if(_cp.tab === 'hours'){
+    const yrs = d.hoursByYear.length ? '<table class="co-table"><thead><tr><th>Year</th><th style="text-align:right">Hours</th></tr></thead><tbody>' + d.hoursByYear.map(y => '<tr><td>' + esc(y.fy) + '</td><td style="text-align:right">' + y.hours + 'h</td></tr>').join('') + '</tbody></table>' : '<p class="co-d">No work recorded yet.</p>';
+    const yHours = (d.hoursByYear.find(y => y.fy === d.fy) || { hours: 0 }).hours;
+    const fee = d.canSeeFee ? '<div class="co-card"><h3>Yearly fee</h3><p class="co-d">Only managers see this.</p><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;"><span>$</span><input class="co-in" id="cpFee" type="number" min="0" step="1" value="' + (c.fee == null ? '' : esc(String(c.fee))) + '" placeholder="e.g. 900" aria-label="Yearly fee in dollars"><button class="btn small primary" onclick="cpSaveFee()">Save fee</button></div>' + (c.fee != null && yHours > 0 ? '<p class="co-d" style="margin:10px 0 0">' + esc(d.fy) + ': ' + yHours + 'h of work, about $' + Math.round(c.fee / yHours) + ' an hour.</p>' : '') + '</div>' : '';
+    body = '<div class="co-two"><div class="co-card"><h3>Hours by year</h3>' + yrs + '</div><div class="co-card"><h3>Hours spent, ' + esc(d.fy) + '</h3>' + cpHoursBars(d.hoursByType) + '</div></div>' + fee;
+  } else {
+    if(!d.canSeeMore) body = '<div class="co-card"><p class="co-d" style="margin:0">Notes and documents are only shown to the client\'s owner and to managers.</p></div>';
+    else body = '<div class="co-two"><div class="co-card"><h3>Notes</h3><textarea id="cpNotes" class="co-in" rows="8" style="width:100%" ' + (d.canEdit ? '' : 'readonly') + ' placeholder="Anything the next person should know about this client">' + esc(c.notes || '') + '</textarea>' + (d.canEdit ? '<div style="margin-top:8px"><button class="btn small primary" onclick="cpSaveNotes()">Save notes</button></div>' : '') + '</div>'
+      + '<div class="co-card"><h3>Documents</h3><p class="co-d">Links to where the files are kept.</p>' + ((c.documents || []).map((x, i) => '<div class="co-chk" style="grid-template-columns:1fr auto"><a href="' + esc(x.url) + '" target="_blank" rel="noopener noreferrer">' + esc(x.label) + '</a>' + (d.canEdit ? '<button type="button" class="co-mini" onclick="cpDocRemove(' + i + ')" aria-label="Remove ' + esc(x.label) + '">Remove</button>' : '<span></span>') + '</div>').join('') || '<p class="co-d">No documents linked yet.</p>')
+      + (d.canEdit ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px"><input class="co-in" id="cpDocLabel" placeholder="Name" aria-label="Document name" style="flex:1;min-width:110px"><input class="co-in" id="cpDocUrl" type="url" placeholder="https://…" aria-label="Document link" style="flex:2;min-width:160px"><button class="btn small primary" onclick="cpDocAdd()">Add</button></div>' : '') + '</div></div>';
+  }
+  box.innerHTML = '<div class="co-wrap"><button type="button" class="co-link" onclick="showView(\'clients\', document.querySelector(\'.nav-item[data-view=clients]\'))">← Clients</button>'
+    + '<div class="co-card" style="margin-top:8px"><div class="co-hdr"><div><h2>' + esc(c.name) + '</h2>' + (c.type ? '<span class="co-pill co-info">' + esc(c.type) + '</span> ' : '') + (c.gstRegistered ? '<span class="co-pill co-ok">GST registered</span> ' : '') + '<span class="co-pill co-grey">Balance date ' + esc(c.balanceLabel) + '</span></div><div style="display:flex;gap:8px;flex-wrap:wrap">' + (d.canEdit ? '<button class="btn small" onclick="openEditClientModal(\'' + esc(c.id) + '\')">Edit</button>' : '') + '<button class="btn small primary" onclick="cpNewTask(\'' + esc(c.id) + '\')">+ New task for this client</button></div></div>'
+    + '<div class="co-kv">' + kv('Owner', c.ownerName ? esc(c.ownerName) : '<span style="color:var(--coral)">⚠ unassigned</span>') + kv('Email', c.email ? '<a href="mailto:' + esc(c.email) + '">' + esc(c.email) + '</a>' : '—') + kv('Hours this year', d.stats.hoursThisYear + 'h') + kv('Open tasks', open) + '</div>'
+    + '<div class="co-subtabs" role="tablist">' + tabs.map(t => '<button type="button" role="tab" aria-selected="' + (_cp.tab === t[0]) + '" class="' + (_cp.tab === t[0] ? 'on' : '') + '" onclick="cpTab(\'' + t[0] + '\')">' + t[1] + '</button>').join('') + '</div></div>'
+    + (d.partial ? '<div class="co-note" style="margin-bottom:12px">You can see the work on this client that is yours; the owner and managers see all of it.</div>' : '')
+    + body + '</div>';
+}
+function cpNewTask(id){
+  const c = clients.find(x => x.id === id); openNewTask();
+  setTimeout(() => { const el = document.getElementById('atClientId'); if(el && c){ el.value = c.name; el.dispatchEvent(new Event('input', { bubbles:true })); el.dispatchEvent(new Event('change', { bubbles:true })); } const nm = document.getElementById('atName'); if(nm) nm.focus(); }, 60);
+}
+async function cpPatch(body, okMsg){
+  try { await api('/api/clients/' + encodeURIComponent(_cp.id), { method:'PATCH', body: JSON.stringify(body) }); showToast('success', okMsg, ''); await refreshClients(); renderClientProfile(); }
+  catch(e){ showToast('error', 'Could not save', e.message); }
+}
+function cpSaveFee(){ const v = (document.getElementById('cpFee') || {}).value; cpPatch({ fee: v === '' ? null : Number(v) }, 'Fee saved'); }
+function cpSaveNotes(){ cpPatch({ notes: (document.getElementById('cpNotes') || {}).value || '' }, 'Notes saved'); }
+function cpDocAdd(){
+  const label = (document.getElementById('cpDocLabel') || {}).value || '', url = ((document.getElementById('cpDocUrl') || {}).value || '').trim();
+  if(!url){ showToast('error', 'Add a link', 'Paste the web link to the document.'); return; }
+  cpPatch({ documents: ((_cp.data.client.documents || []).concat([{ label, url }])) }, 'Document added');
+}
+function cpDocRemove(i){ const docs = (_cp.data.client.documents || []).slice(); docs.splice(i, 1); cpPatch({ documents: docs }, 'Document removed'); }
+function cpSetFY(taskId, cur){
+  const e = Number(todayISO().slice(0, 4)) + (Number(todayISO().slice(5, 7)) > 3 ? 1 : 0);
+  const opts = [e + 1, e, e - 1, e - 2, e - 3].map(y => (y - 1) + '–' + String(y).slice(2));
+  document.getElementById('modalBox').innerHTML = '<h3>Financial year</h3><div class="modal-sub">Which year is this work for? A tax return done in August is for the year that ended in March.</div><div class="field"><label for="cpFYPick">Year</label><select id="cpFYPick"><option value="">Automatic — worked out from the dates</option>' + opts.map(o => '<option' + (o === cur ? ' selected' : '') + '>' + o + '</option>').join('') + '</select></div><div class="modal-error" id="cpFYErr"></div><div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="cpSaveFY(\'' + esc(taskId) + '\')">Save</button></div>';
+  openModal();
+}
+async function cpSaveFY(taskId){
+  const v = (document.getElementById('cpFYPick') || {}).value || '';
+  try { await api('/api/tasks/' + encodeURIComponent(taskId) + '/financial-year', { method:'PATCH', body: JSON.stringify({ financialYear: v || null }) }); closeModal(); await refreshTasks(); renderClientProfile(); showToast('success', 'Year saved', v || 'Automatic'); }
+  catch(e){ const el = document.getElementById('cpFYErr'); if(el){ el.textContent = e.message; el.style.display = 'block'; } }
 }
 function sortClients(k){
   if(window._clientSort === k) window._clientSortDir = (window._clientSortDir || 1) * -1;
@@ -15279,6 +15469,8 @@ function openEditClientModal(id){
     <div class="field"><label>Client name</label><input type="text" id="ecName" value="${esc(c.name)}"></div>
     <div class="field"><label>Client email <span class="req-mark">*</span></label><input type="email" id="ecEmail" value="${esc(c.email||'')}" placeholder="e.g. accounts@client.co.nz"></div>
     <div class="field"><label>Client type</label><input type="text" id="ecType" value="${esc(c.type||'')}" placeholder="e.g. Rideshare"></div>
+    <label style="display:flex;gap:8px;align-items:center;margin:4px 0 12px;cursor:pointer;"><input type="checkbox" id="ecGst" ${c.gstRegistered ? 'checked' : ''}> <span>GST registered</span></label>
+    <div class="field"><label for="ecBalM">Balance date <span class="at-hint">the day the client's financial year ends — 31 March unless told otherwise</span></label><div style="display:flex;gap:8px;"><select id="ecBalM">${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m,i) => `<option value="${String(i+1).padStart(2,'0')}"${i+1 === Number((c.balanceDate||'03-31').slice(0,2)) ? ' selected' : ''}>${m}</option>`).join('')}</select><input type="number" id="ecBalD" min="1" max="31" value="${Number((c.balanceDate||'03-31').slice(3,5))}" style="width:80px;"></div></div>
     <div class="modal-error" id="ecError"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal()">Cancel</button>
@@ -15295,10 +15487,12 @@ async function submitEditClient(id){
   if(!email){ err('A client email is required.'); return; }
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ err("That doesn't look like a valid email address."); return; }
   try {
-    await api(`/api/clients/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({ name, email, type }) });
+    const bd = String(document.getElementById('ecBalD').value || '').padStart(2, '0');
+    await api(`/api/clients/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify({ name, email, type, gstRegistered: document.getElementById('ecGst').checked, balanceDate: document.getElementById('ecBalM').value + '-' + bd }) });
     closeModal();
     await refreshClients();
     renderClientGrid();
+    if(viewActive('cprofile')) renderClientProfile();
     showToast('success', 'Client updated', name);
   } catch(e){ document.getElementById('ecError').textContent = e.message; document.getElementById('ecError').style.display = 'block'; }
 }

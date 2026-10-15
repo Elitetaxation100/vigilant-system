@@ -25,6 +25,7 @@ const mgr = require('./manager-views');
 const founderMetrics = require('./founder-metrics');
 const watch = require('./commitment-watch');
 const timeLedger = require('./time-ledger');
+const clientProfile = require('./client-profile');
 const crmHealth = require('./crm-health');
 const cal = require('./calendar');
 const policyCompliance = require('./policy-compliance');
@@ -1858,6 +1859,33 @@ app.post('/api/admin/crm-sync/link-user', requireAuth, (req, res) => {
 });
 // Anyone can add a client — an employee adding their own contact defaults to
 // owning it. Only an admin can hand ownership to someone else.
+// The profile fields a client can carry: GST registered, balance date (MM-DD), notes, document links, and (managers only) the yearly fee.
+function clientExtras(body, me) {
+  const set = {};
+  if (body.gstRegistered !== undefined) set.gstRegistered = !!body.gstRegistered;
+  if (body.balanceDate !== undefined) {
+    if (body.balanceDate === '' || body.balanceDate === null) set.balanceDate = null;
+    else if (/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(String(body.balanceDate))) set.balanceDate = String(body.balanceDate);
+    else return { error: 'The balance date should look like 03-31 (month-day).' };
+  }
+  if (body.notes !== undefined) set.notes = String(body.notes || '').slice(0, 4000);
+  if (body.documents !== undefined) {
+    if (!Array.isArray(body.documents) || body.documents.length > 30) return { error: 'Documents: send a list of up to 30 links.' };
+    const docs = [];
+    for (const d of body.documents) {
+      const url = String((d && d.url) || '').trim(), label = String((d && d.label) || '').trim().slice(0, 120);
+      if (!/^https?:\/\/\S+$/i.test(url)) return { error: 'Each document needs a web link starting with http:// or https://.' };
+      docs.push({ label: label || url.slice(0, 60), url: url.slice(0, 500) });
+    }
+    set.documents = docs;
+  }
+  if (body.fee !== undefined) {
+    if (!isAdminRole(me.accessRole)) return { error: 'Only a manager can set the fee.', status: 403 };
+    if (body.fee === null || body.fee === '') set.fee = null;
+    else { const f = Number(body.fee); if (!(f >= 0) || f > 10000000) return { error: 'The fee should be a number of dollars.' }; set.fee = Math.round(f * 100) / 100; }
+  }
+  return { set };
+}
 app.post('/api/clients', requireAuth, (req, res) => {
   const state = db.get();
   const { name, ownerId, type, email } = req.body || {};
@@ -1880,6 +1908,9 @@ app.post('/api/clients', requireAuth, (req, res) => {
     email: cleanEmail || null,
     addedBy: req.employee.id,
   };
+  const extra = clientExtras(req.body || {}, req.employee);
+  if (extra.error) return res.status(400).json({ error: extra.error });
+  Object.assign(client, extra.set);
   state.clients.push(client);
   logEvent(state, req.employee.id, `Added client <b>${escHtml(client.name)}</b>${cleanEmail ? ' (' + escHtml(cleanEmail) + ')' : ''}.`);
   db.save();
@@ -1903,6 +1934,9 @@ app.patch('/api/clients/:id', requireAuth, (req, res) => {
     client.ownerId = ownerId || null;
   }
   if (type !== undefined) client.type = type ? String(type).trim() : null;
+  const extra = clientExtras(req.body || {}, req.employee);
+  if (extra.error) return res.status(extra.status || 400).json({ error: extra.error });
+  Object.assign(client, extra.set);
   if (email !== undefined) {
     const cleanEmail = email ? String(email).trim() : '';
     if (!cleanEmail) return res.status(400).json({ error: 'A client email is required.' });
@@ -2459,6 +2493,7 @@ app.post('/api/tasks', requireAuth, (req, res) => {
     clientId: client ? client.id : (internalClient ? internalClient.id : null),
     clientName: client ? client.name : (internalClient ? internalClient.name : (iref || (isInternal ? 'Internal' : ''))),
     internalRef: iref || null,
+    financialYear: clientProfile.normalFY((req.body || {}).financialYear) || null,   // the year the work is FOR; blank = worked out from the dates
     // Client tasks get a commitment date: whatever was passed, or the internal
     // due date + the firm's 3-working-day dispatch buffer.
     clientDate: isInternal ? null
@@ -6968,6 +7003,144 @@ app.post('/api/tasks/:id/resume-on', requireAuth, (req, res) => {
   if (!taskIsOpen(t)) return res.status(400).json({ error: 'This task is finished.' });
   if (date !== null && (!isDayStr(date) || date <= todayISO() || date > timeLedger.addDay(todayISO(), 60))) return res.status(400).json({ error: 'Choose a day after today (within two months).' });
   t.resumeOn = date; t.resumeNotifiedOn = null; if (!date) t.resumeNote = null;
+  db.save();
+  res.json({ task: taskForClient(t) });
+});
+// ---------------------------------------------------------------- CLIENT OWNERSHIP AND CLIENT PROFILE
+// Every client has one owner, accountable for all of that client's work. The owner (and a manager) can SEE every task on the client, whoever does it,
+// read-only; everyone else sees the tasks they could already see. Fee, notes and documents are for the owner and managers only.
+function clientWorkFor(state, me) {
+  const deps = workflowDeps(state, me), seen = new Map();
+  const ownedIds = new Set(state.clients.filter(c => c.ownerId === me.id).map(c => c.id));
+  for (const t of visibleTasks(state, me)) seen.set(t.id, t);
+  for (const t of state.tasks) if (t.clientId && ownedIds.has(t.clientId) && !seen.has(t.id)) seen.set(t.id, t);
+  const byClient = new Map(), cards = {};
+  for (const t of seen.values()) {
+    if (!t.clientId || t.status === 'cancelled') continue;
+    cards[t.id] = mgr.enrich(workflow.card(t, deps), t, deps);
+    if (!byClient.has(t.clientId)) byClient.set(t.clientId, []);
+    byClient.get(t.clientId).push(t);
+  }
+  return { deps, byClient, cardOf: t => cards[t.id], cards };
+}
+function taskHoursOf(t) {
+  const logged = Number(t.logged) || 0;
+  const h = logged >= 0.05 ? logged : Number(t.tat) > 0 ? Number(t.tat) : Number(t.estMinutes) > 0 ? Number(t.estMinutes) / 60 : 0;
+  return Math.round(h * 10) / 10;
+}
+const shortDate = iso => { if (!iso) return ''; const p = String(iso).slice(0, 10).split('-'); return Number(p[2]) + ' ' + clientProfile.MONTHS[Number(p[1]) - 1]; };
+const longDate = iso => { if (!iso) return ''; const p = String(iso).slice(0, 10).split('-'); return Number(p[2]).toString().padStart(2, '0') + ' ' + clientProfile.MONTHS[Number(p[1]) - 1] + ' ' + p[0]; };
+app.get('/api/client-ownership', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee, today = todayISO();
+  const typeF = String(req.query.type || '').trim();
+  const custom = state.clientChecklists || null;
+  const clients = state.clients.filter(c => !typeF || String(c.type || '').trim() === typeF);
+  const owners = {}; let none = 0;
+  clients.forEach(c => { if (c.ownerId && findEmployee(state, c.ownerId)) owners[c.ownerId] = (owners[c.ownerId] || 0) + 1; else none++; });
+  const perOwner = Object.entries(owners).map(([id, n]) => ({ id, name: (findEmployee(state, id) || {}).name || '', count: n })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const perOwnerFull = perOwner.concat(none ? [{ id: '__none__', name: 'No owner', count: none }] : []);
+  const types = [...new Set(state.clients.map(c => String(c.type || '').trim()).filter(Boolean))].sort();
+  // whose list: managers can open anyone's; everyone else sees their own
+  let ownerId = String(req.query.owner || '');
+  if (!isAdminRole(me.accessRole)) ownerId = me.id;
+  else if (!ownerId) ownerId = owners[me.id] ? me.id : (perOwner[0] ? perOwner[0].id : me.id);
+  const work = clientWorkFor(state, me);
+  const mine = clients.filter(c => ownerId === '__none__' ? !c.ownerId : c.ownerId === ownerId);
+  const rows = mine.map(c => {
+    const tasks = work.byClient.get(c.id) || [];
+    const fy = clientProfile.currentFY(today, c.balanceDate);
+    const checklist = clientProfile.buildChecklist({ client: c, fy, tasks, cardOf: work.cardOf, dayOf: nzDay, custom });
+    const open = tasks.filter(t => work.cardOf(t).status !== 'Completed');
+    const status = clientProfile.clientStatus({ openCards: open.map(work.cardOf), checklist });
+    const dues = open.map(t => t.clientDate || t.internalDeadline).filter(Boolean).sort();
+    return { id: c.id, name: c.name, type: c.type || null, checklist: checklist ? { fy, done: checklist.done, total: checklist.total } : null, nextDue: dues[0] || null, status: { key: status.key, label: status.label, tone: status.tone }, late: !!status.late, waiting: !!status.waiting };
+  }).sort((a, b) => (b.late - a.late) || String(a.nextDue || '9999').localeCompare(String(b.nextDue || '9999')) || a.name.localeCompare(b.name));
+  const owner = ownerId === '__none__' ? { id: '__none__', name: 'No owner' } : (() => { const e = findEmployee(state, ownerId); return e ? { id: e.id, name: e.name } : null; })();
+  res.json({
+    today, total: clients.length, types, type: typeF, perOwner: perOwnerFull, maxCount: perOwnerFull.reduce((m, o) => Math.max(m, o.count), 0),
+    canPickOwner: isAdminRole(me.accessRole), owner,
+    stats: { owned: rows.length, late: rows.filter(r => r.late).length, waiting: rows.filter(r => !r.late && r.waiting).length, upToDate: rows.filter(r => !r.late && !r.waiting).length },
+    clients: rows,
+  });
+});
+app.get('/api/clients/:id/profile', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee, today = todayISO();
+  const c = state.clients.find(x => x.id === req.params.id);
+  if (!c) return res.status(404).json({ error: 'Client not found.' });
+  const custom = state.clientChecklists || null;
+  const work = clientWorkFor(state, me);
+  const tasks = (work.byClient.get(c.id) || []).slice();
+  const owner = c.ownerId ? findEmployee(state, c.ownerId) : null;
+  const isOwner = c.ownerId === me.id, admin = isAdminRole(me.accessRole);
+  const canEdit = admin || isOwner || c.addedBy === me.id, canSeeMore = admin || isOwner;
+  const curFY = clientProfile.currentFY(today, c.balanceDate);
+  const fyQ = clientProfile.normalFY(req.query.fy) || curFY;
+  const first = id => String((findEmployee(state, id) || {}).name || '').split(' ')[0];
+  const fyOf = t => clientProfile.fyOfTask(t, c, nzDay);
+  // the work history, newest year first
+  const rowOf = t => {
+    const card = work.cardOf(t), st = clientProfile.stateOfCard(card), done = st.key === 'done';
+    const bits = [first(t.assignedTo) || 'Unassigned'];
+    if (!done && card.reviewerName) bits.push('reviewer ' + card.reviewerName.split(' ')[0]);
+    if (done) {
+      if (t.reviewStatus === 'clean' && !(t.reworkCount > 0)) bits.push('approved first time');
+      const at = t.sentToClientAt || t.reviewedAt || t.completedAt;
+      bits.push((t.sentToClient === true ? 'sent ' : 'closed ') + longDate(nzDay(at)));
+    }
+    const h = taskHoursOf(t); if (h) bits.push(h + 'h');
+    if (!done && t.clientDate) bits.push('client due ' + shortDate(t.clientDate));
+    return { id: t.id, name: t.name, kind: t.kind === 'internal' ? 'Admin task' : 'Client task', state: st.key, pill: st.label, tone: st.tone, line: bits.join(' · '), fy: fyOf(t), hours: taskHoursOf(t), financialYearSet: !!t.financialYear, sortAt: nzDay(t.sentToClientAt || t.completedAt || t.assignedAt || t.createdAt) || '' };
+  };
+  const rows = tasks.map(rowOf);
+  const years = {};
+  rows.forEach(r => { (years[r.fy || '—'] = years[r.fy || '—'] || []).push(r); });
+  const history = Object.entries(years).sort((a, b) => b[0].localeCompare(a[0])).map(([fy, list]) => ({
+    fy, done: list.filter(r => r.state === 'done').length, open: list.filter(r => r.state !== 'done' && r.state !== 'cancelled').length,
+    tasks: list.sort((a, b) => (Number(a.state === 'done') - Number(b.state === 'done')) || b.sortAt.localeCompare(a.sortAt)),
+  }));
+  const checklist = clientProfile.buildChecklist({ client: c, fy: fyQ, tasks, cardOf: work.cardOf, dayOf: nzDay, custom });
+  const hoursOf = fy => rows.filter(r => r.fy === fy && r.state !== 'cancelled');
+  const byType = {};
+  tasks.filter(t => fyOf(t) === fyQ).forEach(t => { const k = String(t.service || (t.scope && t.scope !== '—' ? t.scope : t.name) || 'Other').replace(/[,\s]*period\s*\d+/i, '').trim() || 'Other'; byType[k] = Math.round(((byType[k] || 0) + taskHoursOf(t)) * 10) / 10; });
+  const hoursByType = Object.entries(byType).map(([label, hours]) => ({ label, hours })).filter(x => x.hours > 0).sort((a, b) => b.hours - a.hours);
+  const hoursByYear = history.map(h => ({ fy: h.fy, hours: Math.round(hoursOf(h.fy).reduce((s, r) => s + r.hours, 0) * 10) / 10 }));
+  const openTasks = tasks.filter(t => work.cardOf(t).status !== 'Completed');
+  const dues = openTasks.map(t => t.clientDate || t.internalDeadline).filter(Boolean).sort();
+  const hoursThisYear = Math.round(hoursOf(curFY).reduce((s, r) => s + r.hours, 0) * 10) / 10;
+  const fyOptions = [...new Set([curFY, clientProfile.fyLabel(clientProfile.endYearOfLabel(curFY) - 1), ...history.map(h => h.fy).filter(x => x !== '—')])].sort().reverse();
+  res.json({
+    today, currentFY: curFY, fy: fyQ, fyOptions,
+    client: { id: c.id, name: c.name, type: c.type || null, email: c.email || null, ownerId: c.ownerId || null, ownerName: owner ? owner.name : null, gstRegistered: !!c.gstRegistered, balanceDate: c.balanceDate || clientProfile.DEFAULT_BALANCE, balanceLabel: clientProfile.balanceLabel(c.balanceDate),
+      notes: canSeeMore ? (c.notes || '') : null, documents: canSeeMore ? (c.documents || []) : null, fee: admin ? (c.fee == null ? null : c.fee) : null },
+    canEdit, canSeeMore, canSeeFee: admin, partial: !admin && !isOwner,
+    stats: { hoursThisYear, openCount: openTasks.length, nextDue: dues[0] || null },
+    history, checklist, hoursByType, hoursByYear,
+  });
+});
+// the standard yearly checklist for each client type (the built-in lists unless a superadmin has set their own)
+app.get('/api/client-checklists', requireAuth, (req, res) => {
+  const state = db.get();
+  res.json({ checklists: Object.assign({}, clientProfile.DEFAULT_CHECKLISTS, state.clientChecklists || {}), custom: !!state.clientChecklists });
+});
+app.put('/api/client-checklists', requireAuth, requireSuperAdmin, (req, res) => {
+  const state = db.get(), body = (req.body || {}).checklists;
+  const bad = clientProfile.validateTemplates(body);
+  if (bad) return res.status(400).json({ error: bad });
+  state.clientChecklists = body;
+  logEvent(state, req.employee.id, 'Changed the standard yearly checklists for client types.');
+  db.save();
+  res.json({ checklists: state.clientChecklists });
+});
+// the financial year a piece of work is FOR (a tax return done in August is for the year that ended in March)
+app.patch('/api/tasks/:id/financial-year', requireAuth, (req, res) => {
+  const state = db.get(), me = req.employee, t = findTask(state, req.params.id);
+  if (!t) return res.status(404).json({ error: 'Task not found.' });
+  const client = t.clientId ? state.clients.find(c => c.id === t.clientId) : null;
+  const allowed = isAdminRole(me.accessRole) || t.assignedTo === me.id || t.assignedBy === me.id || (client && client.ownerId === me.id);
+  if (!allowed) return res.status(403).json({ error: "You can only set the year on work you do, assigned, or that is on a client you own." });
+  const raw = (req.body || {}).financialYear;
+  if (raw === null || raw === '') t.financialYear = null;
+  else { const fy = clientProfile.normalFY(raw); if (!fy) return res.status(400).json({ error: 'Use a year like 2025–26.' }); t.financialYear = fy; }
   db.save();
   res.json({ task: taskForClient(t) });
 });
