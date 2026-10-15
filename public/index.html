@@ -239,6 +239,7 @@ i.cal-ev{ display:inline-block; width:12px; height:12px; padding:0; vertical-ali
 .td-step{ padding:6px 12px; border-radius:999px; font-size:12.5px; border:1px solid var(--panel-border); color:var(--text-dim); }
 .td-step.done{ border-color:var(--teal); color:var(--teal); } .td-step.current{ background:var(--purple); color:#fff; border-color:var(--purple); } .td-step.attention{ border-color:var(--coral); color:var(--coral); font-weight:700; }
 .td-facts{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:10px 18px; font-size:13.5px; margin-bottom:14px; }
+.am-toggle{ all:unset; cursor:pointer; font:inherit; display:inline-flex; gap:8px; align-items:center; } .am-toggle:focus-visible{ outline:2px solid var(--teal); outline-offset:3px; border-radius:4px; }
 .td-card{ border:1px solid var(--panel-border); border-radius:10px; margin:0 0 10px; overflow:hidden; }
 .td-card > h5{ margin:0; padding:7px 12px; font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-faint); background:var(--panel-2); font-weight:700; }
 .td-rows > div{ display:grid; grid-template-columns:150px 1fr; gap:10px; padding:7px 12px; border-top:1px solid var(--panel-border); font-size:13.5px; align-items:baseline; }
@@ -2221,15 +2222,6 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
         </div>
         </div>
         <div class="perf-tab" id="tab-marks" style="display:none;">
-        <div class="panel" id="autoMarksPanel" style="display:none;"></div>
-
-        <div class="panel" id="workshopsPanel">
-          <div class="panel-head">
-            <h2>Workshop pre-reading</h2>
-            <div class="panel-head-actions"><button class="btn small primary" id="newWorkshopBtn" style="display:none;" onclick="openWorkshopModal()">+ New workshop</button></div>
-          </div>
-          <div id="workshopsBody"></div>
-        </div>
         <div class="panel" id="marksGivePanel" style="display:none;">
           <div class="panel-head"><h2>Give marks</h2></div>
           <div style="display:grid;grid-template-columns:minmax(200px,2fr) minmax(200px,1fr);gap:12px;align-items:end;">
@@ -2258,6 +2250,15 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
           </div>
           <div class="modal-error" id="markErr"></div>
           <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn primary" onclick="submitMark()">Give marks</button></div>
+        </div>
+        <div class="panel" id="autoMarksPanel" style="display:none;"></div>
+
+        <div class="panel" id="workshopsPanel">
+          <div class="panel-head">
+            <h2>Workshop pre-reading</h2>
+            <div class="panel-head-actions"><button class="btn small primary" id="newWorkshopBtn" style="display:none;" onclick="openWorkshopModal()">+ New workshop</button></div>
+          </div>
+          <div id="workshopsBody"></div>
         </div>
         <div class="panel">
           <div class="panel-head">
@@ -3691,6 +3692,14 @@ function autoLinksHint(t, who){
   const full = who === 'reviewer' ? r.reviewer : r.processor;
   return `<div style="font-size:12.5px;color:var(--amber);margin:2px 0 8px;">⚠ Client work needs <b>both</b> the Sheet and the Cashbook — a link or an attached file for each. ${who === 'reviewer' ? 'Passing it on without them' : 'Sending it without them'} takes <b>${full} marks</b> automatically (${full / 2} if only one is missing).</div>`;
 }
+let _amOpen = false;     // the Automatic marks rules and log stay folded away until someone opens them — Give marks comes first
+function toggleAutoMarks(){
+  _amOpen = !_amOpen;
+  const body = document.getElementById('amBody'), t = document.getElementById('amToggle'), c = document.getElementById('amCaret');
+  if(body) body.hidden = !_amOpen;
+  if(t) t.setAttribute('aria-expanded', String(_amOpen));
+  if(c) c.textContent = _amOpen ? '▾' : '▸';
+}
 async function renderAutoMarksPanel(){
   const panel = document.getElementById('autoMarksPanel');
   if(!panel) return;
@@ -3707,7 +3716,8 @@ async function renderAutoMarksPanel(){
       <td>${esc(m.reason)}</td>
       <td>${m.voidedAt ? '<span style="color:var(--text-faint);font-size:12px;">voided</span>' : `<button class="btn small" onclick="voidMark('${esc(m.id)}')">Void</button>`}</td></tr>`).join('');
   panel.innerHTML = `
-    <div class="panel-head"><h2>Automatic marks</h2></div>
+    <div class="panel-head"><h2 style="margin:0;"><button type="button" class="am-toggle" id="amToggle" aria-expanded="${_amOpen}" aria-controls="amBody" onclick="toggleAutoMarks()">Automatic marks <span id="amCaret" aria-hidden="true">${_amOpen ? '▾' : '▸'}</span></button></h2></div>
+    <div id="amBody"${_amOpen ? '' : ' hidden'}>
     <div hidden aria-hidden="true" id="amSwitches" style="display:none;">   <!-- the on/off switches stay in the page (so Save keeps every rule as it is) but are not shown -->
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnAck" ${s.enabled.acknowledgement ? 'checked' : ''}> Email &amp; call acknowledgement</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnLinks" ${s.enabled.links ? 'checked' : ''}> Missing links</label>
@@ -3730,7 +3740,8 @@ async function renderAutoMarksPanel(){
     </div>
     <div id="amPreviewOut"></div>
     <div style="font-weight:700;margin:8px 0 4px;">Recent automatic marks</div>
-    ${rows ? `<div style="overflow-x:auto;"><table><thead><tr><th>When</th><th>Who</th><th>Marks</th><th>Why</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div style="color:var(--text-faint);font-size:13px;">None yet.</div>'}`;
+    ${rows ? `<div style="overflow-x:auto;"><table><thead><tr><th>When</th><th>Who</th><th>Marks</th><th>Why</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div style="color:var(--text-faint);font-size:13px;">None yet.</div>'}
+    </div>`;
 }
 async function saveAutoMarks(){
   const n = id => Number(document.getElementById(id).value);
