@@ -211,8 +211,8 @@ test('review waiting days are whole business days, correct across a daylight-sav
 
 /* ---------------- the three dashboard views (modes) ---------------- */
 const LABELS = {
-  today: ['Needs My Review', 'Client Delivery at Risk', 'Waiting for My Decision', 'Reports I Must Send', 'My Overdue Actions', 'Actions Completed Today', 'My Work'],
-  manager: ['Team Delivery at Risk', 'Team Overdue', 'Reviews Blocking Delivery', 'Reports Not Sent', 'Waiting on Client', 'Needs Manager Attention'],
+  today: ['Needs My Review', 'Client Delivery at Risk', 'Waiting for My Decision', 'Profit Confirmation', 'Reports I Must Send', 'My Overdue Actions', 'Actions Completed Today', 'My Work'],
+  manager: ['Team Delivery at Risk', 'Team Overdue', 'Reviews Blocking Delivery', 'Reports Not Sent', 'Profit Confirmation Pending', 'Waiting on Client', 'Needs Manager Attention'],
   review: ['Urgent Reviews', 'New Submissions', 'Corrections Resubmitted', 'Waiting on Employee Correction', 'Reviews Completed Today', 'Review SLA Breached'],
 };
 test('MODES: each view has its own tiles (Today also has My Work) — and no tile belongs to two views', () => {
@@ -295,4 +295,19 @@ test('MY WORK: what is assigned to me (not a review) is on Today — to accept, 
   assert.equal(need('#w2'), undefined, 'in progress needs nothing from me right now');
   const sec = r.modes.today.default.secondary.find(x => x.key === 'my_work');
   assert.deepEqual(sec.ids.slice().sort(), ['#w1', '#w2', '#w3', '#w4']);
+});
+
+test('PROFIT CONFIRMATION: it has its own tile on Today (for the confirmer) and a team tile on Manager view — and the same task is not also under "Waiting for My Decision"', () => {
+  const p = id => submitted({ id, reviewStatus: 'clean', sentToClient: null, profitConfirmStatus: 'pending', profitConfirmRequestedAt: '2026-10-06T01:00:00Z' });
+  const tasks = [p('#p1'), p('#p2'), submitted({ id: '#p3', reviewStatus: 'clean', sentToClient: null, profitConfirmStatus: 'confirmed' })];
+  const shubam = { id: 'sh', name: 'Shubam Sharma', accessRole: 'superadmin' };
+  const r = wf.buildToday(tasks, shubam, deps());
+  const tile = r.modes.today.tiles.find(t => t.key === 'profit_mine');
+  assert.equal(tile.label, 'Profit Confirmation');
+  assert.deepEqual(tile.ids.slice().sort(), ['#p1', '#p2'], 'only tasks waiting for ME to confirm');
+  assert.equal(tile.count, 2);
+  assert.equal(r.modes.today.tiles.find(t => t.key === 'decisions').count, 0, 'not double-counted as a decision');
+  const other = wf.buildToday(tasks, { id: 'me', name: 'Parvinder Kumar', accessRole: 'superadmin' }, deps());
+  assert.equal(other.modes.today.tiles.find(t => t.key === 'profit_mine').count, 0, 'someone who is not the confirmer has nothing to confirm');
+  assert.equal(other.modes.manager.tiles.find(t => t.key === 'profit_team').count, 2, 'the manager sees every pending confirmation for the team');
 });

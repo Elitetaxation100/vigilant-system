@@ -1,0 +1,50 @@
+const { chromium } = require('playwright');
+const { spawn } = require('child_process');
+const fs = require('fs'), os = require('os'), path = require('path');
+const ROOT = path.join(__dirname, '..', '..'), SHOTS = path.join(__dirname, 'shots');
+const port = 4700 + Math.floor(Math.random() * 200), base = 'http://127.0.0.1:' + port;
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tm-ui-'));
+const child = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), TM_DATA_DIR: dir, LOGIN_RATE_LIMIT: '10000', NODE_ENV: 'test' }, stdio: 'ignore' });
+const http = async (m, p, { token, body } = {}) => { const h = { 'Content-Type': 'application/json' }; if (token) h.Authorization = 'Bearer ' + token; const r = await fetch(base + p, { method: m, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); return { s: r.status, j: await r.json().catch(() => null) }; };
+const login = async (e, pw, tab) => (await http('POST', '/api/auth/login', { body: { email: e + '@elitetaxation.co.nz', password: pw, expectedTab: tab } })).j.token;
+let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
+(async () => {
+  for (let i = 0; i < 60; i++) { try { if ((await fetch(base + '/webhooks/health')).ok) break; } catch (e) {} await new Promise(r => setTimeout(r, 500)); }
+  const SA = await login('shubham', 'Shubham@2026', 'admin'), PA = await login('parvinder', 'Parvinder@2026', 'admin'), RJ = await login('ranjit', 'Ranjit@2026', 'employee');
+  const E = (await http('GET', '/api/employees', { token: SA })).j.employees, emp = n => E.find(e => e.email === n + '@elitetaxation.co.nz');
+  await http('PATCH', '/api/employees/' + emp('parvinder').id, { token: SA, body: { dashboardV2: true } });
+  const cl = (await http('POST', '/api/clients', { token: SA, body: { name: 'UI Test Ltd', email: 'ui@t.co' } })).j.client.id;
+  const SH = SA;
+  const T = id => '/api/tasks/' + encodeURIComponent(id);
+  for (const nm of ['Just Campers GST', 'Kiwi Plumbing IR3']) {
+    const t = (await http('POST', '/api/tasks', { token: PA, body: { mode: 'team', name: nm, taskKind: 'client', clientId: cl, assignedTo: emp('ranjit').id, tat: 1, internalDeadline: '2026-12-30', reviewerId: emp('parvinder').id } })).j.task;
+    await http('POST', T(t.id) + '/accept', { token: RJ });
+    await http('POST', T(t.id) + '/complete', { token: RJ, body: { reviewerId: emp('parvinder').id, sheetLink: 'https://docs.google.com/spreadsheets/d/1', cashbookLink: 'https://example.com/cb' } });
+    const r = await http('POST', T(t.id) + '/review-decision', { token: PA, body: { decision: 'approve', next: 'profit', note: 'ok' } });
+    if (r.s !== 200) console.log('REVIEW FAILED', r.s, JSON.stringify(r.j).slice(0, 200));
+  }
+  const tj = (await http('GET', '/api/workflow/today', { token: SH })).j;
+  console.log('API tiles', JSON.stringify(tj.modes.today.tiles.map(t => [t.key, t.count])), 'needs', JSON.stringify(tj.sections.needs.map(n => n.type)));
+  console.log('cards', JSON.stringify(Object.values(tj.cards).map(c => [c.name, c.status, c.waitingOn.kind, c.waitingOn.ownerName])));
+  console.log('me', JSON.stringify(tj.me || tj.viewer || Object.keys(tj)));
+  const tasks = (await http('GET', '/api/tasks', { token: SH })).j.tasks.filter(t => t.profitConfirmStatus);
+  console.log('profit tasks', JSON.stringify(tasks.map(t => [t.name, t.profitConfirmStatus, t.profitConfirmerId || t.profitConfirmBy || t.profitOwner])));
+  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+  const page = await (await browser.newContext({ viewport: { width: 1400, height: 800 } })).newPage();
+  page.on('pageerror', e => console.log('PAGEERROR', e.message));
+  await page.addInitScript(t => { try { sessionStorage.setItem('governanceOsToken', t); } catch (e) {} }, SH);
+  await page.goto(base + '/');
+  await page.waitForFunction(() => typeof showView === 'function' && typeof session !== 'undefined' && !!session);
+  await page.evaluate(() => showView('today', document.querySelector('[data-view="today"]')));
+  await page.waitForSelector('[role=tablist]'); await new Promise(r => setTimeout(r, 1500));
+  ok(/2 things need you today/.test(await page.$eval('#view-today', e => e.innerText)), 'the simple Today now lists the 2 profit confirmations (it said "All clear" before)');
+  await page.evaluate(() => tdSetSimple(false)); await new Promise(r => setTimeout(r, 800));
+  const tiles = await page.$$eval('#tdBody .td-count', e => e.map(x => x.textContent.replace(/\s+/g, ' ').trim()));
+  console.log(tiles.join(' | '));
+  ok(tiles.some(x => /^2Profit Confirmation/.test(x)), 'Shubam sees a Profit Confirmation tile with 2');
+  await page.click('#tdBody .td-count:has-text("Profit Confirmation")'); await new Promise(r => setTimeout(r, 500));
+  const rows = await page.$$eval('#tdList .td-row', e => e.map(x => x.textContent));
+  ok(rows.length === 2 && rows.some(x => /Just Campers GST/.test(x)), 'the tile lists those two tasks');
+  await page.screenshot({ path: path.join(SHOTS, 'profit-tile.png') });
+  await browser.close(); child.kill(); process.exit(fails ? 1 : 0);
+})();

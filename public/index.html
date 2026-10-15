@@ -816,6 +816,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
   #markSnipZone{ border:2px dashed var(--panel-border); border-radius:10px; padding:16px 14px; font-size:13.5px; color:var(--text-dim); cursor:pointer; text-align:center; outline:none; transition:.15s; }
   #markSnipZone > div:first-child{ justify-content:center; }
   #markSnipZone:hover{ border-color:var(--purple); }
+  #markSnipZone.drag{ border-color:var(--teal); background:var(--panel-2); color:var(--text); border-style:solid; }
   #markSnipZone:focus{ border-color:var(--purple); background:var(--panel-2); color:var(--text); }
   #markSnipPreview:not(:empty){ margin-top:10px; text-align:left; }
   body:has(#view-performance.active) #deadlineBannerWrap{ display:none; }
@@ -2239,10 +2240,11 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
           <div class="field" style="margin-top:12px;"><label>Reason <span class="req-mark">*</span></label>
             <textarea id="markReason" rows="2" placeholder="e.g. Called the client back within the hour as promised"></textarea>
           </div>
-          <div id="markSnipZone" tabindex="0" role="button" aria-label="Click here, then press Ctrl+V to paste a snip"
-               onclick="this.focus()" onfocus="markSnipZoneState(true)" onblur="markSnipZoneState(false)">
+          <div id="markSnipZone" tabindex="0" role="button" aria-label="Drag and drop a snip here, or click here and press Ctrl+V to paste one"
+               onclick="this.focus()" onfocus="markSnipZoneState(true)" onblur="markSnipZoneState(false)"
+               ondragenter="markSnipDrag(event, true)" ondragover="markSnipDrag(event, true)" ondragleave="markSnipDrag(event, false)" ondrop="markSnipDrop(event)">
             <div id="markSnipHint" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-              <span id="markSnipHintText">📋 Click here, then press <b>Ctrl+V</b> to paste a snip</span>
+              <span id="markSnipHintText">📋 <b>Drag &amp; drop</b> a snip here, or click here then press <b>Ctrl+V</b></span>
               <button class="btn small" type="button" onclick="event.stopPropagation();document.getElementById('markSnipFile').click()">or choose an image</button>
             </div>
             <input type="file" id="markSnipFile" accept="image/*" style="display:none;" onchange="setMarkSnip(this.files[0]); this.value='';">
@@ -3647,9 +3649,25 @@ function renderMarkSnipPreview(){
 // A snip is pasted only into the dedicated snip box: click it (it highlights
 // and says "press Ctrl+V now"), then Ctrl+V. Pasting anywhere else on the
 // page does nothing, so a stray Ctrl+V can't attach a screenshot by accident.
+// Drag & drop: drop an image file (a saved snip / screenshot) on the box. Anything that is not an image is refused with a message, and a
+// miss-drop elsewhere on the page is left alone.
+function markSnipDrag(e, on){
+  e.preventDefault();
+  const z = document.getElementById('markSnipZone');
+  if(z) z.classList.toggle('drag', !!on);
+}
+function markSnipDrop(e){
+  e.preventDefault();
+  const z = document.getElementById('markSnipZone');
+  if(z) z.classList.remove('drag');
+  const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+  const img = files.find(f => f.type && f.type.startsWith('image/'));
+  if(!img){ showToast('error', 'That is not an image', 'Drop a screenshot image (PNG, JPG…) here.'); return; }
+  setMarkSnip(img);
+}
 function markSnipZoneState(on){
   const t = document.getElementById('markSnipHintText');
-  if(t) t.innerHTML = on ? '✅ Ready — press <b>Ctrl+V</b> now' : '📋 Click here, then press <b>Ctrl+V</b> to paste a snip';
+  if(t) t.innerHTML = on ? '✅ Ready — press <b>Ctrl+V</b> now, or drop an image here' : '📋 <b>Drag &amp; drop</b> a snip here, or click here then press <b>Ctrl+V</b>';
 }
 document.addEventListener('paste', e => {
   const zone = document.getElementById('markSnipZone');
