@@ -53,7 +53,7 @@ test('setup', async () => {
 test('the focused dashboard is on by default for every ordinary employee and for Parvinder; a superadmin can switch anyone on or off', async () => {
   const me = async tok => (await http('GET', '/api/auth/me', { token: tok })).j.employee;
   assert.equal((await me(PK)).dashboardV2, true, 'on for Parvinder (one-time migration)');
-  assert.ok((await me(RJ)).dashboardV2, 'on by default for ordinary employees (processors)'); assert.ok(!(await me(DI)).dashboardV2, 'managers who were not switched on keep the classic layout');
+  assert.ok((await me(RJ)).dashboardV2, 'on by default for ordinary employees (processors)'); assert.ok((await me(DI)).dashboardV2, 'on for Disha (one-time migration, same layout as Parvinder)');
   assert.ok((await me(SH)).dashboardV2, 'the founder has the same new layout by default (and can be switched off in Manage Access)');
   assert.equal((await http('PATCH', `/api/employees/${enc(emp('ranjit').id)}`, { token: DI, body: { dashboardV2: true } })).status, 403, 'only a superadmin');
   assert.equal((await http('PATCH', `/api/employees/${enc(emp('ranjit').id)}`, { token: SH, body: { dashboardV2: false } })).status, 200);

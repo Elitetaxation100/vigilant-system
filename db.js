@@ -358,6 +358,12 @@ function runMigrations(state) {
     if (p && p.dashboardV2 === undefined) p.dashboardV2 = true;
     state.migrationFlags.dashboardV2ForParvinder = true;
   }
+  // …and once for Disha (same layout as Parvinder). Anyone can still be switched on or off in Manage Access; this never overrides a choice already made.
+  if (!state.migrationFlags.dashboardV2ForDisha) {
+    const d = (state.employees || []).find(e => String(e.email || '').toLowerCase() === 'disha@elitetaxation.co.nz');
+    if (d && d.dashboardV2 === undefined) d.dashboardV2 = true;
+    state.migrationFlags.dashboardV2ForDisha = true;
+  }
   // Clients can carry a contact email now, and remember who added them.
   (state.clients || []).forEach(c => {
     if (c.email === undefined) c.email = null;
