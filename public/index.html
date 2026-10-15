@@ -12788,6 +12788,67 @@ function fdLoadWatch(){
   }).catch(() => { _fdw.busy = false; _fdw.at = Date.now(); });
 }
 
+/* ---- Founder dashboard · Today tab: the SAME table as every other Today (Urgent / Also today, search, Processor filter, order) ---- */
+let _fdt = null, _fdtAt = 0, _fdtBusy = false, _fdtQ = '', _fdtProc = '', _fdtSort = 'latest', _fdtMore = false;
+function fdTodayDraw(){
+  const p = document.getElementById('fdPanel'); if(!p) return;
+  if(!_fdt){ p.innerHTML = '<div class="td-empty" role="status">Loading today…</div>'; fdTodayLoad(); return; }
+  const A = _fdt.attention, S = _fdt.attentionSummary || {};
+  const people = [...new Map(A.map(a => _fdt.cards[a.id] || {}).filter(c => c.assigneeId).map(c => [c.assigneeId, c.assigneeName])).entries()].sort((x, y) => String(x[1]).localeCompare(String(y[1])));
+  if(_fdtProc && !people.some(x => x[0] === _fdtProc)) _fdtProc = '';
+  const head = '<div class="ts-sum">' + (A.length ? '<b>' + A.length + '</b> ' + (A.length === 1 ? 'thing needs' : 'things need') + ' you today' : '<b>✓ All clear for today</b>') + ' <span class="ts-count" id="fdtCount"></span></div>';
+  const ctl = A.length ? '<div class="ts-ctl" role="search">'
+    + '<input type="search" id="fdtQ" class="ts-q" placeholder="Search task, client or processor…" aria-label="Search today\'s list" value="' + esc(_fdtQ) + '" oninput="fdtSet(\'q\', this.value)">'
+    + (people.length > 1 ? '<label class="ts-f">Processor <select id="fdtProc" onchange="fdtSet(\'proc\', this.value)"><option value="">Everyone</option>' + people.map(x => '<option value="' + esc(x[0]) + '"' + (x[0] === _fdtProc ? ' selected' : '') + '>' + esc(x[1]) + '</option>').join('') + '</select></label>' : '')
+    + '<label class="ts-f">Order <select id="fdtSort" onchange="fdtSet(\'sort\', this.value)"><option value="latest"' + (_fdtSort === 'latest' ? ' selected' : '') + '>Latest client date first</option><option value="oldest"' + (_fdtSort === 'oldest' ? ' selected' : '') + '>Oldest client date first</option><option value="urgent"' + (_fdtSort === 'urgent' ? ' selected' : '') + '>Most urgent first</option></select></label>'
+    + ((_fdtQ.trim() || _fdtProc) ? '<button type="button" class="ts-link" onclick="fdtClear()">Clear</button>' : '') + '</div>' : '';
+  const bits = [S.waitingOthers ? S.waitingOthers + ' waiting on others' : '', S.doneToday ? S.doneToday + ' done today' : ''].filter(Boolean);
+  p.innerHTML = head + ctl + '<div class="td-list" id="fdtList" role="list">' + fdtListHtml() + '</div>' + (bits.length ? '<div class="ts-foot"><span>' + bits.join(' · ') + '</span></div>' : '');
+  fdtCount();
+  if(Date.now() - _fdtAt > 60000 && !_fdtBusy) fdTodayLoad();          // keep it fresh in the background
+}
+async function fdTodayLoad(){
+  if(_fdtBusy) return; _fdtBusy = true;
+  try { _fdt = await api('/api/workflow/today'); } catch(e){ _fdt = null; const p = document.getElementById('fdPanel'); if(p && _fdView === 'today') p.innerHTML = '<div class="td-empty" role="alert">Today could not be loaded. <button type="button" class="btn small td-act" onclick="fdTodayLoad()">Retry</button></div>'; _fdtBusy = false; return; }
+  _fdtBusy = false; _fdtAt = Date.now();
+  if(_fdView === 'today') fdTodayDraw();
+}
+function fdtVisible(){
+  const q = _fdtQ.trim().toLowerCase(), cardOf = a => _fdt.cards[a.id] || {};
+  let list = _fdt.attention.filter(a => {
+    const c = cardOf(a); if(!c.name) return false;
+    if(_fdtProc && c.assigneeId !== _fdtProc) return false;
+    return !q || [c.name, c.clientName, c.assigneeName, a.why, c.primaryStatus].join(' ').toLowerCase().includes(q);
+  });
+  const dt = a => cardOf(a).clientDate || '';
+  if(_fdtSort === 'latest') list = list.slice().sort((x, y) => (dt(x) ? 0 : 1) - (dt(y) ? 0 : 1) || dt(y).localeCompare(dt(x)));
+  else if(_fdtSort === 'oldest') list = list.slice().sort((x, y) => (dt(x) ? 0 : 1) - (dt(y) ? 0 : 1) || dt(x).localeCompare(dt(y)));
+  return list;
+}
+function fdtListHtml(){
+  const all = _fdt.attention, list = fdtVisible(), filtered = !!(_fdtQ.trim() || _fdtProc);
+  if(!all.length) return '<div class="ts-clear">Nothing is waiting for you.</div>';
+  if(!list.length) return '<div class="ts-clear">Nothing matches your search.</div>';
+  const why = id => (all.find(a => a.id === id) || {}).why || '';
+  const urgent = list.filter(a => a.rank === 0), rest = list.filter(a => a.rank !== 0);
+  const cap = filtered || _fdtMore ? list.length : TS_SHOW;
+  let left = cap;
+  const sec = (title, items) => {
+    const take = items.slice(0, Math.max(0, left)); left -= take.length;
+    if(!take.length) return '';
+    return '<div class="td-sec"><span>' + esc(title) + '</span><span>' + items.length + '</span></div>' + TD_COLHEAD + take.map(a => tdCardHtml(a.id, why(a.id), _fdt.cards[a.id], 'fdTodayOpen', null)).join('');
+  };
+  const out = sec('Urgent — client date today or passed', urgent) + sec(urgent.length ? 'Also today' : 'Needs you today', rest);
+  const hidden = list.length - (cap - Math.max(0, left));
+  return out + (hidden > 0 ? '<button type="button" class="ts-more" onclick="fdtMore()">Show ' + hidden + ' more</button>' : (_fdtMore && !filtered && list.length > TS_SHOW ? '<button type="button" class="ts-more" onclick="fdtMore()">Show fewer</button>' : ''));
+}
+function fdtCount(){ const n = document.getElementById('fdtCount'); if(n && _fdt) n.textContent = (_fdtQ.trim() || _fdtProc) ? fdtVisible().length + ' of ' + _fdt.attention.length + ' shown' : ''; }
+function fdtRedraw(){ const w = document.getElementById('fdtList'); if(w) w.innerHTML = fdtListHtml(); fdtCount(); }
+function fdtSet(k, v){ if(k === 'q') _fdtQ = v; else if(k === 'proc') _fdtProc = v; else if(k === 'sort') _fdtSort = v; _fdtMore = false; fdtRedraw(); }
+function fdtMore(){ _fdtMore = !_fdtMore; fdtRedraw(); }
+function fdtClear(){ _fdtQ = ''; _fdtProc = ''; fdTodayDraw(); }
+function fdTodayOpen(id){ if(findTask(id)) openTaskActions(id); else showToast('error', 'Not found', 'That task is no longer in the list.'); }
+
 async function renderFounderView(quiet){
   const box = document.getElementById('fdRoot'); if(!box) return;
   if(!(isSuperAdmin && session && session.isFounder)){ box.innerHTML = '<div class="td-empty">The Founder dashboard is for the founder only.</div>'; return; }
@@ -12841,6 +12902,7 @@ function drawFounder(){
 }
 function fdDrawBody(){
   const p = document.getElementById('fdPanel'); if(!p || !_fd) return;
+  if(_fdView === 'today'){ fdTodayDraw(); return; }
   const V = _fd.views;
   const tiles = _fdView === 'today' ? V.today.tiles : _fdView === 'review' ? V.review.tiles : V.founder.actionTiles;
   const intro = _fdView === 'today' ? '<div class="fd-note">Only <b>your own</b> responsibilities — not the firm.</div>' : _fdView === 'review' ? '<div class="fd-note">What waits for <b>your</b> review or decision, and where reviews are stuck across the firm.</div>' : '';
