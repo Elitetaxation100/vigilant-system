@@ -5524,6 +5524,40 @@ async function markIntegrationTaskDone(id){
   } catch(e){ showToast('error', 'Could not mark done', e.message); }
 }
 // Mark a manual task done with no reviewer — for work that doesn't need checking.
+/* ---- MARK DONE — available on every task the person can close, in every list. It closes the task for good: it leaves the to-do lists and only shows when someone searches for it. ---- */
+function canMarkDoneAny(t){
+  if(!t || ['cancelled', 'pending_approval'].includes(t.status) || (typeof taskIsClosed === 'function' && taskIsClosed(t))) return false;
+  return t.assignedTo === currentViewerId || isAdmin || t.reviewerId === currentViewerId;
+}
+function markDoneAny(id){
+  const t = findTask(id); if(!t) return;
+  if(t.status !== 'completed') return markDoneNoReview(id);                 // work still to be done: the usual Mark Done (hours + close)
+  const waitingReview = !t.reviewStatus, waitingReport = t.reviewStatus === 'clean' && t.awaitingClientDecision;
+  if(!waitingReview && !waitingReport){ showToast('info', 'Already closed', 'This task is already done.'); return; }
+  document.getElementById('modalBox').innerHTML = '<h3>Mark done — ' + esc(t.name || '') + '</h3>'
+    + '<div class="modal-sub">' + esc(clientLabel(t) || '') + '</div>'
+    + '<p style="font-size:13.5px;color:var(--text-dim);line-height:1.6;margin:10px 0 6px;">' + (waitingReview ? 'This closes the task now — it is accepted as it is, with <b>no further review</b> and nothing more to do.' : 'This closes the task now <b>without sending a report</b> to the client.') + ' It leaves everyone\'s to-do lists; searching for it still finds it, marked Done.</p>'
+    + (waitingReport ? '<div class="field"><label for="mdaReason">Why is no report being sent? <span class="req-mark">*</span></label><select id="mdaReason"><option value="">— Choose a reason —</option><option value="client_cancelled">Client cancelled the engagement</option><option value="duplicate_task">Duplicate task</option><option value="incorporated">Work incorporated into another approved report</option><option value="client_instruction">Written client instruction not to proceed</option><option value="admin_correction">Administrator-approved correction</option></select></div>' : '')
+    + '<div class="modal-error" id="mdaErr" role="alert"></div>'
+    + '<div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" style="background:var(--teal);" onclick="markDoneAnyGo(\'' + esc(id) + '\')">Mark done</button></div>';
+  openModal();
+}
+async function markDoneAnyGo(id){
+  const t = findTask(id), err = document.getElementById('mdaErr');
+  try {
+    if(t && !t.reviewStatus) await api('/api/tasks/' + encodeURIComponent(id) + '/review-decision', { method:'POST', body: JSON.stringify({ decision:'approve', next:'done', clean:true, note:'Marked done — accepted as it is', requestId:'md-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) }) });
+    else {
+      const why = (document.getElementById('mdaReason') || {}).value || '';
+      if(!why){ if(err){ err.textContent = 'Choose why no report is being sent — it is kept on the record.'; err.style.display = 'block'; } return; }
+      await api('/api/tasks/' + encodeURIComponent(id) + '/send-to-client', { method:'POST', body: JSON.stringify({ decision:'no', waivedReason: why }) });
+    }
+    closeModal();
+    await refreshTasks(); await refreshActivity({ silent:true });
+    if(typeof renderToday === 'function' && document.getElementById('tdRoot')) renderToday(true);
+    showToast('success', 'Done', 'The task is closed.');
+  } catch(e){ if(err){ err.textContent = e.message; err.style.display = 'block'; } else showToast('error', 'Could not mark done', e.message); }
+}
+
 async function markDoneNoReview(id){
   const t = findTask(id);
   const tracked = t && (t.displayedLogged || t.logged || 0);
@@ -7278,7 +7312,7 @@ function openTaskActions(id){
       <button class="verify-btn" onclick="closeModal();openTaskTrailModal('${t.id}')">View history</button>
     </div>
     <div style="margin:10px 0 14px;">${actionCell(t)}</div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>`;
+    <div class="modal-actions">${canMarkDoneAny(t) ? `<button class="btn" style="border-color:var(--teal);color:var(--teal);" onclick="closeModal();markDoneAny('${t.id}')">✓ Mark done</button>` : ''}<button class="btn" onclick="closeModal()">Close</button></div>`;
   openModal();
 }
 function showWorkOverdue(){ _workStatus = 'overdue'; renderDashRangeBar(true); renderDashWork(); }
@@ -8219,6 +8253,7 @@ function tdDetailHtml(id, given, actionable){
   const mode = given ? 'today' : _tdMode;          // the panel emphasises what THIS view is for
   const slaH = (_today && _today.modes && _today.modes.sla) || 48;
   let body = '<button type="button" class="btn td-back td-act" onclick="tdBack()">← Back to the list</button>'
+    + (canMarkDoneAny(t) ? ' <button type="button" class="btn td-act td-done" style="float:right;border-color:var(--teal);color:var(--teal);" onclick="markDoneAny(\'' + esc(c.id) + '\')">✓ Mark done</button>' : '')
     + '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><div><div style="font-size:12.5px;color:var(--text-faint);">' + esc(c.kindLabel) + ' · ' + esc(taskNo(c.id)) + '</div>'
     + '<h3 style="margin:2px 0 0;">' + esc(c.clientName || 'Admin task') + ' — ' + esc(c.name) + '</h3></div><div>' + tdRiskTag(c) + '</div></div>'
     + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.primaryStatus || c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>';
@@ -8808,7 +8843,7 @@ function mtMenu(ev, id){
   const c = ((_mtData || {}).rows || []).find(r => r.id === id); if(!c) return;
   const open = c.status !== 'Completed';
   const mine = myTaskMenuItems(findTask(id)).map(x => [x[0], x[1], true]);
-  const items = [...mine, ['Open details', "mtOpenDetail('" + id + "')", true], ['Full history', "openTaskTrailModal('" + id + "')", true],
+  const items = [...mine, ['✓ Mark done', "markDoneAny('" + id + "')", canMarkDoneAny(findTask(id)) && !mine.some(x => /markDoneNoReview/.test(x[1]))], ['Open details', "mtOpenDetail('" + id + "')", true], ['Full history', "openTaskTrailModal('" + id + "')", true],
     ['Reassign…', "mtAction('reassign','" + id + "')", open], ['Change due date…', "mtAction('change_due','" + id + "')", open],
     ['Change reviewer…', "mtAction('change_reviewer','" + id + "')", open],
     ['Waive the review…', "mtAction('waive_review','" + id + "')", open && c.kindLabel === 'Client Task' && c.reviewRequired === true],
@@ -12405,7 +12440,7 @@ function rqCardHtml(c, kind){
   const submitted = c.reviewWaiting ? new Date(c.reviewWaiting.since).toLocaleString('en-NZ', { day:'2-digit', month:'short', hour:'numeric', minute:'2-digit', timeZone:'Pacific/Auckland' }) : '—';
   const go = kind === 'waitingEmployee' ? '<button type="button" class="btn td-act" onclick="openAddReviewFilesModal(\'' + esc(c.id) + '\')">Add files</button>'
     : kind === 'completedToday' ? '<button type="button" class="btn td-act" onclick="openTaskTrailModal(\'' + esc(c.id) + '\')">History</button>'
-    : '<button type="button" class="btn primary td-act" onclick="openReviewV2(\'' + esc(c.id) + '\')">Review</button>';
+    : '<button type="button" class="btn primary td-act" onclick="openReviewV2(\'' + esc(c.id) + '\')">Review</button> <button type="button" class="btn td-act" title="Close it now — no further review" onclick="markDoneAny(\'' + esc(c.id) + '\')">✓ Mark done</button>';
   const st = c.clientRisk && c.clientRisk.state;
   const flag = st === 'overdue' ? '<span class="rq-flag" title="' + esc(c.clientRisk.label) + '">Overdue</span>' : st === 'due_today' ? '<span class="rq-flag" title="Client due today">Due today</span>' : st === 'at_risk' ? '<span class="rq-flag amber" title="' + esc(c.clientRisk.label) + '">At risk</span>' : '';
   const links = [slotBits(t.sheetLink, 'Sheet', t.sheetFiles, 'rv-link').join(' · '), slotBits(t.cashbookLink, 'Cashbook', t.cashbookFiles, 'rv-link').join(' · ')].filter(Boolean).join(' · ') || '<span style="color:var(--text-faint);">no links</span>';
