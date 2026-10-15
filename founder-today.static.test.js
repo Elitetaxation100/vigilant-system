@@ -15,3 +15,10 @@ test('Founder Today tab: same table, search, Processor filter and order as the T
 test('the Founder View and Review & Decisions tabs are unchanged', () => {
   assert.ok(html.includes("V.founder.actionTiles") && html.includes('V.review.tiles') && html.includes('<div id="fdWatch" class="fdw"'));
 });
+
+test('Founder View and Review & Decisions have a Processor filter that narrows every tile and list to one processor\'s submissions', () => {
+  assert.ok(html.includes("const fdProcOk = id => !_fdProc || ((_fd.rows[id] || {}).assigneeId === _fdProc);"));
+  assert.ok(html.includes('function fdProcHtml(') && html.includes('id="fdProc"') && html.includes('onchange="fdSetProc(this.value)"'));
+  assert.ok(html.includes('function fdListFor(key){\n  const L = fdListForRaw(key);'), 'the lists are filtered too, not only the tile counts');
+  assert.ok(html.includes("_fdAttnAll = false; _fdProc = '';"), 'switching tab clears the filter');
+});

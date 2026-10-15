@@ -12888,7 +12888,7 @@ function fdTabKey(e){
 // Changing view closes EVERYTHING of the old one — tile, list, detail, drill-down — so nothing is left underneath the new view.
 function fdSetView(v, focus){
   if(v === _fdView && !focus) return;
-  _fdView = v; fdReset(); _fdAttnAll = false;
+  _fdView = v; fdReset(); _fdAttnAll = false; _fdProc = '';
   drawFounder();
   if(focus){ const b = document.getElementById('fdTab_' + v); if(b) b.focus(); }
 }
@@ -12905,14 +12905,26 @@ function fdDrawBody(){
   const p = document.getElementById('fdPanel'); if(!p || !_fd) return;
   if(_fdView === 'today'){ fdTodayDraw(); return; }
   const V = _fd.views;
-  const tiles = _fdView === 'today' ? V.today.tiles : _fdView === 'review' ? V.review.tiles : V.founder.actionTiles;
+  const tiles = (_fdView === 'today' ? V.today.tiles : _fdView === 'review' ? V.review.tiles : V.founder.actionTiles).map(t => _fdProc ? Object.assign({}, t, { ids: t.ids.filter(fdProcOk) }) : t);
   const intro = _fdView === 'today' ? '<div class="fd-note">Only <b>your own</b> responsibilities — not the firm.</div>' : _fdView === 'review' ? '<div class="fd-note">What waits for <b>your</b> review or decision, and where reviews are stuck across the firm.</div>' : '';
-  p.innerHTML = intro + '<div class="td-counts fd-tiles" role="group" aria-label="Summary tiles">' + fdTilesHtml(tiles) + '</div>'
+  p.innerHTML = fdProcHtml(tiles) + intro + '<div class="td-counts fd-tiles" role="group" aria-label="Summary tiles">' + fdTilesHtml(tiles) + '</div>'
     + (_fdView === 'founder' ? '<div id="fdWatch" class="fdw" aria-live="polite"></div>' + fdKpiHtml() : '')
     + '<div id="fdDrill">' + fdDrillHtml() + '</div>'
     + (_fdView === 'founder' ? fdFounderRest() : '');
   if(_fdView === 'founder') fdLoadWatch();
 }
+// Everyone who has work in the tiles of this tab → the choices in the Processor filter.
+function fdProcHtml(tiles){
+  if(_fdView === 'today') return '';
+  const raw = _fdView === 'review' ? _fd.views.review.tiles : _fd.views.founder.actionTiles;
+  const m = new Map(); raw.forEach(t => t.ids.forEach(id => { const r = _fd.rows[id]; if(r && r.assigneeId && r.assigneeName) m.set(r.assigneeId, r.assigneeName); }));
+  if(_fdProc && !m.has(_fdProc)) _fdProc = '';
+  if(m.size < 2 && !_fdProc) return '';
+  const people = [...m.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  return '<div class="ts-ctl fd-proc"><label class="ts-f">Processor <select id="fdProc" onchange="fdSetProc(this.value)"><option value="">Everyone</option>' + people.map(p => '<option value="' + esc(p[0]) + '"' + (p[0] === _fdProc ? ' selected' : '') + '>' + esc(p[1]) + '</option>').join('') + '</select></label>'
+    + (_fdProc ? '<span class="tm-sub">Showing only the work of one processor — the tiles and lists below.</span> <button type="button" class="ts-link" onclick="fdSetProc(this.dataset.v)" data-v="">Clear</button>' : '<span class="tm-sub">See what each processor has submitted to you.</span>') + '</div>';
+}
+function fdSetProc(v){ _fdProc = v || ''; fdReset(); fdDrawBody(); }
 function fdTilesHtml(tiles){
   return tiles.map(t => {
     const key = 'tile:' + t.key, on = _fdTile === key, n = t.ids.length;
@@ -12941,7 +12953,14 @@ function fdKpiHtml(){
   }).join('') + '</div>';
 }
 /* ---- what a tile / KPI / drill-down opens ---- */
+// The Processor filter: only the tasks a chosen processor submitted / owns — it narrows every tile and list on the Founder View and Review & Decisions tabs.
+let _fdProc = '';
+const fdProcOk = id => !_fdProc || ((_fd.rows[id] || {}).assigneeId === _fdProc);
 function fdListFor(key){
+  const L = fdListForRaw(key);
+  return (L && _fdProc) ? Object.assign({}, L, { ids: L.ids.filter(fdProcOk) }) : L;
+}
+function fdListForRaw(key){
   const V = _fd.views, all = [...V.today.tiles, ...V.review.tiles, ...V.founder.actionTiles];
   if(key.startsWith('tile:')){ const t = all.find(x => 'tile:' + x.key === key); return t && { title:t.label, ids:t.ids, note:t.hint || t.scope, section:t.key, dateLabel:'Client commitment date' }; }
   if(key.startsWith('kpi:')){ const k = V.founder.kpis.find(x => 'kpi:' + x.key === key); return k && { title:k.label, ids:k.ids, note:k.calc + (k.basis ? ' ' + k.basis + '.' : ''), section:'kpi:' + k.key, dateLabel:'Client commitment date', kpi:k }; }
@@ -12985,7 +13004,7 @@ function fdDrillHtml(){
   if(_fdTile === 'kpi:productivity') return fdProdDrillHtml();
   const L = fdListFor(_fdTile); if(!L) return '';
   const rows = L.ids.map(id => _fd.rows[id]).filter(Boolean);
-  const attn = L.attention ? _fd.views.founder.attention.all : null;
+  const attn = L.attention ? _fd.views.founder.attention.all.filter(a => fdProcOk(a.id)) : null;
   const list = L.ids.length
     ? (attn ? FD_ATTNHEAD + '<div role="list">' + attn.map(fdAttnRowHtml).join('') + '</div>' : FD_ROWHEAD(L.dateLabel || 'Client commitment date') + '<div role="list">' + rows.map(fdRowHtml).join('') + '</div>')
     : '<div class="td-empty">Nothing here for this scope and period.</div>';
