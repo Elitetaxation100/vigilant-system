@@ -73,3 +73,9 @@ test('task history: a task on hold says On hold (not In rework), and a day-only 
   assert.ok(html.includes('nextHoldCap'), 'day-only resume events are capped before the next hold');
   assert.ok(html.includes("e.cap ? new Date(new Date(e.cap).getTime() - 1)"), 'the sort honours the cap');
 });
+
+test('Marks page: Give marks comes first; Automatic marks is folded away behind its heading', () => {
+  assert.ok(html.indexOf('id="marksGivePanel"') < html.indexOf('id="autoMarksPanel"'), 'Give marks is above Automatic marks');
+  assert.ok(html.includes('let _amOpen = false;'), 'Automatic marks starts closed');
+  assert.ok(html.includes('id="amBody"${_amOpen'), 'its body is the part that is hidden');
+});

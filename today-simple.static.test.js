@@ -31,7 +31,7 @@ test('the Today list uses the same table as the full dashboard (Name · Work · 
 test('no Punch In / Time Clock card for anyone, and the automatic-marks "how it works" help is not shown on the Marks panel', () => {
   assert.ok(html.includes('.clock-card{ display:none !important; }') && !html.includes('body.v2-dash .clock-card'));
   assert.ok(!html.includes('How the automatic marks work'));
-  assert.ok(html.includes('Automatic marks</h2>') && html.includes('amLate'), 'the settings themselves are still there');
+  assert.ok(html.includes('Automatic marks <span id="amCaret"') && html.includes('amLate'), 'the settings themselves are still there');
 });
 
 test('the automatic-marks on/off tick boxes are hidden (kept in the page so Save leaves every rule as it is)', () => {
