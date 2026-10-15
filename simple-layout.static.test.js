@@ -70,3 +70,8 @@ test('Log my work and Time ledger are not offered in the simple layout', () => {
   const fn = html.slice(html.indexOf('function drawSlToday('), html.indexOf('async function slMarkSent('));
   assert.ok(!fn.includes('openLogTime') && !fn.includes('openTimeLedger'));
 });
+
+test('Inbound Admin in the simple layout no longer lists tasks (they are in My tasks)', () => {
+  assert.ok(html.includes('body.simple-layout #view-admin #adminStatGrid, body.simple-layout #view-admin #adminTasksPanel{ display:none; }'));
+  assert.ok(html.includes('id="adminTasksPanel"') && html.includes('they are not listed again here'));
+});
