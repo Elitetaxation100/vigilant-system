@@ -68,3 +68,14 @@ test('an empty day is an empty list, not an error', () => {
   const r = asEmp([task('#later', { internalDeadline: '2026-10-20' }), task('#done', { status: 'completed', reviewStatus: 'done', completedAt: '2026-10-06T01:00:00Z' })]);
   assert.deepEqual(r.attention, []); assert.equal(r.attentionSummary.total, 0); assert.equal(r.attentionSummary.urgent, 0);
 });
+
+test('"needs you today" is ALL the work that is mine, not only reviews: client deadlines at risk and follow-ups due count too', () => {
+  const r = asEmp([
+    task('#risk', { internalDeadline: '2026-10-20', clientDate: '2026-10-05' }),                                  // client date passed, my own date later
+    task('#hold', { status: 'on_hold', holdReasonCode: 'CLIENT_DOCS', holdFollowUp: TODAY, internalDeadline: '2026-10-20' }),   // follow-up due today
+    task('#quiet', { internalDeadline: '2026-10-20', clientDate: '2026-10-30' }),                                  // nothing due
+  ]);
+  assert.deepEqual(ids(r).sort(), ['#hold', '#risk']);
+  assert.equal(r.attention.find(a => a.id === '#risk').type, 'client_risk'); assert.equal(r.attention.find(a => a.id === '#risk').rank, 0);
+  assert.equal(r.attention.find(a => a.id === '#hold').type, 'followup');
+});
