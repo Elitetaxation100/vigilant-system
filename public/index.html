@@ -133,6 +133,74 @@ body.v2-dash #navV2{ display:block !important; }
 .nv2-new:hover{ filter:brightness(1.08); }
 .nv2-label{ margin:14px 10px 4px; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint); }
 #navV2 .nav-item{ min-height:44px; }
+/* ---- SIMPLE LAYOUT (simplified manager screens) — colours come from the mockup, held as tokens; dark mode swaps them ---- */
+body.simple-layout{ --sl-bg:#f3efe6; --sl-card:#fff; --sl-ink:#1d2a24; --sl-mute:#6b756f; --sl-line:#e4ded0; --sl-green:#14463a; --sl-red:#c0392b; --sl-redbg:#fbe9e6; --sl-amber:#b7791f; --sl-amberbg:#fdf3dc; --sl-blue:#2563a8; --sl-bluebg:#e6effa; --sl-ok:#2f7d4f; --sl-okbg:#e5f4ea; }
+:root[data-theme="dark"] body.simple-layout{ --sl-bg:#161c19; --sl-card:#1f2723; --sl-ink:#eef1ee; --sl-mute:#9aa7a0; --sl-line:#2f3a35; --sl-green:#4fb39a; --sl-redbg:#3a1f1b; --sl-amberbg:#3a2f16; --sl-bluebg:#18283b; --sl-okbg:#17301f; --sl-red:#ff7b6b; --sl-amber:#e8b44c; --sl-blue:#7fb2ee; --sl-ok:#6fcf93; }
+body.simple-layout, body.simple-layout .main{ background:var(--sl-bg); color:var(--sl-ink); }
+body.v2-dash.simple-layout #navV2{ display:none !important; }
+body.v2-dash.simple-layout .sidebar #navSimple.nav-section{ display:block !important; }
+body.simple-layout .sidebar{ background:var(--sl-card); border-right:1px solid var(--sl-line); padding:16px 12px; }
+body.simple-layout .sidebar .brand{ padding:0 8px 14px; }
+body.simple-layout .sidebar .brand-mark, body.simple-layout .sidebar .brand-text .t2{ display:none; }
+body.simple-layout .sidebar .brand-text .t1{ font-family:inherit; font-size:15px; font-weight:700; color:var(--sl-ink); }
+body.simple-layout #navSimple .nav-item{ display:flex; align-items:center; min-height:40px; padding:9px 10px; margin-bottom:2px; border-radius:8px; color:var(--sl-ink); background:none; font-size:14px; }
+body.simple-layout #navSimple .nav-item:hover{ background:var(--sl-okbg); }
+body.simple-layout #navSimple .nav-item.active{ background:var(--sl-okbg); color:var(--sl-green); font-weight:600; }
+body.simple-layout #navSimple .nav-icon{ display:none; }
+body.simple-layout #navSimple .nav-badge{ margin-left:auto; background:none; color:var(--sl-ink); font-weight:700; padding:0; min-width:0; }
+body.simple-layout #navSimple .sl-sec{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--sl-mute); margin:14px 10px 4px; }
+body.simple-layout .sidebar .admin-box{ display:none; }
+body.simple-layout .topbar{ background:transparent; border-bottom:0; backdrop-filter:none; }
+body.simple-layout .topbar > div:first-of-type{ visibility:hidden; }
+body.simple-layout .topbar .nav-toggle{ visibility:visible; }
+body.simple-layout:has(#view-stoday.active) #deadlineBannerWrap, body.simple-layout:has(#view-stasks.active) #deadlineBannerWrap{ display:none; }
+.sl-wrap{ max-width:980px; margin:0 auto; color:var(--sl-ink); }
+.sl-alert{ background:var(--sl-redbg); color:var(--sl-red); border-radius:10px; padding:10px 14px; margin-bottom:16px; font-weight:500; }
+.sl-h2{ font-size:22px; margin:0 0 2px; font-family:inherit; font-weight:700; }
+.sl-date{ color:var(--sl-mute); margin-bottom:16px; }
+.sl-stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:18px; }
+.sl-stat{ background:var(--sl-card); border:1px solid var(--sl-line); border-radius:12px; padding:12px; text-align:left; font:inherit; color:var(--sl-ink); cursor:pointer; }
+.sl-stat b{ font-size:26px; display:block; line-height:1.2; }
+.sl-stat span{ color:var(--sl-mute); font-size:12px; }
+.sl-stat.red b{ color:var(--sl-red); } .sl-stat.amber b{ color:var(--sl-amber); } .sl-stat.ok b{ color:var(--sl-ok); }
+.sl-card{ background:var(--sl-card); border:1px solid var(--sl-line); border-radius:12px; padding:14px; margin-bottom:14px; }
+.sl-card h3{ margin:0 0 10px; font-size:15px; display:flex; justify-content:space-between; align-items:center; }
+.sl-row{ display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--sl-line); }
+.sl-card > .sl-row:first-of-type, .sl-card > h3 + .sl-row{ border-top:0; }
+.sl-row .sl-t{ flex:1; min-width:0; }
+.sl-row .sl-t small{ display:block; color:var(--sl-mute); }
+.sl-click{ cursor:pointer; }
+.sl-click:focus-visible, .sl-btn:focus-visible, .sl-stat:focus-visible, .sl-in:focus-visible{ outline:2px solid var(--sl-green); outline-offset:2px; }
+.sl-pill{ padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+.sl-pill.p-todo{ background:var(--sl-line); color:var(--sl-ink); } .sl-pill.p-doing{ background:var(--sl-bluebg); color:var(--sl-blue); }
+.sl-pill.p-rev{ background:var(--sl-amberbg); color:var(--sl-amber); } .sl-pill.p-fix{ background:var(--sl-redbg); color:var(--sl-red); }
+.sl-pill.p-done{ background:var(--sl-okbg); color:var(--sl-ok); }
+.sl-btn{ background:var(--sl-green); color:var(--sl-card); border:1px solid var(--sl-green); border-radius:8px; padding:7px 12px; font:inherit; font-weight:600; cursor:pointer; min-height:36px; }
+.sl-btn.ghost{ background:transparent; color:var(--sl-green); }
+.sl-due{ color:var(--sl-mute); white-space:nowrap; } .sl-due.late{ color:var(--sl-red); font-weight:600; }
+.sl-link{ color:var(--sl-green); font-weight:500; font-size:14px; background:none; border:0; padding:0; font-family:inherit; cursor:pointer; }
+.sl-bar{ height:6px; background:var(--sl-line); border-radius:4px; overflow:hidden; width:90px; flex:none; } .sl-bar i{ display:block; height:100%; background:var(--sl-green); }
+.sl-bar.over i{ background:var(--sl-red); }
+.sl-empty{ color:var(--sl-mute); padding:14px 0; }
+.sl-more{ text-align:center; padding:10px 0 6px; }
+.sl-filters{ display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+.sl-in{ background:var(--sl-card); border:1px solid var(--sl-line); border-radius:8px; padding:7px 12px; color:var(--sl-ink); font:inherit; min-height:36px; }
+.sl-filters .sl-in[type=search]{ min-width:200px; }
+@media (max-width:720px){ .sl-stats{ grid-template-columns:1fr 1fr; } .sl-row{ flex-wrap:wrap; } .sl-bar{ width:60px; } }
+/* the short New task form */
+#modalOverlay:has(.sl-nt) .modal-box{ max-width:520px; background:var(--sl-card); border-color:var(--sl-line); color:var(--sl-ink); border-radius:14px; }
+.modal-box:has(.sl-nt) h3{ font-size:18px; font-family:inherit; }
+.modal-box:has(.sl-nt) .field label, .modal-box:has(.sl-nt) .field > label{ font-size:12px; color:var(--sl-mute); text-transform:uppercase; letter-spacing:.04em; font-weight:500; }
+.modal-box:has(.sl-nt) .req-mark, .modal-box:has(.sl-nt) .at-hint{ display:none; }
+.modal-box:has(.sl-nt) :is(input, select, textarea){ background:var(--sl-bg); color:var(--sl-ink); border:1px solid var(--sl-line); border-radius:8px; }
+.modal-box:has(.sl-nt) .atKindBtn{ flex:1; background:var(--sl-bg); color:var(--sl-ink); border:1px solid var(--sl-line); border-radius:8px; padding:9px 12px; font:inherit; }
+.modal-box:has(.sl-nt) .atKindBtn.primary{ background:var(--sl-green); color:var(--sl-card); border-color:var(--sl-green); }
+.modal-box:has(.sl-nt) .btn.primary{ background:var(--sl-green); color:var(--sl-card); border-color:var(--sl-green); }
+.modal-box:has(.sl-nt) .at-more{ border-color:var(--sl-line); }
+.sl-two{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.sl-hint{ color:var(--sl-ok); font-size:12px; margin-top:4px; }
+.modal-box:has(.sl-nt) #atPlanHint{ color:var(--sl-ok); font-size:12px; }
+@media (max-width:560px){ .sl-two{ grid-template-columns:1fr; } }
 .tm-head{ margin-bottom:12px; }
 .tm-panel{ border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); padding:14px 16px; margin-bottom:14px; }
 .tm-panel h3{ margin:0 0 10px; font-size:15px; }
@@ -1393,6 +1461,18 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
       </details>
     </div>
 
+    <div class="nav-section" id="navSimple" style="display:none;" aria-label="Main menu">
+      <div class="nav-item" data-view="stoday" onclick="showView('stoday', this)"><span class="nav-icon">◉</span> Today</div>
+      <div class="nav-item" data-view="stasks" onclick="showView('stasks', this)"><span class="nav-icon">✓</span> My tasks</div>
+      <div class="nav-item" role="button" tabindex="0" onclick="openNewTask()" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openNewTask(); }"><span class="nav-icon">＋</span> + New task</div>
+      <div class="nav-item" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
+      <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
+      <div class="sl-sec">Manager</div>
+      <div class="nav-item" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadgeS">0</span></div>
+      <div class="nav-item" data-view="team" onclick="showView('team', this)"><span class="nav-icon">👥</span> Team</div>
+      <div class="nav-item" role="button" tabindex="0" onclick="openAdminLogin()" onkeydown="if(event.key==='Enter'||event.key===' '){ event.preventDefault(); openAdminLogin(); }"><span class="nav-icon">⚙</span> Settings</div>
+    </div>
+
     <div class="nav-section">
       <div class="nav-item" id="todayNavItem" data-view="today" style="display:none;" onclick="showView('today', this)"><span class="nav-icon">◉</span> Today</div>
       <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard', this)"><span class="nav-icon">▦</span> My Dashboard</div>
@@ -1483,6 +1563,8 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
   <section class="view" id="view-mtasks"><div id="mtRoot"></div></section>
   <section class="view" id="view-mytasks"><div id="mkRoot"></div></section>
   <section class="view" id="view-today"><div id="tdRoot" aria-live="polite"></div></section>
+  <section class="view" id="view-stoday"><div id="slRoot" aria-live="polite"></div></section>
+  <section class="view" id="view-stasks"><div id="slTasksRoot"></div></section>
 
       <!-- ===================== DASHBOARD VIEW ===================== -->
       <section class="view active" id="view-dashboard">
@@ -3550,6 +3632,8 @@ function dashboardScopeLabelShort(){ return ''; }
    ========================================================================= */
 const titles = {
   today: ['Today', 'What needs you today'],
+  stoday: ['Today', 'What needs you today'],
+  stasks: ['Tasks', 'Every task in your team'],
   team: ['My Team', 'Who has what, who is stuck, and what needs a manager'],
   mtasks: ['Tasks', 'Every task in your team — filter, page, calendar and timeline'],
   mytasks: ['My tasks', 'Everything assigned to you — to do, on hold, with a reviewer and finished'],
@@ -4798,6 +4882,8 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('DOMContentLoaded', enhanceNavItems);
 function showView(id, el, classic){
+  if(slOn() && id === 'today'){ id = 'stoday'; el = document.querySelector('#navSimple .nav-item[data-view="stoday"]'); }
+  if(slOn() && !el && document.querySelector('#navSimple .nav-item[data-view="' + id + '"]')) el = document.querySelector('#navSimple .nav-item[data-view="' + id + '"]');
   document.body.classList.toggle('td-simple-on', id === 'today' && typeof tdIsSimple === 'function' && tdIsSimple());
   closeMobileNav();
   mtMenuClose();
@@ -4830,6 +4916,8 @@ function showView(id, el, classic){
   if(id !== 'dashboard' && _dashMirror){ _dashMirror = null; renderMirrorBanner(); }  // mirror only lives on the Commitment Dashboard
   if(id === 'timeoff') renderTimeOff();
   if(id === 'today') renderToday();
+  if(id === 'stoday') renderSlToday();
+  if(id === 'stasks') renderSlTasks();
   if(id === 'team') renderTeamView();
   if(id === 'mtasks') renderMTasks();
   if(id === 'mytasks') renderMyTasks();
@@ -5553,6 +5641,168 @@ async function markIntegrationTaskDone(id){
   } catch(e){ showToast('error', 'Could not mark done', e.message); }
 }
 // Mark a manual task done with no reviewer — for work that doesn't need checking.
+/* ---- SIMPLE LAYOUT — the simplified manager screens: Today, Tasks and the short New task form. Switched on per person (Manage Access). ---- */
+function slOn(){ return !!(session && session.simpleLayout && isAdmin); }
+const SL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function slDay(iso){ if(!iso) return ''; const p = String(iso).slice(0, 10).split('-'); return p.length === 3 ? (Number(p[2]) + ' ' + SL_MONTHS[Number(p[1]) - 1]) : ''; }
+function slFirst(n){ return String(n || '').split(' ')[0]; }
+let _slToday = null, _sl = { q:'', person:'', status:'', due:'', rows:[], total:0, shown:100, err:null, loading:false, seq:0, people:[] };
+
+/* ---------- Today ---------- */
+async function renderSlToday(quiet){
+  const box = document.getElementById('slRoot'); if(!box) return;
+  if(!quiet && !_slToday) box.innerHTML = '<div class="sl-wrap"><h2 class="sl-h2" style="opacity:.35;">Loading…</h2></div>';
+  try { _slToday = await api('/api/simple/today'); }
+  catch(e){ box.innerHTML = '<div class="sl-wrap"><div class="sl-empty" role="alert">Could not load Today: ' + esc(e.message) + ' <button class="sl-btn ghost" onclick="renderSlToday()">Retry</button></div></div>'; return; }
+  drawSlToday();
+}
+function slGreeting(){
+  const h = Number(new Date().toLocaleString('en-NZ', { hour:'numeric', hour12:false, timeZone:'Pacific/Auckland' }));
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+function drawSlToday(){
+  const box = document.getElementById('slRoot'); const d = _slToday; if(!box || !d) return;
+  const date = new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', timeZone:'Pacific/Auckland' });
+  const st = d.stats || {};
+  const tile = (n, label, cls, go) => '<button type="button" class="sl-stat ' + cls + '"' + (go ? ' onclick="' + go + '"' : ' tabindex="-1"') + '><b>' + n + '</b><span>' + label + '</span></button>';
+  const rows = ((d.needsAction || {}).items || []).map(i => {
+    const title = i.client ? '<b>' + esc(i.client) + '</b> · ' + esc(i.work) : '<b>' + esc(i.work) + '</b>';
+    const act = i.action === 'send'
+      ? '<button type="button" class="sl-btn" onclick="slMarkSent(\'' + esc(i.id) + '\')">Mark sent</button>'
+      : '<button type="button" class="sl-btn ghost" onclick="slNudge(\'' + esc(i.id) + '\', ' + (i.toId ? '\'' + esc(i.toId) + '\'' : 'null') + ')">Nudge</button>';
+    return '<div class="sl-row"><div class="sl-t sl-click" tabindex="0" role="button" onclick="mtOpenDetail(\'' + esc(i.id) + '\')" onkeydown="if(event.key===\'Enter\'){ mtOpenDetail(\'' + esc(i.id) + '\'); }">' + title + '<small>' + esc(i.sub) + '</small></div><span class="sl-pill ' + (i.tone === 'fix' ? 'p-fix' : 'p-rev') + '">' + esc(i.pill) + '</span>' + act + '</div>';
+  }).join('') || '<div class="sl-empty">Nothing needs you right now.</div>';
+  const na = d.needsAction || { total: 0 };
+  const team = (d.team || []).map(p => {
+    const over = p.overdue > 0;
+    return '<div class="sl-row sl-click" tabindex="0" role="button" onclick="slOpenTasks({ person:\'' + esc(p.id) + '\'' + (over ? ', due:\'overdue\'' : '') + ' })" onkeydown="if(event.key===\'Enter\'){ slOpenTasks({ person:\'' + esc(p.id) + '\' }); }"><div class="sl-t">' + esc(p.name) + '</div><div class="sl-bar' + (over ? ' over' : '') + '"><i style="width:' + (over ? 100 : p.pct) + '%"></i></div><span class="sl-due' + (over ? ' late' : '') + '">' + (over ? p.overdue + ' overdue' : p.done + ' of ' + p.total + ' done') + '</span></div>';
+  }).join('') || '<div class="sl-empty">No team work yet.</div>';
+  box.innerHTML = '<div class="sl-wrap">'
+    + (d.alert ? '<div class="sl-alert" role="alert"><span class="sl-click" tabindex="0" role="button" onclick="' + (d.alert.ids.length === 1 ? 'mtOpenDetail(\'' + esc(d.alert.ids[0]) + '\')' : 'slOpenTasks({ person:\'' + esc(currentViewerId) + '\', due:\'today\' })') + '">' + esc(d.alert.text) + '</span></div>' : '')
+    + '<h2 class="sl-h2">' + slGreeting() + ', ' + esc(slFirst(d.name)) + '</h2><div class="sl-date">' + esc(date) + '</div>'
+    + '<div class="sl-stats">'
+    + tile(st.overdueTeam || 0, 'Overdue (team)', 'red', 'slOpenTasks({ due:\'overdue\' })')
+    + tile(st.approvedNotSent || 0, 'Approved, not sent to client', 'amber', 'slOpenTasks({ status:\'send\' })')
+    + tile(st.waitingReview || 0, 'Waiting for your review', '', 'showView(\'reviews\', document.querySelector(\'#navSimple .nav-item[data-view=reviews]\'))')
+    + tile(st.finishedToday || 0, 'Finished today', 'ok', '')
+    + '</div>'
+    + '<div class="sl-card"><h3>Needs action now <span class="sl-due">' + na.total + (na.total === 1 ? ' item' : ' items') + '</span></h3>' + rows + '</div>'
+    + '<div class="sl-card"><h3>Team today <button type="button" class="sl-link" onclick="showView(\'team\', document.querySelector(\'#navSimple .nav-item[data-view=team]\'))">Open Team →</button></h3>' + team + '</div>'
+    + '</div>';
+}
+async function slMarkSent(id){
+  try { await api('/api/tasks/' + encodeURIComponent(id) + '/send-to-client', { method:'POST', body: JSON.stringify({ decision:'yes' }) }); showToast('success', 'Marked sent', 'The report is recorded as sent to the client.'); await refreshTasks(); slRefresh(); }
+  catch(e){ showToast('error', 'Could not mark it sent', e.message); }
+}
+async function slNudge(id, toId){
+  try { await api('/api/tasks/' + encodeURIComponent(id) + '/nudge', { method:'POST', body: JSON.stringify(toId ? { toId } : {}) }); showToast('success', 'Nudged', toId ? 'The reviewer has been reminded.' : 'They have been reminded.'); slRefresh(); }
+  catch(e){ showToast('error', 'Could not nudge', e.message); }
+}
+function slRefresh(){
+  if(!slOn()) return;
+  if(viewActive('stoday')) renderSlToday(true);
+  if(viewActive('stasks')) loadSlTasks(true);
+}
+setInterval(() => { if(!document.hidden) slRefresh(); }, 60000);
+
+/* ---------- Tasks ---------- */
+function slStatus(r){
+  const p = r.primaryStatus, s = r.status;
+  if(s === 'Completed') return { k:'done', label: p === 'Report Sent' ? 'Report sent' : p === 'Cancelled' ? 'Cancelled' : 'Done', cls:'p-done' };
+  if(s === 'Approved') return p === 'Ready to Send' ? { k:'send', label:'Approved – send it', cls:'p-done' } : { k:'review', label:'Profit check', cls:'p-rev' };
+  if(s === 'Correction Required') return { k:'fix', label:'Fix needed', cls:'p-fix' };
+  if(s === 'In Review') return { k:'review', label:'With ' + (slFirst(r.reviewerName) || 'a reviewer'), cls:'p-rev' };
+  if(s === 'On Hold') return { k:'hold', label:'On hold', cls:'p-todo' };
+  if(p === 'In Progress') return { k:'doing', label:'Doing', cls:'p-doing' };
+  return { k:'todo', label:'To do', cls:'p-todo' };
+}
+const SL_ORDER = { send:0, fix:1, review:2, doing:3, todo:4, hold:5, done:6 };
+function slOpenTasks(preset){
+  _sl = Object.assign({ q:'', person:'', status:'', due:'', rows:[], total:0, shown:100, err:null, loading:false, seq:_sl.seq, people:_sl.people }, preset || {});
+  showView('stasks', document.querySelector('#navSimple .nav-item[data-view="stasks"]'));
+}
+function renderSlTasks(){ drawSlTasks(); loadSlTasks(false); }
+async function loadSlTasks(quiet){
+  const mine = ++_sl.seq;
+  if(!quiet){ _sl.loading = true; drawSlTasks(true); }
+  const qs = (p) => '/api/workflow/tasks?sort=internal&pageSize=100&page=' + p + (_sl.q ? '&q=' + encodeURIComponent(_sl.q) : '') + (_sl.person ? '&employee=' + encodeURIComponent(_sl.person) : '') + (_sl.due ? '&due=' + encodeURIComponent(_sl.due) : '') + (_sl.status === 'done' ? '&status=Completed' : '');
+  try {
+    let rows = [], page = 1, pages = 1;
+    do { const r = await api(qs(page)); if(mine !== _sl.seq) return; rows = rows.concat(r.rows || []); pages = r.pages || 1; if(page === 1 && r.facets) _sl.people = r.facets.employees || []; page++; } while(page <= pages && page <= 8);
+    _sl.rows = rows; _sl.err = null;
+  } catch(e){ if(mine !== _sl.seq) return; _sl.err = e.message; }
+  _sl.loading = false; drawSlTasks();
+}
+function slSet(k, v, reload){ _sl[k] = v; _sl.shown = 100; if(reload){ clearTimeout(slSet._t); slSet._t = setTimeout(() => loadSlTasks(true), k === 'q' ? 250 : 0); } else drawSlTasks(); }
+function slVisibleRows(){
+  const today = (_slToday && _slToday.today) || todayISO();
+  let list = (_sl.rows || []).map(r => ({ r, s: slStatus(r) }));
+  if(_sl.status && _sl.status !== 'done') list = list.filter(x => _sl.status === 'review' ? (x.s.k === 'review') : x.s.k === _sl.status);
+  list.sort((a, b) => (SL_ORDER[a.s.k] - SL_ORDER[b.s.k]) || String(a.r.internalDeadline || '9999').localeCompare(String(b.r.internalDeadline || '9999')) || String(a.r.id).localeCompare(String(b.r.id)));
+  return { list, today };
+}
+function drawSlTasks(loading){
+  const box = document.getElementById('slTasksRoot'); if(!box) return;
+  const keep = document.activeElement && document.activeElement.id === 'slQ';
+  const { list, today } = slVisibleRows();
+  const people = [{ id: currentViewerId, name: 'Me' }].concat((_sl.people || []).filter(p => p.id !== currentViewerId).sort((a, b) => a.name.localeCompare(b.name)));
+  const sel = (id, label, cur, opts, cb) => '<select class="sl-in" id="' + id + '" aria-label="' + label + '" onchange="' + cb + '">' + opts.map(o => '<option value="' + esc(o[0]) + '"' + (String(cur) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
+  const finished = _sl.status === 'done' || !!_sl.q;
+  const rows = list.slice(0, _sl.shown).map(({ r, s }) => {
+    const late = r.internalDeadline && r.internalDeadline < today && s.k !== 'done';
+    const title = r.clientName ? '<b>' + esc(r.clientName) + '</b> · ' + esc(r.taskType || r.name) : '<b>' + esc(r.name) + '</b>';
+    const who = esc(r.assigneeName || 'Unassigned') + (r.clientName ? '' : ' · Admin');
+    return '<div class="sl-row sl-click" tabindex="0" role="button" onclick="mtOpenDetail(\'' + esc(r.id) + '\')" onkeydown="if(event.key===\'Enter\'){ mtOpenDetail(\'' + esc(r.id) + '\'); }"><div class="sl-t">' + title + '<small>' + who + '</small></div><span class="sl-pill ' + s.cls + '">' + esc(s.label) + '</span><span class="sl-due' + (late ? ' late' : '') + '">' + esc(slDay(r.internalDeadline) || '—') + '</span></div>';
+  }).join('');
+  const body = _sl.err ? '<div class="sl-empty" role="alert">Could not load the tasks: ' + esc(_sl.err) + ' <button class="sl-btn ghost" onclick="loadSlTasks()">Retry</button></div>'
+    : (loading || _sl.loading) && !_sl.rows.length ? '<div class="sl-empty">Loading tasks…</div>'
+    : rows ? rows + (list.length > _sl.shown ? '<div class="sl-more"><button type="button" class="sl-btn ghost" onclick="slSet(\'shown\', ' + (_sl.shown + 100) + ')">Show ' + Math.min(100, list.length - _sl.shown) + ' more</button></div>' : '')
+    : '<div class="sl-empty">No tasks match.</div>';
+  box.innerHTML = '<div class="sl-wrap"><h2 class="sl-h2">Tasks</h2><div class="sl-date">' + list.length + (list.length === 1 ? ' task' : ' tasks') + ' · ' + (finished ? 'including finished' : 'showing open') + '</div>'
+    + '<div class="sl-filters">'
+    + '<input class="sl-in" id="slQ" type="search" placeholder="Search…" aria-label="Search tasks" value="' + esc(_sl.q) + '" oninput="slSet(\'q\', this.value, true)">'
+    + sel('slPerson', 'Person', _sl.person, [['', 'Person ▾']].concat(people.map(p => [p.id, p.name])), 'slSet(\'person\', this.value, true)')
+    + sel('slStatus', 'Status', _sl.status, [['', 'Status ▾'], ['send', 'Approved – send it'], ['fix', 'Fix needed'], ['review', 'With a reviewer'], ['doing', 'Doing'], ['todo', 'To do'], ['hold', 'On hold'], ['done', 'Done']], 'slSet(\'status\', this.value, ' + 'this.value === \'done\' || _sl.status === \'done\'' + ')')
+    + sel('slDue', 'Due', _sl.due, [['', 'Due: Any time'], ['overdue', 'Due: Overdue'], ['today', 'Due: Today'], ['week', 'Due: This week']], 'slSet(\'due\', this.value, true)')
+    + '</div><div class="sl-card" style="padding:4px 14px">' + body + '</div></div>';
+  if(keep){ const q = document.getElementById('slQ'); if(q){ q.focus(); try { q.setSelectionRange(q.value.length, q.value.length); } catch(e){} } }
+}
+
+/* ---------- New task — the short form ---------- */
+function atAutoTime(){
+  const jt = (document.getElementById('atJobType') || {}).value || '', t = document.getElementById('atTat'), hint = document.getElementById('slTimeHint');
+  if(!jt || !t) return;
+  const sv = jt.split('||')[1] || '';
+  const hrs = (tasks || []).filter(x => x.service === sv && Number(x.tat) > 0).map(x => Number(x.tat)).sort((a, b) => a - b);
+  if(hrs.length < 3){ if(hint) hint.textContent = ''; return; }
+  const med = hrs[Math.floor(hrs.length / 2)];
+  t.value = med; if(hint) hint.textContent = 'Filled in from ' + hrs.length + ' similar jobs'; if(typeof atPlanPreview === 'function') atPlanPreview();
+}
+function atSimplify(){
+  const box = document.getElementById('modalBox'); if(!box || box.querySelector('.sl-nt')) return;
+  const $ = id => document.getElementById(id), fieldOf = id => { const el = $(id); return el ? el.closest('.field') : null; };
+  const mk = (cls) => { const d = document.createElement('div'); d.className = cls; return d; };
+  box.insertAdjacentHTML('beforeend', '<span class="sl-nt" hidden></span>');
+  const sub = box.querySelector('.modal-sub'); if(sub) sub.remove();
+  document.querySelectorAll('.atKindBtn').forEach(b => { b.textContent = b.dataset.kind === 'client' ? 'Client task' : 'Admin task'; b.classList.remove('small'); });
+  const kind = box.querySelector('.atKindBtn'); if(kind){ const kf = kind.closest('.field'); const lab = kf && kf.querySelector('label'); if(lab) lab.remove(); }
+  // Who: no test or system accounts, and nobody twice
+  const sel = $('atAssignee');
+  if(sel){ const seen = new Set(); Array.from(sel.options).forEach(o => { if(!o.value) return; const name = o.textContent.split(' — ')[0].trim().toLowerCase(); if(/^(test user|admin)$/.test(name) || (o.value !== currentViewerId && seen.has(name))) o.remove(); else seen.add(name); }); }
+  const whoF = fieldOf('atAssignee'), dueF = fieldOf('atDeadline'), nameF = fieldOf('atName');
+  if(whoF){ const l = whoF.querySelector('label'); if(l) l.textContent = 'Who'; }
+  const r1 = mk('sl-two'); if(nameF && whoF && dueF){ nameF.after(r1); r1.append(whoF, dueF); }
+  const tatF = fieldOf('atTat'), jobW = $('atJobTypeWrap'), clientB = $('atClientBlock'), notesF = fieldOf('atInstructions');
+  const r2 = mk('sl-two'); if(clientB && tatF && jobW){ clientB.after(r2); r2.append(jobW, tatF); const j = $('atJobType'); if(j) j.setAttribute('onchange', 'atAutoTime()'); tatF.insertAdjacentHTML('beforeend', '<div class="sl-hint" id="slTimeHint"></div>'); }
+  const oldRow = box.querySelector('.at-row2'); if(oldRow && !oldRow.children.length) oldRow.remove();
+  if(notesF && r2.parentNode){ r2.after(notesF); const l = notesF.querySelector('label'); if(l) l.textContent = 'Notes (optional)'; const ta = $('atInstructions'); if(ta){ ta.rows = 2; ta.placeholder = 'What the person needs to know…'; } }
+  // everything else lives under "More options"
+  const more = box.querySelector('details.at-more');
+  if(more){ more.querySelector('summary').innerHTML = 'More options <span>Priority, client date, links</span>'; const top = [fieldOf('atPriority'), $('atClientDateWrap')].filter(Boolean); top.slice().reverse().forEach(f => more.querySelector('summary').after(f)); more.setAttribute('open', ''); more.removeAttribute('open'); }
+  const basics = $('atV2Basics'); if(basics && !basics.children.length) basics.remove();
+  setAssignKind(_assignKind);
+}
+
 /* ---- MARK DONE — available on every task the person can close, in every list. It closes the task for good: it leaves the to-do lists and only shows when someone searches for it. ---- */
 function canMarkDoneAny(t){
   if(!t || ['cancelled', 'pending_approval'].includes(t.status) || (typeof taskIsClosed === 'function' && taskIsClosed(t))) return false;
@@ -5589,6 +5839,7 @@ async function markDoneAnyGo(id){
     await refreshTasks(); await refreshActivity({ silent:true });
     if(typeof renderToday === 'function' && document.getElementById('tdRoot')) renderToday(true);
     showToast('success', 'Done', 'The task is closed.');
+    if(typeof slRefresh === 'function') slRefresh();
   } catch(e){ if(err){ err.textContent = e.message; err.style.display = 'block'; } else showToast('error', 'Could not mark done', e.message); }
 }
 
@@ -7940,6 +8191,8 @@ function tdSetSimple(on){
 function applyDashboardV2(){
   const on = !!(session && session.dashboardV2);
   document.body.classList.toggle('v2-dash', on);
+  document.body.classList.toggle('simple-layout', slOn());
+  const sn = document.getElementById('navSimple'); if(sn) sn.style.display = slOn() ? '' : 'none';
   const n = document.getElementById('todayNavItem'); if(n) n.style.display = on ? '' : 'none';
   document.querySelectorAll('#navV2 .v2-mgr').forEach(x => x.style.display = (on && isAdmin) ? '' : 'none');
   document.querySelectorAll('#navV2 .v2-emp').forEach(x => x.style.display = (on && !isAdmin) ? '' : 'none');   // processors get their own Tasks page; managers have the team Tasks page
@@ -10284,6 +10537,7 @@ function openNewTask(who){
   setAssignKind(noClients ? 'internal' : 'client');
   atAssigneeChanged();
   atV2Setup();
+  if(slOn()) atSimplify();
   const nm = document.getElementById('atName'); if(nm) nm.focus();
 }
 /* The new form (Parvinder's dashboard): Client Task / Admin Task wording, a reviewer chosen up front, and a review rule — client
@@ -10612,7 +10866,8 @@ function atPlanPreview(){
     catch(e){ hint.textContent = ''; return; }
     const cap = `${p.effectiveCapacity}h/day${p.capacityAuto ? ' (measured)' : ''}`;
     const busy = p.committedThrough > todayISO() ? `committed through <b>${fmtDate(p.committedThrough)}</b>` : 'queue is clear';
-    hint.innerHTML = `${esc(p.assignee.split(' ')[0])}: ${busy} · ${cap}. A ${hours}h task lands internally <b>${fmtDate(p.internalDeadline)}</b>, client <b>${fmtDate(p.clientDate)}</b>.
+    if(slOn()){ const nxt = p.committedThrough > todayISO() ? new Date(Date.parse(p.committedThrough + 'T12:00:00Z') + 86400000).toISOString().slice(0, 10) : null; hint.innerHTML = nxt ? 'Free from ' + esc(slDay(nxt)) : 'Free now'; hint.style.color = 'var(--sl-ok)'; hint.style.fontSize = '12px'; }
+    else hint.innerHTML = `${esc(p.assignee.split(' ')[0])}: ${busy} · ${cap}. A ${hours}h task lands internally <b>${fmtDate(p.internalDeadline)}</b>, client <b>${fmtDate(p.clientDate)}</b>.
       <button type="button" class="linkbtn" onclick="atUseComputedDates('${p.internalDeadline}','${p.clientDate}')" style="color:var(--purple);">Use these dates</button>`;
     const first = esc(p.assignee.split(' ')[0]);
     const impossibleWarn = document.getElementById('atImpossibleWarn');
@@ -10675,9 +10930,10 @@ function setAssignKind(kind){
   const iref = document.getElementById('atInternalRefWrap');
   if(iref) iref.style.display = (isInternal && !atV2On()) ? '' : 'none';   // the new form never asks an Admin Task for a client name
   const dl = document.getElementById('atDeadlineLabel');
-  if(dl) dl.innerHTML = (isInternal ? 'Due date' : 'Manager due date (internal)') + ' <span class="req-mark">*</span>';
+  if(dl) dl.innerHTML = (slOn() ? 'Due' : isInternal ? 'Due date' : 'Manager due date (internal)') + ' <span class="req-mark">*</span>';
   const tl = document.getElementById('atTatLabel');
-  if(tl) tl.innerHTML = 'Estimated time (hours) <span class="req-mark">*</span>';
+  if(tl) tl.innerHTML = (slOn() ? 'Time (hours)' : 'Estimated time (hours)') + ' <span class="req-mark">*</span>';
+  if(slOn()){ const jw = document.getElementById('atJobTypeWrap'); if(jw) jw.style.display = (isInternal || !(taxonomyDepartments || []).length) ? 'none' : ''; }
 }
 async function submitAssign(mode){
   const errEl = document.getElementById('assignError');
@@ -12680,6 +12936,7 @@ function updateReviewsNavBadge(){
   const n = rc ? (rc.urgent + rc.newSubmissions + rc.resubmitted) : myReviewTasks().length;
   if(n > 0){ badge.textContent = n; badge.style.display = ''; } else badge.style.display = 'none';
   const b2 = document.getElementById('reviewsNavBadgeV2'); if(b2){ b2.textContent = n; b2.style.display = n > 0 ? '' : 'none'; }
+  const b3 = document.getElementById('reviewsNavBadgeS'); if(b3) b3.textContent = n;
 }
 function openMyReviewQueue(){
   const list = myReviewTasks().slice().sort(taskNewest);
@@ -15362,6 +15619,10 @@ function openManageEmployee(id){
         <input type="checkbox" id="meDashObserver" ${e.dashObserver ? 'checked' : ''} style="margin-top:3px;">
         <span>Dashboard observer — can open <b>any</b> employee's Commitment Dashboard, read-only<br><span style="color:var(--text-faint);font-size:12.5px;">No other powers: can't assign, reassign, review, or change anything outside their own work.</span></span>
       </label>
+      ${e.accessRole === 'admin' || e.accessRole === 'superadmin' ? `<label style="display:flex; align-items:flex-start; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
+        <input type="checkbox" id="meSimpleLayout" ${e.simpleLayout ? 'checked' : ''} style="margin-top:3px;">
+        <span>Simple manager layout — Today, Tasks and a short New task form (8 menu items)<br><span style="color:var(--text-faint);font-size:12.5px;">Untick to give this person the full manager menu again.</span></span>
+      </label>` : ''}
       <label style="display:flex; align-items:flex-start; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
         <input type="checkbox" id="meWhatsappAccess" ${e.whatsappAccess ? 'checked' : ''} style="margin-top:3px;">
         <span>WhatsApp (Interakt) dashboard — see who hasn't been replied to and create tasks from messages<br><span style="color:var(--text-faint);font-size:12.5px;">Firm-wide, not scoped to a team. Superadmins always have this regardless of the checkbox.</span></span>
@@ -15455,6 +15716,7 @@ async function submitManageEmployee(id){
   const isHr = document.getElementById('meIsHr').checked;
   const dashObserver = document.getElementById('meDashObserver').checked;
   const whatsappAccess = document.getElementById('meWhatsappAccess').checked;
+  const simpleEl = document.getElementById('meSimpleLayout');
   const slackUserId = document.getElementById('meSlackId').value.trim();
   const aircallAgentId = document.getElementById('meAircallId').value.trim();
   const gmailAddresses = document.getElementById('meGmailAddresses').value.split(',').map(s => s.trim()).filter(Boolean);
@@ -15476,6 +15738,7 @@ async function submitManageEmployee(id){
     const payload = { accessRole, managesIds, password: password || undefined, jobTitle: jobTitle || undefined, team: team || undefined,
       memberships, extraTeams, isFounder, isHr, dashObserver, whatsappAccess, slackUserId, aircallAgentId, gmailAddresses, doneDelegateId: doneDelegateId || null };
     if(selfEditUntil !== undefined) payload.selfEditUntil = selfEditUntil;
+    if(simpleEl) payload.simpleLayout = simpleEl.checked;
     if(crmIdEl) payload.crmUserId = crmIdEl.value.trim();
     await api(`/api/employees/${encodeURIComponent(id)}`, { method:'PATCH', body: JSON.stringify(payload)});
     closeModal();

@@ -191,6 +191,7 @@ function publicEmployee(e, viewerIsAdmin) {
   if (viewerIsAdmin) { rest.crmUserId = crmUserId; rest.crmUserIdHistory = crmUserIdHistory; }
   // The focused dashboard is the default for every ordinary employee (processor); a superadmin can still switch it off or on per person.
   rest.dashboardV2 = e.dashboardV2 !== undefined && e.dashboardV2 !== null ? !!e.dashboardV2 : (e.accessRole === 'employee' || !!e.isFounder);   // the founder gets the new layout too unless it was switched off for them in Manage Access
+  rest.simpleLayout = !!e.simpleLayout && isAdminRole(e.accessRole);      // the simplified manager layout — managers only
   rest.isProfitConfirmer = isProfitConfirmer(db.get(), e);
   rest.canDirectProfitConfirm = canDirectProfitConfirm(e);
   return rest;
@@ -1461,6 +1462,7 @@ app.patch('/api/employees/:id', requireAuth, requireSuperAdmin, (req, res) => {
   if (typeof req.body.dashObserver === 'boolean') emp.dashObserver = req.body.dashObserver;
   // The new Today dashboard (master-detail, combined Manager + Review actions). Off unless switched on for that person.
   if (typeof req.body.dashboardV2 === 'boolean') emp.dashboardV2 = req.body.dashboardV2;
+  if (typeof req.body.simpleLayout === 'boolean') emp.simpleLayout = req.body.simpleLayout;
   // Time-boxed self-edit grant (estimate, due date & client date on their own tasks).
   if (req.body.selfEditUntil !== undefined) {
     const v = req.body.selfEditUntil;
@@ -2017,12 +2019,22 @@ app.post('/api/tasks/:id/nudge', requireAuth, (req, res) => {
   if (!t) return res.status(404).json({ error: 'Task not found.' });
   if (!t.assignedTo) return res.status(400).json({ error: "That task isn't assigned to anyone." });
   if (t.assignedTo === me.id) return res.status(400).json({ error: "You can't nudge your own task." });
-  if (!taskIsOpen(t)) return res.status(400).json({ error: 'That task is already done.' });
+  // Work that has been handed in and is waiting for its reviewer can be chased too — the nudge then goes to the reviewer.
+  const withReviewer = !!(req.body && req.body.toId && req.body.toId === t.reviewerId && t.status === 'completed' && !t.reviewStatus && t.reviewerId !== me.id);
+  if (!taskIsOpen(t) && !withReviewer) return res.status(400).json({ error: 'That task is already done.' });
   const canChase = me.accessRole === 'superadmin'
     || canManageEmployee(state, me, t.assignedTo)
     || t.assignedBy === me.id || t.reviewerId === me.id || t.reviewedBy === me.id;
   if (!canChase) return res.status(403).json({ error: "You can only nudge work you assigned or oversee." });
   const note = (req.body && req.body.note ? String(req.body.note) : '').slice(0, 300);
+  // "Nudge" goes to whoever the work is waiting on: the reviewer when it is with them (asked for by the new Today), otherwise the assignee.
+  const target = withReviewer ? t.reviewerId : t.assignedTo;
+  if (withReviewer) {
+    notify(state, target, 'review', `${me.name} nudged you to review "${t.name}".`, t.id);   // a review notice stays open until the review is done (a plain nudge would be treated as resolved)
+    db.logTaskEvent(state, t.id, 'reminded', me.id, { channel: 'manual', note: note || null, to: target });
+    db.save();
+    return res.json({ task: taskForClient(t) });
+  }
   db.logTaskEvent(state, t.id, 'reminded', me.id, { channel: 'manual', note: note || null });
   logEvent(state, t.assignedTo, `${escHtml(me.name)} nudged you about "${escHtml(t.name)}"${note ? ' — ' + escHtml(note) : ''}.`);
   logEvent(state, me.id, `Nudged ${escHtml((findEmployee(state, t.assignedTo) || {}).name || 'the assignee')} about "${escHtml(t.name)}".`);
@@ -6959,6 +6971,53 @@ app.post('/api/tasks/:id/resume-on', requireAuth, (req, res) => {
   db.save();
   res.json({ task: taskForClient(t) });
 });
+// SIMPLE MANAGER TODAY — the few numbers and the one "needs action now" list of the simplified manager layout. Team scope exactly as the Team views.
+app.get('/api/simple/today', requireAuth, requireAdmin, (req, res) => {
+  const state = db.get(), me = req.employee, today = todayISO();
+  const { rows, byId } = managerRows(state, me);
+  const roster = timePeopleFor(state, me).filter(e => e.id !== me.id);
+  const rosterIds = new Set(roster.map(e => e.id));
+  const mineRows = rows.filter(r => rosterIds.has(r.assigneeId));
+  const due = r => r.internalDeadline || null;
+  const employeeOverdue = r => r.waitingOn && r.waitingOn.kind === 'employee' && ['Assigned', 'In Progress', 'Correction Required'].includes(r.status) && due(r) && due(r) < today;
+  const overdue = mineRows.filter(employeeOverdue);
+  const approved = mineRows.filter(r => r.status === 'Approved' && r.primaryStatus === 'Ready to Send' && r.kindLabel === 'Client Task');
+  const myReviews = rows.filter(r => r.status === 'In Review' && r.reviewerId === me.id && !r.escalation);
+  const finishedAt = t => t.sentToClientAt || (t.reviewStatus === 'done' ? t.completedAt : (t.reviewedAt || t.completedAt)) || null;
+  const finishedToday = mineRows.filter(r => r.status === 'Completed' && finishedAt(byId[r.id]) && nzDay(finishedAt(byId[r.id])) === today);
+  const first = s => String(s || '').split(' ')[0];
+  const ageDays = iso => iso ? Math.max(0, workflow.daysBetween(nzDay(iso), today)) : 0;
+  // ---- what needs action now, most pressing first
+  const items = [];
+  approved.forEach(r => { const t = byId[r.id], d = ageDays(t.reviewedAt), late = r.clientDate && r.clientDate < today ? workflow.daysBetween(r.clientDate, today) : 0;
+    items.push({ rank: late ? 0 : 3, id: r.id, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · approved ' + (d === 0 ? 'today' : d + (d === 1 ? ' day' : ' days') + ' ago') + ', not sent', pill: late ? late + 'd late' : 'To send', tone: late ? 'fix' : 'rev', action: 'send' }); });
+  mineRows.filter(r => r.status === 'In Review' && ['overdue', 'due_today', 'at_risk'].includes((r.clientRisk || {}).state)).forEach(r => {
+    items.push({ rank: 1, id: r.id, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · with ' + (first(r.reviewerName) || 'a reviewer') + ' for review', pill: r.clientRisk.state === 'overdue' ? 'Client late' : 'At risk', tone: r.clientRisk.state === 'overdue' ? 'fix' : 'rev', action: 'nudge', toId: r.reviewerId || null }); });
+  overdue.concat(mineRows.filter(r => ['Assigned', 'In Progress'].includes(r.status) && r.waitingOn.kind === 'employee' && due(r) === today)).forEach(r => {
+    const late = due(r) < today ? workflow.daysBetween(due(r), today) : 0;
+    items.push({ rank: 2, id: r.id, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · ' + (r.status === 'Correction Required' ? 'fix not sent back yet' : 'not submitted') + (late ? ', was due ' + late + (late === 1 ? ' day' : ' days') + ' ago' : ', due today'), pill: late ? late + 'd late' : 'Due today', tone: 'fix', action: 'nudge', toId: null }); });
+  const seen = new Set(), need = items.sort((a, b) => a.rank - b.rank).filter(i => !seen.has(i.id) && seen.add(i.id));
+  // ---- the team, one line each: overdue first, otherwise done of total this week
+  const weekAgo = timeLedger.addDay(today, -6);
+  const team = roster.map(e => {
+    const theirs = mineRows.filter(r => r.assigneeId === e.id);
+    const od = theirs.filter(employeeOverdue).length;
+    const done = theirs.filter(r => r.status === 'Completed' && finishedAt(byId[r.id]) && nzDay(finishedAt(byId[r.id])) >= weekAgo).length;
+    const open = theirs.filter(r => r.status !== 'Completed').length;
+    return { id: e.id, name: e.name, overdue: od, done, total: done + open, pct: (done + open) ? Math.round(done / (done + open) * 100) : 0 };
+  }).filter(p => p.total > 0 || p.overdue > 0).sort((a, b) => b.overdue - a.overdue || a.pct - b.pct || a.name.localeCompare(b.name));
+  // ---- my own work due today (the red line at the top)
+  const mineDue = tasksOwnedDueToday(state, me, today);
+  res.json({
+    today, name: me.name,
+    alert: mineDue.length ? { count: mineDue.length, text: mineDue.length === 1 ? '1 task due today: ' + mineDue[0].name : mineDue.length + ' tasks due today: ' + mineDue.slice(0, 2).map(t => t.name).join(', ') + (mineDue.length > 2 ? ' +' + (mineDue.length - 2) + ' more' : ''), ids: mineDue.map(t => t.id) } : null,
+    stats: { overdueTeam: overdue.length, approvedNotSent: approved.length, waitingReview: myReviews.length, finishedToday: finishedToday.length },
+    needsAction: { total: need.length, items: need.slice(0, 8) }, team,
+  });
+});
+function tasksOwnedDueToday(state, me, today) {
+  return state.tasks.filter(t => !t.deletedAt && t.assignedTo === me.id && t.internalDeadline === today && !['completed', 'on_hold', 'cancelled'].includes(t.status));
+}
 app.get('/api/tasks/:id/time', requireAuth, (req, res) => {
   const state = db.get(), me = req.employee;
   const t = visibleTasks(state, me).find(x => x.id === req.params.id);

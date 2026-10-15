@@ -364,6 +364,12 @@ function runMigrations(state) {
     if (d && d.dashboardV2 === undefined) d.dashboardV2 = true;
     state.migrationFlags.dashboardV2ForDisha = true;
   }
+  // The simplified manager layout (Today / Tasks / New task) is switched on once for Disha; a superadmin can switch anyone on or off in Manage Access.
+  if (!state.migrationFlags.simpleLayoutForDisha) {
+    const d = (state.employees || []).find(e => String(e.email || '').toLowerCase() === 'disha@elitetaxation.co.nz');
+    if (d && d.simpleLayout === undefined) d.simpleLayout = true;
+    state.migrationFlags.simpleLayoutForDisha = true;
+  }
   // Clients can carry a contact email now, and remember who added them.
   (state.clients || []).forEach(c => {
     if (c.email === undefined) c.email = null;
