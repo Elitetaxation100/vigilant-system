@@ -386,7 +386,8 @@ function buildToday(tasks, me, deps) {
         else if (due && due === deps.today) addA(t, 'due', 'Due today', 2, 'work', due);
         else if (t.resumeOn && t.resumeOn <= deps.today) addA(t, 'continue', 'You planned to continue this today', 2, 'work', t.resumeOn);
         else if (t.timerStartedAt) addA(t, 'running', 'You are working on this now', 2, 'work', t.timerStartedAt);
-      }
+        else if (['overdue', 'due_today', 'at_risk'].includes(c.clientRisk.state)) addA(t, 'client_risk', c.clientRisk.label, 1, 'work', t.clientDate);   // the client is waiting, even if your own date is later
+      } else if (c.status === 'On Hold' && c.hold && c.hold.followUpDue) addA(t, 'followup', 'Follow-up due today', 2, 'work', c.hold.followUp);
     }
     attention.sort((a, b) => a.rank - b.rank || String(cards[a.id].clientDate || '9999').localeCompare(String(cards[b.id].clientDate || '9999')) || String(a.since || '').localeCompare(String(b.since || '')));
   }

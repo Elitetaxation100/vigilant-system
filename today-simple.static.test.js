@@ -18,10 +18,23 @@ test('the duplicate alert banners are hidden on the simple Today page only', () 
   assert.ok(html.includes("document.body.classList.toggle('td-simple-on', id === 'today' && typeof tdIsSimple === 'function' && tdIsSimple());"), 'switching to any other page brings them back');
 });
 
-test('the list is calm: one "Do this first" card, short one-line rows with one pill and one button, a cap with "Show more", no section headings or filters', () => {
-  assert.ok(html.includes('Do this first') && html.includes('function tdSimpleNext('));
-  assert.ok(html.includes('const TS_SHOW = 6;') && html.includes('class="ts-more"'));
-  const fn = html.slice(html.indexOf('function tdSimpleRow('), html.indexOf('function tdSimpleNext('));
-  assert.equal((fn.match(/class="ts-pill/g) || []).length, 1, 'one pill per row');
-  assert.ok(!fn.includes('ts-when') && !fn.includes('ts-why'), 'no extra date / reason columns in a row');
+test('the Today list uses the same table as the full dashboard (Name · Work · Processor · Status · Client commitment date · Link), in an Urgent section then the rest, with search, Processor filter and order', () => {
+  const fn = html.slice(html.indexOf('function tsListHtml('), html.indexOf('function tsRedrawList('));
+  assert.ok(fn.includes('TD_COLHEAD') && fn.includes('tdCardHtml('), 'the shared table header and row');
+  assert.ok(html.includes("const TD_COLHEAD = colHeadHtml('Client commitment date');"));
+  assert.ok(fn.includes('Urgent — client date today or passed') && fn.includes('td-sec'), 'an Urgent section with its count');
+  assert.ok(html.includes('id="tsQ"') && html.includes('id="tsProc"') && html.includes('Latest client date first'));
+  assert.ok(html.includes("let _tsQ = '', _tsProc = '', _tsSort = 'latest';"), 'latest first is the default');
+  assert.ok(html.includes('const TS_SHOW = 15;') && html.includes('class="ts-more"'));
+});
+
+test('no Punch In / Time Clock card for anyone, and the automatic-marks "how it works" help is not shown on the Marks panel', () => {
+  assert.ok(html.includes('.clock-card{ display:none !important; }') && !html.includes('body.v2-dash .clock-card'));
+  assert.ok(!html.includes('How the automatic marks work'));
+  assert.ok(html.includes('Automatic marks</h2>') && html.includes('amLate'), 'the settings themselves are still there');
+});
+
+test('the automatic-marks on/off tick boxes are hidden (kept in the page so Save leaves every rule as it is)', () => {
+  assert.ok(html.includes('id="amSwitches" style="display:none;"'));
+  for (const id of ['amOnAck', 'amOnLinks', 'amOnReports', 'amOnMail', 'amOnCallback', 'amOnSubmit']) assert.ok(html.includes('id="' + id + '"'), id + ' still exists so saveAutoMarks keeps working');
 });

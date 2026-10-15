@@ -189,7 +189,8 @@ i.cal-ev{ display:inline-block; width:12px; height:12px; padding:0; vertical-ali
   .cal-cell{ min-height:70px; } .cal-ev{ font-size:10.5px; }
 }
 /* ---- Today (v2): the personal command centre ---- */
-body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
+/* there is no Punch In/Out, clock or Online/Offline status in the sidebar for anyone — attendance comes from ET-CRM */
+.clock-card{ display:none !important; }
 .td-head{ display:flex; justify-content:space-between; align-items:flex-end; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
 .td-greet{ font-size:26px; font-weight:700; letter-spacing:-.01em; margin:0; }
 .td-date{ color:var(--text-dim); font-size:13.5px; margin-top:2px; }
@@ -315,11 +316,12 @@ body.v2-dash .clock-card, body.fd-active .clock-card{ display:none !important; }
 .lg-dates{ display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center; margin:8px 0 2px; font-size:13px; } .lg-dates label{ display:inline-flex; gap:6px; align-items:center; } .lg-line-total{ font-size:12.5px; color:var(--text-dim); }
 body.td-simple-on #deadlineBannerWrap{ display:none; }
 .ts-sum{ font-size:18px; margin:2px 0 14px; } .ts-sum b{ font-size:24px; }
-.ts-next{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 18px; align-items:center; padding:18px 20px; margin:0 0 14px; border:1px solid var(--panel-border); border-left:5px solid var(--teal); border-radius:14px; background:var(--panel); cursor:pointer; }
-.ts-next.sel, .ts-next:hover, .ts-next:focus-visible{ border-color:var(--purple); outline:none; } .ts-next-l{ grid-column:1 / -1; font-size:11.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--teal); }
-.ts-next-t{ display:flex; flex-direction:column; gap:1px; } .ts-next-t b{ font-size:19px; } .ts-next-t span{ font-size:13.5px; color:var(--text-dim); } .ts-next-w{ font-size:13.5px; color:var(--text-dim); margin-top:6px; } .ts-next .btn{ padding:12px 22px; font-size:15px; }
 .ts-rows{ border:1px solid var(--panel-border); border-radius:14px; overflow:hidden; background:var(--panel); }
-.ts-row{ display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:4px 14px; align-items:center; padding:10px 16px; border-top:1px solid var(--panel-border); cursor:pointer; } .ts-row:first-child{ border-top:0; }
+.ts-head, .ts-row{ display:grid; grid-template-columns:minmax(0,2.2fr) minmax(0,1.1fr) 130px 150px auto; gap:4px 14px; align-items:center; padding:10px 16px; } .ts-row{ border-top:1px solid var(--panel-border); cursor:pointer; }
+.ts-head{ font-size:11.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--text-dim); background:var(--panel-2); padding-top:8px; padding-bottom:8px; } .ts-head span:last-child{ min-width:84px; }
+.ts-proc{ font-size:13.5px; overflow-wrap:anywhere; } .ts-date{ font-size:13.5px; font-variant-numeric:tabular-nums; } .ts-none{ color:var(--text-faint); } .ts-count{ font-size:13px; color:var(--text-dim); margin-left:8px; }
+.ts-ctl{ display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; margin:0 0 12px; } .ts-q{ flex:1 1 260px; min-width:0; padding:9px 12px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel); color:var(--text); font:inherit; font-size:14px; }
+.ts-f{ font-size:12.5px; color:var(--text-dim); display:inline-flex; gap:6px; align-items:center; } .ts-f select{ padding:8px 10px; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel); color:var(--text); font:inherit; font-size:13.5px; }
 .ts-row:hover, .ts-row:focus-visible{ background:var(--purple-dim); outline:none; } .ts-row.sel{ background:var(--purple-dim); }
 .ts-line{ min-width:0; display:flex; flex-wrap:wrap; gap:0 10px; align-items:baseline; } .ts-line b{ font-size:15px; overflow-wrap:anywhere; } .ts-line span{ font-size:13px; color:var(--text-dim); }
 .ts-pill{ font-size:12px; font-weight:600; padding:3px 10px; border-radius:999px; white-space:nowrap; background:var(--panel-border); color:var(--text); } .ts-pill.red{ background:var(--coral-dim); color:var(--coral); } .ts-pill.amber{ background:var(--amber-dim); color:var(--amber); }
@@ -327,7 +329,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
 .ts-foot{ display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 16px; margin:18px 2px 4px; font-size:13px; color:var(--text-dim); } .ts-foot-l{ display:flex; gap:16px; }
 .ts-link{ font:inherit; font-size:inherit; background:none; border:0; padding:0; color:var(--purple); cursor:pointer; text-decoration:underline; }
 .ts-clear{ padding:34px 12px; text-align:center; color:var(--text-dim); font-size:14.5px; border:1px dashed var(--panel-border); border-radius:12px; } .ts-back{ margin:0 0 10px; }
-@media (max-width:640px){ .ts-row{ grid-template-columns:minmax(0,1fr) auto; } .ts-row .ts-act{ grid-column:1 / -1; } .ts-row .ts-act .btn, .ts-next .btn{ width:100%; } .ts-next{ grid-template-columns:1fr; } }
+@media (max-width:860px){ .ts-head{ display:none; } .ts-row{ grid-template-columns:minmax(0,1fr) auto; } .ts-proc, .ts-date{ font-size:12.5px; color:var(--text-dim); } .ts-row .ts-act{ grid-column:1 / -1; } .ts-row .ts-act .btn{ width:100%; } }
 .rv2-nexts{ display:grid; gap:8px; } .rv2-next{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--panel-border); border-radius:10px; cursor:pointer; } .rv2-next:has(input:checked){ border-color:var(--purple); background:var(--purple-dim); } .rv2-next input{ margin-top:3px; } .rv2-next span{ display:flex; flex-direction:column; gap:1px; } .rv2-next small{ font-size:12.5px; color:var(--text-dim); font-weight:400; }
 .fdw{ display:flex; flex-wrap:wrap; align-items:center; gap:6px 22px; margin:0 0 14px; padding:9px 16px; border:1px solid var(--panel-border); border-radius:12px; background:var(--panel); }
 .fdw-t{ font-size:11.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--text-dim); }
@@ -3703,17 +3705,7 @@ async function renderAutoMarksPanel(){
       <td>${m.voidedAt ? '<span style="color:var(--text-faint);font-size:12px;">voided</span>' : `<button class="btn small" onclick="voidMark('${esc(m.id)}')">Void</button>`}</td></tr>`).join('');
   panel.innerHTML = `
     <div class="panel-head"><h2>Automatic marks</h2></div>
-    <details style="margin-bottom:10px;"><summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--purple);">How the automatic marks work</summary>
-    <div style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-top:8px;">
-      The system deducts marks by itself. Each one is a normal mark (the person and their manager see it, it counts in the totals) and you can void any of them.<br>
-      <b>Emails &amp; calls</b> — each finished working day, per person, emails and calls separately: <b>−${p.ackPerItem} for every call or email not acknowledged</b>. Judged at <b>6:45 pm NZ the same day</b> — when the daily Calls &amp; Email report goes to the admins — on exactly what that report counts; leave, holidays and workshop days are skipped.<br>
-      <b>Client tasks</b> — the processor sends it for review without the Sheet and Cashbook links → <b>−${p.processorLinks}</b> (half if one is missing); the reviewer passes it on while they are still missing → <b>−${p.reviewerLinks}</b> (half if one). GST work needs only the Sheet — a missing Cashbook is never marked. Admin Tasks never need links.<br>
-      <b>Client commitment breach</b> — the committed date has passed and the report has not been sent (a client query that paused the clock is respected) → <b>−${p.reportLate}</b> to whoever owns the next step (the processor, the reviewer or the report sender), once per task. Only dates after “Starts from” count.<br>
-      <b>Work submitted late</b> — the first hand-in after the internal due date (or a correction handed back after its correction date, when the correction was the employee's own) → <b>−${p.submitLate}</b> to the person who handed it in, once per hand-in.<br>
-      <b>Late callback</b> — a missed or voicemail call must be called back <b>the same working day before 6:45 pm NZ</b> (the next working day if it came in later or on a day off). A later outbound call, or an answered call, from the same number counts as the callback; handled calls (outcome logged, made a task, no action) never count. Otherwise <b>−${p.callbackLate}</b> to each person the call was routed to, once per call.<br>
-      <b>Reassigned mail</b> — a mail reassigned to someone must be replied to (or marked “no reply needed”) <b>the same working day, before the daily Calls &amp; Email report goes to the admins (6:45 pm NZ)</b>; handed over after that report, or on a day off, it is due before the next working day's report. Otherwise <b>−${p.mailReplyLate}</b> to that person, once per hand-off. Leave days push the deadline on. The mail shows on their dashboard until it is handled.
-    </div></details>
-    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:8px;font-size:13px;">
+    <div hidden aria-hidden="true" id="amSwitches" style="display:none;">   <!-- the on/off switches stay in the page (so Save keeps every rule as it is) but are not shown -->
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnAck" ${s.enabled.acknowledgement ? 'checked' : ''}> Email &amp; call acknowledgement</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnLinks" ${s.enabled.links ? 'checked' : ''}> Missing links</label>
       <label style="display:inline-flex;gap:6px;align-items:center;"><input type="checkbox" id="amOnReports" ${s.enabled.reports ? 'checked' : ''}> Report not sent on time</label>
@@ -8050,7 +8042,8 @@ function procStripHtml(){
 }
 /* ---- the simple Today: ONE thing to do next, then a short plain list ---- */
 let _tdMore = false;
-const TS_SHOW = 6;                                                     // how many rows show before "Show N more"
+const TS_SHOW = 15;                                                    // how many rows show before "Show N more" (a search or filter shows every match)
+let _tsQ = '', _tsProc = '', _tsSort = 'latest';                       // search text · processor filter · latest client date first (default)
 function tdSimpleAction(a, c){
   const id = esc(a.id), t = findTask(a.id), b = (label, fn, cls) => '<button type="button" class="btn ' + (cls || 'primary') + ' td-act" onclick="' + fn + '">' + label + '</button>';
   if(a.action === 'review') return b('Review', "openReviewV2('" + id + "')");
@@ -8074,35 +8067,67 @@ function tdSimpleRow(a){
   const sid = esc(a.id), pill = tdSimplePill(a, c);
   return '<div class="ts-row' + (_tdSel === a.id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
     + '<div class="ts-line"><b>' + esc(c.name) + '</b><span>' + esc(c.clientName || 'Admin task') + '</span></div>'
+    + '<div class="ts-proc">' + esc(c.assigneeName || '—') + '</div>'
+    + '<div class="ts-date">' + (c.clientDate ? esc(fmtDate(c.clientDate)) : '<span class="ts-none">—</span>') + '</div>'
     + '<span class="ts-pill ' + pill[1] + '">' + esc(pill[0]) + '</span>'
-    + '<div class="ts-act" onclick="event.stopPropagation()">' + tdSimpleAction(a, c) + '</div></div>';
-}
-function tdSimpleNext(a){
-  const c = _today.cards[a.id]; if(!c) return '';
-  const sid = esc(a.id), pill = tdSimplePill(a, c);
-  const when = c.clientDate ? 'Client date ' + fmtDate(c.clientDate) : (c.internalDeadline ? 'Due ' + fmtDate(c.internalDeadline) : '');
-  return '<div class="ts-next" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
-    + '<div class="ts-next-l">Do this first</div>'
-    + '<div class="ts-next-b"><div class="ts-next-t"><b>' + esc(c.name) + '</b><span>' + esc(c.clientName || 'Admin task') + '</span></div>'
-    + '<div class="ts-next-w"><span class="ts-pill ' + pill[1] + '">' + esc(pill[0]) + '</span> ' + esc(a.why) + (when ? ' · ' + esc(when) : '') + '</div></div>'
     + '<div class="ts-act" onclick="event.stopPropagation()">' + tdSimpleAction(a, c) + '</div></div>';
 }
 function tdSimpleSelect(id){
   tdSelect(id);
-  document.querySelectorAll('#tdList .ts-row, #tdList .ts-next').forEach(r => r.classList.toggle('sel', r.dataset.id === id));
 }
-function tdSimpleMore(){ _tdMore = !_tdMore; tdDrawBody(); }
+function tdSimpleMore(){ _tdMore = !_tdMore; tsRedrawList(); }
+// what the search / processor filter / sort leave of the day's list
+function tsVisible(){
+  const q = _tsQ.trim().toLowerCase(), cardOf = a => _today.cards[a.id] || {};
+  let list = _today.attention.filter(a => {
+    const c = cardOf(a); if(!c.name) return false;
+    if(_tsProc && c.assigneeId !== _tsProc) return false;
+    if(!q) return true;
+    return [c.name, c.clientName, c.assigneeName, a.why, tdSimplePill(a, c)[0], c.primaryStatus].join(' ').toLowerCase().includes(q);
+  });
+  const dt = a => cardOf(a).clientDate || '';
+  if(_tsSort === 'latest') list = list.slice().sort((x, y) => (dt(x) ? 0 : 1) - (dt(y) ? 0 : 1) || dt(y).localeCompare(dt(x)));          // newest client date first, no date last
+  else if(_tsSort === 'oldest') list = list.slice().sort((x, y) => (dt(x) ? 0 : 1) - (dt(y) ? 0 : 1) || dt(x).localeCompare(dt(y)));
+  return list;                                                                                                                              // 'urgent' keeps the server's order: urgent first, then by client date
+}
+function tsListHtml(){
+  const all = _today.attention, list = tsVisible(), filtered = !!(_tsQ.trim() || _tsProc);
+  if(!all.length) return '<div class="ts-clear">Nothing is waiting for you.</div>';
+  if(!list.length) return '<div class="ts-clear">Nothing matches your search.</div>';
+  const why = id => (all.find(a => a.id === id) || {}).why || '';
+  const urgent = list.filter(a => a.rank === 0), rest = list.filter(a => a.rank !== 0);
+  const cap = filtered || _tdMore ? list.length : TS_SHOW;
+  let left = cap, out = '';
+  const sec = (title, items) => {
+    const take = items.slice(0, Math.max(0, left)); left -= take.length;
+    if(!take.length) return '';
+    return '<div class="td-sec"><span>' + esc(title) + '</span><span>' + items.length + '</span></div>' + TD_COLHEAD + take.map(a => tdCardHtml(a.id, why(a.id))).join('');
+  };
+  out += sec('Urgent — client date today or passed', urgent) + sec(urgent.length ? 'Also today' : 'Needs you today', rest);
+  const hidden = list.length - (cap - Math.max(0, left));
+  return out + (hidden > 0 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show ' + hidden + ' more</button>' : (_tdMore && !filtered && list.length > TS_SHOW ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show fewer</button>' : ''));
+}
+function tsRedrawList(){
+  const w = document.getElementById('tsListWrap'); if(w) w.innerHTML = tsListHtml();
+  const n = document.getElementById('tsCount'); if(n){ const v = tsVisible().length, t = _today.attention.length; n.textContent = (_tsQ.trim() || _tsProc) ? v + ' of ' + t + ' shown' : ''; }
+}
+function tsSet(k, v){ if(k === 'q') _tsQ = v; else if(k === 'proc') _tsProc = v; else if(k === 'sort') _tsSort = v; _tdMore = false; tsRedrawList(); }
+function tsClear(){ _tsQ = ''; _tsProc = ''; tdDrawBody(); }
 function tdSimpleHtml(){
   const A = _today.attention, S = _today.attentionSummary;
-  const rest = A.slice(1), shown = _tdMore ? rest : rest.slice(0, TS_SHOW - 1), hidden = rest.length - shown.length;
-  const head = '<div class="ts-sum">' + (A.length ? '<b>' + A.length + '</b> ' + (A.length === 1 ? 'thing needs' : 'things need') + ' you today' : '<b>✓ All clear for today</b>') + '</div>';
-  const list = A.length
-    ? tdSimpleNext(A[0]) + (shown.length ? '<div class="ts-rows">' + shown.map(tdSimpleRow).join('') + '</div>' : '')
-      + (hidden > 0 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show ' + hidden + ' more</button>' : (_tdMore && rest.length > TS_SHOW - 1 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show fewer</button>' : ''))
-    : '<div class="ts-clear">Nothing is waiting for you.</div>';
+  const people = [...new Map(A.map(a => (_today.cards[a.id] || {})).filter(c => c.assigneeId).map(c => [c.assigneeId, c.assigneeName])).entries()].sort((x, y) => String(x[1]).localeCompare(String(y[1])));
+  if(_tsProc && !people.some(p => p[0] === _tsProc)) _tsProc = '';
+  const head = '<div class="ts-sum">' + (A.length ? '<b>' + A.length + '</b> ' + (A.length === 1 ? 'thing needs' : 'things need') + ' you today' : '<b>✓ All clear for today</b>') + ' <span class="ts-count" id="tsCount"></span></div>';
+  const ctl = A.length ? '<div class="ts-ctl" role="search">'
+    + '<input type="search" id="tsQ" class="ts-q" placeholder="Search task, client or processor…" aria-label="Search today\'s list" value="' + esc(_tsQ) + '" oninput="tsSet(\'q\', this.value)">'
+    + (people.length > 1 ? '<label class="ts-f">Processor <select id="tsProc" onchange="tsSet(\'proc\', this.value)"><option value="">Everyone</option>' + people.map(p => '<option value="' + esc(p[0]) + '"' + (p[0] === _tsProc ? ' selected' : '') + '>' + esc(p[1]) + '</option>').join('') + '</select></label>' : '')
+    + '<label class="ts-f">Order <select id="tsSort" onchange="tsSet(\'sort\', this.value)"><option value="latest"' + (_tsSort === 'latest' ? ' selected' : '') + '>Latest client date first</option><option value="oldest"' + (_tsSort === 'oldest' ? ' selected' : '') + '>Oldest client date first</option><option value="urgent"' + (_tsSort === 'urgent' ? ' selected' : '') + '>Most urgent first</option></select></label>'
+    + ((_tsQ.trim() || _tsProc) ? '<button type="button" class="ts-link" onclick="tsClear()">Clear</button>' : '') + '</div>' : '';
   const bits = [S.waitingOthers ? S.waitingOthers + ' waiting on others' : '', S.doneToday ? S.doneToday + ' done today' : ''].filter(Boolean);
   const foot = '<div class="ts-foot">' + (bits.length ? '<span>' + bits.join(' · ') + '</span>' : '') + '<span class="ts-foot-l"><button type="button" class="ts-link" onclick="openLogTime()">Log my work</button><button type="button" class="ts-link" onclick="tdSetSimple(false)">Show everything</button></span></div>';
-  return head + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list">' + list + foot + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
+  const html = head + ctl + '<div class="td-grid' + (_tdSel ? ' has-sel' : '') + (_tdSel && window.__tdMobileOpen ? ' show-detail' : '') + '" id="tdGrid"><div class="td-list" id="tdList" role="list"><div id="tsListWrap">' + tsListHtml() + '</div>' + foot + '</div><div class="td-detail" id="tdDetail" aria-live="polite">' + tdDetailHtml(_tdSel) + '</div></div>';
+  setTimeout(tsRedrawList, 0);                       // fills the "N of M shown" note
+  return html;
 }
 function tdDrawBody(){
   const body = document.getElementById('tdBody'); if(!body || !_today) return;
@@ -10315,7 +10340,7 @@ function renderGuide(){
   if(!wrap) return;
   if(!session || guideDismissed() || isMirroring()){ wrap.innerHTML = ''; return; }
   const g = guideSteps();
-  if(_crmMode.attendanceFromCrm){ g.steps = g.steps.filter(x => x[0] !== 'Punch in'); if(/three/.test(g.title)) g.title = 'Your daily steps'; }
+  g.steps = g.steps.filter(x => x[0] !== 'Punch in'); if(/three/.test(g.title)) g.title = 'Your daily steps';      // no Punch In/Out anywhere
   wrap.innerHTML = `<div class="guide-card">
     <div class="guide-head"><b>👋 ${esc(g.title)}</b><button class="guide-x" onclick="dismissGuide()" title="Got it — hide this" aria-label="Hide the guide">Got it ✕</button></div>
     <div class="guide-steps">${g.steps.map((s, i) => `<div class="guide-step">
