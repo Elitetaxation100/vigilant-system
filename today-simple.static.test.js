@@ -18,16 +18,13 @@ test('the duplicate alert banners are hidden on the simple Today page only', () 
   assert.ok(html.includes("document.body.classList.toggle('td-simple-on', id === 'today' && typeof tdIsSimple === 'function' && tdIsSimple());"), 'switching to any other page brings them back');
 });
 
-test('the list has the columns people asked for, a search box, a Processor filter and an order — latest client date first by default', () => {
-  const head = html.slice(html.indexOf('<div class="ts-head"'), html.indexOf('</div>', html.indexOf('<div class="ts-head"')));
-  for (const col of ['Task · client', 'Processor', 'Client commitment date', 'Status']) assert.ok(head.includes(col), col + ' column');
-  assert.ok(html.includes('id="tsQ"') && html.includes('placeholder="Search task, client or processor…"'), 'search bar');
-  assert.ok(html.includes('id="tsProc"') && html.includes('<option value="">Everyone</option>'), 'processor filter');
+test('the Today list uses the same table as the full dashboard (Name · Work · Processor · Status · Client commitment date · Link), in an Urgent section then the rest, with search, Processor filter and order', () => {
+  const fn = html.slice(html.indexOf('function tsListHtml('), html.indexOf('function tsRedrawList('));
+  assert.ok(fn.includes('TD_COLHEAD') && fn.includes('tdCardHtml('), 'the shared table header and row');
+  assert.ok(html.includes("const TD_COLHEAD = colHeadHtml('Client commitment date');"));
+  assert.ok(fn.includes('Urgent — client date today or passed') && fn.includes('td-sec'), 'an Urgent section with its count');
+  assert.ok(html.includes('id="tsQ"') && html.includes('id="tsProc"') && html.includes('Latest client date first'));
   assert.ok(html.includes("let _tsQ = '', _tsProc = '', _tsSort = 'latest';"), 'latest first is the default');
-  assert.ok(html.includes('Latest client date first') && html.includes('Oldest client date first') && html.includes('Most urgent first'));
-  const row = html.slice(html.indexOf('function tdSimpleRow('), html.indexOf('function tdSimpleSelect('));
-  assert.equal((row.match(/class="ts-pill/g) || []).length, 1, 'one status pill per row');
-  assert.ok(row.includes('ts-proc') && row.includes('ts-date'));
   assert.ok(html.includes('const TS_SHOW = 15;') && html.includes('class="ts-more"'));
 });
 

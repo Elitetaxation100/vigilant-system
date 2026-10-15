@@ -8070,7 +8070,6 @@ function tdSimpleRow(a){
 }
 function tdSimpleSelect(id){
   tdSelect(id);
-  document.querySelectorAll('#tdList .ts-row').forEach(r => r.classList.toggle('sel', r.dataset.id === id));
 }
 function tdSimpleMore(){ _tdMore = !_tdMore; tsRedrawList(); }
 // what the search / processor filter / sort leave of the day's list
@@ -8091,9 +8090,18 @@ function tsListHtml(){
   const all = _today.attention, list = tsVisible(), filtered = !!(_tsQ.trim() || _tsProc);
   if(!all.length) return '<div class="ts-clear">Nothing is waiting for you.</div>';
   if(!list.length) return '<div class="ts-clear">Nothing matches your search.</div>';
-  const cap = filtered || _tdMore ? list.length : TS_SHOW, shown = list.slice(0, cap), hidden = list.length - shown.length;
-  return '<div class="ts-rows"><div class="ts-head" aria-hidden="true"><span>Task · client</span><span>Processor</span><span>Client commitment date</span><span>Status</span><span></span></div>' + shown.map(tdSimpleRow).join('') + '</div>'
-    + (hidden > 0 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show ' + hidden + ' more</button>' : (_tdMore && !filtered && list.length > TS_SHOW ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show fewer</button>' : ''));
+  const why = id => (all.find(a => a.id === id) || {}).why || '';
+  const urgent = list.filter(a => a.rank === 0), rest = list.filter(a => a.rank !== 0);
+  const cap = filtered || _tdMore ? list.length : TS_SHOW;
+  let left = cap, out = '';
+  const sec = (title, items) => {
+    const take = items.slice(0, Math.max(0, left)); left -= take.length;
+    if(!take.length) return '';
+    return '<div class="td-sec"><span>' + esc(title) + '</span><span>' + items.length + '</span></div>' + TD_COLHEAD + take.map(a => tdCardHtml(a.id, why(a.id))).join('');
+  };
+  out += sec('Urgent — client date today or passed', urgent) + sec(urgent.length ? 'Also today' : 'Needs you today', rest);
+  const hidden = list.length - (cap - Math.max(0, left));
+  return out + (hidden > 0 ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show ' + hidden + ' more</button>' : (_tdMore && !filtered && list.length > TS_SHOW ? '<button type="button" class="ts-more" onclick="tdSimpleMore()">Show fewer</button>' : ''));
 }
 function tsRedrawList(){
   const w = document.getElementById('tsListWrap'); if(w) w.innerHTML = tsListHtml();
