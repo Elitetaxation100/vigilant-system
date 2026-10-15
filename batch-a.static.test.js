@@ -73,3 +73,25 @@ test('task history: a task on hold says On hold (not In rework), and a day-only 
   assert.ok(html.includes('nextHoldCap'), 'day-only resume events are capped before the next hold');
   assert.ok(html.includes("e.cap ? new Date(new Date(e.cap).getTime() - 1)"), 'the sort honours the cap');
 });
+
+test('Marks page: Give marks comes first; Automatic marks is folded away behind its heading', () => {
+  assert.ok(html.indexOf('id="marksGivePanel"') < html.indexOf('id="autoMarksPanel"'), 'Give marks is above Automatic marks');
+  assert.ok(html.includes('let _amOpen = false;'), 'Automatic marks starts closed');
+  assert.ok(html.includes('id="amBody"${_amOpen'), 'its body is the part that is hidden');
+});
+
+test('Give marks: a snip can be dragged and dropped onto the box (images only), as well as pasted or chosen', () => {
+  assert.ok(html.includes('ondrop="markSnipDrop(event)"') && html.includes('ondragover="markSnipDrag(event, true)"'), 'the box accepts drops');
+  assert.ok(html.includes("f.type && f.type.startsWith('image/')") && html.includes('That is not an image'), 'only images are accepted');
+  assert.ok(html.includes('#markSnipZone.drag{'), 'the box highlights while a file is over it');
+});
+
+test('Today: a profit confirmation waiting for ME reaches my Today even when the task belongs to another team', () => {
+  assert.ok(server.includes('const mineToConfirm = t.profitConfirmStatus === \'pending\''), 'the Today scope includes tasks I must confirm');
+  assert.ok(server.includes('|| mineToConfirm;'), 'and it is part of the "mine" test');
+});
+
+test('Mark done on a task that is waiting for profit confirmation says so — it is not "Already closed"', () => {
+  assert.ok(html.includes("t.reviewStatus === 'clean' && t.profitConfirmStatus === 'pending'"), 'the profit-pending case is recognised');
+  assert.ok(html.includes("'Waiting on profit confirmation', 'This task is not closed yet"), 'with an accurate message');
+});

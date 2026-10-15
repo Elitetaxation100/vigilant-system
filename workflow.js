@@ -433,7 +433,9 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
   const todayTiles = [
     tileOf('needs_review', 'Needs My Review', 'Personal', myReviews, 'No reviews are waiting for you.'),
     tileOf('risk_mine', 'Client Delivery at Risk', 'Where I own the next action', open.map(t => t.id).filter(id => inRisk(id) && ownsNext(id)), 'No client deadlines at risk on your side.'),
-    tileOf('decisions', 'Waiting for My Decision', 'Personal', needs.filter(n => ['decision', 'escalation', 'profit_confirm', 'unassigned'].includes(n.type)).map(n => n.id), 'Nothing is waiting for your decision.'),
+    tileOf('decisions', 'Waiting for My Decision', 'Personal', needs.filter(n => ['decision', 'escalation', 'unassigned'].includes(n.type)).map(n => n.id), 'Nothing is waiting for your decision.'),
+    // Profit confirmation has its own tile (it used to be hidden inside "Waiting for My Decision"): the tasks reviewed clean that are waiting for ME to confirm profit.
+    tileOf('profit_mine', 'Profit Confirmation', 'Waiting for me to confirm', needs.filter(n => n.type === 'profit_confirm').map(n => n.id), 'No profit confirmations are waiting for you.'),
     tileOf('reports_mine', 'Reports I Must Send', 'Personal', open.filter(t => cards[t.id].status === 'Approved' && isClientTask(t) && t.awaitingClientDecision && t.profitConfirmStatus !== 'pending' && (t.reportSendOwner || t.assignedTo) === me.id).map(t => t.id), 'No reports are waiting for you to send.'),
     tileOf('overdue_mine', 'My Overdue Actions', 'Where I own the next action', open.map(t => t.id).filter(id => {
       const c = cards[id], t = taskOf(id);
@@ -462,6 +464,7 @@ function buildModes({ cards, open, tasks, me, deps, needs, doneToday, waiting, f
     tileOf('team_overdue', 'Team Overdue', 'Employee-owned only', open.filter(t => { const c = cards[t.id]; return c.waitingOn.kind === 'employee' && ['Assigned', 'In Progress'].includes(c.status) && internalDueOf(t, deps) && internalDueOf(t, deps) < deps.today; }).map(t => t.id), 'No team tasks are overdue.'),
     tileOf('reviews_blocking', 'Reviews Blocking Delivery', 'Reviewer owns the next action', open.map(t => t.id).filter(id => cards[id].status === 'In Review' && cards[id].waitingOn.kind === 'reviewer' && (inRisk(id) || slaBreached(id))), 'No reviews are blocking delivery.'),
     tileOf('reports_team', 'Reports Not Sent', 'Whole team', reportsOpen.map(t => t.id), 'All approved reports have been sent.', { breakdown: reportBreakdown }),
+    tileOf('profit_team', 'Profit Confirmation Pending', 'Whole team', open.filter(t => t.profitConfirmStatus === 'pending').map(t => t.id), 'No profit confirmations are pending.'),
     tileOf('waiting_client', 'Waiting on Client', 'Authorised holds', open.map(t => t.id).filter(id => cards[id].waitingOn.kind === 'client'), 'Nothing is waiting on a client.'),
     tileOf('needs_attention', 'Needs Manager Attention', 'Open exceptions', (deps.attentionIds || []).filter(id => cards[id]), 'No exceptions need attention.'),
   ];

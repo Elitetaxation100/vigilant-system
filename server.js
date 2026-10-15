@@ -6445,7 +6445,9 @@ app.get('/api/workflow/today', requireAuth, (req, res) => {
   const roster = new Set(teamRoster(state, me).map(e => e.id)); roster.add(me.id);
   const visible = visibleTasks(state, me);
   const scoped = visible.filter(t => {
-    const mine = !t.assignedTo || roster.has(t.assignedTo) || t.reviewerId === me.id || t.reportSendOwner === me.id || t.reviewedBy === me.id || t.assignedBy === me.id;
+    // a profit confirmation waiting for ME is mine even when the task belongs to another team (that is how it reached the confirmer)
+    const mineToConfirm = t.profitConfirmStatus === 'pending' && (() => { const o = profitConfirmOwner(state, t); return !!o && o.id === me.id; })();
+    const mine = !t.assignedTo || roster.has(t.assignedTo) || t.reviewerId === me.id || t.reportSendOwner === me.id || t.reviewedBy === me.id || t.assignedBy === me.id || mineToConfirm;
     if (!mine) return false;
     // long-finished work only matters if I touched it today (it feeds "Completed today")
     const finished = t.status === 'completed' && (t.reviewStatus === 'done' || (t.reviewStatus === 'clean' && t.sentToClient !== null && t.sentToClient !== undefined));

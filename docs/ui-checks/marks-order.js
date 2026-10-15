@@ -1,0 +1,35 @@
+const { chromium } = require('playwright');
+const { spawn } = require('child_process');
+const fs = require('fs'), os = require('os'), path = require('path');
+const ROOT = path.join(__dirname, '..', '..'), SHOTS = path.join(__dirname, 'shots');
+const port = 4700 + Math.floor(Math.random() * 200), base = 'http://127.0.0.1:' + port;
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tm-ui-'));
+const child = spawn(process.execPath, ['server.js'], { cwd: ROOT, env: { ...process.env, PORT: String(port), TM_DATA_DIR: dir, LOGIN_RATE_LIMIT: '10000', NODE_ENV: 'test' }, stdio: 'ignore' });
+const http = async (m, p, { token, body } = {}) => { const h = { 'Content-Type': 'application/json' }; if (token) h.Authorization = 'Bearer ' + token; const r = await fetch(base + p, { method: m, headers: h, body: body === undefined ? undefined : JSON.stringify(body) }); return { s: r.status, j: await r.json().catch(() => null) }; };
+const login = async (e, pw, tab) => (await http('POST', '/api/auth/login', { body: { email: e + '@elitetaxation.co.nz', password: pw, expectedTab: tab } })).j.token;
+let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
+(async () => {
+  for (let i = 0; i < 60; i++) { try { if ((await fetch(base + '/webhooks/health')).ok) break; } catch (e) {} await new Promise(r => setTimeout(r, 500)); }
+  const SA = await login('shubham', 'Shubham@2026', 'admin'), PA = await login('shubham', 'Shubham@2026', 'admin'), RJ = await login('ranjit', 'Ranjit@2026', 'employee');
+  const E = (await http('GET', '/api/employees', { token: SA })).j.employees, emp = n => E.find(e => e.email === n + '@elitetaxation.co.nz');
+  await http('PATCH', '/api/employees/' + emp('parvinder').id, { token: SA, body: { dashboardV2: true } });
+  const cl = (await http('POST', '/api/clients', { token: SA, body: { name: 'UI Test Ltd', email: 'ui@t.co' } })).j.client.id;
+  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+  const page = await (await browser.newContext({ viewport: { width: 1300, height: 900 } })).newPage();
+  page.on('pageerror', e => console.log('PAGEERROR', e.message));
+  await page.addInitScript(t => { try { sessionStorage.setItem('governanceOsToken', t); } catch (e) {} }, SA);
+  await page.goto(base + '/');
+  await page.waitForFunction(() => typeof showView === 'function' && typeof session !== 'undefined' && !!session);
+  await page.evaluate(() => { showView('kudos', document.querySelector('[data-view="kudos"]')); setRecTab('marks'); });
+  await page.waitForSelector('#marksGivePanel', { state: 'visible' }); await new Promise(r => setTimeout(r, 1500));
+  const y = id => page.$eval(id, e => e.getBoundingClientRect().top);
+  ok(await y('#marksGivePanel') < await y('#autoMarksPanel'), 'Give marks is ABOVE Automatic marks');
+  ok(await page.$eval('#amBody', e => e.hidden), 'Automatic marks details are folded away by default');
+  ok(await page.$$eval('#markTo option', o => !o.some(x => /automatic/i.test(x.textContent))), 'no Automatic marks entry in the Person drop-down');
+  await page.screenshot({ path: path.join(SHOTS, 'marks-order.png') });
+  await page.click('#amToggle'); await new Promise(r => setTimeout(r, 200));
+  ok(!(await page.$eval('#amBody', e => e.hidden)), 'clicking the heading opens Automatic marks');
+  await page.click('#amToggle');
+  ok(await page.$eval('#amBody', e => e.hidden), 'and folds it again');
+  await browser.close(); child.kill(); process.exit(fails ? 1 : 0);
+})();
