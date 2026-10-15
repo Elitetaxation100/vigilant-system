@@ -79,3 +79,9 @@ test('Marks page: Give marks comes first; Automatic marks is folded away behind 
   assert.ok(html.includes('let _amOpen = false;'), 'Automatic marks starts closed');
   assert.ok(html.includes('id="amBody"${_amOpen'), 'its body is the part that is hidden');
 });
+
+test('Give marks: a snip can be dragged and dropped onto the box (images only), as well as pasted or chosen', () => {
+  assert.ok(html.includes('ondrop="markSnipDrop(event)"') && html.includes('ondragover="markSnipDrag(event, true)"'), 'the box accepts drops');
+  assert.ok(html.includes("f.type && f.type.startsWith('image/')") && html.includes('That is not an image'), 'only images are accepted');
+  assert.ok(html.includes('#markSnipZone.drag{'), 'the box highlights while a file is over it');
+});
