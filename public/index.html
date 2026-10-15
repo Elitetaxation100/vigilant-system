@@ -139,7 +139,7 @@ body.simple-layout{ --sl-bg:#f3efe6; --sl-card:#fff; --sl-ink:#1d2a24; --sl-mute
 body.simple-layout, body.simple-layout .main{ background:var(--sl-bg); color:var(--sl-ink); }
 body.v2-dash.simple-layout #navV2{ display:block !important; order:2; }
 body.v2-dash.simple-layout .sidebar #navSimple.nav-section{ order:1; }
-body.simple-layout #navV2 .sl-dup, body.simple-layout #navV2 [data-view="mytasks"], body.simple-layout #navV2 .nv2-label{ display:none !important; }
+body.simple-layout #navV2 .sl-dup, body.simple-layout #lgNavItemV2, body.simple-layout #tlNavItemV2, body.simple-layout #navV2 [data-view="mytasks"], body.simple-layout #navV2 .nv2-label{ display:none !important; }
 #navV2 .sl-moreh{ display:none; }
 body.simple-layout #navV2 .sl-moreh{ display:block; }
 body.v2-dash.simple-layout .sidebar #navSimple.nav-section{ display:block !important; }
@@ -5727,7 +5727,7 @@ function drawSlToday(){
     + '<div class="sl-card"><h3>Needs action now <span class="sl-due">' + na.total + (na.total === 1 ? ' item' : ' items') + '</span></h3>' + rows + '</div>'
     + slMineHtml()
     + '<div class="sl-card"><h3>Team today <button type="button" class="sl-link" onclick="showView(\'team\', document.querySelector(\'#navSimple .nav-item[data-view=team]\'))">Open Team →</button></h3>' + team + '</div>'
-    + '<div class="sl-foot"><button type="button" class="sl-link" onclick="slFullToday()">Full Today — my dashboard, manager view, review view</button><button type="button" class="sl-link" onclick="slFull(\'calendar\')">Task calendar</button><button type="button" class="sl-link" onclick="slFull(\'timeline\')">Task timeline</button><button type="button" class="sl-link" onclick="openLogTime()">Log my work</button></div>'
+    + '<div class="sl-foot"><button type="button" class="sl-link" onclick="slFullToday()">Full Today — my dashboard, manager view, review view</button><button type="button" class="sl-link" onclick="slFull(\'calendar\')">Task calendar</button><button type="button" class="sl-link" onclick="slFull(\'timeline\')">Task timeline</button></div>'
     + '</div>';
 }
 async function slMarkSent(id){

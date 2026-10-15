@@ -55,7 +55,7 @@ test('the recurring-task buttons and the other layouts are untouched', () => {
 
 test('nothing from the full manager layout is lost: the rest of the menu sits under More, and every full page is one click away', () => {
   const v2 = html.slice(html.indexOf('id="navV2"'), html.indexOf('id="navSimple"'));
-  for (const v of ['data-view="emails"', 'data-view="timeoff"', 'data-view="performance"', 'openLogTime()', 'openTimeLedger()', 'openCommitmentWatch()', 'data-view="kudos"', 'id="founderNavItemV2"', 'id="v2AdminGroup"', 'data-view="employees"', 'data-view="attendance"', 'data-view="assignments"', 'data-view="taxonomy"', 'data-view="admin"', 'openQueryAudit()']) assert.ok(v2.includes(v), v + ' is still in the menu');
+  for (const v of ['data-view="emails"', 'data-view="timeoff"', 'data-view="performance"', 'openCommitmentWatch()', 'data-view="kudos"', 'id="founderNavItemV2"', 'id="v2AdminGroup"', 'data-view="employees"', 'data-view="attendance"', 'data-view="assignments"', 'data-view="taxonomy"', 'data-view="admin"', 'openQueryAudit()']) assert.ok(v2.includes(v), v + ' is still in the menu');
   assert.ok(html.includes('body.simple-layout #navV2 .sl-dup'), 'only the items the simple menu already has are hidden');
   const tasks = html.slice(html.indexOf('function drawSlTasks('), html.indexOf('/* ---------- New task'));
   const q = x => x.split('~').join(String.fromCharCode(92) + "'");
@@ -63,4 +63,10 @@ test('nothing from the full manager layout is lost: the rest of the menu sits un
   assert.ok(html.includes("if(slOn() && id === 'today' && !classic)"), 'the full Today is reachable');
   assert.ok(html.includes('function slMineHtml(') && html.includes('tdPrimary(a.id)'), 'my own reviews, decisions, profit confirmations and work are on Today');
   assert.equal((html.match(/class="sl-backbar"/g) || []).length, 3, 'each full page has a way back');
+});
+
+test('Log my work and Time ledger are not offered in the simple layout', () => {
+  assert.ok(html.includes('body.simple-layout #lgNavItemV2, body.simple-layout #tlNavItemV2'));
+  const fn = html.slice(html.indexOf('function drawSlToday('), html.indexOf('async function slMarkSent('));
+  assert.ok(!fn.includes('openLogTime') && !fn.includes('openTimeLedger'));
 });
