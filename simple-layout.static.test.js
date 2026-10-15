@@ -12,7 +12,7 @@ test('the menu has the eight items from the mockup, in order, and replaces the f
   const labels = [...nav.matchAll(/<\/span> ([^<]+?)(?:<span|<\/div>)/g)].map(m => m[1].trim());
   assert.deepEqual(labels.slice(0, 8), ['Today', 'My tasks', '+ New task', 'Calls', 'Clients', 'Reviews', 'Team', 'Settings']);
   assert.ok(nav.includes('class="sl-sec">Manager<'), 'Manager heading above Reviews / Team / Settings');
-  assert.ok(html.includes('body.v2-dash.simple-layout #navV2{ display:none !important; }') && html.includes('body.v2-dash.simple-layout .sidebar #navSimple.nav-section{ display:block !important; }'));
+  assert.ok(html.includes('body.v2-dash.simple-layout #navV2{ display:block !important; order:2; }') && html.includes('body.v2-dash.simple-layout .sidebar #navSimple.nav-section{ display:block !important; }'), 'the simple menu comes first, the rest of the old menu follows under More');
 });
 
 test('the layout is per person: switched on once for Disha, managers only, changed in Manage Access', () => {
@@ -26,7 +26,7 @@ test('the layout is per person: switched on once for Disha, managers only, chang
 test('Today shows the alert, the greeting, the four tiles, Needs action now (Mark sent / Nudge) and Team today', () => {
   const fn = html.slice(html.indexOf('function drawSlToday('), html.indexOf('async function slMarkSent('));
   for (const s of ['sl-alert', 'slGreeting()', 'Overdue (team)', 'Approved, not sent to client', 'Waiting for your review', 'Finished today', 'Needs action now', 'Mark sent', 'Nudge', 'Team today', 'Open Team →']) assert.ok(fn.includes(s), s);
-  assert.ok(html.includes("if(slOn() && id === 'today'){ id = 'stoday';"), 'Today lands on the simple Today');
+  assert.ok(html.includes("if(slOn() && id === 'today' && !classic){ id = 'stoday';"), 'Today lands on the simple Today');
   assert.ok(html.includes("if(id === 'stoday') renderSlToday();") && html.includes("if(id === 'stasks') renderSlTasks();"));
 });
 
@@ -51,4 +51,16 @@ test('the New task form is short: Who|Due, Client, Job type|Time, Notes, and eve
 test('the recurring-task buttons and the other layouts are untouched', () => {
   assert.ok(html.includes('openRecurringModal') && html.includes('/api/recurring-tasks'));
   assert.ok(html.includes('id="navV2"') && html.includes("function v2Manager(){ return !!(session && session.dashboardV2 && isAdmin); }"));
+});
+
+test('nothing from the full manager layout is lost: the rest of the menu sits under More, and every full page is one click away', () => {
+  const v2 = html.slice(html.indexOf('id="navV2"'), html.indexOf('id="navSimple"'));
+  for (const v of ['data-view="emails"', 'data-view="timeoff"', 'data-view="performance"', 'openLogTime()', 'openTimeLedger()', 'openCommitmentWatch()', 'data-view="kudos"', 'id="founderNavItemV2"', 'id="v2AdminGroup"', 'data-view="employees"', 'data-view="attendance"', 'data-view="assignments"', 'data-view="taxonomy"', 'data-view="admin"', 'openQueryAudit()']) assert.ok(v2.includes(v), v + ' is still in the menu');
+  assert.ok(html.includes('body.simple-layout #navV2 .sl-dup'), 'only the items the simple menu already has are hidden');
+  const tasks = html.slice(html.indexOf('function drawSlTasks('), html.indexOf('/* ---------- New task'));
+  const q = x => x.split('~').join(String.fromCharCode(92) + "'");
+  for (const s of [q("slFull(~calendar~)"), q("slFull(~timeline~)"), 'slFull()', 'openRecurringModal()', 'openBulkAssignModal()', 'openTrashModal()', q("showView(~tasks~, null, true)"), 'slMenu(event']) assert.ok(tasks.includes(s), s);
+  assert.ok(html.includes("if(slOn() && id === 'today' && !classic)"), 'the full Today is reachable');
+  assert.ok(html.includes('function slMineHtml(') && html.includes('tdPrimary(a.id)'), 'my own reviews, decisions, profit confirmations and work are on Today');
+  assert.equal((html.match(/class="sl-backbar"/g) || []).length, 3, 'each full page has a way back');
 });

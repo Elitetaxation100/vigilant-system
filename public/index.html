@@ -137,18 +137,24 @@ body.v2-dash #navV2{ display:block !important; }
 body.simple-layout{ --sl-bg:#f3efe6; --sl-card:#fff; --sl-ink:#1d2a24; --sl-mute:#6b756f; --sl-line:#e4ded0; --sl-green:#14463a; --sl-red:#c0392b; --sl-redbg:#fbe9e6; --sl-amber:#b7791f; --sl-amberbg:#fdf3dc; --sl-blue:#2563a8; --sl-bluebg:#e6effa; --sl-ok:#2f7d4f; --sl-okbg:#e5f4ea; }
 :root[data-theme="dark"] body.simple-layout{ --sl-bg:#161c19; --sl-card:#1f2723; --sl-ink:#eef1ee; --sl-mute:#9aa7a0; --sl-line:#2f3a35; --sl-green:#4fb39a; --sl-redbg:#3a1f1b; --sl-amberbg:#3a2f16; --sl-bluebg:#18283b; --sl-okbg:#17301f; --sl-red:#ff7b6b; --sl-amber:#e8b44c; --sl-blue:#7fb2ee; --sl-ok:#6fcf93; }
 body.simple-layout, body.simple-layout .main{ background:var(--sl-bg); color:var(--sl-ink); }
-body.v2-dash.simple-layout #navV2{ display:none !important; }
+body.v2-dash.simple-layout #navV2{ display:block !important; order:2; }
+body.v2-dash.simple-layout .sidebar #navSimple.nav-section{ order:1; }
+body.simple-layout #navV2 .sl-dup, body.simple-layout #navV2 [data-view="mytasks"], body.simple-layout #navV2 .nv2-label{ display:none !important; }
+#navV2 .sl-moreh{ display:none; }
+body.simple-layout #navV2 .sl-moreh{ display:block; }
 body.v2-dash.simple-layout .sidebar #navSimple.nav-section{ display:block !important; }
 body.simple-layout .sidebar{ background:var(--sl-card); border-right:1px solid var(--sl-line); padding:16px 12px; }
 body.simple-layout .sidebar .brand{ padding:0 8px 14px; }
 body.simple-layout .sidebar .brand-mark, body.simple-layout .sidebar .brand-text .t2{ display:none; }
 body.simple-layout .sidebar .brand-text .t1{ font-family:inherit; font-size:15px; font-weight:700; color:var(--sl-ink); }
-body.simple-layout #navSimple .nav-item{ display:flex; align-items:center; min-height:40px; padding:9px 10px; margin-bottom:2px; border-radius:8px; color:var(--sl-ink); background:none; font-size:14px; }
-body.simple-layout #navSimple .nav-item:hover{ background:var(--sl-okbg); }
-body.simple-layout #navSimple .nav-item.active{ background:var(--sl-okbg); color:var(--sl-green); font-weight:600; }
-body.simple-layout #navSimple .nav-icon{ display:none; }
-body.simple-layout #navSimple .nav-badge{ margin-left:auto; background:none; color:var(--sl-ink); font-weight:700; padding:0; min-width:0; }
-body.simple-layout #navSimple .sl-sec{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--sl-mute); margin:14px 10px 4px; }
+body.simple-layout :is(#navSimple, #navV2) .nav-item{ display:flex; align-items:center; min-height:40px; padding:9px 10px; margin-bottom:2px; border-radius:8px; color:var(--sl-ink); background:none; font-size:14px; }
+body.simple-layout :is(#navSimple, #navV2) .nav-item:hover{ background:var(--sl-okbg); }
+body.simple-layout :is(#navSimple, #navV2) .nav-item.active{ background:var(--sl-okbg); color:var(--sl-green); font-weight:600; }
+body.simple-layout :is(#navSimple, #navV2) .nav-icon{ display:none; }
+body.simple-layout #navV2 .nav-drop > summary{ list-style:none; }
+body.simple-layout #navV2 .nav-sub{ padding-left:20px; }
+body.simple-layout :is(#navSimple, #navV2) .nav-badge{ margin-left:auto; background:none; color:var(--sl-ink); font-weight:700; padding:0; min-width:0; }
+body.simple-layout :is(#navSimple, #navV2) .sl-sec{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--sl-mute); margin:14px 10px 4px; }
 body.simple-layout .sidebar .admin-box{ display:none; }
 body.simple-layout .topbar{ background:transparent; border-bottom:0; backdrop-filter:none; }
 body.simple-layout .topbar > div:first-of-type{ visibility:hidden; }
@@ -182,6 +188,18 @@ body.simple-layout:has(#view-stoday.active) #deadlineBannerWrap, body.simple-lay
 .sl-bar{ height:6px; background:var(--sl-line); border-radius:4px; overflow:hidden; width:90px; flex:none; } .sl-bar i{ display:block; height:100%; background:var(--sl-green); }
 .sl-bar.over i{ background:var(--sl-red); }
 .sl-empty{ color:var(--sl-mute); padding:14px 0; }
+.sl-foot{ display:flex; gap:6px 18px; flex-wrap:wrap; margin:4px 0 20px; }
+.sl-headrow{ display:flex; justify-content:space-between; align-items:flex-start; gap:10px 16px; flex-wrap:wrap; }
+.sl-tools{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; position:relative; }
+.sl-dots{ background:none; border:1px solid transparent; color:var(--sl-mute); border-radius:8px; font:inherit; font-size:18px; line-height:1; padding:4px 8px; cursor:pointer; min-height:32px; }
+.sl-dots:hover{ border-color:var(--sl-line); color:var(--sl-ink); }
+.sl-dots:focus-visible, .sl-menu summary:focus-visible, .sl-link:focus-visible{ outline:2px solid var(--sl-green); outline-offset:2px; }
+.sl-menu{ position:relative; } .sl-menu > summary{ list-style:none; display:inline-block; } .sl-menu > summary::-webkit-details-marker{ display:none; }
+.sl-menu-list{ position:absolute; right:0; top:calc(100% + 4px); z-index:30; min-width:240px; background:var(--sl-card); border:1px solid var(--sl-line); border-radius:10px; padding:4px; box-shadow:0 8px 24px rgba(0,0,0,.14); }
+.sl-menu-list button{ display:block; width:100%; text-align:left; background:none; border:0; color:var(--sl-ink); font:inherit; padding:9px 10px; border-radius:7px; cursor:pointer; }
+.sl-menu-list button:hover{ background:var(--sl-okbg); }
+.sl-backbar{ display:none; margin:0 0 10px; } body.simple-layout .sl-backbar{ display:block; }
+.sl-row .sl-btn, .sl-row .btn{ flex:none; }
 .sl-more{ text-align:center; padding:10px 0 6px; }
 .sl-filters{ display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
 .sl-in{ background:var(--sl-card); border:1px solid var(--sl-line); border-radius:8px; padding:7px 12px; color:var(--sl-ink); font:inherit; min-height:36px; }
@@ -1427,18 +1445,19 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
     </div>
 
     <div class="nav-section" id="navV2" style="display:none;" aria-label="Main menu">
-      <button type="button" class="nv2-new" onclick="openNewTask()">＋ New Task</button>
+      <div class="sl-sec sl-moreh">More</div>
+      <button type="button" class="nv2-new sl-dup" onclick="openNewTask()">＋ New Task</button>
       <div class="nv2-label">Work</div>
-      <div class="nav-item" data-view="today" onclick="showView('today', this)"><span class="nav-icon">◉</span> Today</div>
+      <div class="nav-item sl-dup" data-view="today" onclick="showView('today', this)"><span class="nav-icon">◉</span> Today</div>
       <div class="nav-item v2-emp" data-view="mytasks" style="display:none;" onclick="showView('mytasks', this)"><span class="nav-icon">✓</span> My Tasks</div>
-      <div class="nav-item v2-mgr" data-view="mtasks" onclick="showView('mtasks', this)"><span class="nav-icon">✓</span> Tasks</div>
-      <div class="nav-item" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadgeV2" style="display:none;"></span></div>
-      <div class="nav-item" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
+      <div class="nav-item v2-mgr sl-dup" data-view="mtasks" onclick="showView('mtasks', this)"><span class="nav-icon">✓</span> Tasks</div>
+      <div class="nav-item sl-dup" data-view="reviews" onclick="showView('reviews', this)"><span class="nav-icon">📝</span> Reviews<span class="nav-badge" id="reviewsNavBadgeV2" style="display:none;"></span></div>
+      <div class="nav-item sl-dup" data-view="clients" onclick="showView('clients', this)"><span class="nav-icon">🏢</span> Clients</div>
       <div class="v2-mgr"><div class="nv2-label">Team</div>
-        <div class="nav-item" data-view="team" onclick="showView('team', this)"><span class="nav-icon">👥</span> My Team</div>
+        <div class="nav-item sl-dup" data-view="team" onclick="showView('team', this)"><span class="nav-icon">👥</span> My Team</div>
         <div class="nav-item" id="founderNavItemV2" data-view="founder" style="display:none;" onclick="showView('founder', this)"><span class="nav-icon">◉</span> Founder View</div></div>
       <div class="nv2-label">Communication</div>
-      <div class="nav-item" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
+      <div class="nav-item sl-dup" data-view="calls" onclick="showView('calls', this)"><span class="nav-icon">☎</span> Calls</div>
       <div class="nav-item" data-view="emails" onclick="showView('emails', this)"><span class="nav-icon">✉</span> Email</div>
       <div class="nv2-label">Me</div>
       <div class="nav-item" data-view="timeoff" onclick="showView('timeoff', this)"><span class="nav-icon">🌴</span> Time Off</div>
@@ -1560,9 +1579,9 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
 
       <!-- ===================== TODAY (v2) ===================== -->
       <section class="view" id="view-team"><div id="tmRoot"></div></section>
-  <section class="view" id="view-mtasks"><div id="mtRoot"></div></section>
+  <section class="view" id="view-mtasks"><div class="sl-backbar"><button type="button" class="sl-link" onclick="showView('stasks', document.querySelector('#navSimple .nav-item[data-view=stasks]'))">← Back to Tasks</button></div><div id="mtRoot"></div></section>
   <section class="view" id="view-mytasks"><div id="mkRoot"></div></section>
-  <section class="view" id="view-today"><div id="tdRoot" aria-live="polite"></div></section>
+  <section class="view" id="view-today"><div class="sl-backbar"><button type="button" class="sl-link" onclick="showView('stoday', document.querySelector('#navSimple .nav-item[data-view=stoday]'))">← Back to Today</button></div><div id="tdRoot" aria-live="polite"></div></section>
   <section class="view" id="view-stoday"><div id="slRoot" aria-live="polite"></div></section>
   <section class="view" id="view-stasks"><div id="slTasksRoot"></div></section>
 
@@ -1831,6 +1850,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
 
       <!-- ===================== TASKS (My/Team/All, saved filters, recurring/removed/bulk) ===================== -->
       <section class="view" id="view-tasks">
+        <div class="sl-backbar"><button type="button" class="sl-link" onclick="showView('stasks', document.querySelector('#navSimple .nav-item[data-view=stasks]'))">← Back to Tasks</button></div>
         <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;">
           <div class="src-subtabs" id="tasksScopeTabs"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
@@ -4882,7 +4902,7 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('DOMContentLoaded', enhanceNavItems);
 function showView(id, el, classic){
-  if(slOn() && id === 'today'){ id = 'stoday'; el = document.querySelector('#navSimple .nav-item[data-view="stoday"]'); }
+  if(slOn() && id === 'today' && !classic){ id = 'stoday'; el = document.querySelector('#navSimple .nav-item[data-view="stoday"]'); }
   if(slOn() && !el && document.querySelector('#navSimple .nav-item[data-view="' + id + '"]')) el = document.querySelector('#navSimple .nav-item[data-view="' + id + '"]');
   document.body.classList.toggle('td-simple-on', id === 'today' && typeof tdIsSimple === 'function' && tdIsSimple());
   closeMobileNav();
@@ -5646,13 +5666,16 @@ function slOn(){ return !!(session && session.simpleLayout && isAdmin); }
 const SL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function slDay(iso){ if(!iso) return ''; const p = String(iso).slice(0, 10).split('-'); return p.length === 3 ? (Number(p[2]) + ' ' + SL_MONTHS[Number(p[1]) - 1]) : ''; }
 function slFirst(n){ return String(n || '').split(' ')[0]; }
-let _slToday = null, _sl = { q:'', person:'', status:'', due:'', rows:[], total:0, shown:100, err:null, loading:false, seq:0, people:[] };
+let _slToday = null, _slMine = null, _sl = { q:'', person:'', status:'', due:'', rows:[], total:0, shown:100, err:null, loading:false, seq:0, people:[] };
 
 /* ---------- Today ---------- */
 async function renderSlToday(quiet){
   const box = document.getElementById('slRoot'); if(!box) return;
   if(!quiet && !_slToday) box.innerHTML = '<div class="sl-wrap"><h2 class="sl-h2" style="opacity:.35;">Loading…</h2></div>';
-  try { _slToday = await api('/api/simple/today'); }
+  try {
+    const [s, mine] = await Promise.all([api('/api/simple/today'), api('/api/workflow/today').catch(() => null)]);
+    _slToday = s; if(mine){ _today = mine; _slMine = mine; }
+  }
   catch(e){ box.innerHTML = '<div class="sl-wrap"><div class="sl-empty" role="alert">Could not load Today: ' + esc(e.message) + ' <button class="sl-btn ghost" onclick="renderSlToday()">Retry</button></div></div>'; return; }
   drawSlToday();
 }
@@ -5660,6 +5683,21 @@ function slGreeting(){
   const h = Number(new Date().toLocaleString('en-NZ', { hour:'numeric', hour12:false, timeZone:'Pacific/Auckland' }));
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 }
+const SL_WHY = { review:'Review', correction_resubmitted:'Review', escalation:'Decision', profit_confirm:'Profit', send_report:'Send report', accept:'Accept', decision:'Decision', unassigned:'No owner', fix:'Fix', resume:'Resume', overdue:'Overdue', due:'Due today', continue:'Continue', running:'Running', client_risk:'Client date', followup:'Follow up' };
+// What needs ME (not the team): reviews, decisions, profit confirmations, reports to send, tasks to accept, and my own work for today — the same list the full Today shows.
+function slMineHtml(){
+  const T = _slMine; if(!T || !T.attention || !T.attention.length) return '';
+  const A = T.attention, shown = A.slice(0, 6);
+  const rows = shown.map(a => {
+    const c = (T.cards || {})[a.id] || {}, urgent = a.urgent || a.rank === 0;
+    const title = c.clientName ? '<b>' + esc(c.clientName) + '</b> · ' + esc(c.taskType || c.name) : '<b>' + esc(c.name || a.id) + '</b>';
+    const prim = (a.action === 'work' || !T.sections.needs.some(n => n.id === a.id)) ? '' : tdPrimary(a.id);
+    const act = prim ? prim.replace(/class="btn primary td-act"/g, 'class="sl-btn"').replace(/class="btn td-act"/g, 'class="sl-btn ghost"') : '<button type="button" class="sl-btn ghost" onclick="openTaskActions(\'' + esc(a.id) + '\')">Open</button>';
+    return '<div class="sl-row"><div class="sl-t sl-click" tabindex="0" role="button" onclick="mtOpenDetail(\'' + esc(a.id) + '\')" onkeydown="if(event.key===\'Enter\'){ mtOpenDetail(\'' + esc(a.id) + '\'); }">' + title + '<small>' + esc(a.why || '') + '</small></div><span class="sl-pill ' + (urgent ? 'p-fix' : 'p-rev') + '">' + esc(SL_WHY[a.type] || 'To do') + '</span>' + act + '</div>';
+  }).join('');
+  return '<div class="sl-card"><h3>Waiting for you <span class="sl-due">' + A.length + (A.length === 1 ? ' item' : ' items') + (A.length > shown.length ? ' · <button type="button" class="sl-link" onclick="slFullToday()">See all</button>' : '') + '</span></h3>' + rows + '</div>';
+}
+function slFullToday(){ showView('today', null, true); }
 function drawSlToday(){
   const box = document.getElementById('slRoot'); const d = _slToday; if(!box || !d) return;
   const date = new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', timeZone:'Pacific/Auckland' });
@@ -5687,7 +5725,9 @@ function drawSlToday(){
     + tile(st.finishedToday || 0, 'Finished today', 'ok', '')
     + '</div>'
     + '<div class="sl-card"><h3>Needs action now <span class="sl-due">' + na.total + (na.total === 1 ? ' item' : ' items') + '</span></h3>' + rows + '</div>'
+    + slMineHtml()
     + '<div class="sl-card"><h3>Team today <button type="button" class="sl-link" onclick="showView(\'team\', document.querySelector(\'#navSimple .nav-item[data-view=team]\'))">Open Team →</button></h3>' + team + '</div>'
+    + '<div class="sl-foot"><button type="button" class="sl-link" onclick="slFullToday()">Full Today — my dashboard, manager view, review view</button><button type="button" class="sl-link" onclick="slFull(\'calendar\')">Task calendar</button><button type="button" class="sl-link" onclick="slFull(\'timeline\')">Task timeline</button><button type="button" class="sl-link" onclick="openLogTime()">Log my work</button></div>'
     + '</div>';
 }
 async function slMarkSent(id){
@@ -5704,6 +5744,15 @@ function slRefresh(){
   if(viewActive('stasks')) loadSlTasks(true);
 }
 setInterval(() => { if(!document.hidden) slRefresh(); }, 60000);
+// The full task pages (list with every filter, calendar, timeline) stay one click away — nothing the old menu had is lost.
+function slFull(tab){
+  mtOpenTasks({ tab: tab || 'list', q: tab ? '' : _sl.q, employee: tab ? '' : _sl.person });
+}
+function slMenu(ev, id){
+  const rows = (_mtData && _mtData.rows) || (_mtData = { rows: [] }).rows;
+  _sl.rows.filter(r => r.id === id).forEach(r => { const i = rows.findIndex(x => x.id === id); if(i >= 0) rows[i] = r; else rows.push(r); });
+  mtMenu(ev, id);
+}
 
 /* ---------- Tasks ---------- */
 function slStatus(r){
@@ -5737,7 +5786,7 @@ function slSet(k, v, reload){ _sl[k] = v; _sl.shown = 100; if(reload){ clearTime
 function slVisibleRows(){
   const today = (_slToday && _slToday.today) || todayISO();
   let list = (_sl.rows || []).map(r => ({ r, s: slStatus(r) }));
-  if(_sl.status && _sl.status !== 'done') list = list.filter(x => _sl.status === 'review' ? (x.s.k === 'review') : x.s.k === _sl.status);
+  if(_sl.status && _sl.status !== 'done') list = list.filter(x => x.s.k === _sl.status);
   list.sort((a, b) => (SL_ORDER[a.s.k] - SL_ORDER[b.s.k]) || String(a.r.internalDeadline || '9999').localeCompare(String(b.r.internalDeadline || '9999')) || String(a.r.id).localeCompare(String(b.r.id)));
   return { list, today };
 }
@@ -5752,13 +5801,16 @@ function drawSlTasks(loading){
     const late = r.internalDeadline && r.internalDeadline < today && s.k !== 'done';
     const title = r.clientName ? '<b>' + esc(r.clientName) + '</b> · ' + esc(r.taskType || r.name) : '<b>' + esc(r.name) + '</b>';
     const who = esc(r.assigneeName || 'Unassigned') + (r.clientName ? '' : ' · Admin');
-    return '<div class="sl-row sl-click" tabindex="0" role="button" onclick="mtOpenDetail(\'' + esc(r.id) + '\')" onkeydown="if(event.key===\'Enter\'){ mtOpenDetail(\'' + esc(r.id) + '\'); }"><div class="sl-t">' + title + '<small>' + who + '</small></div><span class="sl-pill ' + s.cls + '">' + esc(s.label) + '</span><span class="sl-due' + (late ? ' late' : '') + '">' + esc(slDay(r.internalDeadline) || '—') + '</span></div>';
+    return '<div class="sl-row sl-click" tabindex="0" role="button" onclick="mtOpenDetail(\'' + esc(r.id) + '\')" onkeydown="if(event.key===\'Enter\'){ mtOpenDetail(\'' + esc(r.id) + '\'); }"><div class="sl-t">' + title + '<small>' + who + '</small></div><span class="sl-pill ' + s.cls + '">' + esc(s.label) + '</span><span class="sl-due' + (late ? ' late' : '') + '">' + esc(slDay(r.internalDeadline) || '—') + '</span><button type="button" class="sl-dots" aria-haspopup="menu" aria-label="Actions for ' + esc(r.name) + '" onclick="event.stopPropagation();slMenu(event,\'' + esc(r.id) + '\')">⋯</button></div>';
   }).join('');
   const body = _sl.err ? '<div class="sl-empty" role="alert">Could not load the tasks: ' + esc(_sl.err) + ' <button class="sl-btn ghost" onclick="loadSlTasks()">Retry</button></div>'
     : (loading || _sl.loading) && !_sl.rows.length ? '<div class="sl-empty">Loading tasks…</div>'
     : rows ? rows + (list.length > _sl.shown ? '<div class="sl-more"><button type="button" class="sl-btn ghost" onclick="slSet(\'shown\', ' + (_sl.shown + 100) + ')">Show ' + Math.min(100, list.length - _sl.shown) + ' more</button></div>' : '')
     : '<div class="sl-empty">No tasks match.</div>';
-  box.innerHTML = '<div class="sl-wrap"><h2 class="sl-h2">Tasks</h2><div class="sl-date">' + list.length + (list.length === 1 ? ' task' : ' tasks') + ' · ' + (finished ? 'including finished' : 'showing open') + '</div>'
+  box.innerHTML = '<div class="sl-wrap"><div class="sl-headrow"><div><h2 class="sl-h2">Tasks</h2><div class="sl-date">' + list.length + (list.length === 1 ? ' task' : ' tasks') + ' · ' + (finished ? 'including finished' : 'showing open') + '</div></div>'
+    + '<div class="sl-tools"><button type="button" class="sl-btn" onclick="openNewTask()">+ New task</button>'
+    + '<button type="button" class="sl-btn ghost" onclick="slFull(\'calendar\')">Calendar</button><button type="button" class="sl-btn ghost" onclick="slFull(\'timeline\')">Timeline</button><button type="button" class="sl-btn ghost" onclick="slFull()">All filters</button>'
+    + '<details class="sl-menu"><summary class="sl-btn ghost">⋯ More</summary><div class="sl-menu-list"><button type="button" onclick="this.closest(\'details\').removeAttribute(\'open\');openRecurringModal()">🔁 Daily / recurring tasks</button><button type="button" onclick="this.closest(\'details\').removeAttribute(\'open\');openBulkAssignModal()">≣ Bulk import</button><button type="button" onclick="this.closest(\'details\').removeAttribute(\'open\');openTrashModal()">🗑 Recently removed</button><button type="button" onclick="this.closest(\'details\').removeAttribute(\'open\');showView(\'tasks\', null, true)">Classic task list &amp; saved filters</button></div></details></div></div>'
     + '<div class="sl-filters">'
     + '<input class="sl-in" id="slQ" type="search" placeholder="Search…" aria-label="Search tasks" value="' + esc(_sl.q) + '" oninput="slSet(\'q\', this.value, true)">'
     + sel('slPerson', 'Person', _sl.person, [['', 'Person ▾']].concat(people.map(p => [p.id, p.name])), 'slSet(\'person\', this.value, true)')
@@ -9332,7 +9384,7 @@ async function refreshTasks(){
     const unchanged = sig === _tasksSig && (now - _lastFullRender) < 60000;
     tasks = fresh; _tasksSig = sig;
     checkForNewAssignments();
-    if(!unchanged){ renderTaskTable(); _lastFullRender = now; if(todayViewActive()) renderToday(true); if(viewActive('team')) renderTeamView(); if(viewActive('mtasks') && _mt.tab === 'list') mtLoad(); if(viewActive('mytasks')) mkLoad(); }
+    if(!unchanged){ renderTaskTable(); _lastFullRender = now; if(todayViewActive()) renderToday(true); if(viewActive('team')) renderTeamView(); if(typeof slRefresh === 'function') slRefresh(); if(viewActive('mtasks') && _mt.tab === 'list') mtLoad(); if(viewActive('mytasks')) mkLoad(); }
     updateReviewsNavBadge();
   } catch(e){ console.error('Failed to refresh tasks', e); }
   await refreshWorkload();
