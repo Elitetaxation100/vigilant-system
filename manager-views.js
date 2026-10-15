@@ -41,8 +41,12 @@ function applyFilters(rows, f) {
   const today = f.today;
   const q = String(f.q || '').trim().toLowerCase();
   const idSet = f.ids ? new Set(String(f.ids).split('|').filter(Boolean)) : null;   // exact records behind a count ("|" — task ids contain commas? no, but never "|")
+  // A task that is finished (the report went out, or it was closed) is not shown in the everyday lists — it only appears when someone SEARCHES for it or
+  // asks for finished work (a status / report-sent / commitment filter, or an exact list behind a count), and then it reads Done / Report Sent.
+  const wantsClosed = !!(q || idSet || f.status || f.primary || f.reportSent || f.commitment || f.reviewState || f.includeClosed);
   return rows.filter(r => {
     if (idSet && !idSet.has(r.id)) return false;
+    if (!wantsClosed && r.status === 'Completed') return false;
     if (f.employee && r.assigneeId !== f.employee) return false;
     if (f.client && r.clientId !== f.client && String(r.clientName || '').toLowerCase() !== String(f.client).toLowerCase()) return false;
     if (f.type) { if (f.type === 'client' ? r.kindLabel !== 'Client Task' : f.type === 'admin' ? r.kindLabel !== 'Admin Task' : r.taskType !== f.type) return false; }
