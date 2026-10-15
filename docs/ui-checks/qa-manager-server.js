@@ -22,9 +22,10 @@ const login = async (e, pw, tab) => (await http('POST', '/api/auth/login', { bod
   for (const n of ['khushi', 'diksha', 'nitish']) { const r = await http('POST', '/api/auth/login', { body: { email: n + '@elitetaxation.co.nz', password: n[0].toUpperCase() + n.slice(1) + '@2026', expectedTab: 'employee' } }); tk[n] = r.j && r.j.token; console.log(n, r.status); }
   const E = (await http('GET', '/api/employees', { token: SA })).j.employees, emp = n => E.find(e => e.email === n + '@elitetaxation.co.nz');
   const T = id => '/api/tasks/' + enc(id);
-  const cl = async name => (await http('POST', '/api/clients', { token: SA, body: { name, email: name.split(' ')[0].toLowerCase() + '@t.co' } })).j.client.id;
+  const made = {};
+  const cl = async (name, ownerId, type) => made[name] || (made[name] = (await http('POST', '/api/clients', { token: SA, body: { name, ownerId, type: type || (/Ltd|Supplies|Media/.test(name) ? 'Company' : 'Rideshare'), email: name.split(' ')[0].toLowerCase() + '@t.co' } })).j.client.id);
   const mk = async (who, name, clientName, over) => {
-    const body = { mode: 'team', name, taskKind: clientName ? 'client' : 'admin', assignedTo: emp(who).id, tat: 1, internalDeadline: day(2), clientDate: day(6), reviewerId: emp('parvinder').id, ...(clientName ? { clientId: await cl(clientName) } : {}), ...(over || {}) };
+    const body = { mode: 'team', name, taskKind: clientName ? 'client' : 'admin', assignedTo: emp(who).id, tat: 1, internalDeadline: day(2), clientDate: day(6), reviewerId: emp('parvinder').id, ...(clientName ? { clientId: await cl(clientName, emp(who).id) } : {}), ...(over || {}) };
     if (!clientName) { delete body.clientDate; }
     const past = (body.internalDeadline < today) ? { internalDeadline: body.internalDeadline, clientDate: body.clientDate } : null;   // the form refuses a past date, so set it afterwards
     if (past) { body.internalDeadline = today; if (body.clientDate && body.clientDate < today) body.clientDate = day(1); }
@@ -52,5 +53,11 @@ const login = async (e, pw, tab) => (await http('POST', '/api/auth/login', { bod
   // finished today
   const f = await mk('diksha', 'Bookkeeping Sep', 'Hotel Supplies', { internalDeadline: day(0) });
   if (f) { await submit('diksha', f); await http('POST', T(f.id) + '/review-decision', { token: PA, body: { decision: 'approve', next: 'done', note: 'ok', requestId: 'sl-d1' } }); }
+  // a client with a real history: Sandeep's tax return (for last year, done in August), an earlier GST return, a cashflow forecast and a letter
+  const done = async (who, name, client, extra, hours) => { const t = await mk(who, name, client, Object.assign({ internalDeadline: day(0), tat: hours || 1 }, extra || {})); if (!t) return; await submit(who, t); await http('POST', T(t.id) + '/review-decision', { token: PA, body: { decision: 'approve', next: 'report', note: 'ok', requestId: 'cp-' + Math.random().toString(36).slice(2, 7) } }); await http('POST', T(t.id) + '/send-to-client', { token: DI, body: { decision: 'yes' } }); return t; };
+  await done('khushi', 'Income tax return (IR3)', 'Sandeep Boparai', { financialYear: '2025–26' }, 3);
+  await done('khushi', 'GST return period 1', 'Sandeep Boparai', {}, 1);
+  await done('khushi', 'Cashflow forecast', 'Sandeep Boparai', { financialYear: '2025–26' }, 2);
+  await cl('Jasbir Singh Raina', emp('khushi').id); await cl('AA Cheema Ltd', emp('diksha').id); await cl('Black Sheep Media', emp('nitish').id, 'Company'); await cl('Gill Rentals', emp('nitish').id, 'Rental'); await cl('Orphan Client', null, 'Rideshare');
   console.log('QA data ready — http://localhost:' + process.env.PORT + '  (Disha: disha@elitetaxation.co.nz)');
 })().catch(e => console.error(e));

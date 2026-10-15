@@ -42,7 +42,7 @@ test('the Tasks list: five plain statuses (the reviewer named), one date that is
 test('the New task form is short: Who|Due, Client, Job type|Time, Notes, and everything else under More options; no Test User / Admin / duplicate names', () => {
   const fn = html.slice(html.indexOf('function atSimplify('), html.indexOf('function atSimplify(') + 4200);
   assert.ok(fn.includes('test user|admin') && fn.includes('seen.has(name)'), 'Who is cleaned up');
-  assert.ok(fn.includes("'Who'") && fn.includes("'Notes (optional)'") && fn.includes('More options') && fn.includes("fieldOf('atPriority'), $('atClientDateWrap')"));
+  assert.ok(fn.includes("'Who'") && fn.includes("'Notes (optional)'") && fn.includes('More options') && fn.includes("fieldOf('atPriority'), fieldOf('atFY'), $('atClientDateWrap')"));
   assert.ok(html.includes('if(slOn()) atSimplify();'), 'only for people on the simple layout');
   assert.ok(html.includes("jw.style.display = (isInternal || !(taxonomyDepartments || []).length) ? 'none' : ''"), 'an Admin task hides Client and Job type');
   assert.ok(html.includes('onclick="closeModal();openBulkAssignModal()"'), 'the bulk import link stays');
