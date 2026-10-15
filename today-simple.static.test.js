@@ -18,12 +18,17 @@ test('the duplicate alert banners are hidden on the simple Today page only', () 
   assert.ok(html.includes("document.body.classList.toggle('td-simple-on', id === 'today' && typeof tdIsSimple === 'function' && tdIsSimple());"), 'switching to any other page brings them back');
 });
 
-test('the list is calm: one "Do this first" card, short one-line rows with one pill and one button, a cap with "Show more", no section headings or filters', () => {
-  assert.ok(html.includes('Do this first') && html.includes('function tdSimpleNext('));
-  assert.ok(html.includes('const TS_SHOW = 6;') && html.includes('class="ts-more"'));
-  const fn = html.slice(html.indexOf('function tdSimpleRow('), html.indexOf('function tdSimpleNext('));
-  assert.equal((fn.match(/class="ts-pill/g) || []).length, 1, 'one pill per row');
-  assert.ok(!fn.includes('ts-when') && !fn.includes('ts-why'), 'no extra date / reason columns in a row');
+test('the list has the columns people asked for, a search box, a Processor filter and an order — latest client date first by default', () => {
+  const head = html.slice(html.indexOf('<div class="ts-head"'), html.indexOf('</div>', html.indexOf('<div class="ts-head"')));
+  for (const col of ['Task · client', 'Processor', 'Client commitment date', 'Status']) assert.ok(head.includes(col), col + ' column');
+  assert.ok(html.includes('id="tsQ"') && html.includes('placeholder="Search task, client or processor…"'), 'search bar');
+  assert.ok(html.includes('id="tsProc"') && html.includes('<option value="">Everyone</option>'), 'processor filter');
+  assert.ok(html.includes("let _tsQ = '', _tsProc = '', _tsSort = 'latest';"), 'latest first is the default');
+  assert.ok(html.includes('Latest client date first') && html.includes('Oldest client date first') && html.includes('Most urgent first'));
+  const row = html.slice(html.indexOf('function tdSimpleRow('), html.indexOf('function tdSimpleSelect('));
+  assert.equal((row.match(/class="ts-pill/g) || []).length, 1, 'one status pill per row');
+  assert.ok(row.includes('ts-proc') && row.includes('ts-date'));
+  assert.ok(html.includes('const TS_SHOW = 15;') && html.includes('class="ts-more"'));
 });
 
 test('no Punch In / Time Clock card for anyone, and the automatic-marks "how it works" help is not shown on the Marks panel', () => {
