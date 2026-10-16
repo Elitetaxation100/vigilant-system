@@ -38,3 +38,10 @@ test('edit client has GST registered and the balance date; the directory name op
   assert.ok(html.includes('id="ecGst"') && html.includes('id="ecBalM"') && html.includes('id="ecBalD"') && html.includes("gstRegistered: document.getElementById('ecGst').checked"));
   assert.ok(html.includes('class="co-link" onclick="cpOpen(\'${c.id}\')"'));
 });
+
+test('the Clients tabs and the Add client button have working click handlers (no stray backslash in an HTML attribute)', () => {
+  const bar = html.slice(html.indexOf('class="co-tabs"'), html.indexOf('id="coOwnership"'));
+  assert.ok(bar.includes("onclick=\"coTab('own')\"") && bar.includes("onclick=\"coTab('dir')\""));
+  assert.ok(!bar.includes(String.fromCharCode(92)), 'no backslash in the tab bar');
+  assert.ok(bar.includes('openAddClientModal()'), 'Add client sits beside the tabs');
+});
