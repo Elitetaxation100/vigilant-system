@@ -263,6 +263,56 @@ body.simple-layout .co-subtabs button.on{ background:var(--sl-green); color:var(
 .co-note{ background:color-mix(in srgb, var(--co-warn) 14%, var(--co-card)); border-left:4px solid var(--co-warn); padding:10px 14px; border-radius:8px; font-size:13px; color:var(--co-ink); }
 .co-empty{ color:var(--co-mute); padding:14px 0; }
 @media (max-width:760px){ .co-two{ grid-template-columns:1fr; } .co-kv{ grid-template-columns:1fr 1fr; } .co-chk{ grid-template-columns:22px 1fr auto; } .co-chk .co-mute{ display:none; } }
+/* ---- commitment watch: a full-page sheet ---- */
+.cws-wrap{ max-width:none; }
+.cws-head{ display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+.cws-h{ font-size:22px; font-family:var(--font-display); margin:0 0 2px; } .cws-sub, .cws-help{ color:var(--text-dim); font-size:13px; }
+.cws-help{ margin:6px 0 10px; }
+.cws-tabs{ display:flex; gap:6px; flex-wrap:wrap; }
+.cws-tab{ border:1px solid var(--panel-border); background:var(--panel); color:var(--text); padding:7px 14px; border-radius:999px; cursor:pointer; font:inherit; font-size:13.5px; min-height:34px; }
+.cws-tab.on{ background:var(--purple); color:#fff; border-color:var(--purple); font-weight:600; }
+.cws-bar{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+.cws-in{ border:1px solid var(--panel-border); border-radius:8px; padding:6px 10px; background:var(--panel-2); color:var(--text); font:inherit; font-size:13.5px; min-height:34px; }
+.cws-bar .cws-in[type=search]{ min-width:260px; flex:1; max-width:420px; }
+.cws-grp{ display:flex; gap:6px; align-items:center; font-size:13px; color:var(--text-dim); }
+.cws-chips{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:4px; }
+.cws-chip{ background:var(--panel-2); border:1px solid var(--panel-border); border-radius:999px; padding:2px 4px 2px 10px; font-size:12.5px; }
+.cws-chip button{ background:none; border:0; cursor:pointer; color:var(--text-dim); font-size:12px; padding:2px 6px; }
+.cws-count{ font-size:12.5px; color:var(--text-dim); margin:2px 0 8px; }
+.cws-scroll{ overflow:auto; border:1px solid var(--panel-border); border-radius:10px; background:var(--panel); max-height:calc(100vh - 290px); min-height:260px; }
+.cws-table{ border-collapse:separate; border-spacing:0; table-layout:fixed; font-size:13px; width:max-content; min-width:100%; }
+.cws-table th, .cws-table td{ border-bottom:1px solid var(--panel-border); border-right:1px solid var(--panel-border); padding:6px 9px; text-align:left; vertical-align:top; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:var(--panel); }
+.cws-table thead th{ position:sticky; top:0; z-index:3; background:var(--panel-2); font-size:12px; font-weight:600; color:var(--text-dim); padding:0; }
+.cws-th{ display:flex; align-items:center; position:relative; min-height:34px; }
+.cws-sortbtn{ flex:1; text-align:left; background:none; border:0; font:inherit; color:inherit; padding:6px 4px 6px 9px; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cws-fbtn{ background:none; border:0; color:var(--text-faint); cursor:pointer; padding:4px 6px; font-size:11px; border-radius:4px; }
+.cws-fbtn.on{ color:#fff; background:var(--purple); }
+.cws-rs{ position:absolute; right:-3px; top:0; width:7px; height:100%; cursor:col-resize; z-index:4; }
+.cws-rs:hover{ background:color-mix(in srgb, var(--purple) 35%, transparent); }
+.cws-arrow{ color:var(--purple); font-size:10px; }
+.cws-table th.filtered{ background:color-mix(in srgb, var(--purple) 10%, var(--panel-2)); }
+.cws-rn{ width:46px; text-align:right !important; color:var(--text-faint); background:var(--panel-2) !important; font-variant-numeric:tabular-nums; }
+.cws-s0{ position:sticky; left:0; z-index:2; } .cws-table thead .cws-s0{ z-index:5; }
+.cws-s1{ position:sticky; left:46px; z-index:2; box-shadow:2px 0 0 var(--panel-border); } .cws-table thead .cws-s1{ z-index:5; }
+.cws-row{ cursor:pointer; } .cws-row:hover td{ background:var(--panel-2); } .cws-row:focus-visible{ outline:2px solid var(--purple); outline-offset:-2px; }
+.cws-small{ font-size:12px; color:var(--text-dim); }
+.cws-num{ text-align:right !important; font-variant-numeric:tabular-nums; }
+.cws-late{ color:var(--coral); } .cws-none{ color:var(--text-faint); } .cws-mute{ color:var(--text-faint); font-size:12px; }
+.cws-table td .cw-flag{ margin-right:2px; }
+.cws-group td{ background:var(--panel-2) !important; padding:0; }
+.cws-gbtn{ background:none; border:0; font:inherit; padding:6px 10px; cursor:pointer; color:var(--text); }
+.cws-empty, .cws-more{ text-align:center !important; color:var(--text-dim); padding:18px !important; white-space:normal !important; }
+.cws-pop{ position:fixed; z-index:200; background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.25); padding:10px; width:280px; max-width:calc(100vw - 16px); display:flex; flex-direction:column; gap:8px; max-height:calc(100vh - 24px); }
+.cws-pop.wide{ width:330px; }
+.cws-pop-h{ display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; }
+.cws-pop-f{ display:flex; justify-content:space-between; gap:8px; }
+.cws-vals{ overflow:auto; max-height:300px; border:1px solid var(--panel-border); border-radius:8px; padding:4px; }
+.cws-val{ display:flex; gap:8px; align-items:center; padding:4px 6px; font-size:13px; cursor:pointer; } .cws-val span{ flex:1; overflow:hidden; text-overflow:ellipsis; } .cws-val em{ color:var(--text-faint); font-style:normal; font-size:12px; }
+.cws-colrow{ display:flex; justify-content:space-between; align-items:center; gap:8px; padding:4px 6px; font-size:13px; }
+.cws-sep{ font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); padding:8px 6px 2px; }
+.cws-quick{ display:flex; gap:4px; flex-wrap:wrap; }
+.cws-lab{ display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--text-dim); }
+@media (max-width:760px){ .cws-bar .cws-in[type=search]{ min-width:0; max-width:none; } .cws-scroll{ max-height:none; } }
 /* the short New task form */
 #modalOverlay:has(.sl-nt) .modal-box{ max-width:520px; background:var(--sl-card); border-color:var(--sl-line); color:var(--sl-ink); border-radius:14px; }
 .modal-box:has(.sl-nt) h3{ font-size:18px; font-family:inherit; }
@@ -999,6 +1049,8 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
   tbody tr:hover{ background:var(--panel-2); }
   .task-id{ font-family:var(--font-mono); color:var(--text-faint); font-size:14px; }
   .task-name{ font-weight:600; font-size:15.5px; }
+  .tt-client{ display:block; font-weight:600; color:var(--text); } .tt-task{ display:block; font-size:12px; font-weight:400; color:var(--text-dim); overflow-wrap:anywhere; }
+  .tl-name.tt-task, .clientcell.tt-task{ font-size:12px; font-weight:400; color:var(--text-dim); }
   .task-scope{ font-size:13px; color:var(--text-faint); margin-top:2px; }
   .pts{ font-family:var(--font-mono); color:#B45309; font-weight:600; }
   .assignee{ display:flex; align-items:center; gap:8px; }
@@ -1811,8 +1863,8 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
             <thead>
               <tr>
                 <th>Task ID</th>
-                <th>Task</th>
-                <th>Client / Commitment Date</th>
+                <th>Client</th>
+                <th>Task / Commitment Date</th>
                 <th>Assigned To</th>
                 <th>Agreed Hrs</th>
                 <th>Status</th>
@@ -1875,8 +1927,8 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
           <table>
             <thead>
               <tr>
-                <th>Task</th>
                 <th>Client</th>
+                <th>Task</th>
                 <th>Source</th>
                 <th>Assignee</th>
                 <th>Due</th>
@@ -1929,7 +1981,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
           <select id="tasksStatusFilter" onchange="renderTasksPage()"></select>
         </div>
         <table>
-          <thead><tr><th>Task</th><th>Client</th><th style="width:110px;">Owner</th><th style="width:60px;">Hrs</th><th style="width:120px;">Due</th><th style="width:150px;">Status</th><th style="width:72px;"></th></tr></thead>
+          <thead><tr><th>Client</th><th>Task</th><th style="width:110px;">Owner</th><th style="width:60px;">Hrs</th><th style="width:120px;">Due</th><th style="width:150px;">Status</th><th style="width:72px;"></th></tr></thead>
           <tbody id="tasksPageBody"></tbody>
         </table>
         <div id="tasksPageEmpty" style="display:none;padding:20px;text-align:center;color:var(--text-faint);">No tasks match this view.</div>
@@ -1990,7 +2042,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
         <div class="panel" id="tbTasksPanel">
           <div class="panel-head"><h2>Open tasks</h2><div class="panel-head-actions"><span style="font-size:12.5px;color:var(--text-faint);align-self:center;">assigned to a member of this team</span></div></div>
           <table>
-            <thead><tr><th>Task</th><th>Client</th><th>Source</th><th>Assignee</th><th>Due</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Client</th><th>Task</th><th>Source</th><th>Assignee</th><th>Due</th><th>Status</th><th></th></tr></thead>
             <tbody id="tbTasksBody"></tbody>
           </table>
         </div>
@@ -2624,6 +2676,7 @@ body.td-simple-on #deadlineBannerWrap{ display:none; }
         </div>
       </section>
 
+      <section class="view" id="view-cwatch"><div id="cwRoot" aria-live="polite"></div></section>
       <section class="view" id="view-cprofile"><div id="cpRoot" aria-live="polite"></div></section>
 
       <!-- ===================== EMPLOYEES (ADMIN) VIEW ===================== -->
@@ -3461,6 +3514,10 @@ function isSystemAccount(e){
   return !!(e && (e.isSystem || e.isTest || n === 'admin' || n === 'test user' || /^test(\b|[._-])/i.test(n) || /^(admin|test|noreply|no-reply)@/.test(em)));
 }
 // What to show where a client name goes. Admin Tasks have no client — never "Internal", never a fake client.
+// Client first, task name small — one way of showing a piece of work everywhere. Admin work with no client shows its own name as the title.
+function ttClient(t){ const n = String((t && t.clientName) || '').trim(); return n && n.toLowerCase() !== 'internal' ? n : ''; }
+function ttHtml(client, name){ return client ? '<b class="tt-client">' + esc(client) + '</b><span class="tt-task">' + esc(name) + '</span>' : '<b class="tt-client">' + esc(name) + '</b>'; }
+function ttOf(t){ return ttHtml(ttClient(t), t && t.name); }
 function clientLabel(t){
   const n = String((t && t.clientName) || '').trim();
   return n && n.toLowerCase() !== 'internal' ? n : 'Admin task';
@@ -3637,7 +3694,7 @@ function canEditTaskTiming(t){
   if(empManagesWork(currentViewer(), t.assignedTo)) return true;
   return t.assignedTo === currentViewerId
     && !['completed','pending_approval'].includes(t.status)
-    && selfEditActive();
+    && (isAdmin || selfEditActive());      // a manager can always change the dates on their own tasks
 }
 // Review: the person the assignee sent it to, OR a manager over them —
 // never the assignee themselves.
@@ -3732,6 +3789,7 @@ const titles = {
   kudos: ['Recognition', 'Kudos, points and marks — in one place'],
   timeoff: ['Time Off', 'Book leave and half-days — approved time off reshapes capacity automatically'],
   employees: ['Employee Directory', 'Admin-only — view and add employees'],
+  cwatch: ['Commitment watch', 'Every task as a row, every date as a column — filter, sort and group it like a spreadsheet'],
   cprofile: ['Client', 'Who owns the client, the work done for them, the yearly checklist and the hours'],
   clients: ['Client Directory', 'Add your own clients — every client has an owner'],
   command: ['Command Center', 'Live assignment oversight — who assigned what to whom'],
@@ -5014,6 +5072,7 @@ function showView(id, el, classic){
   if(id === 'employees'){ refreshTeams().then(renderEmployeeGrid); renderEmployeeGrid(); }
   if(id === 'clients') renderClientsPage();
   if(id === 'cprofile') renderClientProfile();
+  if(id === 'cwatch') renderCommitmentSheet();
   if(id === 'manager') renderManagerStatics();
   if(id === 'performance') renderPerformanceView();
   if(id === 'kudos') renderKudosView();
@@ -5422,8 +5481,8 @@ function renderAdminView(){
       }
     }
     return `<tr>
-      <td><div class="task-name">${esc(t.name)}</div>${t.scope && t.scope !== '—' ? `<div class="task-scope">${esc(t.scope)}</div>` : ''}<div class="task-scope">${taskNo(t.id)}</div></td>
-      <td class="clientcell">${esc(t.clientName) || '—'}</td>
+      <td><div class="task-name">${esc(ttClient(t) || t.name)}</div>${t.scope && t.scope !== '—' ? `<div class="task-scope">${esc(t.scope)}</div>` : ''}<div class="task-scope">${taskNo(t.id)}</div></td>
+      <td class="clientcell tt-task">${ttClient(t) ? esc(t.name) : ''}</td>
       <td>${srcTag(t.source || 'manual')}</td>
       <td><div class="assignee">${a ? `<span class="mini-avatar">${esc(a.name.split(' ').map(w=>w[0]).slice(0,2).join(''))}</span> ${esc(a.name)}` : '<span style="color:var(--amber);">Unassigned</span>'}</div></td>
       <td class="logged" style="${overdue?'color:#C2410C;font-weight:700;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}</td>
@@ -5697,8 +5756,8 @@ function renderTeamBoard(){
     const a = empById(t.assignedTo);
     const canEdit = canEditTaskTiming(t);
     return `<tr>
-      <td><div class="task-name">${esc(t.name)}</div><div class="task-scope">${t.id}${(t.dateHistory||[]).length || (t.tatHistory||[]).length ? ' · <span title="edited by a manager" style="color:var(--text-faint);">edited</span>' : ''}</div></td>
-      <td class="clientcell">${esc(t.clientName) || '—'}</td>
+      <td><div class="task-name">${esc(ttClient(t) || t.name)}</div><div class="task-scope">${t.id}${(t.dateHistory||[]).length || (t.tatHistory||[]).length ? ' · <span title="edited by a manager" style="color:var(--text-faint);">edited</span>' : ''}</div></td>
+      <td class="clientcell tt-task">${ttClient(t) ? esc(t.name) : ''}</td>
       <td>${srcTag(t.source || 'manual')}</td>
       <td><div class="assignee">${a ? esc(a.name) : '<span style="color:var(--amber);">Unassigned</span>'}</div></td>
       <td class="logged" style="${tbOverdue(t)?'color:#C2410C;font-weight:700;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}<div style="font-size:11px;color:var(--text-faint);">⏱ ${t.tat}h</div></td>
@@ -5731,6 +5790,7 @@ function slOn(){ return !!(session && session.simpleLayout && isAdmin); }
 const SL_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function slDay(iso){ if(!iso) return ''; const p = String(iso).slice(0, 10).split('-'); return p.length === 3 ? (Number(p[2]) + ' ' + SL_MONTHS[Number(p[1]) - 1]) : ''; }
 function slFirst(n){ return String(n || '').split(' ')[0]; }
+let _slTq = '', _slTp = '';
 let _slToday = null, _slMine = null, _sl = { q:'', person:'', status:'', due:'', rows:[], total:0, shown:100, err:null, loading:false, seq:0, people:[] };
 
 /* ---------- Today ---------- */
@@ -5752,7 +5812,10 @@ const SL_WHY = { review:'Review', correction_resubmitted:'Review', escalation:'D
 // What needs ME (not the team): reviews, decisions, profit confirmations, reports to send, tasks to accept, and my own work for today — the same list the full Today shows.
 function slMineHtml(){
   const T = _slMine; if(!T || !T.attention || !T.attention.length) return '';
-  const A = T.attention, shown = A.slice(0, 6);
+  const q = _slTq.trim().toLowerCase();
+  const A = T.attention.filter(a => { const c = (T.cards || {})[a.id] || {}; return (!_slTp || c.assigneeId === _slTp) && (!q || [c.clientName, c.name, c.taskType, a.why, c.assigneeName].join(' ').toLowerCase().includes(q)); });
+  if(!A.length) return '';
+  const shown = A.slice(0, 6);
   const rows = shown.map(a => {
     const c = (T.cards || {})[a.id] || {}, urgent = a.urgent || a.rank === 0;
     const title = c.clientName ? '<b>' + esc(c.clientName) + '</b> · ' + esc(c.taskType || c.name) : '<b>' + esc(c.name || a.id) + '</b>';
@@ -5767,16 +5830,20 @@ function drawSlToday(){
   const box = document.getElementById('slRoot'); const d = _slToday; if(!box || !d) return;
   const date = new Date().toLocaleDateString('en-NZ', { weekday:'long', day:'numeric', month:'long', timeZone:'Pacific/Auckland' });
   const st = d.stats || {};
+  const tq = _slTq.trim().toLowerCase(), tp = _slTp;
+  const okItem = i => (!tp || i.whoId === tp) && (!tq || [i.client, i.work, i.sub, i.who, i.pill].join(' ').toLowerCase().includes(tq));
+  const people = [...new Map(((d.needsAction || {}).items || []).filter(i => i.whoId).map(i => [i.whoId, i.who]).concat((d.team || []).map(p => [p.id, p.name.split(' ')[0]]))).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+  const keepQ = document.activeElement && document.activeElement.id === 'slTq';
   const tile = (n, label, cls, go) => '<button type="button" class="sl-stat ' + cls + '"' + (go ? ' onclick="' + go + '"' : ' tabindex="-1"') + '><b>' + n + '</b><span>' + label + '</span></button>';
-  const rows = ((d.needsAction || {}).items || []).map(i => {
+  const rows = ((d.needsAction || {}).items || []).filter(okItem).map(i => {
     const title = i.client ? '<b>' + esc(i.client) + '</b> · ' + esc(i.work) : '<b>' + esc(i.work) + '</b>';
     const act = i.action === 'send'
       ? '<button type="button" class="sl-btn" onclick="slMarkSent(\'' + esc(i.id) + '\')">Mark sent</button>'
       : '<button type="button" class="sl-btn ghost" onclick="slNudge(\'' + esc(i.id) + '\', ' + (i.toId ? '\'' + esc(i.toId) + '\'' : 'null') + ')">Nudge</button>';
     return '<div class="sl-row"><div class="sl-t sl-click" tabindex="0" role="button" onclick="mtOpenDetail(\'' + esc(i.id) + '\')" onkeydown="if(event.key===\'Enter\'){ mtOpenDetail(\'' + esc(i.id) + '\'); }">' + title + '<small>' + esc(i.sub) + '</small></div><span class="sl-pill ' + (i.tone === 'fix' ? 'p-fix' : 'p-rev') + '">' + esc(i.pill) + '</span>' + act + '</div>';
-  }).join('') || '<div class="sl-empty">Nothing needs you right now.</div>';
+  }).join('') || '<div class="sl-empty">' + (tq || tp ? 'Nothing matches your search.' : 'Nothing needs you right now.') + '</div>';
   const na = d.needsAction || { total: 0 };
-  const team = (d.team || []).map(p => {
+  const team = (d.team || []).filter(p => (!tp || p.id === tp) && (!tq || p.name.toLowerCase().includes(tq))).map(p => {
     const over = p.overdue > 0;
     return '<div class="sl-row sl-click" tabindex="0" role="button" onclick="slOpenTasks({ person:\'' + esc(p.id) + '\'' + (over ? ', due:\'overdue\'' : '') + ' })" onkeydown="if(event.key===\'Enter\'){ slOpenTasks({ person:\'' + esc(p.id) + '\' }); }"><div class="sl-t">' + esc(p.name) + '</div><div class="sl-bar' + (over ? ' over' : '') + '"><i style="width:' + (over ? 100 : p.pct) + '%"></i></div><span class="sl-due' + (over ? ' late' : '') + '">' + (over ? p.overdue + ' overdue' : p.done + ' of ' + p.total + ' done') + '</span></div>';
   }).join('') || '<div class="sl-empty">No team work yet.</div>';
@@ -5789,12 +5856,15 @@ function drawSlToday(){
     + tile(st.waitingReview || 0, 'Waiting for your review', '', 'showView(\'reviews\', document.querySelector(\'#navSimple .nav-item[data-view=reviews]\'))')
     + tile(st.finishedToday || 0, 'Finished today', 'ok', '')
     + '</div>'
-    + '<div class="sl-card"><h3>Needs action now <span class="sl-due">' + na.total + (na.total === 1 ? ' item' : ' items') + '</span></h3>' + rows + '</div>'
+    + '<div class="sl-filters" role="search"><input class="sl-in" id="slTq" type="search" placeholder="Search clients, tasks, people…" aria-label="Search Today" value="' + esc(_slTq) + '" oninput="slTodayFilter(\'q\', this.value)"><select class="sl-in" aria-label="Person" onchange="slTodayFilter(\'p\', this.value)"><option value="">Person ▾</option>' + people.map(p => '<option value="' + esc(p[0]) + '"' + (p[0] === _slTp ? ' selected' : '') + '>' + esc(p[1]) + '</option>').join('') + '</select>' + (tq || tp ? '<button type="button" class="sl-btn ghost" onclick="slTodayFilter(\'clear\')">Clear</button>' : '') + '</div>'
+    + '<div class="sl-card"><h3>Needs action now <span class="sl-due">' + (tq || tp ? rowsCount(d, okItem) + ' of ' : '') + na.total + (na.total === 1 ? ' item' : ' items') + '</span></h3>' + rows + '</div>'
     + slMineHtml()
     + '<div class="sl-card"><h3>Team today <button type="button" class="sl-link" onclick="showView(\'team\', document.querySelector(\'#navSimple .nav-item[data-view=team]\'))">Open Team →</button></h3>' + team + '</div>'
     + '<div class="sl-foot"><button type="button" class="sl-link" onclick="slFullToday()">Full Today — my dashboard, manager view, review view</button><button type="button" class="sl-link" onclick="slFull(\'calendar\')">Task calendar</button><button type="button" class="sl-link" onclick="slFull(\'timeline\')">Task timeline</button></div>'
     + '</div>';
 }
+function rowsCount(d, ok){ return ((d.needsAction || {}).items || []).filter(ok).length; }
+function slTodayFilter(k, v){ if(k === 'q') _slTq = v; else if(k === 'p') _slTp = v; else { _slTq = ''; _slTp = ''; } drawSlToday(); const i = document.getElementById('slTq'); if(i && k === 'q'){ i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch(e){} } }
 async function slMarkSent(id){
   try { await api('/api/tasks/' + encodeURIComponent(id) + '/send-to-client', { method:'POST', body: JSON.stringify({ decision:'yes' }) }); showToast('success', 'Marked sent', 'The report is recorded as sent to the client.'); await refreshTasks(); slRefresh(); }
   catch(e){ showToast('error', 'Could not mark it sent', e.message); }
@@ -6238,8 +6308,8 @@ function openLeaveConflictModal(leaveBody, conflicts){
   window.__leaveConflictBody = leaveBody;
   const rows = conflicts.map(t => `
     <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
-      <div><div style="font-weight:600;color:var(--text);">${esc(t.name)}</div>
-        <div style="font-size:12px;color:var(--text-faint);">${esc(clientLabel(t))} · due ${fmtDate(t.internalDeadline)}</div></div>
+      <div>${ttOf(t)}
+        <div style="font-size:12px;color:var(--text-faint);">due ${fmtDate(t.internalDeadline)}</div></div>
       <button class="verify-btn" style="border-color:#6C5CE7;color:#6D28D9;" onclick="openReassignModal('${t.id}')">Reassign</button>
       <button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="openHoldModal('${t.id}')">Put on Hold</button>
     </div>`).join('');
@@ -6374,8 +6444,8 @@ function openUnacceptedBlockModal(list){
     actions += `<button class="verify-btn" style="border-color:var(--amber);color:#B45309;" onclick="closeModal(); openHoldModal('${t.id}')">⏸ Put on Hold</button>`;
     return `
       <div style="background:${flagged?'var(--coral-dim)':'var(--panel-2)'}; border:1px solid ${flagged?'#F0603E4a':'var(--panel-border)'}; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
-        <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)} <span style="font-weight:400;font-size:12px;color:var(--text-faint);">· ${statusLabel(t.status)}</span></div>
-        <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''}${flagged && t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}${flagged && (t.reviewAttachments || []).length ? ' · 📎 ' + t.reviewAttachments.length + ' file' + (t.reviewAttachments.length > 1 ? 's' : '') : ''}</div>
+        <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(clientLabel(t))} <span style="font-weight:400;font-size:12px;color:var(--text-faint);">· ${statusLabel(t.status)}</span></div>
+        <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${ttClient(t) ? esc(t.name) : ''} ${t.scope && t.scope !== '—' ? '· ' + esc(t.scope) : ''}${flagged && t.reviewNote ? ' · ' + esc(t.reviewNote) : ''}${flagged && (t.reviewAttachments || []).length ? ' · 📎 ' + t.reviewAttachments.length + ' file' + (t.reviewAttachments.length > 1 ? 's' : '') : ''}</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">${actions}</div>
       </div>`;
   };
@@ -7067,8 +7137,8 @@ function renderTaskTable(){
       const isToday = t.internalDeadline === todayISO() && t.status !== 'completed';
       return `<tr>
         <td class="task-id">${taskNo(t.id)}</td>
-        <td><div class="task-name">${esc(t.name)}</div>${(t.source && t.source !== 'manual') ? `<div class="admin-src-cell">${srcTag(t.source)}</div>` : ''}</td>
-        <td class="clientcell">${esc(t.clientName) || '—'}<div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Manager due: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${(t.dateHistory||[]).length ? ' · <span title="edited by a manager">edited ' + (t.dateHistory.length) + '×</span>' : ''}</div><div class="cdate ${isToday?'deadline-today':''}">Client: ${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}${t.clientDateOverride ? ' <span class="pill neutral" style="font-size:9px;">PROMISED</span>' : ''}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
+        <td><div class="task-name">${esc(ttClient(t) || t.name)}</div>${(t.source && t.source !== 'manual') ? `<div class="admin-src-cell">${srcTag(t.source)}</div>` : ''}</td>
+        <td class="clientcell">${ttClient(t) ? '<span class="tt-task">' + esc(t.name) + '</span>' : ''}<div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">Manager due: ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${(t.dateHistory||[]).length ? ' · <span title="edited by a manager">edited ' + (t.dateHistory.length) + '×</span>' : ''}</div><div class="cdate ${isToday?'deadline-today':''}">Client: ${t.clientDate ? fmtDate(t.clientDate) : '—'}${isToday ? ' · DUE TODAY' : ''}${t.clientDateOverride ? ' <span class="pill neutral" style="font-size:9px;">PROMISED</span>' : ''}</div>${commitmentBadge(t) ? `<div style="margin-top:5px;">${commitmentBadge(t)}</div>` : ''}</td>
         <td><div class="assignee"><span class="mini-avatar">${assignee ? esc(assignee.name.split(' ').map(w=>w[0]).slice(0,2).join('')) : '?'}</span> ${assignee ? esc(assignee.name) : 'Unassigned'}</div></td>
         <td class="logged">${t.tat} hrs</td>
         <td style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')" title="Who did what — full history">${statusBadge(t)}<div style="font-size:11px;color:var(--text-faint);margin-top:3px;">history ›</div></td>
@@ -7542,7 +7612,7 @@ function renderDashToday(){
     toSend ? `<div class="banner"><span>📨</span><span><b>${toSend} report${toSend === 1 ? '' : 's'} to send</b> to clients — <button type="button" class="linkbtn" onclick="openReviewsPage();" style="text-decoration:underline;font-weight:600;">open Reviews</button></span></div>` : '',
   ].join('');
   const mineRows = mineList.slice().sort((a, b) => (a.internalDeadline || '9999').localeCompare(b.internalDeadline || '9999')).slice(0, 6).map(t => `<div class="to-row" style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
-      <div class="to-main"><b>${esc(t.name)}</b>${t.clientName ? ` <span style="color:var(--text-faint);">— ${esc(t.clientName)}</span>` : ''}
+      <div class="to-main">${ttOf(t)}
         <div style="font-size:12px;color:var(--text-faint);">${miniState(t) || (t.status === 'completed' ? 'Finished' : '')}${t.internalDeadline ? ' · due ' + fmtDate(t.internalDeadline) : ''}</div></div>
     </div>`).join('');
   const teamRows = stats.map(({ p }) => {
@@ -7680,7 +7750,7 @@ function renderDashTeam(){
     const open = _teamOpen.has(p.id) || !!_teamPerson;
     const groupsHtml = DASH_CATS.filter(([k]) => b.groups[k]).map(([k, label]) => `<div class="tm-group c-${k}"><span>${label}</span><b>${b.groups[k].length}</b></div>
       ${b.groups[k].map(t => `<div class="tm-task" onclick="openTaskTrailModal('${t.id}')">
-        <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(clientLabel(t))}${dashNoteHtml(t)}</small></span>
+        <span class="tm-task-main">${ttOf(t)}<small>${dashNoteHtml(t)}</small></span>
         <span class="tm-task-meta">${isOverdueNow(t) ? '<span class="dash-bad">overdue · </span>' : ''}${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}${pt && pt.tasks && pt.tasks[t.id] ? ' · <b class="tm-time" title="Time recorded on this task in this range — ' + tlH(t.logged) + ' in total">⏱ ' + tlH(pt.tasks[t.id]) + ' worked</b>' : ''}</span>
         <span class="wk-act" onclick="event.stopPropagation()">${isOverdueNow(t) ? `<button class="verify-btn" style="border-color:var(--coral);color:var(--coral);" onclick="nudgeTask('${t.id}')">Nudge</button>` : ''}<button class="verify-btn" title="Nudge, reassign, edit dates, remove…" onclick="openTaskActions('${t.id}')">⋯ More</button></span>
       </div>`).join('')}`).join('');
@@ -7759,7 +7829,7 @@ function renderDashWork(){
   const groups = {};
   rows.forEach(t => { (groups[dashCat(t)] = groups[dashCat(t)] || []).push(t); });
   const row = t => `<div class="wk-task" onclick="openTaskTrailModal('${t.id}')">
-      <span class="tm-task-main"><b>${esc(t.name)}</b><small>${esc(clientLabel(t))}${dashNoteHtml(t)}</small></span>
+      <span class="tm-task-main">${ttOf(t)}<small>${dashNoteHtml(t)}</small></span>
       <span class="tm-task-meta">${isOverdueNow(t) ? '<span class="dash-bad">overdue · </span>' : ''}${t.completedAt ? 'finished ' + fmtDate(dayOf(t.completedAt)) : (t.internalDeadline ? 'due ' + fmtDate(t.internalDeadline) : 'no due date')}${t.tat ? ' · ' + t.tat + 'h' : ''}</span>
       <span class="wk-act" onclick="event.stopPropagation()">${actionButtonHtml(t)}<button class="verify-btn" title="More actions — hold, reassign, edit dates, remove" onclick="openTaskActions('${t.id}')">⋯ More</button></span>
     </div>`;
@@ -8221,7 +8291,7 @@ function renderNeedsAttention(){
     return `<div class="attn-item">
       <div class="attn-icon">&#9888;</div>
       <div style="flex:1; min-width:0;">
-        <div class="attn-title">${esc(t.name)}${t.clientName ? ' &mdash; ' + esc(t.clientName) : ''}</div>
+        <div class="attn-title">${esc(clientLabel(t))}${ttClient(t) ? ' <span style="font-weight:400;font-size:12px;color:var(--text-dim);">' + esc(t.name) + '</span>' : ''}</div>
         <div class="attn-sub">${emp ? esc(emp.name) : 'Unassigned'} &middot; ${days} day${days === 1 ? '' : 's'} overdue &middot; due ${fmtDate(t.internalDeadline)}${chased}</div>
       </div>
       ${nudge}
@@ -8515,7 +8585,7 @@ function tdSimpleRow(a){
   const c = _today.cards[a.id]; if(!c) return '';
   const sid = esc(a.id), pill = tdSimplePill(a, c);
   return '<div class="ts-row' + (_tdSel === a.id ? ' sel' : '') + '" role="listitem" tabindex="0" data-id="' + sid + '" onclick="tdSimpleSelect(\'' + sid + '\')" onkeydown="if(event.key===\'Enter\'){ tdSimpleSelect(\'' + sid + '\'); }">'
-    + '<div class="ts-line"><b>' + esc(c.name) + '</b><span>' + esc(c.clientName || 'Admin task') + '</span></div>'
+    + '<div class="ts-line">' + ttHtml(c.clientName, c.name) + '</div>'
     + '<div class="ts-proc">' + esc(c.assigneeName || '—') + '</div>'
     + '<div class="ts-date">' + (c.clientDate ? esc(fmtDate(c.clientDate)) : '<span class="ts-none">—</span>') + '</div>'
     + '<span class="ts-pill ' + pill[1] + '">' + esc(pill[0]) + '</span>'
@@ -8659,7 +8729,7 @@ function tdDetailHtml(id, given, actionable){
   let body = '<button type="button" class="btn td-back td-act" onclick="tdBack()">← Back to the list</button>'
     + (canMarkDoneAny(t) ? ' <button type="button" class="btn td-act td-done" style="float:right;border-color:var(--teal);color:var(--teal);" onclick="markDoneAny(\'' + esc(c.id) + '\')">✓ Mark done</button>' : '')
     + '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><div><div style="font-size:12.5px;color:var(--text-faint);">' + esc(c.kindLabel) + ' · ' + esc(taskNo(c.id)) + '</div>'
-    + '<h3 style="margin:2px 0 0;">' + esc(c.clientName || 'Admin task') + ' — ' + esc(c.name) + '</h3></div><div>' + tdRiskTag(c) + '</div></div>'
+    + '<h3 style="margin:2px 0 0;">' + esc(c.clientName || 'Admin task') + (c.clientName ? ' <span style="font-size:13px;font-weight:400;color:var(--text-dim);">' + esc(c.name) + '</span>' : '') + '</h3></div><div>' + tdRiskTag(c) + '</div></div>'
     + '<div style="margin:6px 0;font-size:14px;"><b>' + esc(c.primaryStatus || c.status) + '</b>' + (c.subState ? ' · ' + esc(c.subState) : '') + ' — ' + esc(c.waitingOn.label) + (c.waitingOn.ownerName ? ' (' + esc(c.waitingOn.ownerName) + ')' : '') + '</div>';
   if(mode === 'today') body += '<div style="margin:8px 0 6px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:14px;"><b>What you need to do</b><br>' + esc(c.nextAction) + (c.clientDate ? '<br><span style="color:var(--text-dim);">' + esc(c.clientRisk.label) + '</span>' : (c.internalDeadline ? '<br><span style="color:var(--text-dim);">Due ' + esc(fmtDate(c.internalDeadline)) + '</span>' : '')) + '</div>' + track;
   else body += '<div style="font-size:13.5px;color:var(--text-dim);">Next: ' + esc(c.nextAction) + '</div>' + track;
@@ -8801,45 +8871,273 @@ async function cwLoadTaskWatch(id){
     el.innerHTML = breach + (flags ? '<div class="cw-flags">' + flags + '</div>' : '') + '<div class="cw-stages" role="list" aria-label="Stage timestamps">' + rows + '</div>';
   } catch(e){ /* the history below still works without it */ }
 }
-let _cw = null, _cwTab = 'breaches';
+/* =========================================================================
+   COMMITMENT WATCH — a full page that works like a spreadsheet: every task is a row; every date and stage is a column. Sort by any column, filter any
+   column, search, group, show / hide / reorder columns, resize them, save a view, download what you see. Read-only.
+   ========================================================================= */
+const CWS_COLS = [
+  { k:'client', label:'Client', type:'text', w:210 }, { k:'name', label:'Task', type:'text', w:240, small:true },
+  { k:'kind', label:'Type', type:'enum', w:110 }, { k:'job', label:'Job type', type:'enum', w:150 },
+  { k:'processor', label:'Processor', type:'enum', w:130 }, { k:'reviewer', label:'Reviewer', type:'enum', w:130 }, { k:'manager', label:'Manager', type:'enum', w:130 },
+  { k:'status', label:'Status', type:'enum', w:130 }, { k:'risk', label:'Client risk', type:'enum', w:120 },
+  { k:'waitingOn', label:'Waiting on', type:'enum', w:150 }, { k:'nextOwner', label:'Next action by', type:'enum', w:130 },
+  { k:'createdAt', label:'Assigned', type:'date', w:100 }, { k:'internalDue', label:'Internal due', type:'date', w:105 }, { k:'commitmentDate', label:'Client due', type:'date', w:105 },
+  { k:'submittedAt', label:'Submitted', type:'datetime', w:135 }, { k:'reviewedAt', label:'Reviewed', type:'datetime', w:135 }, { k:'sentBackAt', label:'Sent back', type:'datetime', w:135 },
+  { k:'readyForReportAt', label:'Ready for report', type:'datetime', w:140 }, { k:'reportSentAt', label:'Report sent', type:'datetime', w:135 }, { k:'lastUpdateAt', label:'Last update', type:'datetime', w:135 },
+  { k:'daysOver', label:'Days over', type:'num', w:90 }, { k:'flags', label:'Flags', type:'multi', w:270 }, { k:'report', label:'Report', type:'enum', w:120 },
+  { k:'allocatedHours', label:'Allocated h', type:'num', w:95 }, { k:'loggedHours', label:'Logged h', type:'num', w:90 }, { k:'fixRounds', label:'Fix rounds', type:'num', w:90 },
+  { k:'dateChanges', label:'Date changes', type:'num', w:105 }, { k:'originalInternal', label:'Original internal due', type:'date', w:145 }, { k:'originalClient', label:'Original client due', type:'date', w:140 },
+  { k:'fy', label:'Financial year', type:'enum', w:115 }, { k:'id', label:'Task no.', type:'text', w:115 },
+];
+const CWS_DEFAULT_COLS = ['client', 'name', 'processor', 'reviewer', 'status', 'internalDue', 'commitmentDate', 'submittedAt', 'reviewedAt', 'reportSentAt', 'daysOver', 'flags'];
+const CWS_PRESETS = {
+  breaches: { label:'Commitment breaches', help:'The client commitment date has passed and the report has not been sent to the client.', filters:{ daysOver:{ min:1 } }, sort:[{ k:'daysOver', dir:-1 }] },
+  flags: { label:'Late & at risk', help:'Not submitted by the internal due date · review not done by the commitment date · no update since the working day before the commitment date.', filters:{ flags:{ notEmpty:true } }, sort:[{ k:'commitmentDate', dir:1 }] },
+  open: { label:'All open tasks', help:'Every task that is not finished yet.', filters:{ status:{ not:['Completed'] } }, sort:[{ k:'commitmentDate', dir:1 }] },
+  all: { label:'All tasks', help:'Every task you can see, finished ones too.', filters:{}, sort:[{ k:'commitmentDate', dir:-1 }] },
+};
+let _cws = null, _cwsData = null, _cwsErr = null, _cwsLimit = 200, _cwsCollapsed = {};
+const cwsKey = () => 'cwSheet.v2.' + (currentViewerId || 'x');
+function cwsDefaults(preset){ const p = CWS_PRESETS[preset] || CWS_PRESETS.breaches; return { preset, cols: CWS_DEFAULT_COLS.slice(), widths:{}, sort: JSON.parse(JSON.stringify(p.sort)), filters: JSON.parse(JSON.stringify(p.filters)), q:'', group:'' }; }
+function cwsLoadState(preset){
+  let s = null; try { s = JSON.parse(localStorage.getItem(cwsKey()) || 'null'); } catch(e){}
+  _cws = s && Array.isArray(s.cols) ? s : cwsDefaults(preset || 'breaches');
+  _cws.cols = _cws.cols.filter(k => CWS_COLS.some(c => c.k === k)); if(!_cws.cols.length) _cws.cols = CWS_DEFAULT_COLS.slice();
+  if(preset){ const d = cwsDefaults(preset); _cws.preset = preset; _cws.filters = d.filters; _cws.sort = d.sort; _cws.q = ''; _cws.group = ''; }
+}
+function cwsSave(){ try { localStorage.setItem(cwsKey(), JSON.stringify(_cws)); } catch(e){} }
+function cwsSavedViews(){ try { return JSON.parse(localStorage.getItem(cwsKey() + '.views') || '[]'); } catch(e){ return []; } }
+function cwsSaveViews(v){ try { localStorage.setItem(cwsKey() + '.views', JSON.stringify(v)); } catch(e){} }
+const cwsCol = k => CWS_COLS.find(c => c.k === k);
+const cwsMon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function cwsDayLabel(iso){ if(!iso) return ''; const p = String(iso).slice(0, 10).split('-'); const cur = String(todayISO()).slice(0, 4); return Number(p[2]) + ' ' + cwsMon[Number(p[1]) - 1] + (p[0] !== cur ? ' ' + p[0] : ''); }
+function cwsTimeLabel(ts){ if(!ts) return ''; try { return cwsDayLabel(dayOf(ts)) + ', ' + new Date(ts).toLocaleTimeString('en-NZ', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Pacific/Auckland' }); } catch(e){ return ''; } }
+// the value a column filters and sorts on
+function cwsVal(r, c){
+  const v = r[c.k];
+  if(c.type === 'datetime') return v ? dayOf(v) : '';
+  if(c.type === 'multi') return Array.isArray(v) ? v : [];
+  if(c.type === 'num') return v === null || v === undefined || v === '' ? null : Number(v);
+  return v === null || v === undefined ? '' : String(v);
+}
+function cwsRowPass(r, skipKey){
+  const f = _cws.filters;
+  for(const k of Object.keys(f)){
+    if(k === skipKey) continue;
+    const c = cwsCol(k), flt = f[k]; if(!c || !flt) continue;
+    const v = cwsVal(r, c);
+    if(c.type === 'text'){ const s = String(v).toLowerCase(), t = String(flt.v || '').toLowerCase(); if(flt.op === 'empty'){ if(s) return false; } else if(flt.op === 'notempty'){ if(!s) return false; } else if(flt.op === 'equals'){ if(s !== t) return false; } else if(flt.op === 'not'){ if(t && s.includes(t)) return false; } else if(t && !s.includes(t)) return false; }
+    else if(c.type === 'enum'){ if(flt.not && flt.not.includes(String(v))) return false; }
+    else if(c.type === 'multi'){ if(flt.notEmpty && !v.length) return false; if(flt.empty && v.length) return false; if(flt.not && flt.not.length){ const vals = v.length ? v : ['']; if(vals.every(x => flt.not.includes(x))) return false; } }
+    else if(c.type === 'date' || c.type === 'datetime'){ if(flt.empty === 'only'){ if(v) return false; } else if(flt.empty === 'none'){ if(!v) return false; } if(flt.from && (!v || v < flt.from)) return false; if(flt.to && (!v || v > flt.to)) return false; }
+    else if(c.type === 'num'){ if(flt.min !== undefined && flt.min !== '' && flt.min !== null && (v === null || v < Number(flt.min))) return false; if(flt.max !== undefined && flt.max !== '' && flt.max !== null && (v === null || v > Number(flt.max))) return false; if(flt.empty === 'only' && v !== null) return false; if(flt.empty === 'none' && v === null) return false; }
+  }
+  const q = String(_cws.q || '').trim().toLowerCase();
+  if(q){ const hay = _cws.cols.map(k => { const c = cwsCol(k); const v = c.type === 'datetime' ? cwsTimeLabel(r[k]) : c.type === 'date' ? cwsDayLabel(r[k]) : c.type === 'multi' ? (r[k] || []).join(' ') : r[k]; return v == null ? '' : String(v); }).join(' ').toLowerCase() + ' ' + String(r.id).toLowerCase(); if(!hay.includes(q)) return false; }
+  return true;
+}
+function cwsCompare(a, b){
+  for(const s of _cws.sort){
+    const c = cwsCol(s.k); if(!c) continue;
+    const x = cwsVal(a, c), y = cwsVal(b, c);
+    const xe = x === null || x === '' || (Array.isArray(x) && !x.length), ye = y === null || y === '' || (Array.isArray(y) && !y.length);
+    if(xe !== ye) return xe ? 1 : -1;                               // blanks always last
+    if(xe && ye) continue;
+    let d = 0;
+    if(c.type === 'num') d = x - y; else if(c.type === 'datetime') d = String(a[c.k]).localeCompare(String(b[c.k])); else if(c.type === 'multi') d = x.join(',').localeCompare(y.join(',')); else d = String(x).localeCompare(String(y), undefined, { numeric:true, sensitivity:'base' });
+    if(d) return d * s.dir;
+  }
+  return String(a.id).localeCompare(String(b.id));
+}
+function cwsRows(){ return (_cwsData ? _cwsData.rows : []).filter(r => cwsRowPass(r)).sort(cwsCompare); }
+
 async function openCommitmentWatch(tab){
-  _cwTab = tab || _cwTab || 'breaches';
-  document.getElementById('modalBox').innerHTML = '<h3>Commitment watch</h3><div class="modal-sub">Loading…</div>';
-  openModal();
-  try { _cw = await api('/api/commitment-watch'); } catch(e){ document.getElementById('modalBox').innerHTML = '<h3>Commitment watch</h3><div class="modal-error" style="display:block;">' + esc(e.message) + '</div><div class="modal-actions"><button class="btn" onclick="closeModal()">Close</button></div>'; return; }
-  drawCommitmentWatch();
+  closeModal();
+  cwsLoadState(['breaches', 'flags', 'open', 'all'].includes(tab) ? tab : (_cws ? null : 'breaches'));
+  _cwsLimit = 200; _cwsCollapsed = {};
+  showView('cwatch', null);
 }
-function cwSetTab(t){ _cwTab = t; drawCommitmentWatch(); }
-function drawCommitmentWatch(){
-  const d = _cw; if(!d) return;
-  const list = _cwTab === 'flags' ? d.flagged : d.breaches, CAP = 200;
-  const th = h => '<th>' + h + '</th>';
-  const body = list.slice(0, CAP).map(r => {
-    const flags = _cwTab === 'flags' ? r.flags.map(f => '<span class="cw-flag ' + (CW_TONE[f.tone] || '') + '" title="' + esc(f.detail || '') + '">' + esc(f.label) + '</span>').join(' ')
-      : '<b class="cw-late-text">' + r.daysOver + (r.daysOver === 1 ? ' day' : ' days') + ' over</b>' + (r.waitingOn ? '<div class="cw-sub">' + esc(r.waitingOn) + (r.owner ? ' · ' + esc(r.owner) : '') + '</div>' : '');
-    return '<tr class="cw-row" tabindex="0" role="button" onclick="closeModal();openTaskTrailModal(\'' + esc(r.id) + '\')" onkeydown="if(event.key===\'Enter\'){ this.click(); }">'
-      + '<td><b>' + esc(r.name) + '</b><div class="cw-sub">' + esc(r.clientName || '') + '</div></td><td>' + esc(r.processor || '—') + '<div class="cw-sub">' + esc(r.reviewer ? 'Reviewer ' + r.reviewer : '') + '</div></td>'
-      + '<td>' + (r.commitmentDate ? esc(fmtDate(r.commitmentDate)) : '—') + (_cwTab === 'flags' && r.internalDue ? '<div class="cw-sub">internal ' + esc(fmtDate(r.internalDue)) + '</div>' : '') + '</td><td>' + flags + '</td>'
-      + '<td class="cw-times"><div>Submitted ' + cwStamp(r.submittedAt) + '</div><div>Reviewed ' + cwStamp(r.reviewedAt) + '</div><div>Sent back ' + cwStamp(r.sentBackAt) + '</div><div>Ready ' + cwStamp(r.readyForReportAt) + '</div><div>Report sent ' + cwStamp(r.reportSentAt) + '</div></td></tr>';
-  }).join('');
-  const tab = (k, label, n) => '<button type="button" class="cw-tab' + (_cwTab === k ? ' on' : '') + '" role="tab" aria-selected="' + (_cwTab === k) + '" onclick="cwSetTab(\'' + k + '\')">' + label + ' <b>' + n + '</b></button>';
-  document.getElementById('modalBox').innerHTML = '<div class="cw-modal"><h3>Commitment watch</h3>'
-    + '<div class="modal-sub">As of ' + esc(fmtDate(d.today)) + ' · each client commitment breach costs ' + esc(String(d.rules && d.rules.breachMarks != null ? d.rules.breachMarks : '')) + ' marks.</div>'
-    + '<div class="cw-tabs" role="tablist">' + tab('breaches', 'Commitment breaches', d.breaches.length) + tab('flags', 'Late &amp; at risk', d.flagged.length) + '</div>'
-    + '<div class="cw-help">' + (_cwTab === 'flags'
-      ? 'Not submitted by the internal due date · review not done by the commitment date · no update since the working day before the commitment date.'
-      : 'The commitment date has passed and the report has not been sent to the client.') + '</div>'
-    + (list.length ? '<div class="cw-scroll"><table class="cw-table"><thead><tr>' + th('Task') + th('Processor') + th('Commitment') + th(_cwTab === 'flags' ? 'Flags' : 'Overdue') + th('Stage times') + '</tr></thead><tbody>' + body + '</tbody></table></div>'
-      + (list.length > CAP ? '<div class="cw-help">Showing the first ' + CAP + ' of ' + list.length + ' — download the CSV for all of them.</div>' : '')
-      : '<div class="cw-empty">' + (_cwTab === 'flags' ? 'Nothing is late or at risk right now.' : 'No client commitment has been breached.') + '</div>')
-    + '<div class="modal-actions"><button type="button" class="btn" onclick="cwCsv()">Download CSV</button><button type="button" class="btn" onclick="closeModal()">Close</button></div></div>';
+async function renderCommitmentSheet(){
+  const box = document.getElementById('cwRoot'); if(!box) return;
+  if(!_cws) cwsLoadState('breaches');
+  if(!_cwsData) box.innerHTML = '<div class="cws-empty">Loading every task…</div>';
+  try { _cwsData = await api('/api/commitment-watch/sheet'); _cwsErr = null; } catch(e){ _cwsErr = e.message; }
+  drawCommitmentSheet();
 }
-async function cwCsv(){
-  try {
-    const res = await fetch(API_BASE + '/api/commitment-watch?format=csv&kind=' + (_cwTab === 'flags' ? 'flags' : 'breaches'), { headers: { Authorization: 'Bearer ' + authToken } });
-    if(!res.ok) throw new Error('Could not build the file.');
-    const blob = await res.blob(), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = (_cwTab === 'flags' ? 'late-and-at-risk' : 'commitment-breaches') + '.csv'; document.body.appendChild(a); a.click(); a.remove();
-  } catch(e){ showToast('error', 'Could not download', e.message); }
+function cwsActiveCount(){ return Object.keys(_cws.filters).filter(k => cwsFilterOn(k)).length + (String(_cws.q || '').trim() ? 1 : 0); }
+function cwsFilterOn(k){
+  const f = _cws.filters[k]; if(!f) return false;
+  const c = cwsCol(k); if(!c) return false;
+  if(c.type === 'text') return !!(f.v || f.op === 'empty' || f.op === 'notempty');
+  if(c.type === 'enum') return !!(f.not && f.not.length);
+  if(c.type === 'multi') return !!(f.notEmpty || f.empty || (f.not && f.not.length));
+  if(c.type === 'date' || c.type === 'datetime') return !!(f.from || f.to || f.empty);
+  return (f.min !== undefined && f.min !== '' && f.min !== null) || (f.max !== undefined && f.max !== '' && f.max !== null) || !!f.empty;
+}
+function cwsFilterText(k){
+  const c = cwsCol(k), f = _cws.filters[k]; if(!c || !f) return '';
+  if(c.type === 'text') return f.op === 'empty' ? 'is empty' : f.op === 'notempty' ? 'is not empty' : (f.op === 'equals' ? 'is "' : f.op === 'not' ? 'does not contain "' : 'contains "') + f.v + '"';
+  if(c.type === 'enum' || (c.type === 'multi' && f.not && f.not.length)) return 'hiding ' + f.not.map(x => x || '(blank)').join(', ');
+  if(c.type === 'multi') return f.notEmpty ? 'has any' : 'has none';
+  if(c.type === 'date' || c.type === 'datetime') return f.empty === 'only' ? 'is empty' : f.empty === 'none' ? 'has a date' : (f.from ? 'from ' + cwsDayLabel(f.from) : '') + (f.from && f.to ? ' ' : '') + (f.to ? 'to ' + cwsDayLabel(f.to) : '');
+  return f.empty === 'only' ? 'is empty' : f.empty === 'none' ? 'has a value' : ((f.min !== undefined && f.min !== '' && f.min !== null) ? '≥ ' + f.min : '') + ((f.max !== undefined && f.max !== '' && f.max !== null) ? ' ≤ ' + f.max : '');
+}
+function drawCommitmentSheet(){
+  const box = document.getElementById('cwRoot'); if(!box) return;
+  if(_cwsErr){ box.innerHTML = '<div class="cws-empty" role="alert">Could not load the commitment watch: ' + esc(_cwsErr) + ' <button class="btn small" onclick="renderCommitmentSheet()">Retry</button></div>'; return; }
+  const d = _cwsData; if(!d) return;
+  const preset = CWS_PRESETS[_cws.preset];
+  const tabs = Object.keys(CWS_PRESETS).map(k => '<button type="button" role="tab" class="cws-tab' + (_cws.preset === k ? ' on' : '') + '" aria-selected="' + (_cws.preset === k) + '" onclick="cwsPreset(\'' + k + '\')">' + CWS_PRESETS[k].label + '</button>').join('');
+  const saved = cwsSavedViews().map((v, i) => '<button type="button" class="cws-tab' + (_cws.preset === 'saved:' + i ? ' on' : '') + '" onclick="cwsApplyView(' + i + ')">★ ' + esc(v.name) + '</button>').join('');
+  box.innerHTML = '<div class="cws-wrap"><div class="cws-head"><div><h2 class="cws-h">Commitment watch</h2><div class="cws-sub">As of ' + esc(fmtDate(d.today)) + ' · each client commitment breach costs ' + esc(String(d.rules && d.rules.breachMarks != null ? d.rules.breachMarks : '')) + ' marks.</div></div></div>'
+    + '<div class="cws-tabs" role="tablist" aria-label="Views">' + tabs + saved + '</div>'
+    + '<div class="cws-help" id="cwsHelp">' + esc(preset ? preset.help : 'Your own view of the commitment watch.') + '</div>'
+    + '<div class="cws-bar"><input type="search" id="cwsQ" class="cws-in" placeholder="Search every column…" aria-label="Search the sheet" value="' + esc(_cws.q) + '" oninput="cwsSearch(this.value)">'
+    + '<button type="button" class="btn small" onclick="cwsPopColumns(event)">▦ Columns</button>'
+    + '<label class="cws-grp">Group by <select id="cwsGroup" class="cws-in" onchange="cwsSetGroup(this.value)"><option value="">None</option>' + ['status', 'processor', 'reviewer', 'client', 'manager', 'kind', 'job', 'risk', 'fy'].map(k => '<option value="' + k + '"' + (_cws.group === k ? ' selected' : '') + '>' + cwsCol(k).label + '</option>').join('') + '</select></label>'
+    + '<button type="button" class="btn small" onclick="cwsPopViews(event)">★ Views</button><button type="button" class="btn small" onclick="cwsCsv()">⤓ Download CSV</button><button type="button" class="btn small" id="cwsReset" onclick="cwsPreset(_cws.preset && CWS_PRESETS[_cws.preset] ? _cws.preset : \'breaches\')">Reset</button></div>'
+    + '<div class="cws-chips" id="cwsChips"></div><div class="cws-count" id="cwsCount" aria-live="polite"></div>'
+    + '<div class="cws-scroll" id="cwsScroll"><table class="cws-table" id="cwsTable"></table></div></div>';
+  cwsDrawTable();
+}
+function cwsDrawTable(){
+  const tbl = document.getElementById('cwsTable'); if(!tbl) return;
+  const cols = _cws.cols.map(cwsCol).filter(Boolean), W = c => (_cws.widths[c.k] || c.w);
+  const sortOf = k => { const i = _cws.sort.findIndex(s => s.k === k); return i < 0 ? null : { dir: _cws.sort[i].dir, n: _cws.sort.length > 1 ? i + 1 : 0 }; };
+  const head = '<colgroup><col style="width:46px">' + cols.map(c => '<col id="cwsCol_' + c.k + '" style="width:' + W(c) + 'px">').join('') + '</colgroup><thead><tr><th class="cws-rn cws-s0" scope="col">#</th>'
+    + cols.map((c, i) => { const so = sortOf(c.k), on = cwsFilterOn(c.k); return '<th scope="col" class="' + (i === 0 ? 'cws-s1 ' : '') + (on ? 'filtered' : '') + '" aria-sort="' + (so ? (so.dir === 1 ? 'ascending' : 'descending') : 'none') + '"><div class="cws-th"><button type="button" class="cws-sortbtn" onclick="cwsSort(\'' + c.k + '\', event)" title="Click to sort · Shift-click to add another sort">' + esc(c.label) + (so ? ' <span class="cws-arrow">' + (so.dir === 1 ? '▲' : '▼') + (so.n ? '<sup>' + so.n + '</sup>' : '') + '</span>' : '') + '</button><button type="button" class="cws-fbtn' + (on ? ' on' : '') + '" aria-label="Filter ' + esc(c.label) + '" onclick="cwsPopFilter(\'' + c.k + '\', event)">⏷</button><span class="cws-rs" onmousedown="cwsResizeStart(event, \'' + c.k + '\')" aria-hidden="true"></span></div></th>'; }).join('') + '</tr></thead>';
+  const rows = cwsRows(), shown = rows.slice(0, _cwsLimit);
+  const cell = (r, c, i) => {
+    const v = r[c.k]; let h = '';
+    if(c.k === 'client') h = '<b>' + esc(v || (r.kind === 'Admin task' ? 'Admin task' : '—')) + '</b>';
+    else if(c.k === 'daysOver') h = v ? '<b class="cws-late">' + v + (v === 1 ? ' day' : ' days') + '</b>' : '';
+    else if(c.type === 'date') h = v ? esc(cwsDayLabel(v)) : '<span class="cws-none">—</span>';
+    else if(c.type === 'datetime') h = v ? '<span title="' + esc(fmtStamp(v)) + '">' + esc(cwsTimeLabel(v)) + '</span>' : '<span class="cws-none" title="Nothing recorded for this stage">—</span>';
+    else if(c.type === 'multi') h = (v || []).map(f => '<span class="cw-flag ' + (r.late ? 'cw-late' : 'cw-risk') + '">' + esc(f) + '</span>').join(' ');
+    else if(c.type === 'num') h = v === null || v === undefined || v === '' ? '' : esc(String(v));
+    else h = esc(v == null ? '' : String(v));
+    return '<td class="' + (i === 0 ? 'cws-s1 ' : '') + (c.small ? 'cws-small ' : '') + (c.type === 'num' ? 'cws-num' : '') + '">' + h + '</td>';
+  };
+  const rowHtml = (r, n) => '<tr class="cws-row" tabindex="0" role="button" onclick="openTaskTrailModal(\'' + esc(r.id) + '\')" onkeydown="if(event.key===\'Enter\'){ this.click(); }"><td class="cws-rn cws-s0">' + n + '</td>' + cols.map((c, i) => cell(r, c, i)).join('') + '</tr>';
+  let body = '';
+  if(_cws.group){
+    const gc = cwsCol(_cws.group), groups = new Map();
+    shown.forEach(r => { const g = String(r[_cws.group] == null ? '' : r[_cws.group]) || '(blank)'; if(!groups.has(g)) groups.set(g, []); groups.get(g).push(r); });
+    let n = 0;
+    [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([g, list]) => {
+      const closed = !!_cwsCollapsed[g];
+      body += '<tr class="cws-group"><td colspan="' + (cols.length + 1) + '"><button type="button" class="cws-gbtn" aria-expanded="' + !closed + '" data-g="' + esc(g) + '" onclick="cwsToggleGroup(this.dataset.g)">' + (closed ? '▸' : '▾') + ' <b>' + esc(g) + '</b> <span class="cws-mute">' + list.length + (list.length === 1 ? ' task' : ' tasks') + '</span></button></td></tr>';
+      if(!closed) list.forEach(r => { body += rowHtml(r, ++n); }); else n += list.length;
+    });
+  } else body = shown.map((r, i) => rowHtml(r, i + 1)).join('');
+  if(!rows.length) body = '<tr><td colspan="' + (cols.length + 1) + '" class="cws-empty">Nothing matches these filters. <button type="button" class="btn small" onclick="cwsClearAll()">Clear filters</button></td></tr>';
+  else if(rows.length > shown.length) body += '<tr><td colspan="' + (cols.length + 1) + '" class="cws-more"><button type="button" class="btn small" onclick="cwsMore()">Show ' + Math.min(200, rows.length - shown.length) + ' more</button></td></tr>';
+  tbl.innerHTML = head + '<tbody>' + body + '</tbody>';
+  const hours = rows.reduce((s, r) => s + (Number(r.allocatedHours) || 0), 0), logged = rows.reduce((s, r) => s + (Number(r.loggedHours) || 0), 0);
+  const cnt = document.getElementById('cwsCount'); if(cnt) cnt.textContent = rows.length + ' of ' + _cwsData.rows.length + ' tasks · ' + (Math.round(hours * 10) / 10) + ' h allocated · ' + (Math.round(logged * 10) / 10) + ' h logged' + (cwsActiveCount() ? ' · ' + cwsActiveCount() + ' filter' + (cwsActiveCount() === 1 ? '' : 's') + ' on' : '');
+  const chips = document.getElementById('cwsChips');
+  if(chips) chips.innerHTML = Object.keys(_cws.filters).filter(cwsFilterOn).map(k => '<span class="cws-chip"><b>' + esc(cwsCol(k).label) + '</b> ' + esc(cwsFilterText(k)) + ' <button type="button" aria-label="Remove the ' + esc(cwsCol(k).label) + ' filter" onclick="cwsRemoveFilter(\'' + k + '\')">✕</button></span>').join('');
+  cwsSave();
+}
+function cwsMore(){ _cwsLimit += 200; cwsDrawTable(); }
+function cwsToggleGroup(g){ _cwsCollapsed[g] = !_cwsCollapsed[g]; cwsDrawTable(); }
+let _cwsSearchT = null;
+function cwsSearch(v){ _cws.q = v; _cwsLimit = 200; clearTimeout(_cwsSearchT); _cwsSearchT = setTimeout(cwsDrawTable, 120); }
+function cwsSetGroup(v){ _cws.group = v; _cwsCollapsed = {}; cwsDrawTable(); }
+function cwsSort(k, ev){
+  const i = _cws.sort.findIndex(s => s.k === k);
+  if(ev && ev.shiftKey){ if(i < 0) _cws.sort.push({ k, dir:1 }); else if(_cws.sort[i].dir === 1) _cws.sort[i].dir = -1; else _cws.sort.splice(i, 1); }
+  else if(i === 0 && _cws.sort.length === 1){ if(_cws.sort[0].dir === 1) _cws.sort[0].dir = -1; else _cws.sort = []; }
+  else _cws.sort = [{ k, dir:1 }];
+  cwsDrawTable();
+}
+function cwsRemoveFilter(k){ delete _cws.filters[k]; cwsMarkCustom(); cwsDrawTable(); }
+function cwsClearAll(){ _cws.filters = {}; _cws.q = ''; const q = document.getElementById('cwsQ'); if(q) q.value = ''; cwsMarkCustom(); cwsDrawTable(); }
+function cwsMarkCustom(){ if(_cws.preset && CWS_PRESETS[_cws.preset]){ _cws.preset = 'custom'; document.querySelectorAll('.cws-tab').forEach(b => b.classList.remove('on')); const h = document.getElementById('cwsHelp'); if(h) h.textContent = 'Your own view — change the filters, columns and sort however you like, then save it under ★ Views.'; } }
+function cwsPreset(k){ cwsLoadState(k); _cwsLimit = 200; _cwsCollapsed = {}; drawCommitmentSheet(); }
+function cwsResizeStart(ev, k){
+  ev.preventDefault(); ev.stopPropagation();
+  const c = cwsCol(k), startX = ev.clientX, startW = _cws.widths[k] || c.w, colEl = document.getElementById('cwsCol_' + k);
+  const move = e => { const w = Math.max(60, Math.min(600, startW + e.clientX - startX)); _cws.widths[k] = w; if(colEl) colEl.style.width = w + 'px'; };
+  const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); cwsSave(); };
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+}
+
+/* ---- the small pop-ups: filter, columns, views ---- */
+function cwsPopClose(){ const p = document.getElementById('cwsPop'); if(p) p.remove(); }
+function cwsPopOpen(ev, html, wide){
+  cwsPopClose();
+  const p = document.createElement('div'); p.id = 'cwsPop'; p.className = 'cws-pop' + (wide ? ' wide' : ''); p.setAttribute('role', 'dialog'); p.innerHTML = html;
+  document.body.appendChild(p);
+  const r = ev.currentTarget.getBoundingClientRect(), w = p.offsetWidth, h = p.offsetHeight;
+  p.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px'; p.style.top = Math.max(8, Math.min(r.bottom + 4, window.innerHeight - Math.min(h, window.innerHeight - 16) - 8)) + 'px';
+  p.addEventListener('keydown', e => { if(e.key === 'Escape') cwsPopClose(); });
+  const f = p.querySelector('input, select, button'); if(f) f.focus();
+}
+document.addEventListener('mousedown', e => { if(!e.target.closest('#cwsPop') && !e.target.closest('.cws-fbtn') && !e.target.closest('.cws-bar')) cwsPopClose(); });
+function cwsPopFilter(k, ev){
+  ev.stopPropagation();
+  const c = cwsCol(k), f = _cws.filters[k] || {}, esc2 = esc;
+  const head = '<div class="cws-pop-h"><b>' + esc(c.label) + '</b><span><button type="button" class="co-mini" onclick="cwsSortDir(\'' + k + '\', 1)">Sort A → Z</button> <button type="button" class="co-mini" onclick="cwsSortDir(\'' + k + '\', -1)">Z → A</button></span></div>';
+  let body = '';
+  if(c.type === 'text'){
+    body = '<select id="cwfOp" class="cws-in" onchange="cwsTextFilter(\'' + k + '\')">' + [['contains', 'Contains'], ['not', 'Does not contain'], ['equals', 'Is exactly'], ['empty', 'Is empty'], ['notempty', 'Is not empty']].map(o => '<option value="' + o[0] + '"' + ((f.op || 'contains') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select><input id="cwfV" class="cws-in" type="text" placeholder="Text…" value="' + esc2(f.v || '') + '" oninput="cwsTextFilter(\'' + k + '\')">';
+  } else if(c.type === 'date' || c.type === 'datetime'){
+    body = '<div class="cws-quick"><button type="button" class="co-mini" onclick="cwsDateQuick(\'' + k + '\', \'today\')">Today</button><button type="button" class="co-mini" onclick="cwsDateQuick(\'' + k + '\', \'yesterday\')">Yesterday</button><button type="button" class="co-mini" onclick="cwsDateQuick(\'' + k + '\', \'week\')">This week</button><button type="button" class="co-mini" onclick="cwsDateQuick(\'' + k + '\', \'month\')">This month</button><button type="button" class="co-mini" onclick="cwsDateQuick(\'' + k + '\', \'past\')">Before today</button></div>'
+      + '<label class="cws-lab">From <input id="cwfFrom" class="cws-in" type="date" value="' + esc2(f.from || '') + '" onchange="cwsDateFilter(\'' + k + '\')"></label><label class="cws-lab">To <input id="cwfTo" class="cws-in" type="date" value="' + esc2(f.to || '') + '" onchange="cwsDateFilter(\'' + k + '\')"></label>'
+      + '<select id="cwfEmpty" class="cws-in" onchange="cwsDateFilter(\'' + k + '\')"><option value="">Any (blank or filled)</option><option value="none"' + (f.empty === 'none' ? ' selected' : '') + '>Has a date</option><option value="only"' + (f.empty === 'only' ? ' selected' : '') + '>Is blank</option></select>';
+  } else if(c.type === 'num'){
+    body = '<label class="cws-lab">At least <input id="cwfMin" class="cws-in" type="number" value="' + esc2(f.min === undefined ? '' : String(f.min)) + '" oninput="cwsNumFilter(\'' + k + '\')"></label><label class="cws-lab">At most <input id="cwfMax" class="cws-in" type="number" value="' + esc2(f.max === undefined ? '' : String(f.max)) + '" oninput="cwsNumFilter(\'' + k + '\')"></label>'
+      + '<select id="cwfEmpty" class="cws-in" onchange="cwsNumFilter(\'' + k + '\')"><option value="">Any</option><option value="none"' + (f.empty === 'none' ? ' selected' : '') + '>Has a value</option><option value="only"' + (f.empty === 'only' ? ' selected' : '') + '>Is blank</option></select>';
+  } else {
+    // enum / multi: tick the values to show. Counts are of the rows that pass every OTHER filter.
+    const counts = new Map();
+    (_cwsData.rows || []).filter(r => cwsRowPass(r, k)).forEach(r => { const vals = c.type === 'multi' ? (r[k] && r[k].length ? r[k] : ['']) : [String(r[k] == null ? '' : r[k])]; vals.forEach(v => counts.set(v, (counts.get(v) || 0) + 1)); });
+    const all = [...new Set([...counts.keys(), ...(f.not || [])])].sort((a, b) => a.localeCompare(b, undefined, { numeric:true, sensitivity:'base' }));
+    body = '<input id="cwfSearch" class="cws-in" type="search" placeholder="Find a value…" oninput="cwsEnumFind(this.value)"><div class="cws-quick"><button type="button" class="co-mini" onclick="cwsEnumAll(\'' + k + '\', true)">Select all</button><button type="button" class="co-mini" onclick="cwsEnumAll(\'' + k + '\', false)">Clear</button>' + (c.type === 'multi' ? '<button type="button" class="co-mini" onclick="cwsMultiAny(\'' + k + '\')">Has any</button>' : '') + '</div>'
+      + '<div class="cws-vals" id="cwfVals">' + all.map(v => '<label class="cws-val" data-v="' + esc2(v.toLowerCase()) + '"><input type="checkbox" value="' + esc2(v) + '"' + (!(f.not || []).includes(v) ? ' checked' : '') + ' onchange="cwsEnumTick(\'' + k + '\')"> <span>' + esc2(v || '(blank)') + '</span> <em>' + (counts.get(v) || 0) + '</em></label>').join('') + '</div>';
+  }
+  cwsPopOpen(ev, head + body + '<div class="cws-pop-f"><button type="button" class="btn small" onclick="cwsRemoveFilter(\'' + k + '\');cwsPopClose()">Clear this filter</button><button type="button" class="btn small primary" onclick="cwsPopClose()">Done</button></div>');
+}
+function cwsSortDir(k, dir){ _cws.sort = [{ k, dir }]; cwsDrawTable(); }
+function cwsSetFilter(k, f){ if(f) _cws.filters[k] = f; else delete _cws.filters[k]; _cwsLimit = 200; cwsMarkCustom(); cwsDrawTable(); }
+function cwsTextFilter(k){ const op = document.getElementById('cwfOp').value, v = document.getElementById('cwfV').value; cwsSetFilter(k, (v || op === 'empty' || op === 'notempty') ? { op, v } : null); }
+function cwsDateFilter(k){ const from = document.getElementById('cwfFrom').value, to = document.getElementById('cwfTo').value, empty = document.getElementById('cwfEmpty').value; cwsSetFilter(k, (from || to || empty) ? { from, to, empty } : null); }
+function cwsDateQuick(k, w){
+  const t = todayISO(), add = n => new Date(Date.parse(t + 'T12:00:00Z') + n * 86400000).toISOString().slice(0, 10), dow = (new Date(t + 'T12:00:00Z').getUTCDay() + 6) % 7;
+  const m = { today:[t, t], yesterday:[add(-1), add(-1)], week:[add(-dow), add(6 - dow)], month:[t.slice(0, 8) + '01', add(0).slice(0, 8) + '31'], past:['', add(-1)] }[w];
+  cwsSetFilter(k, { from:m[0], to:m[1], empty:'' }); const a = document.getElementById('cwfFrom'), b = document.getElementById('cwfTo'); if(a) a.value = m[0]; if(b) b.value = m[1];
+}
+function cwsNumFilter(k){ const min = document.getElementById('cwfMin').value, max = document.getElementById('cwfMax').value, empty = document.getElementById('cwfEmpty').value; cwsSetFilter(k, (min !== '' || max !== '' || empty) ? { min: min === '' ? undefined : Number(min), max: max === '' ? undefined : Number(max), empty } : null); }
+function cwsEnumTick(k){ const boxes = [...document.querySelectorAll('#cwfVals input[type=checkbox]')], not = boxes.filter(b => !b.checked).map(b => b.value); const c = cwsCol(k), prev = _cws.filters[k] || {}; cwsSetFilter(k, not.length ? (c.type === 'multi' ? { not } : { not }) : (prev.notEmpty ? { notEmpty:true } : null)); }
+function cwsEnumAll(k, on){ document.querySelectorAll('#cwfVals input[type=checkbox]').forEach(b => { if(b.closest('.cws-val').style.display !== 'none') b.checked = on; }); cwsEnumTick(k); }
+function cwsMultiAny(k){ cwsSetFilter(k, { notEmpty:true }); const p = document.getElementById('cwsPop'); if(p) p.querySelectorAll('#cwfVals input').forEach(b => { b.checked = b.value !== ''; }); }
+function cwsEnumFind(q){ const s = String(q || '').toLowerCase(); document.querySelectorAll('#cwfVals .cws-val').forEach(l => { l.style.display = !s || l.dataset.v.includes(s) ? '' : 'none'; }); }
+function cwsPopColumns(ev){
+  const shown = _cws.cols, rest = CWS_COLS.filter(c => !shown.includes(c.k));
+  const row = (k, i) => { const c = cwsCol(k); return '<div class="cws-colrow"><label><input type="checkbox" checked onchange="cwsColToggle(\'' + k + '\')"> ' + esc(c.label) + '</label><span><button type="button" class="co-mini" aria-label="Move ' + esc(c.label) + ' left" ' + (i === 0 ? 'disabled' : '') + ' onclick="cwsColMove(\'' + k + '\', -1)">←</button> <button type="button" class="co-mini" aria-label="Move ' + esc(c.label) + ' right" ' + (i === shown.length - 1 ? 'disabled' : '') + ' onclick="cwsColMove(\'' + k + '\', 1)">→</button></span></div>'; };
+  cwsPopOpen(ev, '<div class="cws-pop-h"><b>Columns</b><span class="cws-mute">Tick to show · arrows to reorder</span></div><div class="cws-vals">' + shown.map(row).join('') + (rest.length ? '<div class="cws-sep">Not shown</div>' + rest.map(c => '<div class="cws-colrow"><label><input type="checkbox" onchange="cwsColToggle(\'' + c.k + '\')"> ' + esc(c.label) + '</label></div>').join('') : '') + '</div><div class="cws-pop-f"><button type="button" class="btn small" onclick="cwsColsReset()">Back to the standard columns</button><button type="button" class="btn small primary" onclick="cwsPopClose()">Done</button></div>', true);
+}
+function cwsColToggle(k){ if(_cws.cols.includes(k)){ if(_cws.cols.length > 1) _cws.cols = _cws.cols.filter(x => x !== k); } else _cws.cols.push(k); cwsMarkCustom(); const p = document.getElementById('cwsPop'), sc = p && p.querySelector('.cws-vals'), top = sc ? sc.scrollTop : 0; cwsDrawTable(); cwsReopenColumns(top); }
+function cwsColMove(k, d){ const i = _cws.cols.indexOf(k), j = i + d; if(i < 0 || j < 0 || j >= _cws.cols.length) return; [_cws.cols[i], _cws.cols[j]] = [_cws.cols[j], _cws.cols[i]]; cwsMarkCustom(); const p = document.getElementById('cwsPop'), sc = p && p.querySelector('.cws-vals'), top = sc ? sc.scrollTop : 0; cwsDrawTable(); cwsReopenColumns(top); }
+function cwsColsReset(){ _cws.cols = CWS_DEFAULT_COLS.slice(); _cws.widths = {}; cwsDrawTable(); cwsReopenColumns(0); }
+function cwsReopenColumns(top){ const p = document.getElementById('cwsPop'); if(!p) return; const r = p.getBoundingClientRect(), fake = { currentTarget: { getBoundingClientRect: () => ({ left: r.left, bottom: r.top - 4 }) } }; cwsPopColumns(fake); const sc = document.querySelector('#cwsPop .cws-vals'); if(sc) sc.scrollTop = top; }
+function cwsPopViews(ev){
+  const saved = cwsSavedViews();
+  cwsPopOpen(ev, '<div class="cws-pop-h"><b>Views</b></div><div class="cws-vals">' + saved.map((v, i) => '<div class="cws-colrow"><button type="button" class="co-link" onclick="cwsApplyView(' + i + ');cwsPopClose()">★ ' + esc(v.name) + '</button><button type="button" class="co-mini" onclick="cwsDeleteView(' + i + ')" aria-label="Delete the view ' + esc(v.name) + '">Delete</button></div>').join('') + (saved.length ? '' : '<p class="cws-mute" style="margin:6px 0">No saved views yet. Set up the columns and filters you want, then save them here.</p>') + '</div><div class="cws-pop-f" style="display:block"><input id="cwvName" class="cws-in" type="text" placeholder="Name this view…" maxlength="40" style="width:100%;margin-bottom:6px"><button type="button" class="btn small primary" onclick="cwsSaveView()">Save the current view</button></div>');
+}
+function cwsSaveView(){
+  const name = (document.getElementById('cwvName').value || '').trim(); if(!name){ showToast('error', 'Name the view', 'Type a short name first.'); return; }
+  const v = cwsSavedViews().filter(x => x.name !== name); v.push({ name, state: { cols:_cws.cols.slice(), widths:Object.assign({}, _cws.widths), sort:JSON.parse(JSON.stringify(_cws.sort)), filters:JSON.parse(JSON.stringify(_cws.filters)), q:_cws.q, group:_cws.group } });
+  cwsSaveViews(v); cwsPopClose(); _cws.preset = 'saved:' + (v.length - 1); drawCommitmentSheet(); showToast('success', 'View saved', name);
+}
+function cwsApplyView(i){ const v = cwsSavedViews()[i]; if(!v) return; Object.assign(_cws, JSON.parse(JSON.stringify(v.state)), { preset:'saved:' + i }); _cwsLimit = 200; _cwsCollapsed = {}; drawCommitmentSheet(); const h = document.getElementById('cwsHelp'); if(h) h.textContent = 'Saved view: ' + v.name; }
+function cwsDeleteView(i){ const v = cwsSavedViews(); v.splice(i, 1); cwsSaveViews(v); cwsPopClose(); if(String(_cws.preset).startsWith('saved:')) _cws.preset = 'custom'; drawCommitmentSheet(); }
+function cwsCsv(){
+  const cols = _cws.cols.map(cwsCol).filter(Boolean), q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const val = (r, c) => c.type === 'datetime' ? (r[c.k] ? dayOf(r[c.k]) + ' ' + new Date(r[c.k]).toLocaleTimeString('en-NZ', { hour:'2-digit', minute:'2-digit', hour12:false, timeZone:'Pacific/Auckland' }) : '') : c.type === 'multi' ? (r[c.k] || []).join(' · ') : r[c.k];
+  const csv = [cols.map(c => q(c.label)).join(',')].concat(cwsRows().map(r => cols.map(c => q(val(r, c))).join(','))).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' }), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'commitment-watch-' + todayISO() + '.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
 /* =========================================================================
@@ -9095,7 +9393,7 @@ function drawTeamView(){
   const chips = types.length ? types.map(k => '<button type="button" class="tm-chip' + (_tmType === k ? ' on' : '') + '" onclick="tmPickType(\'' + k + '\')" aria-pressed="' + (_tmType === k) + '"><b>' + T.attentionCounts[k] + '</b> ' + esc(MT_ATTN[k] || k) + '</button>').join('')
     : '<div class="td-empty" style="padding:0;">Nothing needs your attention right now.</div>';
   const items = _tmType ? T.attention.filter(a => a.type === _tmType) : [];
-  const list = _tmType ? '<div class="tm-attn-list">' + items.map(a => '<div class="tm-attn-row"><div><b>' + esc(a.clientName || 'Admin task') + ' — ' + esc(a.name) + '</b><div class="tm-sub">' + esc(a.label) + (a.detail ? ' · ' + esc(a.detail) : '') + ' · ' + esc(a.assigneeName || 'Unassigned') + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(a.id) + '\')">Open</button></div>').join('') + '</div>' : '';
+  const list = _tmType ? '<div class="tm-attn-list">' + items.map(a => '<div class="tm-attn-row"><div>' + ttHtml(a.clientName, a.name) + '<div class="tm-sub">' + esc(a.label) + (a.detail ? ' · ' + esc(a.detail) : '') + ' · ' + esc(a.assigneeName || 'Unassigned') + '</div></div><button type="button" class="btn small td-act" onclick="mtOpenDetail(\'' + esc(a.id) + '\')">Open</button></div>').join('') + '</div>' : '';
   _tmIds = {}; let _k = 0;
   const num = (n, ids, what) => { if(!n) return '<span class="tm-zero">0</span>'; const k = 'k' + (++_k); _tmIds[k] = ids.join('|'); return '<button type="button" class="tm-num" data-k="' + k + '" onclick="mtOpenTasks({ids:_tmIds[this.dataset.k]})" title="Show the ' + esc(what) + '">' + n + '</button>'; };
   const rows = T.team.map(p => '<tr><th scope="row" data-l="Employee">' + esc(p.name) + '</th>'
@@ -9514,8 +9812,8 @@ function openNewAssignmentModal(){
         const flagged = isReworkFlagged(t);
         return `
         <div style="background:${flagged?'var(--coral-dim)':'var(--panel-2)'}; border:1px solid ${flagged?'#F0603E4a':'var(--panel-border)'}; border-radius:10px; padding:12px 14px; margin-bottom:9px;">
-          <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(t.name)}${flagged && t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
-          <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${esc(t.clientName)} ${t.scope ? '· ' + esc(t.scope) : ''}${flagged ? ' · Sent back for rework' + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') : ''}</div>
+          <div style="font-weight:600; font-size:15px; ${flagged?'color:#7A2A0C;':''}">${flagged?'⚠ ':''}${esc(clientLabel(t))}${flagged && t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''}</div>
+          <div style="font-size:12.5px; color:${flagged?'#9A3412':'var(--text-faint)'}; margin-bottom:9px;">${ttClient(t) ? esc(t.name) : ''} ${t.scope ? '· ' + esc(t.scope) : ''}${flagged ? ' · Sent back for rework' + (t.reviewNote ? ': ' + esc(t.reviewNote) : '') : ''}</div>
           <div style="display:flex; gap:8px;">
             <button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="acceptTaskFromNewAssignment('${t.id}')">Accept</button>
             <button class="verify-btn" onclick="closeModal(); openProposeModal('${t.id}')">Propose new date</button>
@@ -10220,7 +10518,7 @@ function openProposedWindows(){
   const row = t => {
     const emp = empById(t.assignedTo);
     return `<div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--panel-border);">
-      <div><div style="font-weight:600;">${esc(t.name)}${t.clientName ? ' — ' + esc(t.clientName) : ''}</div>
+      <div>${ttOf(t)}
         <div style="font-size:12.5px;color:var(--text-faint);">${emp ? esc(emp.name) : '—'} · was due ${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'} · proposes <b>${t.proposedDate ? fmtDate(t.proposedDate) : '—'}</b>${t.proposedReason ? ' · “' + esc(t.proposedReason) + '”' : ''}</div></div>
       <div style="display:flex;gap:6px;">
         <button class="verify-btn" style="border-color:var(--teal);color:var(--teal);" onclick="decideWindow('${t.id}', true)">Approve</button>
@@ -11009,7 +11307,7 @@ function atPlanPreview(){
       const bookedLine = _atOverload.busyUntil ? `${first} is already booked through ${fmtDate(_atOverload.busyUntil)}` : `${first} is already booked`;
       txt.textContent = `⚠ ${bookedLine} — only ${_atOverload.room}h is free by ${fmtDate(by)}, so this ${hours}h task is ${_atOverload.overBy}h over. Pushing the task${_atOverload.conflicts.length===1?'':'s'} below out by ${_atOverload.pushDays} working day${_atOverload.pushDays===1?'':'s'} would make room:`;
       if(list) list.innerHTML = (_atOverload.conflicts||[]).map(c => `<div style="padding:6px 8px;background:var(--panel);border-radius:6px;margin-bottom:4px;">
-        <b>${esc(c.name)}</b>${c.clientName ? ' · ' + esc(c.clientName) : ''}<br>
+        ${ttHtml(c.clientName, c.name)}
         <span style="color:var(--text-faint);">due ${fmtDate(c.currentInternal)} → <b style="color:var(--flag);">${fmtDate(c.newInternal)}</b>${c.currentClient ? ` · client ${fmtDate(c.currentClient)} → <b style="color:var(--flag);">${fmtDate(c.newClient)}</b>` : ''}</span>
       </div>`).join('');
       warn.style.display = '';
@@ -12788,8 +13086,8 @@ function renderTasksPage(resetTabs){
     const o = empById(t.assignedTo);
     const overdue = (t.status !== 'completed' && t.internalDeadline && t.internalDeadline < today) || t.reviewOverdue || t.reportOverdue;
     return `<tr style="cursor:pointer;" onclick="openTaskTrailModal('${t.id}')">
-      <td><div class="tl-name" title="${esc(t.name)}">${esc(t.name)}</div></td>
-      <td class="tl-sub">${esc(clientLabel(t))}</td>
+      <td><div class="tl-name" title="${esc(t.name)}">${esc(clientLabel(t))}</div></td>
+      <td class="tl-sub tt-task">${ttClient(t) ? esc(t.name) : ''}</td>
       <td>${o ? esc(o.name) : '<span style="color:var(--amber);">Unassigned</span>'}</td>
       <td style="font-family:var(--font-mono);">${t.tat}h</td>
       <td style="${overdue?'color:#C2410C;font-weight:600;':''}">${t.internalDeadline ? fmtDate(t.internalDeadline) : '—'}${overdue?' · overdue':''}</td>
@@ -12929,14 +13227,14 @@ function renderReviewsView(){
   };
   // a row with Sheet and Cashbook in columns of their own
   const grow = (t, sub, c2, c3, btn) => `<div class="rv-row">
-      <span class="tm-task-main"><b>${esc(t.name)}</b><small>${sub}</small></span>
+      <span class="tm-task-main">${ttOf(t)}<small>${sub}</small></span>
       <span class="rv-cell" data-l="From">${c2}</span>
       <span class="rv-cell" data-l="Waiting">${c3}</span>
       <span class="rv-cell" data-l="Sheet">${slotCell(t.sheetLink, 'Sheet', t.sheetFiles, 'rv-link')}</span>
       <span class="rv-cell" data-l="Cashbook">${slotCell(t.cashbookLink, 'Cashbook', t.cashbookFiles, 'rv-link')}</span>
       <span class="wk-act">${btn}</span></div>`;
   const row = (t, sub, meta, btn) => `<div class="wk-task" style="cursor:default;">
-      <span class="tm-task-main"><b>${esc(t.name)}</b><small>${sub}</small></span>
+      <span class="tm-task-main">${ttOf(t)}<small>${sub}</small></span>
       <span class="tm-task-meta">${meta}</span>
       <span class="wk-act">${btn}</span></div>`;
   const awaitingAll = myReviewTasks();
@@ -13038,7 +13336,7 @@ function renderProfitStats(force){
     if(!s){ box.innerHTML = ''; return; }
     const c = s.confirmedByOwner, who = esc(s.owner ? s.owner.name : 'the profit confirmer');
     const tile = (n, l) => `<div style="flex:1;min-width:92px;padding:10px 12px;border:1px solid var(--panel-border);border-radius:10px;"><div style="font-size:22px;font-weight:700;">${n}</div><div style="font-size:12px;color:var(--text-faint);">${l}</div></div>`;
-    const rows = (s.recent || []).slice(0, 10).map(r => `<tr><td><b>${esc(r.name)}</b><div style="font-size:12px;color:var(--text-faint);">${esc(r.clientName || '—')} · ${taskNo(r.id)}</div></td><td>${esc(r.requestedBy)}</td><td>${esc(r.confirmedBy)}</td><td style="font-family:var(--font-mono);font-size:12px;">${fmtDate(dayOf(r.confirmedAt))}</td><td>${r.hours != null ? (r.hours < 1 ? '< 1 h' : r.hours < 48 ? r.hours + ' h' : Math.round(r.hours / 24) + ' d') : '—'}</td></tr>`).join('');
+    const rows = (s.recent || []).slice(0, 10).map(r => `<tr><td>${ttHtml(r.clientName, r.name)}<div style="font-size:12px;color:var(--text-faint);">${taskNo(r.id)}</div></td><td>${esc(r.requestedBy)}</td><td>${esc(r.confirmedBy)}</td><td style="font-family:var(--font-mono);font-size:12px;">${fmtDate(dayOf(r.confirmedAt))}</td><td>${r.hours != null ? (r.hours < 1 ? '< 1 h' : r.hours < 48 ? r.hours + ' h' : Math.round(r.hours / 24) + ' d') : '—'}</td></tr>`).join('');
     box.innerHTML = `<div class="tm-list"><div class="wk-list-head"><span class="wk-count">💰 Profit confirmations by <b>${who}</b></span></div>
       <div class="wk-body" style="padding:12px 14px;">
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">${tile(c.today, 'today')}${tile(c.week, 'this week')}${tile(c.month, 'this month')}${tile(c.total, 'all time')}${tile(s.pending.count, 'waiting now' + (s.pending.count && s.pending.oldestDays >= 1 ? ' · oldest ' + s.pending.oldestDays + 'd' : ''))}${tile(s.avgTurnaroundHours != null ? (s.avgTurnaroundHours < 1 ? '< 1 h' : s.avgTurnaroundHours + ' h') : '—', 'average time to confirm')}</div>
@@ -13068,7 +13366,7 @@ function openMyReviewQueue(){
     const hay = (t.name + ' ' + (t.clientName||'') + ' ' + (o?o.name:'') + ' ' + t.id).toLowerCase();
     const overdue = t.reviewOverdue;
     return `<tr data-hay="${esc(hay)}">
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(clientLabel(t))}${t.id ? ' · ' + taskNo(t.id) : ''}</div></td>
+      <td><div class="tl-name">${esc(clientLabel(t))}</div><div class="tl-sub">${ttClient(t) ? esc(t.name) + ' · ' : ''}${t.id ? taskNo(t.id) : ''}</div></td>
       <td style="font-family:var(--font-mono);">⏱ ${t.tat}h</td>
       <td>${o ? esc(o.name) : '—'}</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
@@ -13150,7 +13448,7 @@ function openMyInReview(q){
   const rows = list.map(t => {
     const r = empById(t.reviewerId);
     return `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(clientLabel(t))} · ${taskNo(t.id)}</div></td>
+      <td><div class="tl-name">${esc(clientLabel(t))}</div><div class="tl-sub">${ttClient(t) ? esc(t.name) + ' · ' : ''}${taskNo(t.id)}</div></td>
       <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
       <td class="tl-sub">${t.completedAt ? fmtDate(dayOf(t.completedAt)) : '—'}</td>
       <td class="tl-sub">${r ? esc(r.name) : 'unassigned'}</td>
@@ -13179,7 +13477,7 @@ function openMyDoneList(startISO, endISO, q){
     .sort((a,b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
   const list = q ? all.filter(t => (t.name + ' ' + (t.clientName||'') + ' ' + t.id).toLowerCase().includes(q)) : all;
   const rows = list.map(t => `<tr>
-      <td><div class="tl-name">${esc(t.name)}</div><div class="tl-sub">${esc(t.clientName || '—')} · ${taskNo(t.id)}</div></td>
+      <td><div class="tl-name">${esc(clientLabel(t))}</div><div class="tl-sub">${ttClient(t) ? esc(t.name) + ' · ' : ''}${taskNo(t.id)}</div></td>
       <td style="font-family:var(--font-mono);">${taskHrs(t).toFixed(1)}h</td>
       <td class="tl-sub">${fmtDate(dayOf(t.completedAt))}</td>
       <td>${t.reviewStatus === 'clean' ? '<span class="badge completed dot">✓ Clean</span>' : '<span class="badge completed dot">✓ Done</span>'}</td>
@@ -13718,7 +14016,7 @@ function renderPendingReview(){
   wrap.innerHTML = pending.map(t => {
     const emp = empById(t.assignedTo);
     return `<div class="flag-row" style="align-items:center;">
-      <span>${esc(t.name)} <span style="color:var(--text-faint); font-size:12.5px;">— ${emp ? esc(emp.name) : '—'} · ${esc(t.clientName)}</span></span>
+      <span><b>${esc(clientLabel(t))}</b> <span style="color:var(--text-faint); font-size:12.5px;">${ttClient(t) ? esc(t.name) + ' · ' : ''}${emp ? esc(emp.name) : '—'}</span></span>
       <span style="margin-left:auto;">
         <button class="verify-btn" style="border-color:var(--purple);color:#6D28D9;" onclick="openReviewFormModal('${t.id}')">📝 Open Review Form</button>
       </span>
@@ -13750,7 +14048,7 @@ function renderNeedsRework(){
       action += `<button class="verify-btn" onclick="openTaskTrailModal('${t.id}')">History</button>`;
     }
     return `<div class="flag-row" style="align-items:center;">
-      <span>${esc(t.name)}${t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''} <span style="color:var(--text-faint); font-size:12.5px;">— with ${emp ? esc(emp.name) : '—'} · ${esc(t.clientName)}${t.proposedReason ? ' · “' + esc(t.proposedReason) + '”' : (t.reviewNote ? ' · ' + esc(t.reviewNote) : '')}</span></span>
+      <span><b>${esc(clientLabel(t))}</b>${t.reworkCount > 1 ? ' · Round ' + t.reworkCount : ''} <span style="color:var(--text-faint); font-size:12.5px;">${ttClient(t) ? esc(t.name) + ' · ' : ''}with ${emp ? esc(emp.name) : '—'}${t.proposedReason ? ' · “' + esc(t.proposedReason) + '”' : (t.reviewNote ? ' · ' + esc(t.reviewNote) : '')}</span></span>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;">${action}<span class="flag-count">${stageLabel}</span></span>
     </div>`;
   }).join('');
@@ -15270,8 +15568,8 @@ function renderClientGrid(){
     </table></div>`;
 }
 /* ---- CLIENT OWNERSHIP AND CLIENT PROFILE — one owner per client, a yearly checklist per client type, and a profile built from the client's work ---- */
-let _co = { tab:'own', type:'', owner:'', data:null, err:null, seq:0 };
-let _cp = { id:null, fy:'', tab:'history', data:null, err:null, seq:0 };
+let _co = { tab:'own', type:'', owner:'', data:null, err:null, seq:0, q:'', st:'' };
+let _cp = { id:null, fy:'', tab:'history', data:null, err:null, seq:0, q:'' };
 function coTab(k){
   _co.tab = k;
   document.getElementById('coTabOwn').classList.toggle('on', k === 'own'); document.getElementById('coTabDir').classList.toggle('on', k === 'dir');
@@ -15289,7 +15587,8 @@ async function loadOwnership(quiet){
   catch(e){ if(mine !== _co.seq) return; _co.err = e.message; }
   drawOwnership();
 }
-function coSet(k, v){ _co[k] = v; if(k === 'type') _co.owner = ''; loadOwnership(true); }
+function coSet(k, v){ _co[k] = v; if(k === 'type' || k === 'owner'){ _co.q = ''; _co.st = ''; } if(k === 'type') _co.owner = ''; loadOwnership(true); }
+function coFilter(k, v){ _co[k] = v; drawOwnership(); const i = document.getElementById('coQ'); if(i && k === 'q'){ i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch(e){} } }
 function coStatusPill(s){ return '<span class="co-pill co-' + esc(s.tone) + '">' + esc(s.label) + '</span>'; }
 function drawOwnership(){
   const box = document.getElementById('coOwnership'); if(!box) return;
@@ -15300,7 +15599,10 @@ function drawOwnership(){
   const ownSel = d.canPickOwner ? '<select class="co-in" aria-label="Owner" onchange="coSet(\'owner\', this.value)">' + d.perOwner.map(o => '<option value="' + esc(o.id) + '"' + (o.id === owner.id ? ' selected' : '') + '>' + esc(o.name) + ' (' + o.count + ')</option>').join('') + '</select>' : '';
   const bars = d.perOwner.map((o, i) => '<div class="co-r' + (o.id === owner.id ? ' sel' : '') + '"' + (d.canPickOwner ? ' role="button" tabindex="0" onclick="coSet(\'owner\', \'' + esc(o.id) + '\')" onkeydown="if(event.key===\'Enter\'){ coSet(\'owner\', \'' + esc(o.id) + '\'); }"' : '') + '><span>' + esc(o.id === '__none__' ? 'No owner' : String(o.name).split(' ')[0]) + '</span><div><div class="co-bar' + (i === 0 && d.maxCount > 0 ? ' big' : '') + '" style="width:' + Math.max(1, Math.round(o.count / (d.maxCount || 1) * 100)) + '%"></div></div><span class="co-v">' + o.count + '</span></div>').join('') || '<div class="co-empty">No clients yet.</div>';
   const S = d.stats, tile = (n, l, c) => '<div class="co-stat"><b' + (c ? ' style="color:var(--' + c + ')"' : '') + '>' + n + '</b><span>' + l + '</span></div>';
-  const rows = d.clients.map(c => {
+  const cq = String(_co.q || '').trim().toLowerCase(), keepCq = document.activeElement && document.activeElement.id === 'coQ';
+  const stOf = c => c.late ? 'late' : c.waiting ? 'waiting' : c.status.key === 'no_open' ? 'none' : 'ok';
+  const shownClients = d.clients.filter(c => (!_co.st || stOf(c) === _co.st) && (!cq || (c.name + ' ' + (c.type || '') + ' ' + c.status.label).toLowerCase().includes(cq)));
+  const rows = shownClients.map(c => {
     const pct = c.checklist && c.checklist.total ? Math.round(c.checklist.done / c.checklist.total * 100) : 0, warn = c.late || c.status.tone === 'warn';
     return '<tr><td><button type="button" class="co-link" onclick="cpOpen(\'' + esc(c.id) + '\')">' + esc(c.name) + '</button></td><td>' + esc(c.type || '—') + '</td><td>' + (c.checklist ? '<div class="co-meter' + (warn ? ' mid' : '') + '"><i style="width:' + pct + '%"></i></div>' + c.checklist.done + ' of ' + c.checklist.total + ' done' : '<span class="co-mute">No checklist for this type</span>') + '</td><td>' + (c.nextDue ? esc(slDay(c.nextDue)) : '—') + '</td><td>' + coStatusPill(c.status) + '</td></tr>';
   }).join('');
@@ -15308,13 +15610,13 @@ function drawOwnership(){
     + '<div class="co-two"><div><h3>Clients per owner (' + d.total + ')</h3><p class="co-d">Counted from the Client Directory</p><div class="co-bars">' + bars + '</div></div>'
     + '<div><h3>' + esc(owner.name || 'Owner') + (d.canPickOwner ? '' : ' (you)') + ': clients</h3><p class="co-d">What the owner sees on their own page</p><div class="co-stats">' + tile(S.owned, 'Clients owned') + tile(S.late, 'With late work', S.late ? 'coral' : '') + tile(S.waiting, 'Waiting on client', S.waiting ? 'amber' : '') + tile(S.upToDate, 'Up to date') + '</div>'
     + '<p class="co-d" style="margin:12px 0 0">Red = the largest list. Balance the lists before making ownership part of productivity.</p></div></div></div>'
-    + '<div class="co-card"><h3>' + esc(first) + '\'s client list</h3><div class="co-scroll">' + (rows ? '<table class="co-table"><thead><tr><th>Client</th><th>Type</th><th>Yearly checklist</th><th>Next due</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="co-empty">' + (d.type ? 'No ' + esc(d.type) + ' clients for this owner.' : 'This owner has no clients.') + '</div>') + '</div></div>'
+    + '<div class="co-card"><div class="co-hdr"><h3>' + esc(first) + '\'s client list <span class="co-mute">' + (shownClients.length === d.clients.length ? d.clients.length : shownClients.length + ' of ' + d.clients.length) + '</span></h3><div class="co-filters" role="search"><input class="co-in" id="coQ" type="search" placeholder="Search clients…" aria-label="Search this owner\'s clients" value="' + esc(_co.q) + '" oninput="coFilter(\'q\', this.value)"><select class="co-in" aria-label="Status" onchange="coFilter(\'st\', this.value)">' + [['', 'Any status'], ['late', 'Late work'], ['waiting', 'Waiting on client'], ['ok', 'On track / up to date'], ['none', 'No open work']].map(o => '<option value="' + o[0] + '"' + (_co.st === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></div></div><div class="co-scroll">' + (rows ? '<table class="co-table"><thead><tr><th>Client</th><th>Type</th><th>Yearly checklist</th><th>Next due</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>' : '<div class="co-empty">' + (d.type ? 'No ' + esc(d.type) + ' clients for this owner.' : 'This owner has no clients.') + '</div>') + '</div></div>'
     + '<div class="co-note"><b>How it works:</b> each client type has a standard yearly checklist (Rideshare: GST returns, annual accounts, income tax). The tool builds the list for each client, and the owner is accountable for every row. Others can do the work, and the client profile shows who did what.</div>';
 }
 
 /* ---------- the client profile ---------- */
 function cpOpen(id, fy){
-  _cp = { id, fy: fy || '', tab:'history', data:null, err:null, seq:_cp.seq };
+  _cp = { id, fy: fy || '', tab:'history', data:null, err:null, seq:_cp.seq, q:'' };
   showView('cprofile', document.querySelector('.nav-item[data-view="clients"]'));
 }
 async function renderClientProfile(){
@@ -15326,6 +15628,7 @@ async function renderClientProfile(){
   drawClientProfile();
 }
 function cpTab(k){ _cp.tab = k; drawClientProfile(); }
+function cpFilter(v){ _cp.q = v; drawClientProfile(); const i = document.getElementById('cpQ'); if(i){ i.focus(); try { i.setSelectionRange(i.value.length, i.value.length); } catch(e){} } }
 function cpFY(v){ _cp.fy = v; renderClientProfile(); }
 function cpTaskClick(id){ if(isAdmin) mtOpenDetail(id); else if(findTask(id)) openTaskActions(id); }
 function cpChecklistHtml(ck, title, sub){
@@ -15345,7 +15648,9 @@ function drawClientProfile(){
   const open = d.stats.openCount ? d.stats.openCount + (d.stats.nextDue ? ' (client due ' + esc(slDay(d.stats.nextDue)) + ')' : '') : 'None';
   let body = '';
   if(_cp.tab === 'history'){
-    const hist = d.history.map((h, i) => '<div class="co-yr"' + (i === 0 ? ' style="margin-top:0"' : '') + '>' + esc(h.fy) + ' <span class="co-tag">' + h.done + ' done · ' + h.open + ' open</span></div><div class="co-tl">' + h.tasks.map(t => '<div class="co-it' + (t.state === 'done' ? '' : ' open') + '"><span class="co-click" tabindex="0" role="button" onclick="cpTaskClick(\'' + esc(t.id) + '\')" onkeydown="if(event.key===\'Enter\'){ cpTaskClick(\'' + esc(t.id) + '\'); }"><b>' + esc(t.name) + '</b></span> <span class="co-pill co-' + esc(t.tone) + '">' + esc(t.pill) + '</span>' + (d.canEdit ? ' <button type="button" class="co-mini" title="Change the financial year this work is for" onclick="cpSetFY(\'' + esc(t.id) + '\', \'' + esc(t.financialYearSet ? t.fy : '') + '\')">' + (t.financialYearSet ? 'year ' : 'year? ') + '✎</button>' : '') + '<small>' + esc(t.line) + '</small></div>').join('') + '</div>').join('') || '<p class="co-d">No work recorded for this client yet.</p>';
+    const hq = String(_cp.q || '').trim().toLowerCase();
+    const hist0 = d.history.map(h => Object.assign({}, h, { tasks: h.tasks.filter(t => !hq || (t.name + ' ' + t.line + ' ' + t.pill + ' ' + t.fy).toLowerCase().includes(hq)) })).filter(h => !hq || h.tasks.length);
+    const hist = '<div class="co-filters" role="search" style="margin-bottom:10px"><input class="co-in" id="cpQ" type="search" placeholder="Search this client\'s work…" aria-label="Search the work history" value="' + esc(_cp.q) + '" oninput="cpFilter(this.value)" style="flex:1"></div>' + hist0.map((h, i) => '<div class="co-yr"' + (i === 0 ? ' style="margin-top:0"' : '') + '>' + esc(h.fy) + ' <span class="co-tag">' + h.done + ' done · ' + h.open + ' open</span></div><div class="co-tl">' + h.tasks.map(t => '<div class="co-it' + (t.state === 'done' ? '' : ' open') + '"><span class="co-click" tabindex="0" role="button" onclick="cpTaskClick(\'' + esc(t.id) + '\')" onkeydown="if(event.key===\'Enter\'){ cpTaskClick(\'' + esc(t.id) + '\'); }"><b>' + esc(t.name) + '</b></span> <span class="co-pill co-' + esc(t.tone) + '">' + esc(t.pill) + '</span>' + (d.canEdit ? ' <button type="button" class="co-mini" title="Change the financial year this work is for" onclick="cpSetFY(\'' + esc(t.id) + '\', \'' + esc(t.financialYearSet ? t.fy : '') + '\')">' + (t.financialYearSet ? 'year ' : 'year? ') + '✎</button>' : '') + '<small>' + esc(t.line) + '</small></div>').join('') + '</div>').join('') || '<p class="co-d">No work recorded for this client yet.</p>';
     body = '<div class="co-two"><div class="co-card">' + hist + '</div><div>' + cpChecklistHtml(d.checklist, 'Yearly checklist ' + esc(d.fy), d.checklist ? 'Created from the ' + esc(c.type) + ' type' : '') + '<div class="co-card"><h3>Hours spent</h3><p class="co-d">All work for this client, ' + esc(d.fy) + '</p>' + cpHoursBars(d.hoursByType) + '</div></div></div>';
   } else if(_cp.tab === 'checklist'){
     body = '<div class="co-card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><label for="cpFYSel" class="co-d" style="margin:0">Financial year</label><select id="cpFYSel" class="co-in" onchange="cpFY(this.value)">' + d.fyOptions.map(f => '<option' + (f === d.fy ? ' selected' : '') + '>' + esc(f) + '</option>').join('') + '</select><span class="co-d" style="margin:0">Balance date ' + esc(c.balanceLabel) + '</span></div>' + cpChecklistHtml(d.checklist, 'Yearly checklist ' + esc(d.fy), d.checklist ? 'Created from the ' + esc(c.type) + ' type' : '');
