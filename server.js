@@ -291,7 +291,7 @@ function canSelfEditTask(emp, t) {
   return !!emp && !!t
     && t.assignedTo === emp.id
     && !['completed', 'pending_approval'].includes(t.status)
-    && selfEditActive(emp);
+    && (isAdminRole(emp.accessRole) || selfEditActive(emp));   // a manager can always change the dates and estimate on their own tasks; everyone else needs the time-boxed grant
 }
 /**
  * Can `actor` ACT on the review of task `t` (mark clean / error, decide
@@ -6874,6 +6874,33 @@ app.get('/api/commitment-watch', requireAuth, (req, res) => {
   }
   res.json({ ...out, rules: { breachMarks: autoMarks.settingsOf(state, todayISO()).points.reportLate } });
 });
+// The Commitment watch as a sheet: ONE row for every task the person may see, with every date and stage as its own column, so the page can sort,
+// filter, group and hide columns the way a spreadsheet does. Read-only; same scoping as everything else (own work / team / everyone).
+function commitmentSheet(state, me) {
+  const deps = workflowDeps(state, me), nm = id => deps.nameOf(id) || '';
+  const clientsById = new Map(state.clients.map(c => [c.id, c]));
+  const rows = [];
+  for (const t of visibleTasks(state, me)) {
+    if (t.deletedAt || t.status === 'cancelled') continue;
+    const c = workflow.card(t, deps), r = watchRowOf(state, t, c, deps);
+    const w = c.waitingOn || {}, client = t.clientId ? clientsById.get(t.clientId) : null;
+    rows.push({
+      id: t.id, client: t.clientName && String(t.clientName).trim().toLowerCase() !== 'internal' ? t.clientName : '', name: t.name, kind: t.kind === 'internal' ? 'Admin task' : 'Client task',
+      job: t.service || (t.scope && t.scope !== '—' ? t.scope : '') || '', processor: nm(t.assignedTo), reviewer: nm(t.reviewerId || t.assignedReviewerId), manager: (deps.managerNameOf ? deps.managerNameOf(t) : '') || '',
+      status: c.status, risk: (c.clientRisk || {}).label || '', waitingOn: w.label || '', nextOwner: nm(w.ownerId),
+      createdAt: t.assignedAt || t.createdAt || null, internalDue: workflow.internalDueOf(t, deps) || null, commitmentDate: t.clientDate || null,
+      originalInternal: t.originalInternalDeadline || null, originalClient: t.originalClientDate || null, dateChanges: (t.dateHistory || []).length,
+      submittedAt: r.st.submitted.at || null, reviewedAt: r.st.reviewed.at || null, sentBackAt: r.st.sent_back.at || null, readyForReportAt: r.st.ready_for_report.at || null, reportSentAt: r.st.report_sent.at || null,
+      lastUpdateAt: watch.lastUpdateAt(t) || null, daysOver: r.breach ? r.breach.daysOver : null, breach: !!r.breach, flags: r.flags.map(f => f.label), late: r.flags.some(f => f.tone === 'late'),
+      report: c.reportStatus || '', allocatedHours: t.tat != null ? Number(t.tat) : null, loggedHours: Math.round((Number(t.logged) || 0) * 100) / 100, fixRounds: t.reworkCount || 0,
+      fy: client ? clientProfile.fyOfTask(t, client, nzDay) || '' : '', closed: c.status === 'Completed',
+    });
+  }
+  return { today: deps.today, rows, rules: { breachMarks: autoMarks.settingsOf(state, todayISO()).points.reportLate } };
+}
+app.get('/api/commitment-watch/sheet', requireAuth, (req, res) => {
+  res.json(commitmentSheet(db.get(), req.employee));
+});
 app.get('/api/tasks/:id/watch', requireAuth, (req, res) => {
   const state = db.get(), me = req.employee;
   const t = visibleTasks(state, me).find(x => x.id === req.params.id);
@@ -7163,12 +7190,12 @@ app.get('/api/simple/today', requireAuth, requireAdmin, (req, res) => {
   // ---- what needs action now, most pressing first
   const items = [];
   approved.forEach(r => { const t = byId[r.id], d = ageDays(t.reviewedAt), late = r.clientDate && r.clientDate < today ? workflow.daysBetween(r.clientDate, today) : 0;
-    items.push({ rank: late ? 0 : 3, id: r.id, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · approved ' + (d === 0 ? 'today' : d + (d === 1 ? ' day' : ' days') + ' ago') + ', not sent', pill: late ? late + 'd late' : 'To send', tone: late ? 'fix' : 'rev', action: 'send' }); });
+    items.push({ rank: late ? 0 : 3, id: r.id, who: first(r.assigneeName), whoId: r.assigneeId, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · approved ' + (d === 0 ? 'today' : d + (d === 1 ? ' day' : ' days') + ' ago') + ', not sent', pill: late ? late + 'd late' : 'To send', tone: late ? 'fix' : 'rev', action: 'send' }); });
   mineRows.filter(r => r.status === 'In Review' && ['overdue', 'due_today', 'at_risk'].includes((r.clientRisk || {}).state)).forEach(r => {
-    items.push({ rank: 1, id: r.id, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · with ' + (first(r.reviewerName) || 'a reviewer') + ' for review', pill: r.clientRisk.state === 'overdue' ? 'Client late' : 'At risk', tone: r.clientRisk.state === 'overdue' ? 'fix' : 'rev', action: 'nudge', toId: r.reviewerId || null }); });
+    items.push({ rank: 1, id: r.id, who: first(r.assigneeName), whoId: r.assigneeId, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · with ' + (first(r.reviewerName) || 'a reviewer') + ' for review', pill: r.clientRisk.state === 'overdue' ? 'Client late' : 'At risk', tone: r.clientRisk.state === 'overdue' ? 'fix' : 'rev', action: 'nudge', toId: r.reviewerId || null }); });
   overdue.concat(mineRows.filter(r => ['Assigned', 'In Progress'].includes(r.status) && r.waitingOn.kind === 'employee' && due(r) === today)).forEach(r => {
     const late = due(r) < today ? workflow.daysBetween(due(r), today) : 0;
-    items.push({ rank: 2, id: r.id, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · ' + (r.status === 'Correction Required' ? 'fix not sent back yet' : 'not submitted') + (late ? ', was due ' + late + (late === 1 ? ' day' : ' days') + ' ago' : ', due today'), pill: late ? late + 'd late' : 'Due today', tone: 'fix', action: 'nudge', toId: null }); });
+    items.push({ rank: 2, id: r.id, who: first(r.assigneeName), whoId: r.assigneeId, client: r.clientName || null, work: r.clientName ? (r.taskType || r.name) : r.name, sub: first(r.assigneeName) + ' · ' + (r.status === 'Correction Required' ? 'fix not sent back yet' : 'not submitted') + (late ? ', was due ' + late + (late === 1 ? ' day' : ' days') + ' ago' : ', due today'), pill: late ? late + 'd late' : 'Due today', tone: 'fix', action: 'nudge', toId: null }); });
   const seen = new Set(), need = items.sort((a, b) => a.rank - b.rank).filter(i => !seen.has(i.id) && seen.add(i.id));
   // ---- the team, one line each: overdue first, otherwise done of total this week
   const weekAgo = timeLedger.addDay(today, -6);
@@ -7331,7 +7358,9 @@ app.post('/api/tasks/:id/manager-change', requireAuth, requireAdmin, (req, res) 
   const reason = String(b.reason || '').trim();
   if (reason.length < 3) return res.status(400).json({ error: 'Give a short reason — it is kept in the task history.' });
   if (b.requestId) { const dup = (t.managerActions || []).find(a => a.requestId === b.requestId); if (dup) return res.json({ task: taskForClient(t), duplicate: true }); }
-  if (t.assignedTo ? !canManageEmployee(state, me, t.assignedTo) : false) return res.status(403).json({ error: "You're not authorized to change this employee's task." });
+  const ownTask = !!t.assignedTo && t.assignedTo === me.id;
+  if (ownTask && b.action !== 'change_due') return res.status(403).json({ error: 'You can change the dates on your own task; anything else on it goes through another manager.' });
+  if (t.assignedTo && !ownTask && !canManageEmployee(state, me, t.assignedTo)) return res.status(403).json({ error: "You're not authorized to change this employee's task." });
   const log = (action, from, to) => {
     t.managerActions = t.managerActions || [];
     t.managerActions.push({ id: crypto.randomUUID(), requestId: b.requestId || null, at: new Date().toISOString(), by: me.id, byName: me.name, action, reason, from, to });
